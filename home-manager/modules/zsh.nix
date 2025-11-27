@@ -13,7 +13,6 @@ in
     };
     shellAliases = {
       hm = "nh home switch";
-      zed = "flatpak run dev.zed.Zed";
     };
     oh-my-zsh = {
       enable = true;
