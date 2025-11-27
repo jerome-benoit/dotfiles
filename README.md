@@ -2,40 +2,34 @@
 
 Nix flakes configuration for Generic Linux and macOS.
 
-## Requirements
-
-Nix installed with flakes enabled.
-
 ## Installation
-
-Clone this repository to `~/.nix`:
 
 ```bash
 git clone <repository-url> ~/.nix
 cd ~/.nix
-```
 
-## Bootstrap
-
-```bash
+# Bootstrap with personal profile (default)
 nix run home-manager -- switch --flake . -b backup
-# Restart your shell to apply changes
+
+# Or with work profile
+nix run home-manager -- switch --flake . -b backup --specialisation work
 ```
+
+Restart your shell after installation.
 
 ## Usage
 
-Apply changes:
 ```bash
-nh home switch
-```
+# Apply changes
+hm
 
-Update inputs:
-```bash
-cd ~/.nix
+# Switch profiles
+hmw  # work profile
+hmp  # personal profile
+
+# Update flake inputs
 nix flake update
-```
 
-Clean old generations:
-```bash
+# Clean old generations
 nh clean all --keep 3
 ```

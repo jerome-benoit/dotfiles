@@ -13,7 +13,7 @@ in
         user = {
           name = "Jérôme Benoit";
           email = lib.mkDefault "jerome.benoit@piment-noir.org";
-          signingKey = "27B535D3";
+          signingKey = lib.mkDefault "27B535D3";
         };
         commit = {
           gpgSign = true;
@@ -59,9 +59,6 @@ in
     }
     (lib.mkIf pkgs.stdenv.isDarwin {
       settings = {
-        user = {
-          email = "jerome.benoit@sap.com";
-        };
         merge = {
           tool = "opendiff";
         };
