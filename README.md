@@ -1,4 +1,4 @@
-# Home Manager Config
+# Home Manager Configuration
 
 Nix flakes configuration for Generic Linux and macOS.
 
