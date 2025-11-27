@@ -7,7 +7,7 @@
       bun
       gh
       nh
-      nixfmt-rfc-style
+      nixfmt
       opencode
       volta
     ]
