@@ -29,7 +29,9 @@ in
         "podman"
         "docker"
         "docker-compose"
-        "brew"
+      ]
+      ++ (if pkgs.stdenv.isDarwin then [ "brew" ] else [ ])
+      ++ [
         "rust"
         "python"
         "poetry"
