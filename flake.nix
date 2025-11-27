@@ -23,11 +23,11 @@
           };
           modules = [ ./home-manager/home.nix ];
         };
-        "i339261" = home-manager.lib.homeManagerConfiguration {
+        "I339261" = home-manager.lib.homeManagerConfiguration {
           pkgs = nixpkgs.legacyPackages.aarch64-darwin;
           extraSpecialArgs = {
             inherit inputs;
-            username = "i339261";
+            username = "I339261";
           };
           modules = [ ./home-manager/home.nix ];
         };

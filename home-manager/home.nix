@@ -24,6 +24,9 @@
     ];
     config = {
       allowUnfree = true;
+      permittedInsecurePackages = lib.optionals pkgs.stdenv.isDarwin [
+        "olm-3.2.16"
+      ];
     };
   };
 

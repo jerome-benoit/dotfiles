@@ -12,7 +12,7 @@ in
       settings = {
         user = {
           name = "Jérôme Benoit";
-          email = "jerome.benoit@piment-noir.org";
+          email = lib.mkDefault "jerome.benoit@piment-noir.org";
           signingKey = "27B535D3";
         };
         commit = {
@@ -36,7 +36,7 @@ in
         };
         merge = {
           conflictStyle = "zdiff3";
-          tool = "meld";
+          tool = lib.mkDefault "meld";
         };
         mergetool = {
           meld = {
@@ -59,7 +59,15 @@ in
     }
     (lib.mkIf pkgs.stdenv.isDarwin {
       settings = {
-        credential.helper = "osxkeychain";
+        user = {
+          email = "jerome.benoit@sap.com";
+        };
+        merge = {
+          tool = "opendiff";
+        };
+        credential = {
+          helper = "osxkeychain";
+        };
       };
     })
   ];

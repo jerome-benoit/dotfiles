@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 let
   systemZsh = pkgs.runCommand "zsh-system" { } "mkdir -p $out";
@@ -10,6 +10,8 @@ in
     sessionVariables = {
       NH_FLAKE = "$HOME/.nix";
       DVM_DIR = "$HOME/.dvm";
+      WORKSPACE = "$HOME/tmp";
+      EDITOR = "code --wait";
     };
     shellAliases = {
       hm = "nh home switch";
@@ -19,23 +21,19 @@ in
       theme = "fino";
       plugins = [
         "git"
-        "dnf"
-        "systemd"
-        "screen"
-        "firewalld"
-        "tmux"
         "colorize"
-        "podman"
+        "screen"
+        "tmux"
         "docker"
         "docker-compose"
-      ]
-      ++ (if pkgs.stdenv.isDarwin then [ "brew" ] else [ ])
-      ++ [
-        "rust"
+        "podman"
         "python"
         "poetry"
+        "pipenv"
         "pre-commit"
+        "grc"
         "sudo"
+        "rust"
         "deno"
         "bun"
         "volta"
@@ -44,15 +42,33 @@ in
         "yarn"
         "mvn"
         "vscode"
+        "battery"
         "fzf"
         "zoxide"
         "themes"
+      ]
+      ++ lib.optionals pkgs.stdenv.isLinux [
+        "dnf"
+        "systemd"
+        "firewalld"
+      ]
+      ++ lib.optionals pkgs.stdenv.isDarwin [
+        "macos"
+        "iterm2"
+        "brew"
+        "eza"
+        "xcode"
       ];
     };
     initContent = ''
-      if [ -f "$HOME/.secrets" ] && [ "$(stat -c "%a" "$HOME/.secrets")" != "600" ]; then
-        echo "WARNING: Permissions for $HOME/.secrets are insecure! Please run: chmod 600 $HOME/.secrets"
-      elif [ -f "$HOME/.secrets" ]; then
+      ${lib.optionalString pkgs.stdenv.isDarwin ''
+        zstyle :omz:plugins:iterm2 shell-integration yes
+      ''}
+
+      if [ -f "$HOME/.secrets" ]; then
+        if [ -z "$(find "$HOME/.secrets" -perm 600)" ]; then
+          echo "WARNING: Permissions for $HOME/.secrets are insecure! Please run: chmod 600 $HOME/.secrets"
+        fi
         source "$HOME/.secrets"
       fi
 
