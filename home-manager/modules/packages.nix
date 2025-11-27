@@ -40,10 +40,10 @@
       nheko
       ninja
       pipenv
-      poetry
       podman
       podman-compose
       podman-desktop
+      poetry
       python3
       qpdf
       rectangle
@@ -54,7 +54,26 @@
       vim
       vscode
       zed-editor
-      zoom-us
       zoxide
+      zoom-us
     ];
+
+  home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
+    text = ''
+      cask "docker-desktop"
+      cask "ferdium"
+      cask "gpg-suite@nightly"
+      cask "jordanbaird-ice"
+      cask "shuttle"
+    '';
+  };
+  home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if command -v brew &> /dev/null; then
+        $DRY_RUN_CMD echo "Executing brew bundle..."
+        $DRY_RUN_CMD brew bundle --global --no-lock
+        $DRY_RUN_CMD brew bundle cleanup --global --force
+      fi
+    ''
+  );
 }
