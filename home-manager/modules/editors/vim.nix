@@ -1,6 +1,12 @@
-{ pkgs, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
+  cfg = config.modules.editors.vim;
   # Common configuration
   vimSettings = ''
     " --- General settings ---
@@ -53,20 +59,26 @@ let
 
 in
 {
-  # On Linux, we use the system vim, so we just generate the .vimrc
-  home.file.".vimrc" = lib.mkIf pkgs.stdenv.isLinux {
-    text = ''
-      set nocompatible
-      ${lib.concatMapStringsSep "\n" (p: "set rtp^=${p}") vimPlugins}
-
-      ${vimSettings}
-    '';
+  options.modules.editors.vim = {
+    enable = lib.mkEnableOption "vim configuration";
   };
 
-  # On Darwin, we use Home Manager's vim module
-  programs.vim = lib.mkIf pkgs.stdenv.isDarwin {
-    enable = true;
-    plugins = vimPlugins;
-    extraConfig = vimSettings;
+  config = lib.mkIf cfg.enable {
+    # On Linux, we use the system vim, so we just generate the .vimrc
+    home.file.".vimrc" = lib.mkIf pkgs.stdenv.isLinux {
+      text = ''
+        set nocompatible
+        ${lib.concatMapStringsSep "\n" (p: "set rtp^=${p}") vimPlugins}
+
+        ${vimSettings}
+      '';
+    };
+
+    # On Darwin, we use Home Manager's vim module
+    programs.vim = lib.mkIf pkgs.stdenv.isDarwin {
+      enable = true;
+      plugins = vimPlugins;
+      extraConfig = vimSettings;
+    };
   };
 }

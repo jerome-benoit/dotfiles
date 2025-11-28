@@ -11,22 +11,10 @@
 
   systemd.user.startServices = if pkgs.stdenv.isLinux then "sd-switch" else "true";
 
+  fonts.fontconfig.enable = true;
+
   imports = [
-    ./modules/btop.nix
-    ./modules/direnv.nix
-    ./modules/eza.nix
-    ./modules/fd.nix
-    ./modules/fzf.nix
-    ./modules/gh.nix
-    ./modules/git.nix
-    ./modules/home-manager.nix
-    ./modules/packages.nix
-    ./modules/ripgrep.nix
-    ./modules/ssh.nix
-    ./modules/tmux.nix
-    ./modules/vim.nix
-    ./modules/zoxide.nix
-    ./modules/zsh.nix
+    ./modules
   ];
 
   nixpkgs = {
@@ -40,66 +28,44 @@
     };
   };
 
+  modules.core = {
+    home-manager.enable = true;
+    packages.enable = true;
+    specialisations.enable = true;
+  };
+
+  modules.shell = {
+    direnv.enable = true;
+    eza.enable = true;
+    fd.enable = true;
+    fzf.enable = true;
+    ripgrep.enable = true;
+    zoxide.enable = true;
+    zsh.enable = true;
+  };
+
+  modules.development = {
+    gh.enable = true;
+    git.enable = true;
+  };
+
+  modules.programs = {
+    alacritty.enable = true;
+    btop.enable = true;
+    ghostty.enable = true;
+    ssh.enable = true;
+    tmux.enable = true;
+  };
+
+  modules.editors = {
+    vim.enable = true;
+    neovim.enable = true;
+  };
+
   home = {
     inherit username;
     homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
     stateVersion = "25.11";
     enableNixpkgsReleaseCheck = false;
-  };
-
-  specialisation = {
-    work = {
-      configuration =
-        let
-          gpgKeyId = "27B535D3";
-          gpgFingerprint = "B799 BBF6 8EC8 911B B8D7 CDBC C3B1 92C6 27B5 35D3";
-        in
-        {
-          home.file.".signature".text = lib.mkForce ''
-            Jérôme Benoit - R&D Software Engineer
-            SAP Labs France
-            OpenPGP Key ID : ${gpgKeyId}
-            Key fingerprint : ${gpgFingerprint}
-          '';
-
-          programs.git.settings.user = {
-            email = lib.mkForce "jerome.benoit@sap.com";
-            signingKey = lib.mkForce gpgKeyId;
-          };
-
-          programs.zsh.shellAliases = {
-            hm = lib.mkForce "nh home switch --specialisation work";
-            hmw = "nh home switch --specialisation work";
-            hmp = "nh home switch --specialisation personal";
-          };
-        };
-    };
-
-    personal = {
-      configuration =
-        let
-          gpgKeyId = "27B535D3";
-          gpgFingerprint = "B799 BBF6 8EC8 911B B8D7 CDBC C3B1 92C6 27B5 35D3";
-        in
-        {
-          home.file.".signature".text = lib.mkForce ''
-            Jérôme Benoit aka fraggle
-            Piment Noir - https://piment-noir.org
-            OpenPGP Key ID : ${gpgKeyId}
-            Key fingerprint : ${gpgFingerprint}
-          '';
-
-          programs.git.settings.user = {
-            email = lib.mkForce "jerome.benoit@piment-noir.org";
-            signingKey = lib.mkForce gpgKeyId;
-          };
-
-          programs.zsh.shellAliases = {
-            hm = lib.mkForce "nh home switch --specialisation personal";
-            hmw = "nh home switch --specialisation work";
-            hmp = "nh home switch --specialisation personal";
-          };
-        };
-    };
   };
 }

@@ -1,0 +1,94 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+
+let
+  cfg = config.modules.programs.ghostty;
+  systemGhostty = pkgs.runCommand "ghostty-system" { meta.mainProgram = "ghostty"; } "mkdir -p $out";
+in
+{
+  options.modules.programs.ghostty = {
+    enable = lib.mkEnableOption "ghostty configuration";
+  };
+
+  config = lib.mkIf cfg.enable {
+    programs.ghostty = {
+      enable = true;
+      package = if pkgs.stdenv.isDarwin then pkgs.ghostty else systemGhostty;
+
+      settings = {
+        # Theme
+        theme = "catppuccin-mocha";
+
+        # Window
+        window-decoration = true;
+        window-padding-x = 10;
+        window-padding-y = 10;
+        window-save-state = "always";
+        window-theme = "auto";
+
+        # Font
+        font-family = "JetBrainsMono Nerd Font";
+        font-size = 14;
+
+        # Cursor
+        cursor-style = "block";
+        cursor-style-blink = true;
+
+        # Shell
+        shell-integration = true;
+        shell-integration-features = "cursor,sudo,title";
+
+        # Performance
+        resize-overlay = "never";
+
+        # Clipboard
+        clipboard-read = "allow";
+        clipboard-write = "allow";
+        copy-on-select = true;
+
+        # Mouse
+        mouse-hide-while-typing = true;
+
+        # Scrollback
+        scrollback-limit = 10000;
+
+        # Keybindings
+        keybind = [
+          # Tabs
+          "ctrl+shift+t=new_tab"
+          "ctrl+shift+w=close_surface"
+          "ctrl+tab=next_tab"
+          "ctrl+shift+tab=previous_tab"
+
+          # Splits
+          "ctrl+shift+enter=new_split:right"
+          "ctrl+shift+alt+enter=new_split:down"
+          "ctrl+shift+h=goto_split:left"
+          "ctrl+shift+j=goto_split:bottom"
+          "ctrl+shift+k=goto_split:top"
+          "ctrl+shift+l=goto_split:right"
+
+          # Resize splits
+          "ctrl+shift+left=resize_split:left,10"
+          "ctrl+shift+right=resize_split:right,10"
+          "ctrl+shift+up=resize_split:up,10"
+          "ctrl+shift+down=resize_split:down,10"
+
+          # Other
+          "ctrl+shift+c=copy_to_clipboard"
+          "ctrl+shift+v=paste_from_clipboard"
+          "ctrl+shift+equal=increase_font_size:1"
+          "ctrl+shift+minus=decrease_font_size:1"
+          "ctrl+shift+0=reset_font_size"
+        ];
+      }
+      // lib.optionalAttrs pkgs.stdenv.isDarwin {
+        macos-option-as-alt = true;
+      };
+    };
+  };
+}
