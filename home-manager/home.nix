@@ -33,7 +33,7 @@
   home = {
     inherit username;
     homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
-    stateVersion = "26.05";
+    stateVersion = "25.11";
     enableNixpkgsReleaseCheck = false;
   };
 
