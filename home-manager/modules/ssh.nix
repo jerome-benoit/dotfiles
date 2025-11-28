@@ -6,6 +6,7 @@ in
   programs.ssh = lib.mkMerge [
     {
       enable = true;
+      enableDefaultConfig = false;
       package = systemSsh;
       matchBlocks = {
         "*" = {

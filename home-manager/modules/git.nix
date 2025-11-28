@@ -18,9 +18,6 @@ in
         commit = {
           gpgSign = true;
         };
-        core = {
-          pager = "delta";
-        };
         push = {
           default = "current";
         };
@@ -30,9 +27,6 @@ in
           branch = "auto";
           ui = "auto";
           interactive = "auto";
-        };
-        interactive = {
-          diffFilter = "delta --color-only";
         };
         merge = {
           conflictStyle = "zdiff3";
@@ -44,16 +38,22 @@ in
           };
         };
         pull = {
-          rebase = false;
-        };
-        delta = {
-          navigate = true;
-          "line-numbers" = true;
-          hyperlinks = true;
-          "hyperlinks-file-link-format" = "file://{path}#{line}";
+          rebase = true;
         };
         init = {
           defaultBranch = "main";
+        };
+        core = {
+          pager = "delta";
+        };
+        interactive = {
+          diffFilter = "delta --color-only";
+        };
+        delta = {
+          navigate = true;
+          line-numbers = true;
+          hyperlinks = true;
+          hyperlinks-file-link-format = "file://{path}#{line}";
         };
       };
     }

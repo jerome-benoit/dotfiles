@@ -12,10 +12,19 @@
   systemd.user.startServices = if pkgs.stdenv.isLinux then "sd-switch" else "true";
 
   imports = [
+    ./modules/btop.nix
+    ./modules/direnv.nix
+    ./modules/eza.nix
+    ./modules/fd.nix
+    ./modules/fzf.nix
+    ./modules/gh.nix
     ./modules/git.nix
     ./modules/home-manager.nix
     ./modules/packages.nix
+    ./modules/ripgrep.nix
     ./modules/ssh.nix
+    ./modules/tmux.nix
+    ./modules/zoxide.nix
     ./modules/zsh.nix
   ];
 

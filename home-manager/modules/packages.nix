@@ -5,7 +5,6 @@
     with pkgs;
     [
       bun
-      gh
       nh
       nixfmt
       opencode
@@ -16,15 +15,10 @@
     ++ lib.optionals pkgs.stdenv.isDarwin [
       alacritty
       bruno
-      btop
       chroma
       cloudfoundry-cli
       delta
-      direnv
-      eza
-      fd
       firefox
-      fzf
       go
       google-chrome
       grc
@@ -47,14 +41,11 @@
       python3
       qpdf
       rectangle
-      ripgrep
       rustup
-      tmux
       uv
       vim
       vscode
       zed-editor
-      zoxide
       zoom-us
     ];
 
