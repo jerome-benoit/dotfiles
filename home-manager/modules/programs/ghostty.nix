@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.ghostty = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.ghostty else systemGhostty;
+      package = systemGhostty;
 
       settings = {
         # Theme
@@ -39,7 +39,7 @@ in
         cursor-style-blink = true;
 
         # Shell
-        shell-integration = true;
+        shell-integration = "detect";
         shell-integration-features = "cursor,sudo,title";
 
         # Performance
