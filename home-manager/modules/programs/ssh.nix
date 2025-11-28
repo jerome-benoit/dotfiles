@@ -34,11 +34,14 @@ in
               UseKeychain = "yes";
             };
           };
-          "*.local" = {
-            user = "fraggle";
-          };
         };
       })
     ];
+
+    specialisation.work.configuration = {
+      programs.ssh.matchBlocks."*.local" = {
+        user = "fraggle";
+      };
+    };
   };
 }
