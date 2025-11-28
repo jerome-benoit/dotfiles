@@ -43,7 +43,6 @@
       rectangle
       rustup
       uv
-      vim
       vscode
       zed-editor
       zoom-us
