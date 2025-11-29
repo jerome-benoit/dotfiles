@@ -42,6 +42,9 @@ in
         shell-integration = "detect";
         shell-integration-features = "cursor,sudo,title";
 
+        # Terminal
+        term = "xterm-256color";
+
         # Performance
         resize-overlay = "never";
 
