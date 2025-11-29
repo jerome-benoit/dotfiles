@@ -54,6 +54,7 @@ in
           "mvn"
           "vscode"
           "battery"
+          "eza"
           "fzf"
           "zoxide"
           "themes"
@@ -67,7 +68,6 @@ in
           "macos"
           "iterm2"
           "brew"
-          "eza"
           "xcode"
         ];
       };

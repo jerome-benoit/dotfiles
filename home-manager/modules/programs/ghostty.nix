@@ -20,9 +20,6 @@ in
       package = systemGhostty;
 
       settings = {
-        # Theme
-        theme = "catppuccin-mocha";
-
         # Window
         window-decoration = true;
         window-padding-x = 10;
@@ -90,6 +87,7 @@ in
         ];
       }
       // lib.optionalAttrs pkgs.stdenv.isDarwin {
+        theme = "catppuccin-mocha";
         macos-option-as-alt = true;
       };
     };
