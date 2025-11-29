@@ -1,4 +1,5 @@
-{ lib, ... }:
+{ config, lib, ... }:
+
 {
   options.modules.core.constants = {
     username = lib.mkOption {

@@ -7,6 +7,8 @@
 
 let
   cfg = config.modules.shell.zsh;
+  distroId = config.modules.core.distro.id;
+  distroIds = config.modules.core.distro.ids;
   systemZsh = pkgs.runCommand "zsh-system" { } "mkdir -p $out";
 in
 {
@@ -25,7 +27,7 @@ in
         EDITOR = ''$(if [[ -n "$SSH_CONNECTION" ]]; then echo "vi"; else echo "code --wait"; fi)'';
       };
       shellAliases = {
-        hm = "nh home switch";
+        hm = "nh home switch --impure";
       };
       oh-my-zsh = {
         enable = true;
@@ -59,11 +61,18 @@ in
           "zoxide"
           "themes"
         ]
-        ++ lib.optionals pkgs.stdenv.isLinux [
-          "dnf"
-          "systemd"
-          "firewalld"
-        ]
+        ++ lib.optionals pkgs.stdenv.isLinux (
+          [ "systemd" ]
+          ++ lib.optionals (distroId == distroIds.fedora) [
+            "dnf"
+            "firewalld"
+          ]
+          ++ lib.optionals (distroId == distroIds.ubuntu) [
+            "ubuntu"
+            "ufw"
+          ]
+          ++ lib.optionals (distroId == distroIds.debian) [ "debian" ]
+        )
         ++ lib.optionals pkgs.stdenv.isDarwin [
           "macos"
           "iterm2"

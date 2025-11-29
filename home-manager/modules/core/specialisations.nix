@@ -29,9 +29,9 @@ in
             };
 
             programs.zsh.shellAliases = {
-              hm = lib.mkForce "nh home switch --specialisation work";
-              hmw = "nh home switch --specialisation work";
-              hmp = "nh home switch --specialisation personal";
+              hm = lib.mkForce "nh home switch --specialisation work --impure";
+              hmw = "nh home switch --specialisation work --impure";
+              hmp = "nh home switch --specialisation personal --impure";
             };
           };
       };
@@ -56,9 +56,9 @@ in
             };
 
             programs.zsh.shellAliases = {
-              hm = lib.mkForce "nh home switch --specialisation personal";
-              hmw = "nh home switch --specialisation work";
-              hmp = "nh home switch --specialisation personal";
+              hm = lib.mkForce "nh home switch --specialisation personal --impure";
+              hmw = "nh home switch --specialisation work --impure";
+              hmp = "nh home switch --specialisation personal --impure";
             };
           };
       };
