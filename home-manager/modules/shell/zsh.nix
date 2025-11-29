@@ -22,7 +22,7 @@ in
         NH_FLAKE = "$HOME/.nix";
         DVM_DIR = "$HOME/.dvm";
         WORKSPACE = "$HOME/tmp";
-        EDITOR = "code --wait";
+        EDITOR = ''$(if [[ -n "$SSH_CONNECTION" ]]; then echo "vi"; else echo "code --wait"; fi)'';
       };
       shellAliases = {
         hm = "nh home switch";
@@ -76,15 +76,15 @@ in
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
 
-        if [ -f "$HOME/.secrets" ]; then
-          if [ -z "$(find "$HOME/.secrets" -perm 600)" ]; then
+        if [[ -f "$HOME/.secrets" ]]; then
+          if [[ -z "$(find "$HOME/.secrets" -perm 600)" ]]; then
             echo "WARNING: Permissions for $HOME/.secrets are insecure! Please run: chmod 600 $HOME/.secrets"
           fi
           source "$HOME/.secrets"
         fi
 
-        [ -f "$DVM_DIR/dvm.sh" ] && . "$DVM_DIR/dvm.sh"
-        [ -f "$DVM_DIR/bash_completion" ] && . "$DVM_DIR/bash_completion"
+        [[ -f "$DVM_DIR/dvm.sh" ]] && . "$DVM_DIR/dvm.sh"
+        [[ -f "$DVM_DIR/bash_completion" ]] && . "$DVM_DIR/bash_completion"
       '';
 
       envExtra = ''

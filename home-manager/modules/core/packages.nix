@@ -71,11 +71,11 @@ in
     };
     home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        if [ -f /opt/homebrew/bin/brew ]; then
+        if [[ -f /opt/homebrew/bin/brew ]]; then
           verboseEcho "Installing Homebrew packages from Brewfile"
           run /opt/homebrew/bin/brew bundle install --global
           run /opt/homebrew/bin/brew bundle cleanup --global --force
-        elif [ -f /usr/local/bin/brew ]; then
+        elif [[ -f /usr/local/bin/brew ]]; then
           verboseEcho "Installing Homebrew packages from Brewfile"
           run /usr/local/bin/brew bundle install --global
           run /usr/local/bin/brew bundle cleanup --global --force

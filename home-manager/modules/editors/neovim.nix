@@ -9,17 +9,22 @@ let
   cfg = config.modules.editors.neovim;
 
   nvimPlugins = with pkgs.vimPlugins; [
-    # Core / Quality of Life
+    # UI & Theme
+    catppuccin-nvim
+    lualine-nvim
+    nvim-web-devicons
+
+    # File Management
+    neo-tree-nvim
+    nui-nvim
+    oil-nvim
+
+    # Editor Essentials
     nvim-surround
     nvim-autopairs
     comment-nvim
     which-key-nvim
     gitsigns-nvim
-
-    # UI / Aesthetics
-    catppuccin-nvim
-    lualine-nvim
-    nvim-web-devicons
 
     # Treesitter
     nvim-treesitter.withAllGrammars
@@ -28,24 +33,19 @@ let
     telescope-nvim
     plenary-nvim
 
-    # LSP & Completion
-    nvim-lspconfig
-    nvim-cmp
-    cmp-nvim-lsp
-    cmp-buffer
-    cmp-path
-    cmp-cmdline
-    luasnip
-    cmp_luasnip
-    friendly-snippets
-
     # Formatting
     conform-nvim
+
+    # LSP & Completion
+    nvim-lspconfig
+    blink-cmp
   ];
 
   # Lua Configuration
   nvimLuaConfig = ''
-    -- Options
+    -- ==========================================================================
+    -- Global Options
+    -- ==========================================================================
     vim.o.termguicolors = true
     vim.o.number = true
     vim.o.relativenumber = true
@@ -62,28 +62,25 @@ let
     vim.o.timeoutlen = 300
     vim.o.signcolumn = 'yes'
 
-    -- Theme: Catppuccin
+    -- ==========================================================================
+    -- UI & Theme
+    -- ==========================================================================
+    require('nvim-web-devicons').setup({ default = true })
+
     require("catppuccin").setup({
       flavour = "mocha",
       transparent_background = true,
       integrations = {
-        cmp = true,
+        blink_cmp = true,
         gitsigns = true,
-        nvimtree = true,
+        neotree = true,
         treesitter = true,
         telescope = true,
         which_key = true,
       }
     })
-
-    -- Icons
-    require('nvim-web-devicons').setup({
-      default = true;
-    })
-
     vim.cmd.colorscheme "catppuccin"
 
-    -- Lualine
     require('lualine').setup({
       options = {
         theme = 'catppuccin',
@@ -91,35 +88,60 @@ let
       }
     })
 
-    -- Gitsigns
+    -- ==========================================================================
+    -- File Management
+    -- ==========================================================================
+    require("neo-tree").setup({
+      close_if_last_window = true,
+      window = { position = "left", width = 30 },
+      filesystem = {
+        follow_current_file = { enabled = true },
+        hijack_netrw_behavior = "open_default",
+      },
+    })
+
+    -- Open Neo-tree on startup if no args
+    vim.api.nvim_create_autocmd("VimEnter", {
+      desc = "Open Neo-tree on startup",
+      callback = function()
+        if vim.fn.argc() == 0 then
+          vim.cmd("Neotree toggle filesystem reveal left")
+        end
+      end,
+    })
+
+    require("oil").setup()
+    vim.keymap.set("n", "-", "<CMD>Oil<CR>", { desc = "Open parent directory" })
+
+    -- ==========================================================================
+    -- Editor Essentials
+    -- ==========================================================================
     require('gitsigns').setup()
-
-    -- Comment.nvim
     require('Comment').setup()
-
-    -- Which-key
     require("which-key").setup()
-
-    -- Surround
     require("nvim-surround").setup()
-
-    -- Autopairs
     require("nvim-autopairs").setup()
 
+    -- ==========================================================================
     -- Treesitter
+    -- ==========================================================================
     require('nvim-treesitter.configs').setup({
       highlight = { enable = true },
       indent = { enable = true },
     })
 
-    -- Telescope
+    -- ==========================================================================
+    -- Fuzzy Finder
+    -- ==========================================================================
     local builtin = require('telescope.builtin')
     vim.keymap.set('n', '<leader>ff', builtin.find_files, { desc = 'Find files' })
     vim.keymap.set('n', '<leader>fg', builtin.live_grep, { desc = 'Live grep' })
     vim.keymap.set('n', '<leader>fb', builtin.buffers, { desc = 'Buffers' })
     vim.keymap.set('n', '<leader>fh', builtin.help_tags, { desc = 'Help tags' })
 
-    -- Formatting (Conform)
+    -- ==========================================================================
+    -- Formatting
+    -- ==========================================================================
     require("conform").setup({
       formatters_by_ft = {
         lua = { "stylua" },
@@ -139,54 +161,21 @@ let
       },
     })
 
-    -- Completion (nvim-cmp)
-    local cmp = require('cmp')
-    local luasnip = require('luasnip')
-
-    require("luasnip.loaders.from_vscode").lazy_load()
-
-    cmp.setup({
-      snippet = {
-        expand = function(args)
-          luasnip.lsp_expand(args.body)
-        end,
+    -- ==========================================================================
+    -- LSP & Completion
+    -- ==========================================================================
+    require('blink.cmp').setup({
+      keymap = { preset = 'default' },
+      appearance = {
+        use_nvim_cmp_as_default = true,
+        nerd_font_variant = 'mono'
       },
-      mapping = cmp.mapping.preset.insert({
-        ['<C-b>'] = cmp.mapping.scroll_docs(-4),
-        ['<C-f>'] = cmp.mapping.scroll_docs(4),
-        ['<C-Space>'] = cmp.mapping.complete(),
-        ['<C-e>'] = cmp.mapping.abort(),
-        ['<CR>'] = cmp.mapping.confirm({ select = true }),
-        ['<Tab>'] = cmp.mapping(function(fallback)
-          if cmp.visible() then
-            cmp.select_next_item()
-          elseif luasnip.expand_or_jumpable() then
-            luasnip.expand_or_jump()
-          else
-            fallback()
-          end
-        end, { 'i', 's' }),
-        ['<S-Tab>'] = cmp.mapping(function(fallback)
-          if cmp.visible() then
-            cmp.select_prev_item()
-          elseif luasnip.jumpable(-1) then
-            luasnip.jump(-1)
-          else
-            fallback()
-          end
-        end, { 'i', 's' }),
-      }),
-      sources = cmp.config.sources({
-        { name = 'nvim_lsp' },
-        { name = 'luasnip' },
-      }, {
-        { name = 'buffer' },
-        { name = 'path' },
-      })
+      sources = {
+        default = { 'lsp', 'path', 'snippets', 'buffer' },
+      },
     })
 
-    -- LSP Config
-    local capabilities = require('cmp_nvim_lsp').default_capabilities()
+    local capabilities = require('blink.cmp').get_lsp_capabilities()
 
     local on_attach = function(client, bufnr)
       local opts = { noremap = true, silent = true, buffer = bufnr }
@@ -197,9 +186,7 @@ let
       vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, opts)
     end
 
-    -- List of servers to setup
-    -- Ensure these are installed via extraPackages or system
-    local servers = { 'bashls', 'pyright', 'ts_ls', 'gopls', 'rust_analyzer', 'nil_ls' }
+    local servers = { 'bashls', 'pyright', 'ts_ls', 'gopls', 'rust_analyzer', 'nixd' }
 
     for _, server in ipairs(servers) do
       vim.lsp.config(server, {
@@ -232,7 +219,7 @@ in
         nodePackages.typescript-language-server
         gopls
         rust-analyzer
-        nil # Nix LSP
+        nixd
 
         # Formatters
         stylua
