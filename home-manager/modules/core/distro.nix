@@ -7,6 +7,7 @@
 
 let
   supportedDistros = [
+    "almalinux"
     "debian"
     "fedora"
     "ubuntu"

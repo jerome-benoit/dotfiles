@@ -63,7 +63,7 @@ in
         ]
         ++ lib.optionals pkgs.stdenv.isLinux (
           [ "systemd" ]
-          ++ lib.optionals (distroId == distroIds.fedora) [
+          ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [
             "dnf"
             "firewalld"
           ]
