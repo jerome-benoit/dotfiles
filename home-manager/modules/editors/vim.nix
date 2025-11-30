@@ -37,6 +37,7 @@ let
     set listchars=tab:▸\ ,trail:·,nbsp:␣
 
     " Performance
+    set ttyfast
     set lazyredraw
     set updatetime=300
     set regexpengine=1

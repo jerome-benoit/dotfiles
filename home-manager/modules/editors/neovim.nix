@@ -214,7 +214,7 @@ let
       },
       format_on_save = {
         lsp_fallback = true,
-        timeout_ms = 500,
+        timeout_ms = 2000,
       },
     })
 
@@ -226,7 +226,6 @@ let
     require('blink.cmp').setup({
       keymap = { preset = 'default' },
       appearance = {
-        use_nvim_cmp_as_default = true,
         nerd_font_variant = 'mono'
       },
       sources = {
@@ -278,6 +277,7 @@ let
         }
       },
       events = {
+        enabled = true,
         reload = true,
       },
       prompts = {
