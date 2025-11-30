@@ -23,7 +23,6 @@ in
         "flakes"
       ];
       warn-dirty = false;
-      auto-optimise-store = true;
     };
 
     nix.gc = {
