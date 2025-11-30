@@ -20,6 +20,8 @@ in
       package = if pkgs.stdenv.isDarwin then pkgs.tmux else systemTmux;
       mouse = true;
       baseIndex = 1;
+      escapeTime = 0;
+      historyLimit = 50000;
       terminal = "screen-256color";
       plugins = with pkgs.tmuxPlugins; [
         sensible

@@ -24,6 +24,7 @@ in
       enableZshIntegration = false;
       defaultCommand = "fd --type f";
       fileWidgetCommand = "fd --type f";
+      changeDirWidgetCommand = "fd --type d";
     };
   };
 }

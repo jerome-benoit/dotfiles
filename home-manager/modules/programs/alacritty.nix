@@ -22,10 +22,10 @@ in
       package = if pkgs.stdenv.isDarwin then pkgs.alacritty else systemAlacritty;
       settings = {
         general = {
-          live_config_reload = true;
           import = [
             "${pkgs.alacritty-theme}/share/alacritty-theme/tokyo_night_storm.toml"
           ];
+          live_config_reload = true;
         };
 
         env = {
@@ -33,17 +33,16 @@ in
         };
 
         window = {
-          padding = {
-            x = 10;
-            y = 10;
-          };
-          decorations = "full";
-          opacity = 0.95;
           startup_mode = "Maximized";
+          decorations = "full";
           dynamic_title = true;
+          dynamic_padding = true;
+          opacity = 0.95;
+          blur = true;
         };
 
         font = {
+          builtin_box_drawing = true;
           normal = {
             family = "JetBrainsMono Nerd Font";
             style = "Regular";
@@ -61,6 +60,9 @@ in
             style = "Bold Italic";
           };
           size = 14.0;
+        }
+        // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          use_thin_strokes = true;
         };
 
         cursor = {
@@ -72,8 +74,8 @@ in
         };
 
         scrolling = {
-          history = 10000;
-          multiplier = 3;
+          history = 50000;
+          multiplier = 2;
         };
 
         selection = {
@@ -82,12 +84,45 @@ in
 
         mouse = {
           hide_when_typing = true;
+          bindings = [
+            {
+              mouse = "Middle";
+              action = "PasteSelection";
+            }
+          ];
         };
 
         bell = {
           animation = "EaseOutExpo";
-          duration = 0;
+          duration = 100;
           color = "#ffffff";
+        }
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          command = {
+            program = "notify-send";
+            args = [
+              "Alacritty"
+              "Bell"
+            ];
+          };
+        };
+
+        hints = {
+          enabled = [
+            {
+              regex = ''(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file:|git://|ssh:|ftp://)[^\u0000-\u001f\u007f-\u009f<>"\\s{-}\\^⟨⟩`]+'';
+              command = if pkgs.stdenv.isDarwin then "open" else "xdg-open";
+              post_processing = true;
+              mouse = {
+                enabled = true;
+                mods = if pkgs.stdenv.isDarwin then "Command" else "Control";
+              };
+              binding = {
+                key = "U";
+                mods = if pkgs.stdenv.isDarwin then "Command|Shift" else "Control|Shift";
+              };
+            }
+          ];
         };
 
         keyboard = {
@@ -126,6 +161,16 @@ in
               key = "Minus";
               mods = "Control";
               action = "DecreaseFontSize";
+            }
+            {
+              key = "N";
+              mods = "Control|Shift";
+              action = "CreateNewWindow";
+            }
+            {
+              key = "Space";
+              mods = "Control|Shift";
+              action = "ToggleViMode";
             }
           ];
         };

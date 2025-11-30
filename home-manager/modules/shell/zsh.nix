@@ -24,7 +24,6 @@ in
         NH_FLAKE = "$HOME/.nix";
         DVM_DIR = "$HOME/.dvm";
         WORKSPACE = "$HOME/tmp";
-        EDITOR = ''$(if [[ -n "$SSH_CONNECTION" ]]; then echo "vi"; else echo "code --wait"; fi)'';
       };
       shellAliases = {
         hm = "nh home switch --impure";
@@ -85,6 +84,12 @@ in
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
 
+        if [[ -n "$SSH_CONNECTION" ]]; then
+          export EDITOR="vi"
+        else
+          export EDITOR="code --wait"
+        fi
+
         if [[ -f "$HOME/.secrets" ]]; then
           if [[ -z "$(find "$HOME/.secrets" -perm 600)" ]]; then
             echo "WARNING: Permissions for $HOME/.secrets are insecure! Please run: chmod 600 $HOME/.secrets"
@@ -101,20 +106,18 @@ in
       '';
 
       profileExtra = ''
-        # prepend ~/.local/bin and ~/bin to $PATH unless it is already there
-        if ! [[ "$PATH" =~ "$HOME/bin" ]]; then
-            PATH="$HOME/bin:$PATH"
-        fi
-        if ! [[ "$PATH" =~ "$HOME/.local/bin:" ]]; then
-            PATH="$HOME/.local/bin:$PATH"
-        fi
-        export PATH
+        typeset -U path
 
+        path=(
+          "$HOME/bin"
+          "$HOME/.local/bin"
+          "$HOME/.volta/bin"
+          $path
+        )
+
+        export PATH
         export VOLTA_HOME="$HOME/.volta"
         export VOLTA_FEATURE_PNPM=1
-        if ! [[ "$PATH" =~ "$VOLTA_HOME/bin:" ]]; then
-            export PATH="$VOLTA_HOME/bin:$PATH"
-        fi
       '';
     };
   };

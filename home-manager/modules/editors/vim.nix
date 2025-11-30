@@ -7,46 +7,93 @@
 
 let
   cfg = config.modules.editors.vim;
-  # Common configuration
   vimSettings = ''
-    " --- General settings ---
-    syntax on
-    set backspace=indent,eol,start
+    " Base
     set encoding=utf-8
+    set backspace=indent,eol,start
     set mouse=a
+    set hidden
+    set autoread
+    set confirm
+    if has('clipboard')
+      set clipboard=unnamedplus
+    endif
 
-    " --- UI settings ---
+    " Security
+    set nomodeline
+    set modelines=0
+
+    " UI
     set background=dark
     set number
     set relativenumber
-    set cursorline          " Highlight current line
-    set scrolloff=5         " Keep 5 lines above/below cursor
+    set cursorline
+    set scrolloff=8
+    set signcolumn=yes
+    set laststatus=2
+    set showcmd
+    set showmatch
+    set list
+    set listchars=tab:▸\ ,trail:·,nbsp:␣
 
-    " --- Indentation settings ---
-    set expandtab           " Use spaces instead of tabs
-    set shiftwidth=2        " Size of an indent
-    set tabstop=2           " Number of spaces tabs count for
-    set autoindent          " Copy indent from current line when starting a new line
+    " Performance
+    set lazyredraw
+    set updatetime=300
+    set regexpengine=1
 
-    " --- Search settings ---
-    set incsearch           " Incremental search
-    set hlsearch            " Highlight search results
-    set ignorecase          " Ignore case when searching...
-    set smartcase           " ...unless uppercase letters are used
+    " Indentation
+    set expandtab
+    set shiftwidth=2
+    set tabstop=2
+    set softtabstop=2
+    set autoindent
+    set smartindent
+    set shiftround
 
-    " --- Plugin settings ---
-    " Airline
+    " Text wrapping
+    set wrap
+    set linebreak
+    set breakindent
+
+    " Splits
+    set splitbelow
+    set splitright
+
+    " Search
+    set incsearch
+    set hlsearch
+    set ignorecase
+    set smartcase
+
+    " Completion
+    set wildmenu
+    set wildmode=list:longest,full
+
+    " Filetype & Syntax
+    filetype plugin indent on
+    syntax on
+
+    " Plugins
     let g:airline#extensions#tabline#enabled = 1
     let g:airline_powerline_fonts = 1
 
-    " --- Filetype settings ---
-    " Enable filetype detection, plugins and indentation
-    filetype plugin indent on
-
+    " Autocommands
     if has("autocmd")
-      " Indent with four spaces C, C++ files
-      autocmd FileType c,cpp,h set tabstop=8 softtabstop=0 expandtab shiftwidth=4 smarttab
+      augroup VimConfig
+        autocmd!
+        autocmd FileType c,cpp,h set tabstop=8 softtabstop=0 expandtab shiftwidth=4 smarttab
+        autocmd BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$") | exe "normal! g`\"" | endif
+      augroup END
     endif
+
+    " Keymaps
+    nnoremap <silent> <Esc> :nohlsearch<CR>
+    nnoremap <C-h> <C-w>h
+    nnoremap <C-j> <C-w>j
+    nnoremap <C-k> <C-w>k
+    nnoremap <C-l> <C-w>l
+    vnoremap < <gv
+    vnoremap > >gv
   '';
   vimPlugins = with pkgs.vimPlugins; [
     vim-airline

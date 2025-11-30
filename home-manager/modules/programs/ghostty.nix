@@ -26,24 +26,22 @@ in
         window-padding-y = 10;
         window-save-state = "always";
         window-theme = "auto";
+        window-inherit-working-directory = true;
 
         # Font
         font-family = "JetBrainsMono Nerd Font";
-        font-size = 14;
+        font-size = 12;
 
         # Cursor
         cursor-style = "block";
         cursor-style-blink = true;
 
-        # Shell
-        shell-integration = "detect";
-        shell-integration-features = "cursor,sudo,title";
-
         # Terminal
         term = "xterm-256color";
 
-        # Performance
-        resize-overlay = "never";
+        # Shell
+        shell-integration = "detect";
+        shell-integration-features = "cursor,sudo,title";
 
         # Clipboard
         clipboard-read = "allow";
@@ -54,7 +52,13 @@ in
         mouse-hide-while-typing = true;
 
         # Scrollback
-        scrollback-limit = 10000;
+        scrollback-limit = 50000;
+
+        # Performance
+        resize-overlay = "never";
+
+        # Updates
+        auto-update = "off";
 
         # Keybindings
         keybind = [

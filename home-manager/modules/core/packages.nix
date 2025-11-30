@@ -20,7 +20,6 @@ in
         nerd-fonts.jetbrains-mono
         nh
         nixfmt-rfc-style
-        opencode
         volta
       ]
       ++ lib.optionals pkgs.stdenv.isLinux [

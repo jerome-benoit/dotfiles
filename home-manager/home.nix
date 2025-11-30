@@ -47,6 +47,7 @@
   modules.development = {
     gh.enable = true;
     git.enable = true;
+    opencode.enable = true;
   };
 
   modules.programs = {
@@ -59,7 +60,10 @@
 
   modules.editors = {
     vim.enable = true;
-    neovim.enable = true;
+    neovim = {
+      enable = true;
+      opencode.enable = true;
+    };
   };
 
   home = {

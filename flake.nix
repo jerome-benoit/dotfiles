@@ -5,6 +5,11 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    opencode.url = "github:sst/opencode";
+    opencode-nvim = {
+      url = "github:NickvanDyke/opencode.nvim";
+      flake = false;
+    };
   };
 
   outputs =
@@ -12,6 +17,8 @@
       self,
       nixpkgs,
       home-manager,
+      opencode,
+      opencode-nvim,
     }@inputs:
     {
       homeConfigurations = {

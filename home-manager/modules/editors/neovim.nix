@@ -2,14 +2,21 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 
 let
   cfg = config.modules.editors.neovim;
 
-  nvimPlugins = with pkgs.vimPlugins; [
+  nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
+    name = "opencode-nvim";
+    src = inputs.opencode-nvim;
+  };
+
+  nvimBasePlugins = with pkgs.vimPlugins; [
     # UI & Theme
+    snacks-nvim
     catppuccin-nvim
     lualine-nvim
     nvim-web-devicons
@@ -23,6 +30,7 @@ let
     nvim-surround
     nvim-autopairs
     comment-nvim
+    nvim-ts-context-commentstring
     which-key-nvim
     gitsigns-nvim
 
@@ -31,18 +39,24 @@ let
 
     # Fuzzy Finder
     telescope-nvim
+    telescope-fzf-native-nvim
     plenary-nvim
 
     # Formatting
     conform-nvim
 
     # LSP & Completion
-    nvim-lspconfig
     blink-cmp
+    friendly-snippets
+    lazydev-nvim
   ];
 
+  nvimAiPlugins = [ nvimAiPluginOpencode ];
+
+  nvimPlugins = nvimBasePlugins ++ lib.optionals cfg.opencode.enable nvimAiPlugins;
+
   # Lua Configuration
-  nvimLuaConfig = ''
+  nvimBaseLuaConfig = ''
     -- ==========================================================================
     -- Global Options
     -- ==========================================================================
@@ -61,11 +75,30 @@ let
     vim.o.updatetime = 250
     vim.o.timeoutlen = 300
     vim.o.signcolumn = 'yes'
+    vim.o.autoread = true
+    vim.o.undofile = true
+    vim.o.mouse = 'a'
+    vim.o.splitright = true
+    vim.o.splitbelow = true
 
     -- ==========================================================================
     -- UI & Theme
     -- ==========================================================================
     require('nvim-web-devicons').setup({ default = true })
+
+    require("snacks").setup({
+      bigfile = { enabled = true },
+      dashboard = { enabled = true },
+      indent = { enabled = true },
+      input = { enabled = true },
+      notifier = { enabled = true },
+      picker = { enabled = true },
+      quickfile = { enabled = true },
+      scroll = { enabled = true },
+      statuscolumn = { enabled = true },
+      terminal = { enabled = true },
+      words = { enabled = true },
+    })
 
     require("catppuccin").setup({
       flavour = "mocha",
@@ -81,13 +114,6 @@ let
     })
     vim.cmd.colorscheme "catppuccin"
 
-    require('lualine').setup({
-      options = {
-        theme = 'catppuccin',
-        icons_enabled = true,
-      }
-    })
-
     -- ==========================================================================
     -- File Management
     -- ==========================================================================
@@ -101,7 +127,9 @@ let
     })
 
     -- Open Neo-tree on startup if no args
+    local neotree_auto_group = vim.api.nvim_create_augroup("NeotreeAuto", { clear = true })
     vim.api.nvim_create_autocmd("VimEnter", {
+      group = neotree_auto_group,
       desc = "Open Neo-tree on startup",
       callback = function()
         if vim.fn.argc() == 0 then
@@ -109,16 +137,24 @@ let
         end
       end,
     })
+    vim.keymap.set("n", "<leader>e", "<CMD>Neotree toggle<CR>", { desc = "File explorer: Toggle", silent = true })
 
     require("oil").setup()
-    vim.keymap.set("n", "-", "<CMD>Oil<CR>", { desc = "Open parent directory" })
+    vim.keymap.set("n", "<leader>-", "<CMD>Oil<CR>", { desc = "File explorer: Parent directory", silent = true })
 
     -- ==========================================================================
     -- Editor Essentials
     -- ==========================================================================
     require('gitsigns').setup()
-    require('Comment').setup()
-    require("which-key").setup()
+    require('ts_context_commentstring').setup({
+      enable_autocmd = false,
+    })
+    require('Comment').setup({
+      pre_hook = require('ts_context_commentstring.integrations.comment_nvim').create_pre_hook(),
+    })
+    require("which-key").setup({
+      preset = "modern",
+    })
     require("nvim-surround").setup()
     require("nvim-autopairs").setup()
 
@@ -128,16 +164,37 @@ let
     require('nvim-treesitter.configs').setup({
       highlight = { enable = true },
       indent = { enable = true },
+      incremental_selection = {
+        enable = true,
+        keymaps = {
+          init_selection = 'gnn',
+          node_incremental = 'grn',
+          node_decremental = 'grm',
+          scope_incremental = 'grc',
+        },
+      },
     })
 
     -- ==========================================================================
     -- Fuzzy Finder
     -- ==========================================================================
-    local builtin = require('telescope.builtin')
-    vim.keymap.set('n', '<leader>ff', builtin.find_files, { desc = 'Find files' })
-    vim.keymap.set('n', '<leader>fg', builtin.live_grep, { desc = 'Live grep' })
-    vim.keymap.set('n', '<leader>fb', builtin.buffers, { desc = 'Buffers' })
-    vim.keymap.set('n', '<leader>fh', builtin.help_tags, { desc = 'Help tags' })
+    require('telescope').setup({
+      extensions = {
+        fzf = {
+          fuzzy = true,
+          override_generic_sorter = true,
+          override_file_sorter = true,
+          case_mode = "smart_case",
+        }
+      }
+    })
+    require('telescope').load_extension('fzf')
+
+    local telescope_builtin = require('telescope.builtin')
+    vim.keymap.set('n', '<leader>ff', telescope_builtin.find_files, { desc = "Find: Files", silent = true })
+    vim.keymap.set('n', '<leader>fg', telescope_builtin.live_grep, { desc = "Find: Text (grep)", silent = true })
+    vim.keymap.set('n', '<leader>fb', telescope_builtin.buffers, { desc = "Find: Buffers", silent = true })
+    vim.keymap.set('n', '<leader>fh', telescope_builtin.help_tags, { desc = "Find: Help tags", silent = true })
 
     -- ==========================================================================
     -- Formatting
@@ -164,6 +221,8 @@ let
     -- ==========================================================================
     -- LSP & Completion
     -- ==========================================================================
+    require("lazydev").setup()
+
     require('blink.cmp').setup({
       keymap = { preset = 'default' },
       appearance = {
@@ -175,31 +234,109 @@ let
       },
     })
 
-    local capabilities = require('blink.cmp').get_lsp_capabilities()
+    local lsp_capabilities = require('blink.cmp').get_lsp_capabilities()
 
-    local on_attach = function(client, bufnr)
-      local opts = { noremap = true, silent = true, buffer = bufnr }
-      vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
-      vim.keymap.set('n', 'gr', vim.lsp.buf.references, opts)
-      vim.keymap.set('n', 'K', vim.lsp.buf.hover, opts)
-      vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, opts)
-      vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, opts)
+    -- LSP keymaps
+    local lsp_on_attach = function(client, bufnr)
+      local function lsp_opts(desc)
+        return { desc = desc, buffer = bufnr, silent = true }
+      end
+      vim.keymap.set('n', 'gd', vim.lsp.buf.definition, lsp_opts("LSP: Definition"))
+      vim.keymap.set('n', 'gD', vim.lsp.buf.declaration, lsp_opts("LSP: Declaration"))
+      vim.keymap.set('n', 'gi', vim.lsp.buf.implementation, lsp_opts("LSP: Implementation"))
+      vim.keymap.set('n', 'gt', vim.lsp.buf.type_definition, lsp_opts("LSP: Type definition"))
+      vim.keymap.set('n', 'gr', vim.lsp.buf.references, lsp_opts("LSP: References"))
+      vim.keymap.set('n', 'K', vim.lsp.buf.hover, lsp_opts("LSP: Hover"))
+      vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, lsp_opts("LSP: Rename"))
+      vim.keymap.set({ 'n', 'v' }, '<leader>ca', vim.lsp.buf.code_action, lsp_opts("LSP: Code action"))
+      vim.keymap.set('n', '<leader>d', vim.diagnostic.open_float, lsp_opts("LSP: Show diagnostic"))
+      vim.keymap.set('n', '[d', vim.diagnostic.goto_prev, lsp_opts("LSP: Previous diagnostic"))
+      vim.keymap.set('n', ']d', vim.diagnostic.goto_next, lsp_opts("LSP: Next diagnostic"))
     end
 
-    local servers = { 'bashls', 'pyright', 'ts_ls', 'gopls', 'rust_analyzer', 'nixd' }
+    -- LSP servers (Neovim 0.11+ API)
+    vim.lsp.config('*', {
+      capabilities = lsp_capabilities,
+      on_attach = lsp_on_attach,
+    })
 
-    for _, server in ipairs(servers) do
-      vim.lsp.config(server, {
-        on_attach = on_attach,
-        capabilities = capabilities,
-      })
-      vim.lsp.enable(server)
-    end
+    vim.lsp.enable({ 'bashls', 'pyright', 'ts_ls', 'gopls', 'rust_analyzer', 'nixd', 'lua_ls' })
   '';
+
+  nvimOpencodeConfig = lib.optionalString cfg.opencode.enable ''
+    -- ==========================================================================
+    -- AI
+    -- ==========================================================================
+
+    vim.g.opencode_opts = {
+      provider = {
+        enabled = "snacks",
+        snacks = {
+          win = {
+            style = "terminal"
+          }
+        }
+      },
+      events = {
+        reload = true,
+      },
+      prompts = {
+        nix = "Review @this for Nix best practices and suggest improvements",
+        security = "Review @this for security vulnerabilities",
+        diagnostics = "Explain @diagnostics",
+        diff = "Review the following git diff for correctness and readability: @diff",
+        document = "Add comments documenting @this",
+        explain = "Explain @this and its context",
+        fix = "Fix @diagnostics",
+        optimize = "Optimize @this for performance and readability",
+        review = "Review @this for correctness and readability",
+        test = "Add tests for @this",
+      }
+    }
+
+    local opencode_map = vim.keymap.set
+    opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ", { submit = true }) end, { desc = "OpenCode: Ask question", silent = true })
+    opencode_map({ "n", "x" }, "<leader>os", function() require("opencode").select() end, { desc = "OpenCode: Actions menu", silent = true })
+    opencode_map({ "n", "x" }, "<leader>op", function() require("opencode").prompt("@this") end, { desc = "OpenCode: Add to prompt", silent = true })
+    opencode_map({ "n", "t" }, "<leader>ot", function() require("opencode").toggle() end, { desc = "OpenCode: Toggle terminal", silent = true })
+    opencode_map("n", "<leader>ou", function() require("opencode").command("session.half.page.up") end, { desc = "OpenCode: Session scroll up", silent = true })
+    opencode_map("n", "<leader>od", function() require("opencode").command("session.half.page.down") end, { desc = "OpenCode: Session scroll down", silent = true })
+
+    local opencode_events_group = vim.api.nvim_create_augroup("OpencodeEvents", { clear = true })
+    vim.api.nvim_create_autocmd("User", {
+      group = opencode_events_group,
+      pattern = "OpencodeEvent:*",
+      callback = function(args)
+        local opencode_event = args.data.event
+        if opencode_event.type == "session.idle" then
+          vim.notify("OpenCode ready", vim.log.levels.INFO)
+        elseif opencode_event.type == "session.error" then
+          vim.notify("OpenCode error: " .. vim.inspect(opencode_event.data), vim.log.levels.ERROR)
+        end
+      end,
+    })
+  '';
+
+  nvimLualineConfig = ''
+    require('lualine').setup({
+      options = {
+        theme = 'catppuccin',
+        icons_enabled = true,
+      },
+      sections = {
+        lualine_c = {
+          { 'filename', path = 1 }
+        }${lib.optionalString cfg.opencode.enable ",\n        lualine_z = {\n          { require(\"opencode\").statusline }\n        }"}
+      }
+    })
+  '';
+
+  nvimLuaConfig = nvimBaseLuaConfig + nvimOpencodeConfig + nvimLualineConfig;
 in
 {
   options.modules.editors.neovim = {
     enable = lib.mkEnableOption "neovim configuration";
+    opencode.enable = lib.mkEnableOption "opencode.nvim integration";
   };
 
   config = lib.mkIf cfg.enable {
@@ -220,16 +357,15 @@ in
         gopls
         rust-analyzer
         nixd
+        lua-language-server
 
         # Formatters
         stylua
-        ruff
         nodePackages.prettier
         nixfmt-rfc-style
+        ruff
 
         # Tools
-        ripgrep
-        fd
         tree-sitter
       ];
 
