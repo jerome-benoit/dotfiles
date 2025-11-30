@@ -52,7 +52,7 @@ in
         mouse-hide-while-typing = true;
 
         # Scrollback
-        scrollback-limit = 50000;
+        scrollback-limit = config.modules.core.constants.historySize;
 
         # Performance
         resize-overlay = "never";

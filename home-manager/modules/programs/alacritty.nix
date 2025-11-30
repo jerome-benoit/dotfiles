@@ -74,7 +74,7 @@ in
         };
 
         scrolling = {
-          history = 50000;
+          history = config.modules.core.constants.historySize;
           multiplier = 2;
         };
 

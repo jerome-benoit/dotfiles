@@ -29,5 +29,10 @@
         description = "The GPG key fingerprint";
       };
     };
+    historySize = lib.mkOption {
+      type = lib.types.int;
+      default = 50000;
+      description = "Default history size for shells and terminal emulators";
+    };
   };
 }

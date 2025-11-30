@@ -21,7 +21,7 @@ in
       mouse = true;
       baseIndex = 1;
       escapeTime = 0;
-      historyLimit = 50000;
+      historyLimit = config.modules.core.constants.historySize;
       terminal = "screen-256color";
       plugins = with pkgs.tmuxPlugins; [
         sensible
