@@ -6,6 +6,9 @@
   username,
   ...
 }:
+let
+  opencodeSupported = !(pkgs.stdenv.isLinux && config.modules.core.distro.id == "debian");
+in
 {
   targets.genericLinux.enable = pkgs.stdenv.isLinux;
 
@@ -47,7 +50,7 @@
   modules.development = {
     gh.enable = true;
     git.enable = true;
-    opencode.enable = true;
+    opencode.enable = opencodeSupported;
   };
 
   modules.programs = {
@@ -62,7 +65,7 @@
     vim.enable = true;
     neovim = {
       enable = true;
-      opencode.enable = true;
+      opencode.enable = opencodeSupported;
     };
   };
 
