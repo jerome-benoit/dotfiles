@@ -1,4 +1,9 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.modules.core.home-manager;
 in
@@ -9,5 +14,22 @@ in
 
   config = lib.mkIf cfg.enable {
     programs.home-manager.enable = true;
+
+    nix.package = pkgs.nix;
+
+    nix.settings = {
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
+      warn-dirty = false;
+      auto-optimise-store = true;
+    };
+
+    nix.gc = {
+      automatic = true;
+      dates = "weekly";
+      options = "--delete-older-than 30d";
+    };
   };
 }
