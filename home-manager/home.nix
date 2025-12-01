@@ -7,8 +7,12 @@
   ...
 }:
 let
-  hostname = lib.removeSuffix "\n" (builtins.readFile /etc/hostname);
-  bunSupported = !(hostname == "rigel");
+  hostname =
+    if builtins.pathExists /etc/hostname then
+      lib.removeSuffix "\n" (builtins.readFile /etc/hostname)
+    else
+      null;
+  bunSupported = hostname != "rigel";
 in
 {
   targets.genericLinux.enable = pkgs.stdenv.isLinux;
