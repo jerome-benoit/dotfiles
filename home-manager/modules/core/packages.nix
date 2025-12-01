@@ -16,7 +16,6 @@ in
     home.packages =
       with pkgs;
       [
-        bun
         nerd-fonts.jetbrains-mono
         nh
         nixfmt-rfc-style

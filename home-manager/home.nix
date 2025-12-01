@@ -7,7 +7,8 @@
   ...
 }:
 let
-  opencodeSupported = !(pkgs.stdenv.isLinux && config.modules.core.distro.id == "debian");
+  hostname = lib.removeSuffix "\n" (builtins.readFile /etc/hostname);
+  bunSupported = !(hostname == "rigel");
 in
 {
   targets.genericLinux.enable = pkgs.stdenv.isLinux;
@@ -48,9 +49,10 @@ in
   };
 
   modules.development = {
+    bun.enable = bunSupported;
     gh.enable = true;
     git.enable = true;
-    opencode.enable = opencodeSupported;
+    opencode.enable = bunSupported;
   };
 
   modules.programs = {
@@ -65,7 +67,7 @@ in
     vim.enable = true;
     neovim = {
       enable = true;
-      opencode.enable = opencodeSupported;
+      opencode.enable = bunSupported;
     };
   };
 
