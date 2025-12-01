@@ -93,9 +93,9 @@ in
         };
 
         bell = {
-          animation = "EaseOutExpo";
-          duration = 100;
-          color = "#ffffff";
+          animation = "EaseOutSine";
+          duration = 125;
+          color = "#444b6a";
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           command = {
