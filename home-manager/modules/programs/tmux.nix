@@ -23,6 +23,34 @@ in
       escapeTime = 0;
       historyLimit = config.modules.core.constants.historySize;
       terminal = "screen-256color";
+      keyMode = "vi";
+
+      extraConfig = ''
+        set -g set-clipboard on
+
+        ${
+          if pkgs.stdenv.isDarwin then
+            ''
+              bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
+              bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "pbcopy"
+            ''
+          else if pkgs.stdenv.isLinux then
+            ''
+              if-shell '[ -n "$WAYLAND_DISPLAY" ]' {
+                bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "wl-copy"
+                bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "wl-copy"
+              }
+
+              if-shell '[ -n "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]' {
+                bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -selection clipboard"
+                bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "xclip -selection clipboard"
+              }
+            ''
+          else
+            ""
+        }
+      '';
+
       plugins = with pkgs.tmuxPlugins; [
         sensible
       ];

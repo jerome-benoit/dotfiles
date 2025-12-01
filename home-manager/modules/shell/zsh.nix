@@ -84,9 +84,8 @@ in
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
 
-        if [[ -n "$SSH_CONNECTION" ]]; then
-          export EDITOR="vi"
-        else
+        export EDITOR="vi"
+        if [[ -z "$SSH_CONNECTION" ]] && command -v code >/dev/null 2>&1; then
           export EDITOR="code --wait"
         fi
 
