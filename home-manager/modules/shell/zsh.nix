@@ -24,6 +24,7 @@ in
         NH_FLAKE = "$HOME/.nix";
         DVM_DIR = "$HOME/.dvm";
         WORKSPACE = "$HOME/tmp";
+        EDITOR = "vi";
       };
       shellAliases = {
         hm = "nh home switch --impure";
@@ -84,9 +85,21 @@ in
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
 
-        export EDITOR="vi"
         if [[ -z "$SSH_CONNECTION" ]] && command -v code >/dev/null 2>&1; then
-          export EDITOR="code --wait"
+          ${
+            if pkgs.stdenv.isDarwin then
+              ''
+                export EDITOR="code --wait"
+              ''
+            else if pkgs.stdenv.isLinux then
+              ''
+                if [[ -n "$DISPLAY" || -n "$WAYLAND_DISPLAY" ]]; then
+                  export EDITOR="code --wait"
+                fi
+              ''
+            else
+              ""
+          }
         fi
 
         if [[ -f "$HOME/.secrets" ]]; then
