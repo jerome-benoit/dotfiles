@@ -18,41 +18,87 @@ in
     programs.tmux = {
       enable = true;
       package = if pkgs.stdenv.isDarwin then pkgs.tmux else systemTmux;
+      keyMode = "vi";
       mouse = true;
       baseIndex = 1;
-      escapeTime = 0;
+      escapeTime = 10;
       historyLimit = config.modules.core.constants.historySize;
-      terminal = "screen-256color";
-      keyMode = "vi";
+      clock24 = true;
+      disableConfirmationPrompt = true;
 
       extraConfig = ''
+        # ============================================================================
+        # OPTIONS
+        # ============================================================================
+
+        # Server Options
+        set -s extended-keys on
+
+        # Session Options
+        set -g renumber-windows on
+
+        # Window Options
         set -g set-clipboard on
 
-        ${
-          if pkgs.stdenv.isDarwin then
-            ''
-              bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
-              bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "pbcopy"
-            ''
-          else if pkgs.stdenv.isLinux then
-            ''
-              if-shell '[ -n "$WAYLAND_DISPLAY" ]' {
-                bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "wl-copy"
-                bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "wl-copy"
-              }
+        # Terminal Features
+        set -as terminal-features ",*:RGB"
 
-              if-shell '[ -n "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]' {
-                bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -selection clipboard"
-                bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "xclip -selection clipboard"
-              }
-            ''
-          else
-            ""
-        }
+        # Terminal Overrides
+        set -as terminal-overrides ',*:Smulx=\E[4::%p1%dm'
+        set -as terminal-overrides ',*:Setulc=\E[58::2::%p1%{256}%/%{255}%&%d::%p1%{255}%&%d%;m'
+
+        # ============================================================================
+        # KEY BINDINGS
+        # ============================================================================
+
+        # Copy Mode
+        bind-key -T copy-mode-vi v send-keys -X begin-selection
+        bind-key -T copy-mode-vi C-v send-keys -X rectangle-toggle
+        bind-key -T copy-mode-vi y send-keys -X copy-selection-and-cancel
+        bind-key -T copy-mode-vi H send-keys -X start-of-line
+        bind-key -T copy-mode-vi L send-keys -X end-of-line
+
+        # Window Navigation
+        bind -r C-h previous-window
+        bind -r C-l next-window
       '';
 
       plugins = with pkgs.tmuxPlugins; [
         sensible
+        yank
+        pain-control
+        vim-tmux-navigator
+        {
+          plugin = tokyo-night-tmux;
+          extraConfig = ''
+            set -g @tokyo-night-tmux_window_id_style digital
+            set -g @tokyo-night-tmux_pane_id_style hsquare
+            set -g @tokyo-night-tmux_zoom_id_style dsquare
+            set -g @tokyo-night-tmux_show_datetime 1
+            set -g @tokyo-night-tmux_date_format DMY
+            set -g @tokyo-night-tmux_time_format 24H
+            set -g @tokyo-night-tmux_show_path 1
+            set -g @tokyo-night-tmux_path_format relative
+            set -g @tokyo-night-tmux_show_battery_widget 1
+            set -g @tokyo-night-tmux_show_netspeed 1
+          '';
+        }
+        {
+          plugin = resurrect;
+          extraConfig = ''
+            set -g @resurrect-strategy-nvim 'session'
+            set -g @resurrect-capture-pane-contents 'on'
+            set -g @resurrect-save-shell-history 'on'
+            set -g @resurrect-processes 'ssh btop "~gh" "~opencode"'
+          '';
+        }
+        {
+          plugin = continuum;
+          extraConfig = ''
+            set -g @continuum-restore 'on'
+            set -g @continuum-save-interval '15'
+          '';
+        }
       ];
     };
   };
