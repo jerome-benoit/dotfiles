@@ -71,6 +71,7 @@ in
         {
           plugin = tokyo-night-tmux;
           extraConfig = ''
+            set -g @tokyo-night-tmux_theme storm
             set -g @tokyo-night-tmux_window_id_style digital
             set -g @tokyo-night-tmux_pane_id_style hsquare
             set -g @tokyo-night-tmux_zoom_id_style dsquare
@@ -89,7 +90,7 @@ in
             set -g @resurrect-strategy-nvim 'session'
             set -g @resurrect-capture-pane-contents 'on'
             set -g @resurrect-save-shell-history 'on'
-            set -g @resurrect-processes 'ssh btop "~gh" "~opencode"'
+            set -g @resurrect-processes 'ssh btop sqlite3 "~gh" "~opencode"'
           '';
         }
         {
