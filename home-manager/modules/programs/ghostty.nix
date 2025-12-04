@@ -91,7 +91,7 @@ in
         ];
       }
       // lib.optionalAttrs pkgs.stdenv.isDarwin {
-        theme = "catppuccin-mocha";
+        theme = "tokyo-night-storm";
         macos-option-as-alt = true;
       };
     };

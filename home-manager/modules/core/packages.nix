@@ -53,6 +53,7 @@ in
         rustup
         uv
         vscode
+        yq
         zed-editor
         zoom-us
       ];

@@ -17,7 +17,7 @@ let
   nvimBasePlugins = with pkgs.vimPlugins; [
     # UI & Theme
     snacks-nvim
-    catppuccin-nvim
+    tokyonight-nvim
     lualine-nvim
     nvim-web-devicons
 
@@ -100,19 +100,21 @@ let
       words = { enabled = true },
     })
 
-    require("catppuccin").setup({
-      flavour = "mocha",
-      transparent_background = true,
-      integrations = {
-        blink_cmp = true,
-        gitsigns = true,
-        neotree = true,
-        treesitter = true,
-        telescope = true,
-        which_key = true,
-      }
+    require("tokyonight").setup({
+      style = "storm",
+      transparent = true,
+      terminal_colors = true,
+      styles = {
+        comments = { italic = true },
+        keywords = { italic = true },
+        functions = {},
+        variables = {},
+        sidebars = "dark",
+        floats = "dark",
+      },
+      cache = true,
     })
-    vim.cmd.colorscheme "catppuccin"
+    vim.cmd.colorscheme "tokyonight-storm"
 
     -- ==========================================================================
     -- File Management
@@ -123,6 +125,7 @@ let
       filesystem = {
         follow_current_file = { enabled = true },
         hijack_netrw_behavior = "open_default",
+        use_libuv_file_watcher = true,
       },
     })
 
@@ -139,13 +142,23 @@ let
     })
     vim.keymap.set("n", "<leader>e", "<CMD>Neotree toggle<CR>", { desc = "File explorer: Toggle", silent = true })
 
-    require("oil").setup()
+    require("oil").setup({
+      watch_for_changes = true,
+      view_options = {
+        show_hidden = true,
+      },
+    })
     vim.keymap.set("n", "<leader>-", "<CMD>Oil<CR>", { desc = "File explorer: Parent directory", silent = true })
 
     -- ==========================================================================
     -- Editor Essentials
     -- ==========================================================================
-    require('gitsigns').setup()
+    require('gitsigns').setup({
+      watch_gitdir = {
+        interval = 1000,
+        follow_files = true,
+      },
+    })
     require('ts_context_commentstring').setup({
       enable_autocmd = false,
     })
@@ -320,7 +333,7 @@ let
   nvimLualineConfig = ''
     require('lualine').setup({
       options = {
-        theme = 'catppuccin',
+        theme = 'tokyonight',
         icons_enabled = true,
       },
       sections = {
