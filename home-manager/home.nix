@@ -63,6 +63,7 @@ in
     alacritty.enable = true;
     btop.enable = true;
     ghostty.enable = true;
+    lazydocker.enable = true;
     ssh.enable = true;
     tmux.enable = true;
   };
