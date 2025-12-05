@@ -108,9 +108,6 @@ in
           fi
           source "$HOME/.secrets"
         fi
-
-        [[ -f "$DVM_DIR/dvm.sh" ]] && . "$DVM_DIR/dvm.sh"
-        [[ -f "$DVM_DIR/bash_completion" ]] && . "$DVM_DIR/bash_completion"
       '';
 
       envExtra = ''
@@ -120,16 +117,28 @@ in
       profileExtra = ''
         typeset -U path
 
+        export VOLTA_HOME="$HOME/.volta"
+        export VOLTA_FEATURE_PNPM=1
+
         path=(
           "$HOME/bin"
           "$HOME/.local/bin"
-          "$HOME/.volta/bin"
+          "$VOLTA_HOME/bin"
           $path
         )
 
         export PATH
-        export VOLTA_HOME="$HOME/.volta"
-        export VOLTA_FEATURE_PNPM=1
+
+        [[ -f "$DVM_DIR/dvm.sh" ]] && . "$DVM_DIR/dvm.sh"
+        [[ -f "$DVM_DIR/bash_completion" ]] && . "$DVM_DIR/bash_completion"
+
+        # Glob qualifiers: (N)=null glob, (-)=no symlinks, (.)=regular files, (:o)=sorted
+        if [[ -d "$HOME/.zprofile.d" ]]; then
+          for profile_script in "$HOME/.zprofile.d"/*.zsh(N-.:o); do
+            [[ -r "$profile_script" ]] && source "$profile_script"
+          done
+          unset profile_script
+        fi
       '';
     };
   };

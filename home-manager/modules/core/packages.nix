@@ -25,13 +25,18 @@ in
       ++ lib.optionals pkgs.stdenv.isLinux [
       ]
       ++ lib.optionals pkgs.stdenv.isDarwin [
+        autoconf
+        automake
         bruno
         chroma
+        cmake
         cloudfoundry-cli
+        coreutils
         delta
         firefox
         go
         google-chrome
+        gnused
         grc
         hyperfine
         insomnia
@@ -39,15 +44,16 @@ in
         jdk25
         jetbrains.pycharm-community-bin
         jetbrains.rust-rover
-        kubectl
         nheko
         ninja
         pipenv
+        pkg-config
         podman
         podman-compose
         podman-desktop
         poetry
         python3
+        python3Packages.virtualenv
         qpdf
         rectangle
         rustup
