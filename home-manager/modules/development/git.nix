@@ -40,8 +40,12 @@ in
             interactive = "auto";
           };
           merge = {
-            conflictStyle = "zdiff3";
+            conflictStyle = "diff3";
             tool = lib.mkDefault "meld";
+            mergiraf = {
+              name = "mergiraf";
+              driver = "mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L";
+            };
           };
           mergetool = {
             meld = {
@@ -56,6 +60,7 @@ in
           };
           core = {
             pager = "delta";
+            attributesfile = "~/.gitattributes";
           };
           interactive = {
             diffFilter = "delta --color-only";
@@ -79,5 +84,9 @@ in
         };
       })
     ];
+
+    home.file.".gitattributes".text = ''
+      * merge=mergiraf
+    '';
   };
 }

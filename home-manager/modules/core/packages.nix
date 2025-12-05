@@ -18,6 +18,7 @@ in
       [
         nerd-fonts.jetbrains-mono
         nh
+        mergiraf
         nixfmt-rfc-style
         volta
       ]
@@ -39,7 +40,6 @@ in
         jetbrains.pycharm-community-bin
         jetbrains.rust-rover
         kubectl
-        mergiraf
         nheko
         ninja
         pipenv
