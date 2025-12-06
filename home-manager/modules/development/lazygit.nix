@@ -20,7 +20,6 @@ in
 
       settings = {
         gui = {
-          # Tokyo Night theme colors
           theme = {
             activeBorderColor = [
               theme.blue
@@ -36,86 +35,194 @@ in
             defaultFgColor = [ theme.fg ];
           };
 
-          # UI configuration (aligned with lazydocker)
           border = "rounded";
           nerdFontsVersion = "3";
           showFileIcons = true;
           scrollHeight = 2;
+          language = "auto";
+          screenMode = "normal";
+          sidePanelWidth = 0.3333;
           mouseEvents = true;
           skipDiscardChangeWarning = false;
           showFileTree = true;
           showCommandLog = true;
           showBottomLine = true;
+          scrollPastBottom = true;
+          scrollOffMargin = 2;
+          commitHashLength = 8;
+          showBranchCommitHash = false;
+          showRandomTip = false;
+          promptToReturnFromSubprocess = false;
 
           commitLength = {
             show = true;
           };
 
-          filterMode = "fuzzy";
+          filterMode = "substring";
         };
 
         git = {
-          # Delta pager configuration (aligned with git.nix)
-          paging = {
-            colorArg = "always";
-            pager = "delta --dark --paging=never --line-numbers --navigate --hyperlinks";
-          };
+          pagers = [
+            {
+              colorArg = "always";
+              pager = "delta --paging=never --line-numbers --navigate --hyperlinks --hyperlinks-file-link-format='file://{path}#{line}' --dark --syntax-theme='Visual Studio Dark+' --true-color=always";
+            }
+          ];
 
-          # Commit configuration
           commit = {
-            signOff = false; # GPG signing is handled by git config
+            signOff = true;
             autoWrapCommitMessage = true;
             autoWrapWidth = 72;
+            verbose = "default";
           };
 
-          # Merge configuration
           merging = {
             manualCommit = false;
             args = "";
           };
 
-          # Main branches (aligned with git.nix)
           mainBranches = [
             "master"
             "main"
           ];
 
-          # Auto-fetch and auto-refresh
           autoFetch = true;
           autoRefresh = true;
           autoForwardBranches = "onlyMainBranches";
           fetchAll = true;
           autoStageResolvedConflicts = true;
 
-          # Log configuration
           log = {
             order = "topo-order";
             showGraph = "always";
             showWholeGraph = false;
           };
 
-          # Branch sorting
           localBranchSortOrder = "recency";
 
-          # Diff configuration
           diffContextSize = 3;
           renameSimilarityThreshold = 50;
 
-          # Parse emojis in commit messages
           parseEmoji = true;
         };
 
-        # Refresh intervals
         refresher = {
           refreshInterval = 10;
           fetchInterval = 60;
         };
 
-        # Update settings
         update = {
-          method = "prompt";
+          method = "never";
           days = 14;
         };
+
+        customCommands = [
+          {
+            key = "C";
+            context = "files";
+            description = "Conventional commit";
+            prompts = [
+              {
+                type = "menu";
+                key = "Type";
+                title = "Select commit type";
+                options = [
+                  {
+                    name = "feat";
+                    description = "New feature";
+                    value = "feat";
+                  }
+                  {
+                    name = "fix";
+                    description = "Bug fix";
+                    value = "fix";
+                  }
+                  {
+                    name = "docs";
+                    description = "Documentation";
+                    value = "docs";
+                  }
+                  {
+                    name = "style";
+                    description = "Formatting";
+                    value = "style";
+                  }
+                  {
+                    name = "refactor";
+                    description = "Refactoring";
+                    value = "refactor";
+                  }
+                  {
+                    name = "perf";
+                    description = "Performance";
+                    value = "perf";
+                  }
+                  {
+                    name = "test";
+                    description = "Tests";
+                    value = "test";
+                  }
+                  {
+                    name = "build";
+                    description = "Build";
+                    value = "build";
+                  }
+                  {
+                    name = "ci";
+                    description = "CI/CD";
+                    value = "ci";
+                  }
+                  {
+                    name = "chore";
+                    description = "Chores";
+                    value = "chore";
+                  }
+                  {
+                    name = "revert";
+                    description = "Revert";
+                    value = "revert";
+                  }
+                ];
+              }
+              {
+                type = "input";
+                title = "Scope (optional)";
+                key = "Scope";
+                initialValue = "";
+              }
+              {
+                type = "input";
+                title = "Description";
+                key = "Message";
+                initialValue = "";
+              }
+              {
+                type = "menu";
+                title = "Breaking change?";
+                key = "Breaking";
+                options = [
+                  {
+                    name = "No";
+                    value = "";
+                  }
+                  {
+                    name = "Yes";
+                    value = "true";
+                  }
+                ];
+              }
+              {
+                type = "input";
+                title = "Body (optional)";
+                key = "Body";
+                initialValue = "";
+              }
+            ];
+            command = ''git commit -m "{{.Form.Type}}{{if .Form.Scope}}({{.Form.Scope}}){{end}}{{if .Form.Breaking}}!{{end}}: {{.Form.Message}}"{{if .Form.Body}} -m "{{.Form.Body}}"{{end}}{{if and .Form.Breaking .Form.Body}} -m "BREAKING CHANGE: {{.Form.Body}}"{{end}}'';
+            loadingText = "Committing...";
+            output = "terminal";
+          }
+        ];
       };
     };
   };

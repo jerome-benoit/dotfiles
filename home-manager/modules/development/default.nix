@@ -3,6 +3,7 @@
     ./bun.nix
     ./gh.nix
     ./git.nix
+    ./lazygit.nix
     ./opencode.nix
   ];
 }

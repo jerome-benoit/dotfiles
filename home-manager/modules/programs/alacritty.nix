@@ -61,15 +61,12 @@ in
             style = "Bold Italic";
           };
           size = 14.0;
-        }
-        // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          use_thin_strokes = true;
         };
 
         cursor = {
           style = {
             shape = "Block";
-            blinking = "On";
+            blinking = "on";
           };
           unfocused_hollow = true;
         };

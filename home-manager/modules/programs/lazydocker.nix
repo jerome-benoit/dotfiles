@@ -6,6 +6,7 @@
 
 let
   cfg = config.modules.programs.lazydocker;
+  theme = config.modules.themes.tokyoNight;
 in
 {
   options.modules.programs.lazydocker = {
@@ -23,19 +24,18 @@ in
           border = "rounded";
           theme = {
             activeBorderColor = [
-              "yellow"
+              theme.blue
               "bold"
             ];
-            inactiveBorderColor = [ "cyan" ];
-            selectedLineBgColor = [ "blue" ];
-            optionsTextColor = [ "blue" ];
+            inactiveBorderColor = [ theme.comment ];
+            selectedLineBgColor = [ theme.brightBlack ];
+            optionsTextColor = [ theme.blue ];
           };
           returnImmediately = false;
           wrapMainPanel = true;
           sidePanelWidth = 0.333;
           showBottomLine = true;
           expandFocusedSidePanel = true;
-          showAllContainers = true;
           screenMode = "normal";
           containerStatusHealthStyle = "long";
         };

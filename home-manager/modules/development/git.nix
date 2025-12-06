@@ -21,6 +21,16 @@ in
         package = systemGit;
 
         settings = {
+          core = {
+            pager = "delta";
+            attributesfile = "~/.gitattributes";
+            commitGraph = true;
+            untrackedCache = true;
+            fsmonitor = true;
+          };
+          feature = {
+            manyFiles = true;
+          };
           user = {
             name = config.modules.core.constants.username;
             email = lib.mkDefault config.modules.core.constants.email;
@@ -28,9 +38,14 @@ in
           };
           commit = {
             gpgSign = true;
+            signOff = true;
+            verbose = true;
           };
           push = {
             default = "current";
+            autoSetupRemote = true;
+            followTags = true;
+            useForceIfIncludes = true;
           };
           color = {
             diff = "auto";
@@ -42,10 +57,10 @@ in
           merge = {
             conflictStyle = "diff3";
             tool = lib.mkDefault "meld";
-            mergiraf = {
-              name = "mergiraf";
-              driver = "mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L";
-            };
+          };
+          "merge.mergiraf" = {
+            name = "mergiraf";
+            driver = "mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L --timeout 5000";
           };
           mergetool = {
             meld = {
@@ -55,12 +70,48 @@ in
           pull = {
             rebase = true;
           };
+          fetch = {
+            all = true;
+            prune = true;
+            pruneTags = true;
+            fsckobjects = true;
+          };
+          transfer = {
+            fsckobjects = true;
+          };
+          receive = {
+            fsckobjects = true;
+          };
           init = {
             defaultBranch = "main";
           };
-          core = {
-            pager = "delta";
-            attributesfile = "~/.gitattributes";
+          rebase = {
+            autoSquash = true;
+            autoStash = true;
+            updateRefs = true;
+          };
+          rerere = {
+            enabled = true;
+            autoUpdate = true;
+          };
+          branch = {
+            sort = "-committerdate";
+          };
+          column = {
+            ui = "auto";
+          };
+          tag = {
+            sort = "version:refname";
+          };
+          help = {
+            autocorrect = "prompt";
+          };
+          diff = {
+            algorithm = "histogram";
+            colorMoved = "default";
+            colorMovedWs = "allow-indentation-change";
+            mnemonicPrefix = true;
+            renames = true;
           };
           interactive = {
             diffFilter = "delta --color-only";
@@ -70,6 +121,10 @@ in
             line-numbers = true;
             hyperlinks = true;
             hyperlinks-file-link-format = "file://{path}#{line}";
+            dark = true;
+            syntax-theme = "Visual Studio Dark+";
+            true-color = "always";
+            max-line-length = 0;
           };
         };
       }

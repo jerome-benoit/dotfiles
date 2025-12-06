@@ -56,6 +56,7 @@ in
     bun.enable = bunSupported;
     gh.enable = true;
     git.enable = true;
+    lazygit.enable = true;
     opencode.enable = bunSupported;
   };
 

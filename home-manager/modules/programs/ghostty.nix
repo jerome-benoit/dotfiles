@@ -25,6 +25,7 @@ in
         window-decoration = true;
         window-padding-x = 10;
         window-padding-y = 10;
+        window-padding-balance = true;
         window-save-state = "always";
         window-theme = "auto";
         window-inherit-working-directory = true;
@@ -32,6 +33,8 @@ in
         # Font
         font-family = "JetBrainsMono Nerd Font";
         font-size = 12;
+        font-thicken = true;
+        adjust-cell-height = "20%";
 
         # Cursor
         cursor-style = "block";
