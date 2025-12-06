@@ -71,7 +71,6 @@ in
             rebase = true;
           };
           fetch = {
-            all = true;
             prune = true;
             pruneTags = true;
             fsckobjects = true;
