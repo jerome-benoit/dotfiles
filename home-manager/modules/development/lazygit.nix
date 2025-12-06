@@ -64,7 +64,7 @@ in
           pagers = [
             {
               colorArg = "always";
-              pager = "delta --paging=never --line-numbers --navigate --hyperlinks --hyperlinks-file-link-format='file://{path}#{line}' --dark --syntax-theme='Visual Studio Dark+' --true-color=always";
+              pager = "delta --paging=never --line-numbers --navigate --side-by-side=false --hyperlinks --hyperlinks-file-link-format='file://{path}#{line}' --dark --syntax-theme='Visual Studio Dark+' --true-color=always --features=decorations --whitespace-error-style='22 reverse' --file-style='bold #DCDCAA ul' --file-decoration-style=none --hunk-header-style='file line-number syntax' --hunk-header-decoration-style='#569cd6 box'";
             }
           ];
 

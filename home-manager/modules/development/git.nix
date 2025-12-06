@@ -60,7 +60,7 @@ in
           };
           "merge.mergiraf" = {
             name = "mergiraf";
-            driver = "mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L --timeout 5000";
+            driver = "mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L --timeout 30000";
           };
           mergetool = {
             meld = {
@@ -119,12 +119,19 @@ in
           delta = {
             navigate = true;
             line-numbers = true;
+            side-by-side = false;
             hyperlinks = true;
             hyperlinks-file-link-format = "file://{path}#{line}";
             dark = true;
             syntax-theme = "Visual Studio Dark+";
             true-color = "always";
             max-line-length = 0;
+            features = "decorations";
+            whitespace-error-style = "22 reverse";
+            file-style = "bold #DCDCAA ul";
+            file-decoration-style = "none";
+            hunk-header-style = "file line-number syntax";
+            hunk-header-decoration-style = "#569cd6 box";
           };
         };
       }
