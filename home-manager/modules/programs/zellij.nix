@@ -9,8 +9,8 @@ let
   cfg = config.modules.programs.zellij;
   theme = config.modules.themes.tokyoNight;
   systemZellij = pkgs.runCommand "zellij-system" {
+    version = "0.43.0";
     meta.mainProgram = "zellij";
-    passthru.version = "0.43.0";
   } "mkdir -p $out";
 
 in
