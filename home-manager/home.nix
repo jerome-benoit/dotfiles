@@ -67,6 +67,7 @@ in
     lazydocker.enable = true;
     ssh.enable = true;
     tmux.enable = true;
+    zellij.enable = true;
   };
 
   modules.editors = {

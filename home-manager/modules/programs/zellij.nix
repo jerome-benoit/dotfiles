@@ -1,0 +1,147 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+
+let
+  cfg = config.modules.programs.zellij;
+  theme = config.modules.themes.tokyoNight;
+in
+{
+  options.modules.programs.zellij = {
+    enable = lib.mkEnableOption "zellij configuration";
+  };
+
+  config = lib.mkIf cfg.enable {
+    programs.zellij = {
+      enable = true;
+      enableZshIntegration = true;
+
+      settings = {
+        theme = theme.name;
+
+        simplified_ui = true;
+        pane_frames = true;
+        default_layout = "compact";
+
+        session_serialization = true;
+        pane_viewport_serialization = true;
+        scrollback_lines_to_serialize = 100;
+        serialization_interval = 60;
+
+        default_shell = "${pkgs.zsh}/bin/zsh";
+
+        scroll_buffer_size = config.modules.core.constants.historySize;
+        auto_layout = true;
+        stacked_resize = true;
+
+        mouse_mode = true;
+        copy_on_select = true;
+        copy_clipboard = "system";
+        advanced_mouse_actions = true;
+
+        show_startup_tips = true;
+        show_release_notes = true;
+        default_mode = "normal";
+      };
+
+      extraConfig = ''
+        keybinds {
+          normal {
+            // Pane navigation
+            bind "Alt h" { MoveFocus "Left"; }
+            bind "Alt j" { MoveFocus "Down"; }
+            bind "Alt k" { MoveFocus "Up"; }
+            bind "Alt l" { MoveFocus "Right"; }
+
+            // Tab navigation
+            bind "Alt [" { GoToPreviousTab; }
+            bind "Alt ]" { GoToNextTab; }
+
+            // Tab access
+            bind "Alt 1" { GoToTab 1; }
+            bind "Alt 2" { GoToTab 2; }
+            bind "Alt 3" { GoToTab 3; }
+            bind "Alt 4" { GoToTab 4; }
+            bind "Alt 5" { GoToTab 5; }
+            bind "Alt 6" { GoToTab 6; }
+            bind "Alt 7" { GoToTab 7; }
+            bind "Alt 8" { GoToTab 8; }
+            bind "Alt 9" { GoToTab 9; }
+
+            // Quick actions
+            bind "Alt n" { NewPane; }
+            bind "Alt t" { NewTab; }
+            bind "Alt f" { ToggleFloatingPanes; }
+            bind "Alt z" { ToggleFocusFullscreen; }
+            bind "Alt p" { TogglePanePin; }
+            bind "Alt w" { TogglePaneFrames; }
+
+            // Plugin management
+            bind "Ctrl o" "w" { LaunchOrFocusPlugin "session-manager"; }
+            bind "Ctrl o" "p" { LaunchOrFocusPlugin "plugin-manager"; }
+          }
+        }
+      '';
+
+      layouts.default = {
+        layout = {
+          _children = [
+            {
+              default_tab_template = {
+                _children = [
+                  { children = { }; }
+
+                  # Status bar
+                  {
+                    pane = {
+                      _props = {
+                        size = 1;
+                        borderless = true;
+                      };
+                      _children = [
+                        {
+                          plugin = {
+                            _props = {
+                              location = "https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm";
+                            };
+
+                            format_left = "{mode} #[fg=${theme.brightBlue},bold]{session}";
+                            format_center = "{tabs}";
+                            format_right = "{datetime}";
+                            format_space = "";
+
+                            hide_frame_for_single_pane = "true";
+
+                            mode_normal = "#[bg=${theme.blue},fg=${theme.bg},bold] NORMAL ";
+                            mode_locked = "#[bg=${theme.red},fg=${theme.bg},bold] LOCKED ";
+                            mode_pane = "#[bg=${theme.green},fg=${theme.bg},bold] PANE ";
+                            mode_tab = "#[bg=${theme.cyan},fg=${theme.bg},bold] TAB ";
+                            mode_resize = "#[bg=${theme.magenta},fg=${theme.bg},bold] RESIZE ";
+                            mode_scroll = "#[bg=${theme.yellow},fg=${theme.bg},bold] SCROLL ";
+                            mode_move = "#[bg=${theme.orange},fg=${theme.bg},bold] MOVE ";
+                            mode_session = "#[bg=${theme.red},fg=${theme.bg},bold] SESSION ";
+                            mode_tmux = "#[bg=${theme.fg},fg=${theme.bg},bold] TMUX ";
+
+                            tab_normal = "#[fg=${theme.comment}] {index}:{name} ";
+                            tab_active = "#[fg=${theme.blue},bold] {index}:{name} ";
+
+                            datetime = "#[fg=${theme.fg}] {format}";
+                            datetime_format = "%H:%M";
+                            datetime_timezone = "Europe/Paris";
+                          };
+                        }
+                      ];
+                    };
+                  }
+                ];
+              };
+            }
+          ];
+        };
+      };
+    };
+  };
+}

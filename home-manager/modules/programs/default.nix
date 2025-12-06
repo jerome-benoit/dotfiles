@@ -7,5 +7,6 @@
     ./lazydocker.nix
     ./ssh.nix
     ./tmux.nix
+    ./zellij.nix
   ];
 }

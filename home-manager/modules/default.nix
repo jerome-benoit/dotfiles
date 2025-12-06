@@ -5,5 +5,6 @@
     ./editors
     ./programs
     ./shell
+    ./themes
   ];
 }

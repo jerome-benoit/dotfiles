@@ -7,6 +7,7 @@
 
 let
   cfg = config.modules.programs.ghostty;
+  theme = config.modules.themes.tokyoNight;
   systemGhostty = pkgs.runCommand "ghostty-system" { meta.mainProgram = "ghostty"; } "mkdir -p $out";
 in
 {
@@ -91,7 +92,7 @@ in
         ];
       }
       // lib.optionalAttrs pkgs.stdenv.isDarwin {
-        theme = "tokyo-night-storm";
+        theme = theme.name;
         macos-option-as-alt = true;
       };
     };

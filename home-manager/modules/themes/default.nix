@@ -1,0 +1,5 @@
+{
+  imports = [
+    ./tokyo-night.nix
+  ];
+}

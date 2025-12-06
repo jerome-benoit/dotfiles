@@ -7,6 +7,7 @@
 
 let
   cfg = config.modules.programs.alacritty;
+  theme = config.modules.themes.tokyoNight;
   systemAlacritty = pkgs.runCommand "alacritty-system" {
     meta.mainProgram = "alacritty";
   } "mkdir -p $out";
@@ -23,7 +24,7 @@ in
       settings = {
         general = {
           import = [
-            "${pkgs.alacritty-theme}/share/alacritty-theme/tokyo_night_storm.toml"
+            "${pkgs.alacritty-theme}/share/alacritty-theme/${theme.fileName}.toml"
           ];
           live_config_reload = true;
         };
@@ -95,7 +96,7 @@ in
         bell = {
           animation = "EaseOutSine";
           duration = 125;
-          color = "#444b6a";
+          color = theme.brightBlack;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           command = {

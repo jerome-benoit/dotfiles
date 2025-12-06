@@ -7,6 +7,7 @@
 
 let
   cfg = config.modules.programs.tmux;
+  theme = config.modules.themes.tokyoNight;
   systemTmux = pkgs.runCommand "tmux-system" { meta.mainProgram = "tmux"; } "mkdir -p $out";
 in
 {

@@ -34,7 +34,9 @@ in
         theme = "fino";
         plugins = [
           "git"
+          "gh"
           "colorize"
+          "direnv"
           "screen"
           "tmux"
           "docker"
