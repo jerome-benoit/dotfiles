@@ -21,18 +21,23 @@
       keyId = lib.mkOption {
         type = lib.types.str;
         default = "27B535D3";
-        description = "The GPG key ID";
+        description = "The user's GPG key ID";
       };
       fingerprint = lib.mkOption {
         type = lib.types.str;
         default = "B799 BBF6 8EC8 911B B8D7 CDBC C3B1 92C6 27B5 35D3";
-        description = "The GPG key fingerprint";
+        description = "The user's GPG key fingerprint";
       };
     };
     historySize = lib.mkOption {
       type = lib.types.int;
       default = 50000;
       description = "Default history size for shells and terminal emulators";
+    };
+    timezone = lib.mkOption {
+      type = lib.types.str;
+      default = "Europe/Paris";
+      description = "Default timezone for programs";
     };
   };
 }

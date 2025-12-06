@@ -8,6 +8,11 @@
 let
   cfg = config.modules.programs.zellij;
   theme = config.modules.themes.tokyoNight;
+  systemZellij = pkgs.runCommand "zellij-system" {
+    meta.mainProgram = "zellij";
+    passthru.version = "0.43.0";
+  } "mkdir -p $out";
+
 in
 {
   options.modules.programs.zellij = {
@@ -17,21 +22,20 @@ in
   config = lib.mkIf cfg.enable {
     programs.zellij = {
       enable = true;
-      enableZshIntegration = true;
+      package = if pkgs.stdenv.isDarwin then pkgs.zellij else systemZellij;
+      enableZshIntegration = false;
 
       settings = {
         theme = theme.name;
 
         simplified_ui = true;
         pane_frames = true;
-        default_layout = "compact";
+        default_layout = "default";
 
         session_serialization = true;
         pane_viewport_serialization = true;
         scrollback_lines_to_serialize = 100;
         serialization_interval = 60;
-
-        default_shell = "${pkgs.zsh}/bin/zsh";
 
         scroll_buffer_size = config.modules.core.constants.historySize;
         auto_layout = true;
@@ -42,7 +46,7 @@ in
         copy_clipboard = "system";
         advanced_mouse_actions = true;
 
-        show_startup_tips = true;
+        show_startup_tips = false;
         show_release_notes = true;
         default_mode = "normal";
       };
@@ -76,7 +80,6 @@ in
             bind "Alt t" { NewTab; }
             bind "Alt f" { ToggleFloatingPanes; }
             bind "Alt z" { ToggleFocusFullscreen; }
-            bind "Alt p" { TogglePanePin; }
             bind "Alt w" { TogglePaneFrames; }
 
             // Plugin management
@@ -130,7 +133,7 @@ in
 
                             datetime = "#[fg=${theme.fg}] {format}";
                             datetime_format = "%H:%M";
-                            datetime_timezone = "Europe/Paris";
+                            datetime_timezone = config.modules.core.constants.timezone;
                           };
                         }
                       ];
