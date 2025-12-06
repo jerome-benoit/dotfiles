@@ -28,27 +28,16 @@ in
       settings = {
         theme = theme.name;
 
-        simplified_ui = true;
-        pane_frames = true;
-        default_layout = "default";
+        simplified_ui = true; # default: false
 
-        session_serialization = true;
-        pane_viewport_serialization = true;
-        scrollback_lines_to_serialize = 100;
-        serialization_interval = 60;
+        session_serialization = true; # default: false
+        pane_viewport_serialization = true; # default: false
+        scrollback_lines_to_serialize = 100; # default: 10000
+        serialization_interval = 60; # serialize every 60 seconds
 
         scroll_buffer_size = config.modules.core.constants.historySize;
-        auto_layout = true;
-        stacked_resize = true;
 
-        mouse_mode = true;
-        copy_on_select = true;
-        copy_clipboard = "system";
-        advanced_mouse_actions = true;
-
-        show_startup_tips = false;
-        show_release_notes = true;
-        default_mode = "normal";
+        show_startup_tips = false; # default: true
       };
 
       extraConfig = ''

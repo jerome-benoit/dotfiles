@@ -39,6 +39,7 @@ in
         set -g renumber-windows on
 
         # Window Options
+        set -g set-titles on
         set -g set-clipboard on
 
         # Terminal Features
@@ -51,13 +52,26 @@ in
         # ============================================================================
         # KEY BINDINGS
         # ============================================================================
+        # Pane Splits
+        bind-key '"' split-window -v -c "#{pane_current_path}"
+        bind-key % split-window -h -c "#{pane_current_path}"
 
-        # Copy Mode
+        # Copy Mode - Selection
         bind-key -T copy-mode-vi v send-keys -X begin-selection
         bind-key -T copy-mode-vi C-v send-keys -X rectangle-toggle
         bind-key -T copy-mode-vi y send-keys -X copy-selection-and-cancel
         bind-key -T copy-mode-vi H send-keys -X start-of-line
         bind-key -T copy-mode-vi L send-keys -X end-of-line
+
+        # Copy Mode - Navigation & Search
+        bind-key -T copy-mode-vi C-u send-keys -X halfpage-up
+        bind-key -T copy-mode-vi C-d send-keys -X halfpage-down
+        bind-key -T copy-mode-vi g send-keys -X history-top
+        bind-key -T copy-mode-vi G send-keys -X history-bottom
+        bind-key -T copy-mode-vi / send-keys -X search-forward
+        bind-key -T copy-mode-vi ? send-keys -X search-backward
+        bind-key -T copy-mode-vi n send-keys -X search-again
+        bind-key -T copy-mode-vi N send-keys -X search-reverse
 
         # Window Navigation
         bind -r C-h previous-window

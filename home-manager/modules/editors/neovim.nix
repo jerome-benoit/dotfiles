@@ -264,6 +264,8 @@ let
     vim.keymap.set('n', '<leader>fg', telescope_builtin.live_grep, { desc = "Find: Text (grep)", silent = true })
     vim.keymap.set('n', '<leader>fb', telescope_builtin.buffers, { desc = "Find: Buffers", silent = true })
     vim.keymap.set('n', '<leader>fh', telescope_builtin.help_tags, { desc = "Find: Help tags", silent = true })
+    vim.keymap.set('n', '<leader>fr', telescope_builtin.oldfiles, { desc = "Find: Recent files", silent = true })
+    vim.keymap.set('n', '<leader>/', telescope_builtin.current_buffer_fuzzy_find, { desc = "Find: In buffer", silent = true })
 
     -- ==========================================================================
     -- Formatting

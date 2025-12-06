@@ -36,7 +36,6 @@ in
           };
 
           border = "rounded";
-          nerdFontsVersion = "3";
           showFileIcons = true;
           scrollHeight = 2;
           language = "auto";

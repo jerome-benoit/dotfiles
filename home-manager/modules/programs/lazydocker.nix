@@ -33,7 +33,7 @@ in
           };
           returnImmediately = false;
           wrapMainPanel = true;
-          sidePanelWidth = 0.333;
+          sidePanelWidth = 0.3333;
           showBottomLine = true;
           expandFocusedSidePanel = true;
           screenMode = "normal";
