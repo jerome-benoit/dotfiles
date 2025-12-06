@@ -31,7 +31,7 @@ in
             selectedLineBgColor = [ theme.brightBlack ];
             optionsTextColor = [ theme.blue ];
           };
-          returnImmediately = false;
+          returnImmediately = true;
           wrapMainPanel = true;
           sidePanelWidth = 0.3333;
           showBottomLine = true;
