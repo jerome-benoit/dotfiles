@@ -21,6 +21,12 @@
       opencode-nvim,
     }@inputs:
     let
+      systems = {
+        linux = "x86_64-linux";
+        darwin = "aarch64-darwin";
+      };
+      forAllSystems = nixpkgs.lib.genAttrs (builtins.attrValues systems);
+
       mkHomeConfiguration =
         {
           system,
@@ -37,13 +43,56 @@
     {
       homeConfigurations = {
         "fraggle" = mkHomeConfiguration {
-          system = "x86_64-linux";
+          system = systems.linux;
           username = "fraggle";
         };
         "I339261" = mkHomeConfiguration {
-          system = "aarch64-darwin";
+          system = systems.darwin;
           username = "I339261";
         };
       };
+
+      formatter = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.writeShellScriptBin "nix-fmt" ''
+          set -euo pipefail
+          [[ $# -eq 0 ]] && set -- .
+
+          format_dir() {
+            find "$1" -name '*.nix' -type f -exec ${pkgs.nixfmt-rfc-style}/bin/nixfmt {} +
+          }
+
+          for arg in "$@"; do
+            [[ -d "$arg" ]] && format_dir "$arg" && continue
+            [[ -f "$arg" ]] && ${pkgs.nixfmt-rfc-style}/bin/nixfmt "$arg" && continue
+            echo "Error: $arg not found" >&2 && exit 1
+          done
+        ''
+      );
+
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          formatting =
+            pkgs.runCommand "check-nix-formatting" { nativeBuildInputs = [ pkgs.nixfmt-rfc-style ]; }
+              ''
+                cd ${self}
+                files=$(${pkgs.git}/bin/git ls-files '*.nix' 2>/dev/null || find . -name '*.nix' -type f)
+                for file in $files; do
+                  [ -f "$file" ] && ${pkgs.nixfmt-rfc-style}/bin/nixfmt --check "$file" || {
+                    echo "ERROR: $file not formatted. Run 'nix fmt'" >&2
+                    exit 1
+                  }
+                done
+                echo "OK" > $out
+              '';
+        }
+      );
     };
 }
