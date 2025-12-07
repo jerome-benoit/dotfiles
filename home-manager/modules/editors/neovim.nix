@@ -84,7 +84,7 @@ let
     })
     require("tokyonight").setup({
       style = "storm", transparent = true, terminal_colors = true,
-      styles = { comments = { italic = true }, keywords = { italic = true }, sidebars = "dark", floats = "dark" },
+      styles = { comments = { italic = true }, keywords = { italic = true }, functions = {}, variables = {}, sidebars = "dark", floats = "dark" },
       cache = true,
     })
     vim.cmd.colorscheme "tokyonight-storm"
