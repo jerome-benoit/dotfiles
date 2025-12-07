@@ -329,7 +329,7 @@ in
     assertions = [
       {
         assertion = cfg.opencode.enable -> config.modules.development.opencode.enable;
-        message = "neovim opencode integration requires opencode module enabled (modules.development.opencode.enable = true)";
+        message = "Neovim opencode integration requires opencode module enabled (modules.development.opencode.enable = true)";
       }
     ];
 
