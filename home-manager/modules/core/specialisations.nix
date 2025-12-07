@@ -40,6 +40,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = config.modules.development.git.enable;
+        message = "specialisations: Git module must be enabled (modules.development.git.enable = true)";
+      }
+    ];
+
     specialisation = {
       work = mkSpecialisation {
         name = "work";

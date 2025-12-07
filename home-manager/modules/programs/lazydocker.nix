@@ -24,12 +24,12 @@ in
           border = "rounded";
           theme = {
             activeBorderColor = [
-              theme.blue
+              theme.colors.blue
               "bold"
             ];
-            inactiveBorderColor = [ theme.comment ];
-            selectedLineBgColor = [ theme.brightBlack ];
-            optionsTextColor = [ theme.blue ];
+            inactiveBorderColor = [ theme.colors.magenta ];
+            selectedLineBgColor = [ theme.colors.brightBlack ];
+            optionsTextColor = [ theme.colors.blue ];
           };
           returnImmediately = true;
           wrapMainPanel = true;

@@ -95,7 +95,7 @@ in
         ];
       }
       // lib.optionalAttrs pkgs.stdenv.isDarwin {
-        theme = theme.name;
+        theme = theme.altName or theme.name;
         macos-option-as-alt = true;
       };
     };

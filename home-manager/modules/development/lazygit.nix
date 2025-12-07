@@ -15,6 +15,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = config.modules.development.git.enable;
+        message = "lazygit: Git module must be enabled (modules.development.git.enable = true)";
+      }
+    ];
+
     programs.lazygit = {
       enable = true;
 
@@ -22,17 +29,17 @@ in
         gui = {
           theme = {
             activeBorderColor = [
-              theme.blue
+              theme.colors.blue
               "bold"
             ];
-            inactiveBorderColor = [ theme.comment ];
-            selectedLineBgColor = [ theme.brightBlack ];
-            cherryPickedCommitBgColor = [ theme.cyan ];
-            cherryPickedCommitFgColor = [ theme.blue ];
-            markedBaseCommitBgColor = [ theme.yellow ];
-            markedBaseCommitFgColor = [ theme.blue ];
-            unstagedChangesColor = [ theme.red ];
-            defaultFgColor = [ theme.fg ];
+            inactiveBorderColor = [ theme.colors.magenta ];
+            selectedLineBgColor = [ theme.colors.brightBlack ];
+            cherryPickedCommitBgColor = [ theme.colors.cyan ];
+            cherryPickedCommitFgColor = [ theme.colors.blue ];
+            markedBaseCommitBgColor = [ theme.colors.yellow ];
+            markedBaseCommitFgColor = [ theme.colors.blue ];
+            unstagedChangesColor = [ theme.colors.red ];
+            defaultFgColor = [ theme.colors.fg ];
           };
 
           border = "rounded";

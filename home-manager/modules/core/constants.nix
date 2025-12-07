@@ -1,7 +1,7 @@
 { config, lib, ... }:
 
 let
-  emailRegex = "^[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$";
+  emailRegex = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$";
 in
 {
   options.modules.core.constants = {
@@ -31,7 +31,7 @@ in
         readOnly = true;
       };
       fingerprint = lib.mkOption {
-        type = lib.types.strMatching "^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{4}(?:[ :]?[0-9A-Fa-f]{4}){9})$";
+        type = lib.types.strMatching "^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{4}([ :]?[0-9A-Fa-f]{4}){9})$";
         default = "B799 BBF6 8EC8 911B B8D7 CDBC C3B1 92C6 27B5 35D3";
         description = "The user's GPG key fingerprint";
         readOnly = true;

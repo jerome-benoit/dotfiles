@@ -1,103 +1,35 @@
 { lib, ... }:
 
 {
-  options.modules.themes.tokyoNightStorm = {
-    # Meta
-    name = lib.mkOption {
-      type = lib.types.str;
-      default = "tokyo-night-storm";
-      description = "Theme name";
-    };
+  config.modules.themes.tokyoNightStorm = {
+    name = "tokyo-night-storm";
+    altName = "TokyoNight Storm";
+    fileName = "tokyo_night_storm";
 
-    fileName = lib.mkOption {
-      type = lib.types.str;
-      default = "tokyo_night_storm";
-      description = "Theme file name";
-    };
+    colors = {
+      # Base colors
+      bg = "#24283b";
+      fg = "#a9b1d6";
 
-    # Colors
-    bg = lib.mkOption {
-      type = lib.types.str;
-      default = "#1a1b26";
-      description = "Background";
-    };
+      # Standard colors
+      black = "#32344a";
+      red = "#f7768e";
+      green = "#9ece6a";
+      yellow = "#e0af68";
+      blue = "#7aa2f7";
+      magenta = "#ad8ee6";
+      cyan = "#449dab";
+      white = "#9699a8";
 
-    fg = lib.mkOption {
-      type = lib.types.str;
-      default = "#c0caf5";
-      description = "Foreground";
-    };
-
-    black = lib.mkOption {
-      type = lib.types.str;
-      default = "#32344a";
-      description = "Normal black";
-    };
-
-    red = lib.mkOption {
-      type = lib.types.str;
-      default = "#f7768e";
-      description = "Normal red";
-    };
-
-    green = lib.mkOption {
-      type = lib.types.str;
-      default = "#9ece6a";
-      description = "Normal green";
-    };
-
-    yellow = lib.mkOption {
-      type = lib.types.str;
-      default = "#e0af68";
-      description = "Normal yellow";
-    };
-
-    blue = lib.mkOption {
-      type = lib.types.str;
-      default = "#7aa2f7";
-      description = "Normal blue";
-    };
-
-    magenta = lib.mkOption {
-      type = lib.types.str;
-      default = "#bb9af7";
-      description = "Normal magenta";
-    };
-
-    cyan = lib.mkOption {
-      type = lib.types.str;
-      default = "#7dcfff";
-      description = "Normal cyan";
-    };
-
-    white = lib.mkOption {
-      type = lib.types.str;
-      default = "#9699a8";
-      description = "Normal white";
-    };
-
-    brightBlack = lib.mkOption {
-      type = lib.types.str;
-      default = "#444b6a";
-      description = "Bright black";
-    };
-
-    brightBlue = lib.mkOption {
-      type = lib.types.str;
-      default = "#89B4FA";
-      description = "Bright blue";
-    };
-
-    comment = lib.mkOption {
-      type = lib.types.str;
-      default = "#565f89";
-      description = "Comment color";
-    };
-
-    orange = lib.mkOption {
-      type = lib.types.str;
-      default = "#ff9e64";
-      description = "Orange accent";
+      # Bright colors
+      brightBlack = "#444b6a";
+      brightRed = "#ff7a93";
+      brightGreen = "#b9f27c";
+      brightYellow = "#ff9e64";
+      brightBlue = "#7da6ff";
+      brightMagenta = "#bb9af7";
+      brightCyan = "#0db9d7";
+      brightWhite = "#acb0d0";
     };
   };
 }

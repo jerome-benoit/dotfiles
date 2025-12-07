@@ -93,7 +93,7 @@ in
         bell = {
           animation = "EaseOutSine";
           duration = 125;
-          color = theme.brightBlack;
+          color = theme.colors.brightBlack;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           command = {

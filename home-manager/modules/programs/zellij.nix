@@ -99,27 +99,27 @@ in
                               location = "https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm";
                             };
 
-                            format_left = "{mode} #[fg=${theme.brightBlue},bold]{session}";
+                            format_left = "{mode} #[fg=${theme.colors.brightBlue},bold]{session}";
                             format_center = "{tabs}";
                             format_right = "{datetime}";
                             format_space = "";
 
                             hide_frame_for_single_pane = "true";
 
-                            mode_normal = "#[bg=${theme.blue},fg=${theme.bg},bold] NORMAL ";
-                            mode_locked = "#[bg=${theme.red},fg=${theme.bg},bold] LOCKED ";
-                            mode_pane = "#[bg=${theme.green},fg=${theme.bg},bold] PANE ";
-                            mode_tab = "#[bg=${theme.cyan},fg=${theme.bg},bold] TAB ";
-                            mode_resize = "#[bg=${theme.magenta},fg=${theme.bg},bold] RESIZE ";
-                            mode_scroll = "#[bg=${theme.yellow},fg=${theme.bg},bold] SCROLL ";
-                            mode_move = "#[bg=${theme.orange},fg=${theme.bg},bold] MOVE ";
-                            mode_session = "#[bg=${theme.red},fg=${theme.bg},bold] SESSION ";
-                            mode_tmux = "#[bg=${theme.fg},fg=${theme.bg},bold] TMUX ";
+                            mode_normal = "#[bg=${theme.colors.blue},fg=${theme.colors.bg},bold] NORMAL ";
+                            mode_locked = "#[bg=${theme.colors.red},fg=${theme.colors.bg},bold] LOCKED ";
+                            mode_pane = "#[bg=${theme.colors.green},fg=${theme.colors.bg},bold] PANE ";
+                            mode_tab = "#[bg=${theme.colors.cyan},fg=${theme.colors.bg},bold] TAB ";
+                            mode_resize = "#[bg=${theme.colors.magenta},fg=${theme.colors.bg},bold] RESIZE ";
+                            mode_scroll = "#[bg=${theme.colors.yellow},fg=${theme.colors.bg},bold] SCROLL ";
+                            mode_move = "#[bg=${theme.colors.brightYellow},fg=${theme.colors.bg},bold] MOVE ";
+                            mode_session = "#[bg=${theme.colors.red},fg=${theme.colors.bg},bold] SESSION ";
+                            mode_tmux = "#[bg=${theme.colors.fg},fg=${theme.colors.bg},bold] TMUX ";
 
-                            tab_normal = "#[fg=${theme.comment}] {index}:{name} ";
-                            tab_active = "#[fg=${theme.blue},bold] {index}:{name} ";
+                            tab_normal = "#[fg=${theme.colors.magenta}] {index}:{name} ";
+                            tab_active = "#[fg=${theme.colors.blue},bold] {index}:{name} ";
 
-                            datetime = "#[fg=${theme.fg}] {format}";
+                            datetime = "#[fg=${theme.colors.fg}] {format}";
                             datetime_format = "%H:%M";
                             datetime_timezone = config.modules.core.constants.timezone;
                           };

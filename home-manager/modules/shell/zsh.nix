@@ -21,10 +21,10 @@ in
       enable = true;
       package = systemZsh;
       sessionVariables = {
-        NH_FLAKE = lib.mkDefault "$HOME/.nix";
-        DVM_DIR = lib.mkDefault "$HOME/.dvm";
-        WORKSPACE = lib.mkDefault "$HOME/tmp";
-        EDITOR = lib.mkDefault "vi";
+        NH_FLAKE = "$HOME/.nix";
+        DVM_DIR = "$HOME/.dvm";
+        WORKSPACE = "$HOME/tmp";
+        EDITOR = "vi";
       };
       shellAliases = {
         hm = lib.mkDefault "nh home switch --impure";

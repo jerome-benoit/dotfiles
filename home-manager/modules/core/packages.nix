@@ -64,7 +64,7 @@ in
         zoom-us
       ];
 
-    xdg.configFile."homebrew/Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
+    home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
       text = ''
         cask "docker-desktop"
         cask "ferdium"
@@ -78,12 +78,12 @@ in
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         if [[ -f /opt/homebrew/bin/brew ]]; then
           verboseEcho "Installing Homebrew packages from Brewfile"
-          run /opt/homebrew/bin/brew bundle install --file="${config.xdg.configHome}/homebrew/Brewfile"
-          run /opt/homebrew/bin/brew bundle cleanup --file="${config.xdg.configHome}/homebrew/Brewfile" --force
+          run /opt/homebrew/bin/brew bundle install --global
+          run /opt/homebrew/bin/brew bundle cleanup --global --force
         elif [[ -f /usr/local/bin/brew ]]; then
           verboseEcho "Installing Homebrew packages from Brewfile"
-          run /usr/local/bin/brew bundle install --file="${config.xdg.configHome}/homebrew/Brewfile"
-          run /usr/local/bin/brew bundle cleanup --file="${config.xdg.configHome}/homebrew/Brewfile" --force
+          run /usr/local/bin/brew bundle install --global
+          run /usr/local/bin/brew bundle cleanup --global --force
         else
           warnEcho "Homebrew not found at /opt/homebrew/bin/brew or /usr/local/bin/brew"
         fi
