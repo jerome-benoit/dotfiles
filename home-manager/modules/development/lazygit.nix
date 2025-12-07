@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.development.lazygit;
-  theme = config.modules.themes.tokyoNight;
+  theme = config.modules.themes.tokyoNightStorm;
 in
 {
   options.modules.development.lazygit = {

@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.ghostty;
-  theme = config.modules.themes.tokyoNight;
+  theme = config.modules.themes.tokyoNightStorm;
   systemGhostty = pkgs.runCommand "ghostty-system" { meta.mainProgram = "ghostty"; } "mkdir -p $out";
 in
 {

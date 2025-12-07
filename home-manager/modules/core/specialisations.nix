@@ -1,6 +1,38 @@
 { config, lib, ... }:
 let
   cfg = config.modules.core.specialisations;
+
+  mkSpecialisation =
+    {
+      name,
+      email,
+      signature,
+    }:
+    {
+      configuration =
+        let
+          gpgKeyId = config.modules.core.constants.gpg.keyId;
+          gpgFingerprint = config.modules.core.constants.gpg.fingerprint;
+        in
+        {
+          home.file.".signature".text = lib.mkForce ''
+            ${signature}
+            OpenPGP Key ID : ${gpgKeyId}
+            Key fingerprint : ${gpgFingerprint}
+          '';
+
+          programs.git.settings.user = {
+            email = lib.mkForce email;
+            signingKey = lib.mkForce gpgKeyId;
+          };
+
+          programs.zsh.shellAliases = {
+            hm = lib.mkForce "nh home switch --specialisation ${name} --impure";
+            hmw = "nh home switch --specialisation work --impure";
+            hmp = "nh home switch --specialisation personal --impure";
+          };
+        };
+    };
 in
 {
   options.modules.core.specialisations = {
@@ -9,58 +41,22 @@ in
 
   config = lib.mkIf cfg.enable {
     specialisation = {
-      work = {
-        configuration =
-          let
-            gpgKeyId = config.modules.core.constants.gpg.keyId;
-            gpgFingerprint = config.modules.core.constants.gpg.fingerprint;
-          in
-          {
-            home.file.".signature".text = lib.mkForce ''
-              ${config.modules.core.constants.username} - R&D Software Engineer
-              SAP Labs France
-              OpenPGP Key ID : ${gpgKeyId}
-              Key fingerprint : ${gpgFingerprint}
-            '';
-
-            programs.git.settings.user = {
-              email = lib.mkForce config.modules.core.constants.workEmail;
-              signingKey = lib.mkForce gpgKeyId;
-            };
-
-            programs.zsh.shellAliases = {
-              hm = lib.mkForce "nh home switch --specialisation work --impure";
-              hmw = "nh home switch --specialisation work --impure";
-              hmp = "nh home switch --specialisation personal --impure";
-            };
-          };
+      work = mkSpecialisation {
+        name = "work";
+        email = config.modules.core.constants.workEmail;
+        signature = ''
+          ${config.modules.core.constants.username} - R&D Software Engineer
+          SAP Labs France
+        '';
       };
 
-      personal = {
-        configuration =
-          let
-            gpgKeyId = config.modules.core.constants.gpg.keyId;
-            gpgFingerprint = config.modules.core.constants.gpg.fingerprint;
-          in
-          {
-            home.file.".signature".text = lib.mkForce ''
-              ${config.modules.core.constants.username} aka fraggle
-              Piment Noir - https://piment-noir.org
-              OpenPGP Key ID : ${gpgKeyId}
-              Key fingerprint : ${gpgFingerprint}
-            '';
-
-            programs.git.settings.user = {
-              email = lib.mkForce config.modules.core.constants.email;
-              signingKey = lib.mkForce gpgKeyId;
-            };
-
-            programs.zsh.shellAliases = {
-              hm = lib.mkForce "nh home switch --specialisation personal --impure";
-              hmw = "nh home switch --specialisation work --impure";
-              hmp = "nh home switch --specialisation personal --impure";
-            };
-          };
+      personal = mkSpecialisation {
+        name = "personal";
+        email = config.modules.core.constants.email;
+        signature = ''
+          ${config.modules.core.constants.username} aka fraggle
+          Piment Noir - https://piment-noir.org
+        '';
       };
     };
   };

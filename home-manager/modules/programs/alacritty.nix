@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.alacritty;
-  theme = config.modules.themes.tokyoNight;
+  theme = config.modules.themes.tokyoNightStorm;
   systemAlacritty = pkgs.runCommand "alacritty-system" {
     meta.mainProgram = "alacritty";
   } "mkdir -p $out";

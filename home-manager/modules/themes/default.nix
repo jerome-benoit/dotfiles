@@ -1,5 +1,5 @@
 {
   imports = [
-    ./tokyo-night.nix
+    ./tokyo-night-storm.nix
   ];
 }

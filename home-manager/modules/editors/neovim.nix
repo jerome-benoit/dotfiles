@@ -10,8 +10,15 @@ let
   cfg = config.modules.editors.neovim;
 
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
-    name = "opencode-nvim";
+    pname = "opencode-nvim";
+    version = "unstable-${lib.substring 0 9 inputs.opencode-nvim.rev}";
     src = inputs.opencode-nvim;
+    meta = with lib; {
+      homepage = "https://github.com/NickvanDyke/opencode.nvim";
+      description = "OpenCode integration for Neovim";
+      license = licenses.mit;
+      maintainers = [ ];
+    };
   };
 
   nvimBasePlugins = with pkgs.vimPlugins; [
@@ -56,125 +63,54 @@ let
 
   nvimPlugins = nvimBasePlugins ++ lib.optionals cfg.opencode.enable nvimAiPlugins;
 
-  # Lua Configuration
   nvimBaseLuaConfig = ''
-    -- ==========================================================================
     -- Global Options
-    -- ==========================================================================
     vim.o.termguicolors = true
-    vim.o.number = true
-    vim.o.relativenumber = true
-    vim.o.cursorline = true
-    vim.o.scrolloff = 5
-    vim.o.expandtab = true
-    vim.o.shiftwidth = 2
-    vim.o.tabstop = 2
-    vim.o.smartindent = true
-    vim.o.ignorecase = true
-    vim.o.smartcase = true
-    vim.o.clipboard = 'unnamedplus'
-    vim.o.updatetime = 250
-    vim.o.timeoutlen = 300
-    vim.o.signcolumn = 'yes'
-    vim.o.autoread = true
-    vim.o.undofile = true
-    vim.o.mouse = 'a'
-    vim.o.splitright = true
-    vim.o.splitbelow = true
+    vim.o.number, vim.o.relativenumber = true, true
+    vim.o.cursorline, vim.o.scrolloff = true, 5
+    vim.o.expandtab, vim.o.shiftwidth, vim.o.tabstop = true, 2, 2
+    vim.o.smartindent, vim.o.ignorecase, vim.o.smartcase = true, true, true
+    vim.o.clipboard, vim.o.updatetime, vim.o.timeoutlen = 'unnamedplus', 250, 300
+    vim.o.signcolumn, vim.o.autoread, vim.o.undofile = 'yes', true, true
+    vim.o.mouse, vim.o.splitright, vim.o.splitbelow = 'a', true, true
 
-    -- ==========================================================================
     -- UI & Theme
-    -- ==========================================================================
     require('nvim-web-devicons').setup({ default = true })
-
     require("snacks").setup({
-      bigfile = { enabled = true },
-      dashboard = { enabled = true },
-      indent = { enabled = true },
-      input = { enabled = true },
-      notifier = { enabled = true },
-      picker = { enabled = true },
-      quickfile = { enabled = true },
-      scroll = { enabled = true },
-      statuscolumn = { enabled = true },
-      terminal = { enabled = true },
-      words = { enabled = true },
+      bigfile = { enabled = true }, dashboard = { enabled = true }, indent = { enabled = true },
+      input = { enabled = true }, notifier = { enabled = true }, picker = { enabled = true },
+      quickfile = { enabled = true }, scroll = { enabled = true }, statuscolumn = { enabled = true },
+      terminal = { enabled = true }, words = { enabled = true },
     })
-
     require("tokyonight").setup({
-      style = "storm",
-      transparent = true,
-      terminal_colors = true,
-      styles = {
-        comments = { italic = true },
-        keywords = { italic = true },
-        functions = {},
-        variables = {},
-        sidebars = "dark",
-        floats = "dark",
-      },
+      style = "storm", transparent = true, terminal_colors = true,
+      styles = { comments = { italic = true }, keywords = { italic = true }, sidebars = "dark", floats = "dark" },
       cache = true,
     })
     vim.cmd.colorscheme "tokyonight-storm"
 
-    -- ==========================================================================
     -- File Management
-    -- ==========================================================================
     require("neo-tree").setup({
-      close_if_last_window = true,
-      window = { position = "left", width = 30 },
-      filesystem = {
-        follow_current_file = { enabled = true },
-        hijack_netrw_behavior = "open_default",
-        use_libuv_file_watcher = true,
-      },
+      close_if_last_window = true, window = { position = "left", width = 30 },
+      filesystem = { follow_current_file = { enabled = true }, hijack_netrw_behavior = "open_default", use_libuv_file_watcher = true },
     })
-
-    -- Open Neo-tree on startup if no args
-    local neotree_auto_group = vim.api.nvim_create_augroup("NeotreeAuto", { clear = true })
     vim.api.nvim_create_autocmd("VimEnter", {
-      group = neotree_auto_group,
-      desc = "Open Neo-tree on startup",
-      callback = function()
-        if vim.fn.argc() == 0 then
-          vim.cmd("Neotree toggle filesystem reveal left")
-        end
-      end,
+      group = vim.api.nvim_create_augroup("NeotreeAuto", { clear = true }),
+      callback = function() if vim.fn.argc() == 0 then vim.cmd("Neotree toggle filesystem reveal left") end end,
     })
     vim.keymap.set("n", "<leader>e", "<CMD>Neotree toggle<CR>", { desc = "File explorer: Toggle", silent = true })
-
-    require("oil").setup({
-      watch_for_changes = true,
-      view_options = {
-        show_hidden = true,
-      },
-    })
+    require("oil").setup({ watch_for_changes = true, view_options = { show_hidden = true } })
     vim.keymap.set("n", "<leader>-", "<CMD>Oil<CR>", { desc = "File explorer: Parent directory", silent = true })
 
-    -- ==========================================================================
     -- Editor Essentials
-    -- ==========================================================================
-    require('gitsigns').setup({
-      watch_gitdir = {
-        interval = 1000,
-        follow_files = true,
-      },
-    })
-    require('ts_context_commentstring').setup({
-      enable_autocmd = false,
-    })
-    require('Comment').setup({
-      pre_hook = require('ts_context_commentstring.integrations.comment_nvim').create_pre_hook(),
-    })
-    require("which-key").setup({
-      preset = "modern",
-    })
+    require('gitsigns').setup({ watch_gitdir = { interval = 1000, follow_files = true } })
+    require('ts_context_commentstring').setup({ enable_autocmd = false })
+    require('Comment').setup({ pre_hook = require('ts_context_commentstring.integrations.comment_nvim').create_pre_hook() })
+    require("which-key").setup({ preset = "modern" })
     require("nvim-surround").setup()
     require("nvim-autopairs").setup()
 
-    -- ==========================================================================
     -- Treesitter
-    -- ==========================================================================
     require('nvim-treesitter.configs').setup({
       highlight = { enable = true },
       indent = { enable = true },
@@ -244,32 +180,18 @@ let
       },
     })
 
-    -- ==========================================================================
-    -- Fuzzy Finder
-    -- ==========================================================================
-    require('telescope').setup({
-      extensions = {
-        fzf = {
-          fuzzy = true,
-          override_generic_sorter = true,
-          override_file_sorter = true,
-          case_mode = "smart_case",
-        }
-      }
-    })
+    -- Telescope
+    require('telescope').setup({ extensions = { fzf = { fuzzy = true, override_generic_sorter = true, override_file_sorter = true, case_mode = "smart_case" } } })
     require('telescope').load_extension('fzf')
+    local tb = require('telescope.builtin')
+    vim.keymap.set('n', '<leader>ff', tb.find_files, { desc = "Find: Files", silent = true })
+    vim.keymap.set('n', '<leader>fg', tb.live_grep, { desc = "Find: Text (grep)", silent = true })
+    vim.keymap.set('n', '<leader>fb', tb.buffers, { desc = "Find: Buffers", silent = true })
+    vim.keymap.set('n', '<leader>fh', tb.help_tags, { desc = "Find: Help tags", silent = true })
+    vim.keymap.set('n', '<leader>fr', tb.oldfiles, { desc = "Find: Recent files", silent = true })
+    vim.keymap.set('n', '<leader>/', tb.current_buffer_fuzzy_find, { desc = "Find: In buffer", silent = true })
 
-    local telescope_builtin = require('telescope.builtin')
-    vim.keymap.set('n', '<leader>ff', telescope_builtin.find_files, { desc = "Find: Files", silent = true })
-    vim.keymap.set('n', '<leader>fg', telescope_builtin.live_grep, { desc = "Find: Text (grep)", silent = true })
-    vim.keymap.set('n', '<leader>fb', telescope_builtin.buffers, { desc = "Find: Buffers", silent = true })
-    vim.keymap.set('n', '<leader>fh', telescope_builtin.help_tags, { desc = "Find: Help tags", silent = true })
-    vim.keymap.set('n', '<leader>fr', telescope_builtin.oldfiles, { desc = "Find: Recent files", silent = true })
-    vim.keymap.set('n', '<leader>/', telescope_builtin.current_buffer_fuzzy_find, { desc = "Find: In buffer", silent = true })
-
-    -- ==========================================================================
     -- Formatting
-    -- ==========================================================================
     require("conform").setup({
       formatters_by_ft = {
         lua = { "stylua" },
@@ -289,11 +211,8 @@ let
       },
     })
 
-    -- ==========================================================================
     -- LSP & Completion
-    -- ==========================================================================
     require("lazydev").setup()
-
     require('blink.cmp').setup({
       keymap = { preset = 'default' },
       appearance = {
@@ -310,7 +229,6 @@ let
         },
       },
     })
-
     local lsp_capabilities = require('blink.cmp').get_lsp_capabilities()
 
     -- LSP keymaps
@@ -341,10 +259,7 @@ let
   '';
 
   nvimOpencodeConfig = lib.optionalString cfg.opencode.enable ''
-    -- ==========================================================================
-    -- AI
-    -- ==========================================================================
-
+    -- OpenCode AI Integration
     vim.g.opencode_opts = {
       provider = {
         enabled = "snacks",
@@ -397,15 +312,8 @@ let
 
   nvimLualineConfig = ''
     require('lualine').setup({
-      options = {
-        theme = 'tokyonight',
-        icons_enabled = true,
-      },
-      sections = {
-        lualine_c = {
-          { 'filename', path = 1 }
-        }${lib.optionalString cfg.opencode.enable ",\n        lualine_z = {\n          { require(\"opencode\").statusline }\n        }"}
-      }
+      options = { theme = 'tokyonight', icons_enabled = true },
+      sections = { lualine_c = { { 'filename', path = 1 } }${lib.optionalString cfg.opencode.enable ", lualine_z = { { require('opencode').statusline } }"} }
     })
   '';
 
@@ -418,6 +326,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.opencode.enable -> config.modules.development.opencode.enable;
+        message = "neovim opencode integration requires modules.development.opencode.enable = true";
+      }
+    ];
+
     programs.neovim = {
       enable = true;
       viAlias = false;
@@ -427,25 +342,32 @@ in
 
       plugins = nvimPlugins;
 
-      extraPackages = with pkgs; [
-        # LSP Servers
-        nodePackages.bash-language-server
-        pyright
-        nodePackages.typescript-language-server
-        gopls
-        rust-analyzer
-        nixd
-        lua-language-server
+      extraPackages =
+        with pkgs;
+        [
+          # LSP Servers
+          nodePackages.bash-language-server
+          pyright
+          nodePackages.typescript-language-server
+          gopls
+          rust-analyzer
+          nixd
+          lua-language-server
 
-        # Formatters
-        stylua
-        nodePackages.prettier
-        nixfmt-rfc-style
-        ruff
+          # Formatters
+          stylua
+          nodePackages.prettier
+          nixfmt-rfc-style
+          ruff
 
-        # Tools
-        tree-sitter
-      ];
+          # Tools
+          tree-sitter
+        ]
+        ++ lib.optionals cfg.opencode.enable (
+          lib.optional (
+            config.modules.development.opencode.package != null
+          ) config.modules.development.opencode.package
+        );
 
       extraLuaConfig = nvimLuaConfig;
     };

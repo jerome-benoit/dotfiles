@@ -20,23 +20,29 @@
       opencode,
       opencode-nvim,
     }@inputs:
-    {
-      homeConfigurations = {
-        "fraggle" = home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+    let
+      mkHomeConfiguration =
+        {
+          system,
+          username,
+        }:
+        home-manager.lib.homeManagerConfiguration {
+          pkgs = nixpkgs.legacyPackages.${system};
           extraSpecialArgs = {
-            inherit inputs;
-            username = "fraggle";
+            inherit inputs username;
           };
           modules = [ ./home-manager/home.nix ];
         };
-        "I339261" = home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.aarch64-darwin;
-          extraSpecialArgs = {
-            inherit inputs;
-            username = "I339261";
-          };
-          modules = [ ./home-manager/home.nix ];
+    in
+    {
+      homeConfigurations = {
+        "fraggle" = mkHomeConfiguration {
+          system = "x86_64-linux";
+          username = "fraggle";
+        };
+        "I339261" = mkHomeConfiguration {
+          system = "aarch64-darwin";
+          username = "I339261";
         };
       };
     };

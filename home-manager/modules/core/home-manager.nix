@@ -15,7 +15,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.home-manager.enable = true;
 
-    nix.package = pkgs.nix;
+    nix.package = lib.mkDefault pkgs.nix;
 
     nix.settings = {
       experimental-features = [

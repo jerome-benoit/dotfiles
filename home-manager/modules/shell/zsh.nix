@@ -9,7 +9,7 @@ let
   cfg = config.modules.shell.zsh;
   distroId = config.modules.core.distro.id;
   distroIds = config.modules.core.distro.ids;
-  systemZsh = pkgs.runCommand "zsh-system" { } "mkdir -p $out";
+  systemZsh = pkgs.runCommand "zsh-system" { meta.mainProgram = "zsh"; } "mkdir -p $out";
 in
 {
   options.modules.shell.zsh = {
@@ -21,13 +21,13 @@ in
       enable = true;
       package = systemZsh;
       sessionVariables = {
-        NH_FLAKE = "$HOME/.nix";
-        DVM_DIR = "$HOME/.dvm";
-        WORKSPACE = "$HOME/tmp";
-        EDITOR = "vi";
+        NH_FLAKE = lib.mkDefault "$HOME/.nix";
+        DVM_DIR = lib.mkDefault "$HOME/.dvm";
+        WORKSPACE = lib.mkDefault "$HOME/tmp";
+        EDITOR = lib.mkDefault "vi";
       };
       shellAliases = {
-        hm = "nh home switch --impure";
+        hm = lib.mkDefault "nh home switch --impure";
       };
       oh-my-zsh = {
         enable = true;
@@ -106,9 +106,11 @@ in
 
         if [[ -f "$HOME/.secrets" ]]; then
           if [[ -z "$(find "$HOME/.secrets" -perm 600)" ]]; then
-            echo "WARNING: Permissions for $HOME/.secrets are insecure! Please run: chmod 600 $HOME/.secrets"
+            echo "\033[1;31mWARNING: $HOME/.secrets has insecure permissions!\033[0m"
+            echo "Please run: chmod 600 $HOME/.secrets"
+          else
+            source "$HOME/.secrets"
           fi
-          source "$HOME/.secrets"
         fi
       '';
 

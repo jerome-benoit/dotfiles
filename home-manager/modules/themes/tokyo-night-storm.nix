@@ -1,7 +1,7 @@
 { lib, ... }:
 
 {
-  options.modules.themes.tokyoNight = {
+  options.modules.themes.tokyoNightStorm = {
     # Meta
     name = lib.mkOption {
       type = lib.types.str;

@@ -15,9 +15,9 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = [ (if pkgs.stdenv.isDarwin then pkgs.glow else systemGlow) ];
+    home.packages = if pkgs.stdenv.isDarwin then [ pkgs.glow ] else [ systemGlow ];
 
-    home.file.".config/glow/glow.yml".text = lib.generators.toYAML { } {
+    xdg.configFile."glow/glow.yml".text = lib.generators.toYAML { } {
       style = "auto";
       mouse = true;
       pager = true;

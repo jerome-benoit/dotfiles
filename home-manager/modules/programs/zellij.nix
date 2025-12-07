@@ -7,12 +7,11 @@
 
 let
   cfg = config.modules.programs.zellij;
-  theme = config.modules.themes.tokyoNight;
+  theme = config.modules.themes.tokyoNightStorm;
   systemZellij = pkgs.runCommand "zellij-system" {
     version = "0.43.0";
     meta.mainProgram = "zellij";
   } "mkdir -p $out";
-
 in
 {
   options.modules.programs.zellij = {

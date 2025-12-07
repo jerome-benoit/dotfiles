@@ -15,6 +15,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = config.modules.core.constants.gpg.keyId != "";
+        message = "git: GPG key ID must be configured for commit signing";
+      }
+    ];
+
     programs.git = lib.mkMerge [
       {
         enable = true;
@@ -23,7 +30,7 @@ in
         settings = {
           core = {
             pager = "delta";
-            attributesfile = "~/.gitattributes";
+            attributesfile = "${config.xdg.configHome}/git/attributes";
             commitGraph = true;
             untrackedCache = true;
             fsmonitor = true;
@@ -32,7 +39,7 @@ in
             manyFiles = true;
           };
           user = {
-            name = config.modules.core.constants.username;
+            name = lib.mkDefault config.modules.core.constants.username;
             email = lib.mkDefault config.modules.core.constants.email;
             signingKey = lib.mkDefault config.modules.core.constants.gpg.keyId;
           };
@@ -146,7 +153,7 @@ in
       })
     ];
 
-    home.file.".gitattributes".text = ''
+    xdg.configFile."git/attributes".text = ''
       * merge=mergiraf
     '';
   };
