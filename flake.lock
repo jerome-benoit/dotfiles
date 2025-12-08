@@ -57,11 +57,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1765133325,
-        "narHash": "sha256-/ubtsGhmilk0UFCMUgzD+slEHMsTvd1r9uIZOgD3gEc=",
+        "lastModified": 1765152325,
+        "narHash": "sha256-WaMe6VLOAt7pKbje0nJie/HG3A9KyklbpARjAB/CCEk=",
         "owner": "sst",
         "repo": "opencode",
-        "rev": "40ca222d092a1b00d976e1ce586473c19d8bfcf4",
+        "rev": "7b52160bff1221b3290b7cfacf60f0c3f39cbb78",
         "type": "github"
       },
       "original": {

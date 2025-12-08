@@ -27,6 +27,7 @@ in
       ++ lib.optionals pkgs.stdenv.isDarwin [
         autoconf
         automake
+        bat
         bruno
         chroma
         cmake
