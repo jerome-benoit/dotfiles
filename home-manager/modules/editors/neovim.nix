@@ -225,11 +225,7 @@ let
             name = "LazyDev",
             module = "lazydev.integrations.blink",
             score_offset = 100,
-          },${lib.optionalString cfg.opencode.enable ''
-            opencode = {
-              name = "OpenCode",
-              module = "opencode.cmp.blink",
-            },''}
+          },
         },
       },
     })
