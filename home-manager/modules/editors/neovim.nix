@@ -206,7 +206,7 @@ let
         yaml = { "prettier" },
       },
       format_on_save = {
-        lsp_fallback = true,
+        lsp_format = "fallback",
         timeout_ms = 2000,
       },
     })
@@ -225,7 +225,11 @@ let
             name = "LazyDev",
             module = "lazydev.integrations.blink",
             score_offset = 100,
-          },
+          },${lib.optionalString cfg.opencode.enable ''
+            opencode = {
+              name = "OpenCode",
+              module = "opencode.cmp.blink",
+            },''}
         },
       },
     })
@@ -264,27 +268,46 @@ let
       provider = {
         enabled = "snacks",
         snacks = {
+          auto_close = true,
           win = {
-            style = "terminal"
-          }
-        }
+            position = "right",
+            enter = false,
+            wo = {
+              winbar = "",
+            },
+            bo = {
+              filetype = "opencode_terminal",
+            },
+          },
+        },
       },
       events = {
         enabled = true,
         reload = true,
+        permissions = {
+          enabled = true,
+          idle_delay_ms = 1000,
+        },
+      },
+      ask = {
+        prompt = "Ask opencode: ",
+        blink_cmp_sources = { "opencode", "buffer" },
       },
       prompts = {
-        nix = "Review @this for Nix best practices and suggest improvements",
-        security = "Review @this for security vulnerabilities",
-        diagnostics = "Explain @diagnostics",
-        diff = "Review the following git diff for correctness and readability: @diff",
-        document = "Add comments documenting @this",
-        explain = "Explain @this and its context",
-        fix = "Fix @diagnostics",
-        optimize = "Optimize @this for performance and readability",
-        review = "Review @this for correctness and readability",
-        test = "Add tests for @this",
-      }
+        ask_append = { prompt = "", ask = true },
+        ask_this = { prompt = "@this: ", ask = true, submit = true },
+        nix = { prompt = "Review @this for Nix best practices and suggest improvements", submit = true },
+        security = { prompt = "Review @this for security vulnerabilities", submit = true },
+        diagnostics = { prompt = "Explain @diagnostics", submit = true },
+        diff = { prompt = "Review the following git diff for correctness and readability: @diff", submit = true },
+        document = { prompt = "Add comments documenting @this", submit = true },
+        explain = { prompt = "Explain @this and its context", submit = true },
+        fix = { prompt = "Fix @diagnostics", submit = true },
+        implement = { prompt = "Implement @this", submit = true },
+        optimize = { prompt = "Optimize @this for performance and readability", submit = true },
+        review = { prompt = "Review @this for correctness and readability", submit = true },
+        test = { prompt = "Add tests for @this", submit = true },
+      },
     }
 
     local opencode_map = vim.keymap.set
