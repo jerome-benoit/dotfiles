@@ -9,6 +9,7 @@ let
   cfg = config.modules.shell.zsh;
   distroId = config.modules.core.distro.id;
   distroIds = config.modules.core.distro.ids;
+  profileModules = config.modules.core.profile.modules;
   systemZsh = pkgs.runCommand "zsh-system" { meta.mainProgram = "zsh"; } "mkdir -p $out";
 in
 {
@@ -33,12 +34,8 @@ in
         enable = true;
         theme = "fino";
         plugins = [
-          "git"
-          "gh"
           "colorize"
-          "direnv"
           "screen"
-          "tmux"
           "docker"
           "docker-compose"
           "podman"
@@ -50,7 +47,6 @@ in
           "sudo"
           "rust"
           "deno"
-          "bun"
           "volta"
           "node"
           "npm"
@@ -58,27 +54,31 @@ in
           "mvn"
           "vscode"
           "battery"
-          "eza"
-          "fzf"
-          "zoxide"
           "themes"
         ]
-        ++ lib.optionals pkgs.stdenv.isLinux (
-          [ "systemd" ]
-          ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [
-            "dnf"
-            "firewalld"
-          ]
-          ++ lib.optionals (distroId == distroIds.ubuntu) [
-            "ubuntu"
-            "ufw"
-          ]
-          ++ lib.optionals (distroId == distroIds.debian) [ "debian" ]
-        )
+        ++ lib.optional profileModules.development.git "git"
+        ++ lib.optional profileModules.development.gh "gh"
+        ++ lib.optional profileModules.development.bun "bun"
+        ++ lib.optional profileModules.shell.direnv "direnv"
+        ++ lib.optional profileModules.shell.eza "eza"
+        ++ lib.optional profileModules.shell.fzf "fzf"
+        ++ lib.optional profileModules.shell.zoxide "zoxide"
+        ++ lib.optional profileModules.programs.tmux "tmux"
+        ++ lib.optional pkgs.stdenv.isLinux "systemd"
+        ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [
+          "dnf"
+          "firewalld"
+        ]
+        ++ lib.optionals (distroId == distroIds.ubuntu) [
+          "ubuntu"
+          "ufw"
+        ]
+        ++ lib.optional (distroId == distroIds.debian) "debian"
         ++ lib.optionals pkgs.stdenv.isDarwin [
           "macos"
           "iterm2"
           "brew"
+          "pod"
           "xcode"
         ];
       };

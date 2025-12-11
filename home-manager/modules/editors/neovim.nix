@@ -61,7 +61,7 @@ let
 
   nvimAiPlugins = [ nvimAiPluginOpencode ];
 
-  nvimPlugins = nvimBasePlugins ++ lib.optionals cfg.opencode.enable nvimAiPlugins;
+  nvimPlugins = nvimBasePlugins ++ lib.optionals cfg.plugins.opencode.enable nvimAiPlugins;
 
   nvimBaseLuaConfig = ''
     -- Global Options
@@ -258,7 +258,7 @@ let
     vim.lsp.enable({ 'bashls', 'pyright', 'ts_ls', 'gopls', 'rust_analyzer', 'nixd', 'lua_ls' })
   '';
 
-  nvimOpencodeConfig = lib.optionalString cfg.opencode.enable ''
+  nvimOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable ''
     -- OpenCode AI Integration
     vim.g.opencode_opts = {
       provider = {
@@ -332,7 +332,7 @@ let
   nvimLualineConfig = ''
     require('lualine').setup({
       options = { theme = 'tokyonight', icons_enabled = true },
-      sections = { lualine_c = { { 'filename', path = 1 } }${lib.optionalString cfg.opencode.enable ", lualine_z = { { require('opencode').statusline } }"} }
+      sections = { lualine_c = { { 'filename', path = 1 } }${lib.optionalString cfg.plugins.opencode.enable ", lualine_z = { { require('opencode').statusline } }"} }
     })
   '';
 
@@ -341,13 +341,15 @@ in
 {
   options.modules.editors.neovim = {
     enable = lib.mkEnableOption "neovim configuration";
-    opencode.enable = lib.mkEnableOption "opencode.nvim integration";
+    plugins = {
+      opencode.enable = lib.mkEnableOption "opencode.nvim integration";
+    };
   };
 
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = cfg.opencode.enable -> config.modules.development.opencode.enable;
+        assertion = cfg.plugins.opencode.enable -> config.modules.development.opencode.enable;
         message = "Neovim opencode integration requires opencode module enabled (modules.development.opencode.enable = true)";
       }
     ];
@@ -382,7 +384,7 @@ in
           # Tools
           tree-sitter
         ]
-        ++ lib.optionals cfg.opencode.enable (
+        ++ lib.optionals cfg.plugins.opencode.enable (
           lib.optional (
             config.modules.development.opencode.package != null
           ) config.modules.development.opencode.package

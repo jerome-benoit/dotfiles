@@ -22,8 +22,14 @@ in
         nixfmt-rfc-style
         volta
       ]
-      ++ lib.optionals pkgs.stdenv.isLinux [
-      ]
+      ++ lib.optionals pkgs.stdenv.isLinux (
+        [ ]
+        ++
+          lib.optionals (config.modules.core.profile.name == config.modules.core.constants.profiles.server)
+            [
+              delta
+            ]
+      )
       ++ lib.optionals pkgs.stdenv.isDarwin [
         autoconf
         automake

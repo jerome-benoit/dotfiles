@@ -1,6 +1,7 @@
 { config, lib, ... }:
 let
   cfg = config.modules.core.specialisations;
+  constants = config.modules.core.constants;
 
   mkSpecialisation =
     {
@@ -11,8 +12,8 @@ let
     {
       configuration =
         let
-          gpgKeyId = config.modules.core.constants.gpg.keyId;
-          gpgFingerprint = config.modules.core.constants.gpg.fingerprint;
+          gpgKeyId = constants.gpg.keyId;
+          gpgFingerprint = constants.gpg.fingerprint;
         in
         {
           home.file.".signature".text = lib.mkForce ''
@@ -50,18 +51,18 @@ in
     specialisation = {
       work = mkSpecialisation {
         name = "work";
-        email = config.modules.core.constants.workEmail;
+        email = constants.workEmail;
         signature = ''
-          ${config.modules.core.constants.username} - R&D Software Engineer
+          ${constants.username} - R&D Software Engineer
           SAP Labs France
         '';
       };
 
       personal = mkSpecialisation {
         name = "personal";
-        email = config.modules.core.constants.email;
+        email = constants.email;
         signature = ''
-          ${config.modules.core.constants.username} aka fraggle
+          ${constants.username} aka fraggle
           Piment Noir - https://piment-noir.org
         '';
       };

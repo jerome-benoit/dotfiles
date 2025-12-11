@@ -12,7 +12,15 @@ let
       lib.removeSuffix "\n" (builtins.readFile /etc/hostname)
     else
       null;
+
   bunSupported = hostname != "rigel";
+
+  profileName =
+    if hostname == "ns3108029.ip-54-37-87.eu" then
+      config.modules.core.constants.profiles.server
+    else
+      config.modules.core.constants.profiles.desktop;
+  profileModules = config.modules.core.profile.modules;
 in
 {
   targets.genericLinux.enable = pkgs.stdenv.isLinux;
@@ -40,43 +48,46 @@ in
     home-manager.enable = true;
     packages.enable = true;
     specialisations.enable = true;
+    profile.name = profileName;
   };
 
   modules.shell = {
-    direnv.enable = true;
-    eza.enable = true;
-    fd.enable = true;
-    fzf.enable = true;
-    ripgrep.enable = true;
-    zoxide.enable = true;
-    zsh.enable = true;
+    direnv.enable = profileModules.shell.direnv;
+    eza.enable = profileModules.shell.eza;
+    fd.enable = profileModules.shell.fd;
+    fzf.enable = profileModules.shell.fzf;
+    ripgrep.enable = profileModules.shell.ripgrep;
+    zoxide.enable = profileModules.shell.zoxide;
+    zsh.enable = profileModules.shell.zsh;
   };
 
   modules.development = {
-    bun.enable = bunSupported;
-    gh.enable = true;
-    git.enable = true;
-    lazygit.enable = true;
-    opencode.enable = bunSupported;
+    bun.enable = bunSupported && profileModules.development.bun;
+    gh.enable = profileModules.development.gh;
+    git.enable = profileModules.development.git;
+    lazygit.enable = profileModules.development.lazygit;
+    opencode.enable = bunSupported && profileModules.development.opencode;
   };
 
   modules.programs = {
-    alacritty.enable = true;
-    btop.enable = true;
-    ghostty.enable = true;
-    glow.enable = true;
-    lazydocker.enable = true;
-    ssh.enable = true;
-    tmux.enable = true;
-    zellij.enable = true;
+    alacritty.enable = profileModules.programs.alacritty;
+    btop.enable = profileModules.programs.btop;
+    ghostty.enable = profileModules.programs.ghostty;
+    glow.enable = profileModules.programs.glow;
+    lazydocker.enable = profileModules.programs.lazydocker;
+    ssh.enable = profileModules.programs.ssh;
+    tmux.enable = profileModules.programs.tmux;
+    zellij.enable = profileModules.programs.zellij;
   };
 
   modules.editors = {
-    vim.enable = true;
     neovim = {
-      enable = true;
-      opencode.enable = bunSupported;
+      enable = profileModules.editors.neovim.enable;
+      plugins = {
+        opencode.enable = bunSupported && profileModules.editors.neovim.plugins.opencode;
+      };
     };
+    vim.enable = profileModules.editors.vim;
   };
 
   home = {

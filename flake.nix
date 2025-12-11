@@ -21,21 +21,20 @@
       opencode-nvim,
     }@inputs:
     let
-      systems = {
-        linux = "x86_64-linux";
-        darwin = "aarch64-darwin";
-      };
-      forAllSystems = nixpkgs.lib.genAttrs (builtins.attrValues systems);
+      constants = import ./constants.nix;
+      forAllSystems = nixpkgs.lib.genAttrs (
+        builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
+      );
 
       mkHomeConfiguration =
         {
-          system,
+          arch,
           username,
         }:
         home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = nixpkgs.legacyPackages.${arch};
           extraSpecialArgs = {
-            inherit inputs username;
+            inherit inputs username constants;
           };
           modules = [ ./home-manager/home.nix ];
         };
@@ -43,19 +42,23 @@
     {
       homeConfigurations = {
         "fraggle" = mkHomeConfiguration {
-          system = systems.linux;
+          arch = constants.systems.linux.arch;
           username = "fraggle";
         };
+        "almalinux" = mkHomeConfiguration {
+          arch = constants.systems.linux.arch;
+          username = "almalinux";
+        };
         "I339261" = mkHomeConfiguration {
-          system = systems.darwin;
+          arch = constants.systems.darwin.arch;
           username = "I339261";
         };
       };
 
       formatter = forAllSystems (
-        system:
+        arch:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = nixpkgs.legacyPackages.${arch};
         in
         pkgs.writeShellScriptBin "nix-fmt" ''
           set -euo pipefail
@@ -74,9 +77,9 @@
       );
 
       checks = forAllSystems (
-        system:
+        arch:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = nixpkgs.legacyPackages.${arch};
         in
         {
           formatting =

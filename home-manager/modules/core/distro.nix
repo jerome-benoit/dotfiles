@@ -6,15 +6,8 @@
 }:
 
 let
-  supportedDistros = [
-    "almalinux"
-    "debian"
-    "fedora"
-    "ubuntu"
-  ];
-
-  distroIds = lib.genAttrs supportedDistros (id: id);
-
+  constants = config.modules.core.constants;
+  supportedDistros = builtins.attrValues constants.distros;
   distroIdsEnumType = lib.types.enum supportedDistros;
 
   detectDistro =
@@ -38,14 +31,16 @@ let
       in
       if distro != null && builtins.elem distro supportedDistros then distro else null;
 
-  detectDarwin = if pkgs.stdenv.isDarwin then "darwin" else null;
+  detectDarwin = if pkgs.stdenv.isDarwin then constants.systems.darwin.name else null;
 
   distroId = if detectDistro != null then detectDistro else detectDarwin;
 in
 {
   options.modules.core.distro = {
     id = lib.mkOption {
-      type = lib.types.nullOr (lib.types.either distroIdsEnumType (lib.types.enum [ "darwin" ]));
+      type = lib.types.nullOr (
+        lib.types.either distroIdsEnumType (lib.types.enum [ constants.systems.darwin.name ])
+      );
       default = distroId;
       description = "The OS distribution ID";
       readOnly = true;
@@ -53,7 +48,7 @@ in
 
     ids = lib.mkOption {
       type = lib.types.attrsOf distroIdsEnumType;
-      default = distroIds;
+      default = constants.distros;
       description = "Supported GNU/Linux distribution IDs";
       readOnly = true;
     };

@@ -7,6 +7,7 @@
 
 let
   cfg = config.modules.development.git;
+  constants = config.modules.core.constants;
   systemGit = pkgs.runCommand "git-system" { } "mkdir -p $out";
 in
 {
@@ -17,7 +18,7 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = config.modules.core.constants.gpg.keyId != "";
+        assertion = constants.gpg.keyId != "";
         message = "git: GPG key ID must be configured for commit signing";
       }
     ];
@@ -39,9 +40,9 @@ in
             manyFiles = true;
           };
           user = {
-            name = lib.mkDefault config.modules.core.constants.username;
-            email = lib.mkDefault config.modules.core.constants.email;
-            signingKey = lib.mkDefault config.modules.core.constants.gpg.keyId;
+            name = lib.mkDefault constants.username;
+            email = lib.mkDefault constants.email;
+            signingKey = lib.mkDefault constants.gpg.keyId;
           };
           commit = {
             gpgSign = true;

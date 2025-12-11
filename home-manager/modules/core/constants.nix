@@ -1,10 +1,46 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  constants,
+  ...
+}:
 
 let
   emailRegex = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$";
 in
 {
   options.modules.core.constants = {
+    systems = lib.mkOption {
+      type = lib.types.attrsOf (
+        lib.types.submodule {
+          options = {
+            name = lib.mkOption {
+              type = lib.types.str;
+              description = "System name";
+            };
+            arch = lib.mkOption {
+              type = lib.types.str;
+              description = "System architecture";
+            };
+          };
+        }
+      );
+      default = constants.systems;
+      description = "Systems";
+      readOnly = true;
+    };
+    profiles = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = constants.profiles;
+      description = "Profiles";
+      readOnly = true;
+    };
+    distros = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = constants.distros;
+      description = "Supported GNU/Linux distributions";
+      readOnly = true;
+    };
     username = lib.mkOption {
       type = lib.types.str;
       default = "Jérôme Benoit";
