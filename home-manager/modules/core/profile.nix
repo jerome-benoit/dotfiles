@@ -71,7 +71,7 @@ let
       glow = true;
       lazydocker = true;
       ssh = true;
-      tmux = false;
+      tmux = true;
       zellij = false;
     };
 

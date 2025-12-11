@@ -28,6 +28,7 @@ in
           lib.optionals (config.modules.core.profile.name == config.modules.core.constants.profiles.server)
             [
               delta
+              grc
             ]
       )
       ++ lib.optionals pkgs.stdenv.isDarwin [
