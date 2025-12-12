@@ -9,16 +9,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v13
+        uses: DeterminateSystems/nix-installer-action@v21
 
       - name: Setup Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v7
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Check flake health
-        run: nix run github:DeterminateSystems/flake-checker
+        uses: DeterminateSystems/flake-checker-action@v12
 
       - name: Run flake checks
         run: nix flake check
