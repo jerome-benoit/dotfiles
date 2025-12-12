@@ -13,10 +13,10 @@ let
     else
       null;
 
-  bunSupported = hostname != "rigel";
+  bunSupported = hostname != config.modules.core.constants.hosts.rigel;
 
   profileName =
-    if hostname == "ns3108029.ip-54-37-87.eu" then
+    if hostname == config.modules.core.constants.hosts.ns3108029 then
       config.modules.core.constants.profiles.server
     else
       config.modules.core.constants.profiles.desktop;

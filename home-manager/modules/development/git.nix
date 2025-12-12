@@ -113,12 +113,19 @@ in
           help = {
             autocorrect = "prompt";
           };
+          log = {
+            abbrevCommit = true;
+            follow = true;
+          };
           diff = {
             algorithm = "histogram";
             colorMoved = "default";
             colorMovedWs = "allow-indentation-change";
             mnemonicPrefix = true;
             renames = true;
+          };
+          stash = {
+            showPatch = true;
           };
           interactive = {
             diffFilter = "delta --color-only";

@@ -83,5 +83,14 @@ in
       default = "Europe/Paris";
       description = "Default timezone for programs";
     };
+    hosts = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {
+        rigel = "rigel";
+        ns3108029 = "ns3108029.ip-54-37-87.eu";
+      };
+      description = "Hostnames";
+      readOnly = true;
+    };
   };
 }

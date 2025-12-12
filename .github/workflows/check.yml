@@ -1,0 +1,24 @@
+name: Check Nix Configuration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v13
+
+      - name: Setup Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v7
+
+      - name: Check flake health
+        run: nix run github:DeterminateSystems/flake-checker
+
+      - name: Run flake checks
+        run: nix flake check
