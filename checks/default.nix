@@ -5,7 +5,7 @@
   arch,
 }:
 {
-  formatting = import ./formatting.nix { inherit self pkgs; };
+  formatting = (import ./formatting.nix { inherit self pkgs; }).check;
   home-config = import ./home-config.nix {
     inherit
       self

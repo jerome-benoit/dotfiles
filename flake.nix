@@ -60,20 +60,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${arch};
         in
-        pkgs.writeShellScriptBin "nix-fmt" ''
-          set -euo pipefail
-          [[ $# -eq 0 ]] && set -- .
-
-          format_dir() {
-            find "$1" -name '*.nix' -type f -exec ${pkgs.nixfmt-rfc-style}/bin/nixfmt {} +
-          }
-
-          for arg in "$@"; do
-            [[ -d "$arg" ]] && format_dir "$arg" && continue
-            [[ -f "$arg" ]] && ${pkgs.nixfmt-rfc-style}/bin/nixfmt "$arg" && continue
-            echo "Error: $arg not found" >&2 && exit 1
-          done
-        ''
+        (import ./checks/formatting.nix { inherit self pkgs; }).formatter
       );
 
       checks = forAllSystems (
