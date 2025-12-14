@@ -23,7 +23,6 @@ in
       package = systemZsh;
       sessionVariables = {
         NH_FLAKE = "$HOME/.nix";
-        DVM_DIR = "$HOME/.dvm";
         WORKSPACE = "$HOME/tmp";
         EDITOR = "vi";
       };
@@ -133,8 +132,9 @@ in
 
         export PATH
 
-        [[ -f "$DVM_DIR/dvm.sh" ]] && . "$DVM_DIR/dvm.sh"
-        [[ -f "$DVM_DIR/bash_completion" ]] && . "$DVM_DIR/bash_completion"
+        export DVM_DIR="$HOME/.dvm"
+        [[ -f "$DVM_DIR/dvm.sh" ]] && source "$DVM_DIR/dvm.sh"
+        [[ -f "$DVM_DIR/bash_completion" ]] && source "$DVM_DIR/bash_completion"
 
         # Glob qualifiers: (N)=null glob, (-)=no symlinks, (.)=regular files, (:o)=sorted
         if [[ -d "$HOME/.zprofile.d" ]]; then
