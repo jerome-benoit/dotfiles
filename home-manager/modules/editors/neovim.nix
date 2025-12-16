@@ -309,7 +309,8 @@ let
     local opencode_map = vim.keymap.set
     opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ", { submit = true }) end, { desc = "OpenCode: Ask question", silent = true })
     opencode_map({ "n", "x" }, "<leader>os", function() require("opencode").select() end, { desc = "OpenCode: Actions menu", silent = true })
-    opencode_map({ "n", "x" }, "<leader>op", function() require("opencode").prompt("@this") end, { desc = "OpenCode: Add to prompt", silent = true })
+    opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
+    opencode_map("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
     opencode_map({ "n", "t" }, "<leader>ot", function() require("opencode").toggle() end, { desc = "OpenCode: Toggle terminal", silent = true })
     opencode_map("n", "<leader>ou", function() require("opencode").command("session.half.page.up") end, { desc = "OpenCode: Session scroll up", silent = true })
     opencode_map("n", "<leader>od", function() require("opencode").command("session.half.page.down") end, { desc = "OpenCode: Session scroll down", silent = true })
