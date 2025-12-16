@@ -136,6 +136,14 @@ let
             ["ia"] = "@parameter.inner",
             ["ab"] = "@block.outer",
             ["ib"] = "@block.inner",
+            ["ai"] = "@conditional.outer",
+            ["ii"] = "@conditional.inner",
+            ["al"] = "@loop.outer",
+            ["il"] = "@loop.inner",
+            ["a/"] = "@comment.outer",
+            ["i/"] = "@comment.outer",
+            ["ak"] = "@call.outer",
+            ["ik"] = "@call.inner",
           },
           selection_modes = {
             ['@parameter.outer'] = 'v',
@@ -151,21 +159,31 @@ let
             ["]f"] = "@function.outer",
             ["]c"] = "@class.outer",
             ["]a"] = "@parameter.inner",
+            ["]i"] = "@conditional.outer",
+            ["]l"] = "@loop.outer",
+            ["]/"] = "@comment.outer",
           },
           goto_next_end = {
             ["]F"] = "@function.outer",
             ["]C"] = "@class.outer",
             ["]A"] = "@parameter.inner",
+            ["]I"] = "@conditional.outer",
+            ["]L"] = "@loop.outer",
           },
           goto_previous_start = {
             ["[f"] = "@function.outer",
             ["[c"] = "@class.outer",
             ["[a"] = "@parameter.inner",
+            ["[i"] = "@conditional.outer",
+            ["[l"] = "@loop.outer",
+            ["[/"] = "@comment.outer",
           },
           goto_previous_end = {
             ["[F"] = "@function.outer",
             ["[C"] = "@class.outer",
             ["[A"] = "@parameter.inner",
+            ["[I"] = "@conditional.outer",
+            ["[L"] = "@loop.outer",
           },
         },
         swap = {
@@ -181,7 +199,7 @@ let
     })
 
     -- Telescope
-    require('telescope').setup({ extensions = { fzf = { fuzzy = true, override_generic_sorter = true, override_file_sorter = true, case_mode = "smart_case" } } })
+    require('telescope').setup({})
     require('telescope').load_extension('fzf')
     local tb = require('telescope.builtin')
     vim.keymap.set('n', '<leader>ff', tb.find_files, { desc = "Find: Files", silent = true })
@@ -207,16 +225,24 @@ let
       },
       format_on_save = {
         lsp_format = "fallback",
-        timeout_ms = 2000,
+        timeout_ms = 500,
       },
     })
 
     -- LSP & Completion
     require("lazydev").setup()
     require('blink.cmp').setup({
-      keymap = { preset = 'default' },
-      appearance = {
-        nerd_font_variant = 'mono'
+      completion = {
+        menu = {
+          border = 'rounded',
+          scrollbar = true,
+        },
+        documentation = {
+          window = {
+            border = 'rounded',
+          },
+          auto_show_delay_ms = 200,
+        },
       },
       sources = {
         default = { 'lsp', 'path', 'snippets', 'buffer', 'lazydev' },
@@ -248,6 +274,26 @@ let
       vim.keymap.set('n', '[d', vim.diagnostic.goto_prev, lsp_opts("LSP: Previous diagnostic"))
       vim.keymap.set('n', ']d', vim.diagnostic.goto_next, lsp_opts("LSP: Next diagnostic"))
     end
+
+    -- LSP diagnostics
+    local signs = { Error = " ", Warn = " ", Hint = "󰠠 ", Info = " " }
+    for type, icon in pairs(signs) do
+      local hl = "DiagnosticSign" .. type
+      vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = "" })
+    end
+
+    vim.diagnostic.config({
+      virtual_text = {
+        prefix = "●",
+        spacing = 4,
+      },
+      float = {
+        border = "rounded",
+        source = "always",
+        header = "",
+        prefix = "",
+      },
+    })
 
     -- LSP servers (Neovim 0.11+ API)
     vim.lsp.config('*', {
@@ -308,12 +354,38 @@ let
 
     local opencode_map = vim.keymap.set
     opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ", { submit = true }) end, { desc = "OpenCode: Ask question", silent = true })
-    opencode_map({ "n", "x" }, "<leader>os", function() require("opencode").select() end, { desc = "OpenCode: Actions menu", silent = true })
+    opencode_map({ "n", "x" }, "<leader>om", function() require("opencode").select() end, { desc = "OpenCode: Menu", silent = true })
+    opencode_map({ "n", "t" }, "<leader>ot", function() require("opencode").toggle() end, { desc = "OpenCode: Toggle terminal", silent = true })
     opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
     opencode_map("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
-    opencode_map({ "n", "t" }, "<leader>ot", function() require("opencode").toggle() end, { desc = "OpenCode: Toggle terminal", silent = true })
-    opencode_map("n", "<leader>ou", function() require("opencode").command("session.half.page.up") end, { desc = "OpenCode: Session scroll up", silent = true })
-    opencode_map("n", "<leader>od", function() require("opencode").command("session.half.page.down") end, { desc = "OpenCode: Session scroll down", silent = true })
+
+    opencode_map("n", "<leader>osl", function() require("opencode").command("session.list") end, { desc = "OpenCode Session: List", silent = true })
+    opencode_map("n", "<leader>osn", function() require("opencode").command("session.new") end, { desc = "OpenCode Session: New", silent = true })
+    opencode_map("n", "<leader>osh", function() require("opencode").command("session.share") end, { desc = "OpenCode Session: Share", silent = true })
+    opencode_map("n", "<leader>osi", function() require("opencode").command("session.interrupt") end, { desc = "OpenCode Session: Interrupt", silent = true })
+    opencode_map("n", "<leader>osc", function() require("opencode").command("session.compact") end, { desc = "OpenCode Session: Compact", silent = true })
+    opencode_map("n", "<leader>osu", function() require("opencode").command("session.undo") end, { desc = "OpenCode Session: Undo", silent = true })
+    opencode_map("n", "<leader>osr", function() require("opencode").command("session.redo") end, { desc = "OpenCode Session: Redo", silent = true })
+
+    opencode_map("n", "<leader>onj", function() require("opencode").command("session.half.page.down") end, { desc = "OpenCode Nav: Scroll down", silent = true })
+    opencode_map("n", "<leader>onk", function() require("opencode").command("session.half.page.up") end, { desc = "OpenCode Nav: Scroll up", silent = true })
+    opencode_map("n", "<leader>onJ", function() require("opencode").command("session.page.down") end, { desc = "OpenCode Nav: Page down", silent = true })
+    opencode_map("n", "<leader>onK", function() require("opencode").command("session.page.up") end, { desc = "OpenCode Nav: Page up", silent = true })
+    opencode_map("n", "<leader>ong", function() require("opencode").command("session.first") end, { desc = "OpenCode Nav: First message", silent = true })
+    opencode_map("n", "<leader>onG", function() require("opencode").command("session.last") end, { desc = "OpenCode Nav: Last message", silent = true })
+
+    opencode_map("n", "<leader>ops", function() require("opencode").command("prompt.submit") end, { desc = "OpenCode Prompt: Submit", silent = true })
+    opencode_map("n", "<leader>opc", function() require("opencode").command("prompt.clear") end, { desc = "OpenCode Prompt: Clear", silent = true })
+
+    opencode_map("n", "<leader>oc", function() require("opencode").command("agent.cycle") end, { desc = "OpenCode: Cycle agent", silent = true })
+
+    local wk = require("which-key")
+    wk.add({
+      { "<leader>o", group = "OpenCode" },
+      { "<leader>os", group = "Session" },
+      { "<leader>on", group = "Navigation" },
+      { "<leader>op", group = "Prompt" },
+    })
 
     local opencode_events_group = vim.api.nvim_create_augroup("OpencodeEvents", { clear = true })
     vim.api.nvim_create_autocmd("User", {
@@ -332,8 +404,34 @@ let
 
   nvimLualineConfig = ''
     require('lualine').setup({
-      options = { theme = 'tokyonight', icons_enabled = true },
-      sections = { lualine_c = { { 'filename', path = 1 } }${lib.optionalString cfg.plugins.opencode.enable ", lualine_z = { { require('opencode').statusline } }"} }
+      options = {
+        theme = 'tokyonight',
+        icons_enabled = true,
+        component_separators = { left = "", right = ""},
+        section_separators = { left = "", right = ""},
+      },
+      sections = {
+        lualine_a = { 'mode' },
+        lualine_b = { 'branch', 'diff', 'diagnostics' },
+        lualine_c = {
+          {
+            'filename',
+            path = 1,
+            symbols = {
+              modified = '[+]',
+              readonly = '[-]',
+              unnamed = '[No Name]',
+            }
+          }
+        },
+        lualine_x = { 'encoding', 'fileformat', 'filetype' },
+        lualine_y = { 'progress' },
+        lualine_z = { 'location'${lib.optionalString cfg.plugins.opencode.enable ", { require('opencode').statusline }"} }
+      },
+      inactive_sections = {
+        lualine_c = { 'filename' },
+        lualine_x = { 'location' },
+      },
     })
   '';
 
