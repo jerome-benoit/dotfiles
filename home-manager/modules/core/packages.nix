@@ -62,6 +62,7 @@ in
         poetry
         python3
         python3Packages.virtualenv
+        ruff
         qpdf
         rectangle
         rustup
