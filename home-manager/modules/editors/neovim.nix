@@ -43,7 +43,10 @@ let
 
     # Treesitter
     nvim-treesitter.withAllGrammars
-    nvim-treesitter-textobjects
+    (nvim-treesitter-textobjects.overrideAttrs (old: {
+      # Disable checks as the package definition upstream lacks nvim-treesitter as a build input
+      doCheck = false;
+    }))
 
     # Fuzzy Finder
     telescope-nvim
