@@ -20,7 +20,10 @@ let
       gh = true;
       git = true;
       lazygit = true;
-      opencode = true;
+      opencode = {
+        enable = true;
+        enableDesktop = true;
+      };
     };
 
     programs = {
@@ -61,7 +64,10 @@ let
       gh = false;
       git = true;
       lazygit = true;
-      opencode = false;
+      opencode = {
+        enable = false;
+        enableDesktop = false;
+      };
     };
 
     programs = {

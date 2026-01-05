@@ -486,8 +486,8 @@ in
         ]
         ++ lib.optionals cfg.plugins.opencode.enable (
           lib.optional (
-            config.modules.development.opencode.package != null
-          ) config.modules.development.opencode.package
+            config.modules.development.opencode.opencodePackage != null
+          ) config.modules.development.opencode.opencodePackage
         );
 
       extraLuaConfig = nvimLuaConfig;

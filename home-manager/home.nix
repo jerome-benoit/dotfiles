@@ -66,7 +66,10 @@ in
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
     lazygit.enable = profileModules.development.lazygit;
-    opencode.enable = bunSupported && profileModules.development.opencode;
+    opencode = {
+      enable = bunSupported && profileModules.development.opencode.enable;
+      enableDesktop = profileModules.development.opencode.enableDesktop;
+    };
   };
 
   modules.programs = {
