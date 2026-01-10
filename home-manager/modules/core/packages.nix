@@ -19,7 +19,7 @@ in
         nerd-fonts.jetbrains-mono
         nh
         mergiraf
-        nixfmt-rfc-style
+        nixfmt
         volta
       ]
       ++ lib.optionals pkgs.stdenv.isLinux (

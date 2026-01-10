@@ -478,7 +478,7 @@ in
           # Formatters
           stylua
           nodePackages.prettier
-          nixfmt-rfc-style
+          nixfmt
           ruff
 
           # Tools
