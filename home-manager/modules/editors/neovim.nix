@@ -339,8 +339,6 @@ let
       prompts = {
         ask_append = { prompt = "", ask = true },
         ask_this = { prompt = "@this: ", ask = true, submit = true },
-        nix = { prompt = "Review @this for Nix best practices and suggest improvements", submit = true },
-        security = { prompt = "Review @this for security vulnerabilities", submit = true },
         diagnostics = { prompt = "Explain @diagnostics", submit = true },
         diff = { prompt = "Review the following git diff for correctness and readability: @diff", submit = true },
         document = { prompt = "Add comments documenting @this", submit = true },
@@ -350,6 +348,9 @@ let
         optimize = { prompt = "Optimize @this for performance and readability", submit = true },
         review = { prompt = "Review @this for correctness and readability", submit = true },
         test = { prompt = "Add tests for @this", submit = true },
+        nix = { prompt = "Review @this for Nix best practices", submit = true },
+        security = { prompt = "Review @this for security vulnerabilities", submit = true },
+        marks = { prompt = "List @marks with locations", submit = true },
       },
     }
 
