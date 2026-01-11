@@ -69,7 +69,9 @@ in
         uv
         vscode
         yq
-        zed-editor
+        (zed-editor.overrideAttrs (oldAttrs: {
+          doCheck = false;
+        }))
         zoom-us
       ];
 
