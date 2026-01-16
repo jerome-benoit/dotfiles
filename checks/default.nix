@@ -6,13 +6,5 @@
 }:
 {
   formatting = (import ./formatting.nix { inherit self pkgs; }).check;
-  home-config = import ./home-config.nix {
-    inherit
-      self
-      pkgs
-      home-manager
-      arch
-      ;
-  };
   symlinks = import ./symlinks.nix { inherit self pkgs; };
 }

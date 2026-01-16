@@ -68,15 +68,28 @@
         arch:
         let
           pkgs = nixpkgs.legacyPackages.${arch};
+          baseChecks = import ./checks {
+            inherit
+              self
+              pkgs
+              home-manager
+              arch
+              ;
+          };
+          homeConfigChecks =
+            if arch == "x86_64-linux" then
+              {
+                home-fraggle = self.homeConfigurations.fraggle.activationPackage;
+                home-almalinux = self.homeConfigurations.almalinux.activationPackage;
+              }
+            else if arch == "aarch64-darwin" then
+              {
+                home-I339261 = self.homeConfigurations.I339261.activationPackage;
+              }
+            else
+              { };
         in
-        import ./checks {
-          inherit
-            self
-            pkgs
-            home-manager
-            arch
-            ;
-        }
+        baseChecks // homeConfigChecks
       );
     };
 }
