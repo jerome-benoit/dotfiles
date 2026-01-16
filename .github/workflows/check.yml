@@ -3,8 +3,22 @@ name: Check Nix Configuration
 on:
   push:
     branches: [main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'home-manager/**'
+      - 'checks/**'
+      - 'constants.nix'
+      - '.github/workflows/check.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'home-manager/**'
+      - 'checks/**'
+      - 'constants.nix'
+      - '.github/workflows/check.yml'
   workflow_dispatch:
 
 permissions:
@@ -15,28 +29,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      nix: ${{ steps.filter.outputs.nix }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            nix:
-              - 'flake.nix'
-              - 'flake.lock'
-              - 'home-manager/**'
-              - 'checks/**'
-              - 'constants.nix'
-              - '.github/workflows/check.yml'
-
   check:
-    needs: changes
-    if: needs.changes.outputs.nix == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
