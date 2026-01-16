@@ -5,9 +5,14 @@
     "abandonments:recommended",
     ":configMigration",
     "group:allNonMajor",
-    "schedule:daily",
-    ":maintainLockFilesWeekly"
+    "schedule:daily"
   ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "extends": [
+      "schedule:daily"
+    ]
+  },
   "nix": {
     "enabled": true
   }
