@@ -6,7 +6,7 @@
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
     opencode.url = "github:anomalyco/opencode";
-    opencode.inputs.nixpkgs.follows = "nixpkgs";
+    # opencode.inputs.nixpkgs.follows = "nixpkgs";
     opencode-nvim = {
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
