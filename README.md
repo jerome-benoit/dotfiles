@@ -32,7 +32,15 @@ hmp  # personal
 ```bash
 nix fmt              # Format all .nix files
 nix fmt file.nix     # Format specific file
-nix flake check      # Verify formatting
+```
+
+### Validation
+
+```bash
+nix flake check      # Run all checks:
+                     # - Formatting verification
+                     # - Symlinks validation
+                     # - Build all home-manager configurations
 ```
 
 ### Maintenance
