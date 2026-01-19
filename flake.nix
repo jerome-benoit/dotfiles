@@ -11,6 +11,7 @@
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
     };
+    openspec.url = "github:Fission-AI/OpenSpec";
   };
 
   outputs =
@@ -20,6 +21,7 @@
       home-manager,
       opencode,
       opencode-nvim,
+      openspec,
     }@inputs:
     let
       constants = import ./constants.nix;

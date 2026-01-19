@@ -70,6 +70,7 @@ in
       enable = bunSupported && profileModules.development.opencode.enable;
       enableDesktop = profileModules.development.opencode.enableDesktop;
     };
+    openspec.enable = profileModules.development.openspec;
   };
 
   modules.programs = {

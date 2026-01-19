@@ -24,6 +24,7 @@ let
         enable = true;
         enableDesktop = true;
       };
+      openspec = true;
     };
 
     programs = {
@@ -68,6 +69,7 @@ let
         enable = false;
         enableDesktop = false;
       };
+      openspec = false;
     };
 
     programs = {

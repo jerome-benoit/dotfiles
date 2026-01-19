@@ -4,6 +4,7 @@
   pkgs,
   ...
 }:
+
 let
   cfg = config.modules.programs.ssh;
   systemSsh = pkgs.runCommand "ssh-system" { meta.mainProgram = "ssh"; } "mkdir -p $out";

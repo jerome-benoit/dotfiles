@@ -5,5 +5,6 @@
     ./git.nix
     ./lazygit.nix
     ./opencode.nix
+    ./openspec.nix
   ];
 }
