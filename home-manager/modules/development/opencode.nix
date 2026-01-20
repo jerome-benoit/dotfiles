@@ -9,15 +9,7 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
 
-  opencodePackage =
-    if inputs.opencode.packages.${system}.default or null != null then
-      inputs.opencode.packages.${system}.default.overrideAttrs (oldAttrs: {
-        patches = (oldAttrs.patches or [ ]) ++ [
-          ../../../patches/opencode-disable-bun-version-check.patch
-        ];
-      })
-    else
-      null;
+  opencodePackage = inputs.opencode.packages.${system}.default or null;
 
   desktopPackage =
     if inputs.opencode.packages.${system}.desktop or null != null then
