@@ -7,11 +7,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1768836546,
-        "narHash": "sha256-nJZkTamcXXMW+SMYiGFB6lB8l0aJw0xjssfN8xYd/Fs=",
+        "lastModified": 1768893778,
+        "narHash": "sha256-iSHEptqSun9Ryl1NgoKguJAjRHAFO3k9bQ9bB+UpCNA=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "b56c5ad14fcf8b5bc887463552483bf000ca562a",
+        "rev": "895eddbee851630201154725c22e94ecd8232dbf",
         "type": "github"
       },
       "original": {
@@ -36,48 +36,18 @@
         "type": "github"
       }
     },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1768569498,
-        "narHash": "sha256-bB6Nt99Cj8Nu5nIUq0GLmpiErIT5KFshMQJGMZwgqUo=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "be5afa0fcb31f0a96bf9ecba05a516c66fcd8114",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_3": {
-      "locked": {
-        "lastModified": 1767640445,
-        "narHash": "sha256-UWYqmD7JFBEDBHWYcqE6s6c77pWdcU/i+bwD6XxMb8A=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "9f0c42f8bc7151b8e7e5840fb3bd454ad850d8c5",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "opencode": {
       "inputs": {
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1768857343,
-        "narHash": "sha256-ewjp30x8bpeiTew1TIxFwxJi8Ss8X6xcGcX0cFi8zpc=",
+        "lastModified": 1768890796,
+        "narHash": "sha256-AjNhwKfud2tLYhmDLqrNMCFbvp6BywgKbIeUW/ApQqs=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "d605a78a0547bee0ac1883eb09509f2ee0c5b815",
+        "rev": "616329ae97c975f21687f6c8c9c6d4d8018e6fd9",
         "type": "github"
       },
       "original": {
@@ -104,14 +74,16 @@
     },
     "openspec": {
       "inputs": {
-        "nixpkgs": "nixpkgs_3"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1768814925,
-        "narHash": "sha256-/U2E1LM65x97ad1LeXsdNH2qkZnVhdGj6VGL9QtdZyg=",
+        "lastModified": 1768898184,
+        "narHash": "sha256-0KAYhZdz5+TEnPFQy/RmGANHxxKyGhyS9ffsNcwdUAg=",
         "owner": "Fission-AI",
         "repo": "OpenSpec",
-        "rev": "2e51ae26d3ab51ea18c2a3c81230d52cc74abe3c",
+        "rev": "8332a098118a6584a7104ccfe8e46669a1c24b7d",
         "type": "github"
       },
       "original": {
