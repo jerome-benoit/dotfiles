@@ -8,6 +8,16 @@
 let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
+
+  opencodePackage =
+    if inputs.opencode.packages.${system}.default or null != null then
+      inputs.opencode.packages.${system}.default.overrideAttrs (oldAttrs: {
+        patches = (oldAttrs.patches or [ ]) ++ [
+          ../../../patches/opencode-disable-bun-version-check.patch
+        ];
+      })
+    else
+      null;
 in
 {
   options.modules.development.opencode = {
@@ -21,7 +31,7 @@ in
 
     opencodePackage = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = inputs.opencode.packages.${system}.default or null;
+      default = opencodePackage;
       defaultText = lib.literalExpression "inputs.opencode.packages.\${system}.default";
       description = "OpenCode TUI and CLI package";
       example = lib.literalExpression "inputs.opencode.packages.\${system}.default";
