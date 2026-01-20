@@ -18,6 +18,14 @@ let
       })
     else
       null;
+
+  desktopPackage =
+    if inputs.opencode.packages.${system}.desktop or null != null then
+      inputs.opencode.packages.${system}.desktop.override {
+        opencode = opencodePackage;
+      }
+    else
+      null;
 in
 {
   options.modules.development.opencode = {
@@ -39,7 +47,7 @@ in
 
     desktopPackage = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = inputs.opencode.packages.${system}.desktop or null;
+      default = desktopPackage;
       defaultText = lib.literalExpression "inputs.opencode.packages.\${system}.desktop";
       description = "OpenCode Desktop package";
       example = lib.literalExpression "inputs.opencode.packages.\${system}.desktop";
