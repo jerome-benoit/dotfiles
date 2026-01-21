@@ -63,6 +63,7 @@ in
         python3
         python3Packages.virtualenv
         ruff
+        mitmproxy
         qpdf
         rectangle
         rustup
