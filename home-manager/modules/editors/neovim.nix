@@ -43,7 +43,7 @@ let
 
     # Treesitter
     nvim-treesitter.withAllGrammars
-    # nvim-treesitter-textobjects
+    nvim-treesitter-textobjects
 
     # Fuzzy Finder
     telescope-nvim
@@ -123,80 +123,81 @@ let
           scope_incremental = 'grc',
         },
       },
-      -- Textobjects configuration currently disabled due to plugin incompatibility with nvim-treesitter >= 0.10
-      -- textobjects = {
-      --   select = {
-      --     enable = true,
-      --     lookahead = true,
-      --     keymaps = {
-      --       ["af"] = "@function.outer",
-      --       ["if"] = "@function.inner",
-      --       ["ac"] = "@class.outer",
-      --       ["ic"] = "@class.inner",
-      --       ["aa"] = "@parameter.outer",
-      --       ["ia"] = "@parameter.inner",
-      --       ["ab"] = "@block.outer",
-      --       ["ib"] = "@block.inner",
-      --       ["ai"] = "@conditional.outer",
-      --       ["ii"] = "@conditional.inner",
-      --       ["al"] = "@loop.outer",
-      --       ["il"] = "@loop.inner",
-      --       ["a/"] = "@comment.outer",
-      --       ["i/"] = "@comment.outer",
-      --       ["ak"] = "@call.outer",
-      --       ["ik"] = "@call.inner",
-      --     },
-      --     selection_modes = {
-      --       ['@parameter.outer'] = 'v',
-      --       ['@function.outer'] = 'V',
-      --       ['@class.outer'] = '<c-v>',
-      --     },
-      --     include_surrounding_whitespace = true,
-      --   },
-      --   move = {
-      --     enable = true,
-      --     set_jumps = true,
-      --     goto_next_start = {
-      --       ["]f"] = "@function.outer",
-      --       ["]c"] = "@class.outer",
-      --       ["]a"] = "@parameter.inner",
-      --       ["]i"] = "@conditional.outer",
-      --       ["]l"] = "@loop.outer",
-      --       ["]/"] = "@comment.outer",
-      --     },
-      --     goto_next_end = {
-      --       ["]F"] = "@function.outer",
-      --       ["]C"] = "@class.outer",
-      --       ["]A"] = "@parameter.inner",
-      --       ["]I"] = "@conditional.outer",
-      --       ["]L"] = "@loop.outer",
-      --     },
-      --     goto_previous_start = {
-      --       ["[f"] = "@function.outer",
-      --       ["[c"] = "@class.outer",
-      --       ["[a"] = "@parameter.inner",
-      --       ["[i"] = "@conditional.outer",
-      --       ["[l"] = "@loop.outer",
-      --       ["[/"] = "@comment.outer",
-      --     },
-      --     goto_previous_end = {
-      --       ["[F"] = "@function.outer",
-      --       ["[C"] = "@class.outer",
-      --       ["[A"] = "@parameter.inner",
-      --       ["[I"] = "@conditional.outer",
-      --       ["[L"] = "@loop.outer",
-      --     },
-      --   },
-      --   swap = {
-      --     enable = true,
-      --     swap_next = {
-      --       ["<leader>sn"] = "@parameter.inner",
-      --     },
-      --     swap_previous = {
-      --       ["<leader>sp"] = "@parameter.inner",
-      --     },
-      --   },
-      -- },
+    })
+
+    -- Treesitter Textobjects
+    require('nvim-treesitter-textobjects').setup({
+      select = {
+        enable = true,
+        lookahead = true,
+        keymaps = {
+          ["af"] = "@function.outer",
+          ["if"] = "@function.inner",
+          ["ac"] = "@class.outer",
+          ["ic"] = "@class.inner",
+          ["aa"] = "@parameter.outer",
+          ["ia"] = "@parameter.inner",
+          ["ab"] = "@block.outer",
+          ["ib"] = "@block.inner",
+          ["ai"] = "@conditional.outer",
+          ["ii"] = "@conditional.inner",
+          ["al"] = "@loop.outer",
+          ["il"] = "@loop.inner",
+          ["a/"] = "@comment.outer",
+          ["i/"] = "@comment.outer",
+          ["ak"] = "@call.outer",
+          ["ik"] = "@call.inner",
+        },
+        selection_modes = {
+          ['@parameter.outer'] = 'v',
+          ['@function.outer'] = 'V',
+          ['@class.outer'] = '<c-v>',
+        },
+        include_surrounding_whitespace = true,
+      },
+      move = {
+        enable = true,
+        set_jumps = true,
+        goto_next_start = {
+          ["]f"] = "@function.outer",
+          ["]c"] = "@class.outer",
+          ["]a"] = "@parameter.inner",
+          ["]i"] = "@conditional.outer",
+          ["]l"] = "@loop.outer",
+          ["]/"] = "@comment.outer",
+        },
+        goto_next_end = {
+          ["]F"] = "@function.outer",
+          ["]C"] = "@class.outer",
+          ["]A"] = "@parameter.inner",
+          ["]I"] = "@conditional.outer",
+          ["]L"] = "@loop.outer",
+        },
+        goto_previous_start = {
+          ["[f"] = "@function.outer",
+          ["[c"] = "@class.outer",
+          ["[a"] = "@parameter.inner",
+          ["[i"] = "@conditional.outer",
+          ["[l"] = "@loop.outer",
+          ["[/"] = "@comment.outer",
+        },
+        goto_previous_end = {
+          ["[F"] = "@function.outer",
+          ["[C"] = "@class.outer",
+          ["[A"] = "@parameter.inner",
+          ["[I"] = "@conditional.outer",
+          ["[L"] = "@loop.outer",
+        },
+      },
+      swap = {
+        enable = true,
+        swap_next = {
+          ["<leader>sn"] = "@parameter.inner",
+        },
+        swap_previous = {
+          ["<leader>sp"] = "@parameter.inner",
+        },
+      },
     })
 
     -- Telescope
