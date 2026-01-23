@@ -21,7 +21,6 @@ in
       };
       extensions = with pkgs; [
         gh-dash
-        gh-copilot
       ];
     };
   };
