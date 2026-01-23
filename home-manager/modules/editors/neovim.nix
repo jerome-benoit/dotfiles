@@ -491,7 +491,7 @@ in
           ) config.modules.development.opencode.opencodePackage
         );
 
-      extraLuaConfig = nvimLuaConfig;
+      initLua = nvimLuaConfig;
     };
   };
 }
