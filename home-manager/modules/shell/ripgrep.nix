@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.shell.ripgrep;
-  systemRipgrep = pkgs.runCommand "ripgrep-system" { meta.mainProgram = "rg"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.shell.ripgrep = {
@@ -17,7 +17,8 @@ in
   config = lib.mkIf cfg.enable {
     programs.ripgrep = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.ripgrep else systemRipgrep;
+      package =
+        if pkgs.stdenv.isDarwin then pkgs.ripgrep else mkSystemPackage "ripgrep" { mainProgram = "rg"; };
     };
   };
 }

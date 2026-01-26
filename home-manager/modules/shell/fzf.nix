@@ -7,10 +7,7 @@
 
 let
   cfg = config.modules.shell.fzf;
-  systemFzf = pkgs.runCommand "fzf-system" {
-    version = "0.60.0";
-    meta.mainProgram = "fzf";
-  } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.shell.fzf = {
@@ -27,7 +24,7 @@ in
 
     programs.fzf = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.fzf else systemFzf;
+      package = if pkgs.stdenv.isDarwin then pkgs.fzf else mkSystemPackage "fzf" { };
       enableZshIntegration = false;
       defaultCommand = "fd --type f";
       fileWidgetCommand = "fd --type f";

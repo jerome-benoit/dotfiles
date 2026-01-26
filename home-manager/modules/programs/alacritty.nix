@@ -8,9 +8,7 @@
 let
   cfg = config.modules.programs.alacritty;
   theme = config.modules.themes.tokyoNightStorm;
-  systemAlacritty = pkgs.runCommand "alacritty-system" {
-    meta.mainProgram = "alacritty";
-  } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.programs.alacritty = {
@@ -20,7 +18,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.alacritty = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.alacritty else systemAlacritty;
+      package = if pkgs.stdenv.isDarwin then pkgs.alacritty else mkSystemPackage "alacritty" { };
       settings = {
         general = {
           import = [

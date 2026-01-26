@@ -8,7 +8,7 @@
 let
   cfg = config.modules.programs.ghostty;
   theme = config.modules.themes.tokyoNightStorm;
-  systemGhostty = pkgs.runCommand "ghostty-system" { meta.mainProgram = "ghostty"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.programs.ghostty = {
@@ -18,7 +18,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.ghostty = {
       enable = true;
-      package = systemGhostty;
+      package = mkSystemPackage "ghostty" { };
 
       settings = {
         # Window

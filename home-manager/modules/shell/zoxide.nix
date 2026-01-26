@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.shell.zoxide;
-  systemZoxide = pkgs.runCommand "zoxide-system" { meta.mainProgram = "zoxide"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.shell.zoxide = {
@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.zoxide = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.zoxide else systemZoxide;
+      package = if pkgs.stdenv.isDarwin then pkgs.zoxide else mkSystemPackage "zoxide" { };
       enableZshIntegration = false;
     };
   };

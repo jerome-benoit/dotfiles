@@ -10,7 +10,7 @@ let
   distroId = config.modules.core.distro.id;
   distroIds = config.modules.core.distro.ids;
   profileModules = config.modules.core.profile.modules;
-  systemZsh = pkgs.runCommand "zsh-system" { meta.mainProgram = "zsh"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.shell.zsh = {
@@ -20,7 +20,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.zsh = {
       enable = true;
-      package = systemZsh;
+      package = mkSystemPackage "zsh" { };
       sessionVariables = {
         NH_FLAKE = "$HOME/.nix";
         WORKSPACE = "$HOME/tmp";

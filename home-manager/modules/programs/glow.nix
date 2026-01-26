@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.glow;
-  systemGlow = pkgs.runCommand "glow-system" { meta.mainProgram = "glow"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.programs.glow = {
@@ -15,7 +15,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = if pkgs.stdenv.isDarwin then [ pkgs.glow ] else [ systemGlow ];
+    home.packages = if pkgs.stdenv.isDarwin then [ pkgs.glow ] else [ (mkSystemPackage "glow" { }) ];
 
     xdg.configFile."glow/glow.yml".text = lib.generators.toYAML { } {
       style = "auto";

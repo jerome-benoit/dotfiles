@@ -8,7 +8,7 @@
 let
   cfg = config.modules.development.git;
   constants = config.modules.core.constants;
-  systemGit = pkgs.runCommand "git-system" { } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.development.git = {
@@ -26,7 +26,7 @@ in
     programs.git = lib.mkMerge [
       {
         enable = true;
-        package = systemGit;
+        package = mkSystemPackage "git" { };
 
         settings = {
           core = {

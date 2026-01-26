@@ -7,8 +7,7 @@
 
 let
   cfg = config.modules.programs.tmux;
-  theme = config.modules.themes.tokyoNightStorm;
-  systemTmux = pkgs.runCommand "tmux-system" { meta.mainProgram = "tmux"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.programs.tmux = {
@@ -18,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.tmux = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.tmux else systemTmux;
+      package = if pkgs.stdenv.isDarwin then pkgs.tmux else mkSystemPackage "tmux" { };
       keyMode = "vi";
       mouse = true;
       baseIndex = 1;

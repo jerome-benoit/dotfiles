@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.shell.fd;
-  systemFd = pkgs.runCommand "fd-system" { meta.mainProgram = "fd"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.shell.fd = {
@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.fd = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.fd else systemFd;
+      package = if pkgs.stdenv.isDarwin then pkgs.fd else mkSystemPackage "fd" { };
     };
   };
 }

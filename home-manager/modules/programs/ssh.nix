@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.ssh;
-  systemSsh = pkgs.runCommand "ssh-system" { meta.mainProgram = "ssh"; } "mkdir -p $out";
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {
   options.modules.programs.ssh = {
@@ -19,7 +19,7 @@ in
       {
         enable = true;
         enableDefaultConfig = false;
-        package = systemSsh;
+        package = mkSystemPackage "ssh" { };
         matchBlocks = {
           "*" = {
             addKeysToAgent = "yes";
