@@ -18,7 +18,8 @@ in
   config = lib.mkIf cfg.enable {
     programs.zellij = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.zellij else mkSystemPackage "zellij" { };
+      package =
+        if pkgs.stdenv.isDarwin then pkgs.zellij else mkSystemPackage "zellij" { version = "0.43.1"; };
       enableZshIntegration = false;
 
       settings = {

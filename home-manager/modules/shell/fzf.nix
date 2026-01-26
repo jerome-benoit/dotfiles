@@ -24,7 +24,7 @@ in
 
     programs.fzf = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.fzf else mkSystemPackage "fzf" { };
+      package = if pkgs.stdenv.isDarwin then pkgs.fzf else mkSystemPackage "fzf" { version = "0.67.0"; };
       enableZshIntegration = false;
       defaultCommand = "fd --type f";
       fileWidgetCommand = "fd --type f";
