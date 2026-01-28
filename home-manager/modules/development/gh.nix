@@ -16,9 +16,6 @@ in
   config = lib.mkIf cfg.enable {
     programs.gh = {
       enable = true;
-      settings = {
-        git_protocol = "ssh";
-      };
       extensions = with pkgs; [
         gh-dash
       ];
