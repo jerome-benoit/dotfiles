@@ -47,10 +47,16 @@ in
       description = "The user's full name";
       readOnly = true;
     };
-    email = lib.mkOption {
+    primaryEmail = lib.mkOption {
       type = lib.types.strMatching emailRegex;
       default = "jerome.benoit@piment-noir.org";
-      description = "The user's email address";
+      description = "The user's primary email address";
+      readOnly = true;
+    };
+    secondaryEmail = lib.mkOption {
+      type = lib.types.strMatching emailRegex;
+      default = "jbenoit100@gmail.com";
+      description = "The user's secondary email address";
       readOnly = true;
     };
     workEmail = lib.mkOption {

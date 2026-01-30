@@ -78,6 +78,7 @@ in
     btop.enable = profileModules.programs.btop;
     ghostty.enable = profileModules.programs.ghostty;
     glow.enable = profileModules.programs.glow;
+    himalaya.enable = profileModules.programs.himalaya;
     lazydocker.enable = profileModules.programs.lazydocker;
     ssh.enable = profileModules.programs.ssh;
     tmux.enable = profileModules.programs.tmux;

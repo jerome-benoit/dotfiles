@@ -60,7 +60,7 @@ in
 
       personal = mkSpecialisation {
         name = "personal";
-        email = constants.email;
+        email = constants.primaryEmail;
         signature = ''
           ${constants.username} aka fraggle
           Piment Noir - https://piment-noir.org

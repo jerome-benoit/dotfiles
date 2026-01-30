@@ -32,6 +32,7 @@ let
       btop = true;
       ghostty = true;
       glow = true;
+      himalaya = true;
       lazydocker = true;
       ssh = true;
       tmux = true;
@@ -77,6 +78,7 @@ let
       btop = true;
       ghostty = false;
       glow = true;
+      himalaya = false;
       lazydocker = true;
       ssh = true;
       tmux = true;

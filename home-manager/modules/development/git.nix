@@ -41,7 +41,7 @@ in
           };
           user = {
             name = lib.mkDefault constants.username;
-            email = lib.mkDefault constants.email;
+            email = lib.mkDefault constants.primaryEmail;
             signingKey = lib.mkDefault constants.gpg.keyId;
           };
           commit = {
