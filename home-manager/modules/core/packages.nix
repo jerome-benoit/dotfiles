@@ -50,7 +50,7 @@ in
         insomnia
         iterm2
         jdk25
-        jetbrains.pycharm-community-bin
+        jetbrains.pycharm
         jetbrains.rust-rover
         mitmproxy
         nheko
