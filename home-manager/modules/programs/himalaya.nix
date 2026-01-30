@@ -24,12 +24,8 @@ let
       ]
     else
       [
-        "secret-tool"
-        "lookup"
-        "service"
-        "himalaya"
-        "account"
-        email
+        "pass"
+        "email/${email}"
       ];
 
   commonSettings = {

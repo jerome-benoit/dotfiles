@@ -20,6 +20,7 @@ in
         nh
         mergiraf
         nixfmt
+        pass
         volta
       ]
       ++ lib.optionals pkgs.stdenv.isLinux (
