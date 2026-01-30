@@ -16,11 +16,10 @@ in
     home.packages =
       with pkgs;
       [
+        mergiraf
         nerd-fonts.jetbrains-mono
         nh
-        mergiraf
         nixfmt
-        pass
         volta
       ]
       ++ lib.optionals pkgs.stdenv.isLinux (
@@ -38,14 +37,14 @@ in
         bat
         bruno
         chroma
-        cmake
         cloudfoundry-cli
+        cmake
         coreutils
         delta
         firefox
+        gnused
         go
         google-chrome
-        gnused
         grc
         hyperfine
         insomnia
@@ -53,8 +52,10 @@ in
         jdk25
         jetbrains.pycharm-community-bin
         jetbrains.rust-rover
+        mitmproxy
         nheko
         ninja
+        pass
         pipenv
         pkg-config
         podman
@@ -63,10 +64,9 @@ in
         poetry
         python3
         python3Packages.virtualenv
-        ruff
-        mitmproxy
         qpdf
         rectangle
+        ruff
         rustup
         uv
         vscode
