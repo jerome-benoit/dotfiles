@@ -79,12 +79,14 @@ in
 
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
       text = ''
+        tap "steipete/tap"
         cask "docker-desktop"
         cask "ferdium"
         cask "ghostty"
         cask "gpg-suite@nightly"
         cask "jordanbaird-ice"
         cask "shuttle"
+        brew "steipete/tap/peekaboo"
       '';
     };
     home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (
