@@ -22,7 +22,7 @@ let
       lazygit = true;
       opencode = {
         enable = true;
-        enableDesktop = true;
+        enableDesktop = false;
       };
       openspec = true;
     };
