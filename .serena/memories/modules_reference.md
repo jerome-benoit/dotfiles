@@ -157,8 +157,8 @@ Terminal emulator:
 ### ghostty.nix
 Terminal emulator:
 - Font: constants.fontFamily, 12pt
-- Theme: Tokyo Night Storm (macOS only via settings)
-- Keybindings: uses Ghostty defaults (well-designed out of the box)
+- Theme: Tokyo Night Storm (macOS only)
+- Keybindings: uses Ghostty defaults
 - macOS: option-as-alt enabled
 
 ### tmux.nix
