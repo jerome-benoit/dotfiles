@@ -84,6 +84,12 @@ in
       default = 50000;
       description = "Default history size for shells and terminal emulators";
     };
+    fontFamily = lib.mkOption {
+      type = lib.types.str;
+      default = "JetBrainsMono Nerd Font";
+      description = "Default monospace font family for terminal emulators and editors";
+      readOnly = true;
+    };
     timezone = lib.mkOption {
       type = lib.types.str;
       default = "Europe/Paris";

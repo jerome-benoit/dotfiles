@@ -9,6 +9,8 @@ let
   cfg = config.modules.programs.ghostty;
   theme = config.modules.themes.tokyoNightStorm;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  fontFamily = config.modules.core.constants.fontFamily;
+  isDarwin = pkgs.stdenv.isDarwin;
 in
 {
   options.modules.programs.ghostty = {
@@ -31,7 +33,7 @@ in
         window-inherit-working-directory = true;
 
         # Font
-        font-family = "JetBrainsMono Nerd Font";
+        font-family = fontFamily;
         font-size = 12;
         font-thicken = true;
         adjust-cell-height = "20%";
@@ -63,38 +65,8 @@ in
 
         # Updates
         auto-update = "off";
-
-        # Keybindings
-        keybind = [
-          # Tabs
-          "ctrl+shift+t=new_tab"
-          "ctrl+shift+w=close_surface"
-          "ctrl+tab=next_tab"
-          "ctrl+shift+tab=previous_tab"
-
-          # Splits
-          "ctrl+shift+enter=new_split:right"
-          "ctrl+shift+alt+enter=new_split:down"
-          "ctrl+shift+h=goto_split:left"
-          "ctrl+shift+j=goto_split:bottom"
-          "ctrl+shift+k=goto_split:top"
-          "ctrl+shift+l=goto_split:right"
-
-          # Resize splits
-          "ctrl+shift+left=resize_split:left,10"
-          "ctrl+shift+right=resize_split:right,10"
-          "ctrl+shift+up=resize_split:up,10"
-          "ctrl+shift+down=resize_split:down,10"
-
-          # Other
-          "ctrl+shift+c=copy_to_clipboard"
-          "ctrl+shift+v=paste_from_clipboard"
-          "ctrl+shift+equal=increase_font_size:1"
-          "ctrl+shift+minus=decrease_font_size:1"
-          "ctrl+shift+0=reset_font_size"
-        ];
       }
-      // lib.optionalAttrs pkgs.stdenv.isDarwin {
+      // lib.optionalAttrs isDarwin {
         theme = theme.altName or theme.name;
         macos-option-as-alt = true;
       };

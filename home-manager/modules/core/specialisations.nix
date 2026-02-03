@@ -2,12 +2,14 @@
 let
   cfg = config.modules.core.specialisations;
   constants = config.modules.core.constants;
+  sshEnabled = config.modules.programs.ssh.enable;
 
   mkSpecialisation =
     {
       name,
       email,
       signature,
+      sshMatchBlocks ? { },
     }:
     {
       configuration =
@@ -32,6 +34,8 @@ let
             hmw = "nh home switch --specialisation work --impure";
             hmp = "nh home switch --specialisation personal --impure";
           };
+
+          programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
         };
     };
 in
@@ -46,6 +50,10 @@ in
         assertion = config.modules.development.git.enable;
         message = "specialisations: Git module must be enabled (modules.development.git.enable = true)";
       }
+      {
+        assertion = config.modules.shell.zsh.enable;
+        message = "specialisations: Zsh module must be enabled (modules.shell.zsh.enable = true)";
+      }
     ];
 
     specialisation = {
@@ -56,6 +64,11 @@ in
           ${constants.username} - R&D Software Engineer
           SAP Labs France
         '';
+        sshMatchBlocks = {
+          "*.local" = {
+            user = "fraggle";
+          };
+        };
       };
 
       personal = mkSpecialisation {

@@ -15,6 +15,7 @@ Defines user-level constants accessible via `config.modules.core.constants`:
 - `historySize` - 50000 (configurable)
 - `timezone` - "Europe/Paris" (configurable)
 - `hosts` - Known hostnames: rigel, ns3108029 (readonly)
+- `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
 
 ### distro.nix
 Auto-detects Linux distribution via `/etc/os-release`:
@@ -68,8 +69,9 @@ Creates work/personal contexts with different:
 - Git user email and signing key
 - Email signature file (.signature)
 - Shell aliases (hm, hmw, hmp)
+- SSH matchBlocks (work specialisation has *.local -> fraggle user)
 
-Requires: `modules.development.git.enable = true`
+Requires: `modules.development.git.enable = true`, `modules.shell.zsh.enable = true`
 
 ---
 
@@ -120,8 +122,7 @@ Comprehensive Git configuration:
 
 ### gh.nix
 GitHub CLI:
-- SSH protocol
-- Extensions: gh-dash, gh-copilot
+- Extensions: gh-dash
 
 ### lazygit.nix
 Git TUI with Tokyo Night theme colors:
@@ -146,17 +147,19 @@ Simple Bun JavaScript runtime enablement.
 ### alacritty.nix
 Terminal emulator:
 - Theme: tokyo_night_storm (from alacritty-theme package)
-- Font: JetBrainsMono Nerd Font, 14pt
+- Font: constants.fontFamily, 14pt
 - Window: maximized, 0.95 opacity, blur
 - Scrollback: uses constants.historySize
-- URL hints: Cmd/Ctrl+click to open
+- URL hints: Cmd/Ctrl+click to open (cross-platform)
 - Bell: visual + notify-send on Linux
+- Keybindings: cross-platform (Command on macOS, Control on Linux)
 
 ### ghostty.nix
 Terminal emulator:
-- Font: JetBrainsMono Nerd Font, 12pt
+- Font: constants.fontFamily, 12pt
 - Theme: Tokyo Night Storm (macOS only via settings)
-- Keybindings: tabs, splits, resize, clipboard
+- Keybindings: uses Ghostty defaults (well-designed out of the box)
+- macOS: option-as-alt enabled
 
 ### tmux.nix
 Terminal multiplexer:
@@ -181,7 +184,7 @@ Docker TUI:
 SSH configuration:
 - Forward agent and X11 enabled
 - macOS: UseKeychain
-- Work specialisation: *.local hosts use fraggle user
+- SSH matchBlocks defined in specialisations.nix (work: *.local -> fraggle user)
 
 ### btop.nix, glow.nix
 Simple wrappers with basic configuration.

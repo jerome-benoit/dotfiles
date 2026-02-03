@@ -38,11 +38,5 @@ in
         };
       })
     ];
-
-    specialisation.work.configuration = {
-      programs.ssh.matchBlocks."*.local" = {
-        user = "fraggle";
-      };
-    };
   };
 }
