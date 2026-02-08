@@ -50,7 +50,7 @@ in
         insomnia
         iterm2
         jdk25
-        jetbrains.pycharm
+        # jetbrains.pycharm
         jetbrains.rust-rover
         mitmproxy
         nheko
@@ -61,7 +61,7 @@ in
         podman
         podman-compose
         podman-desktop
-        poetry
+        # poetry
         python3
         python3Packages.virtualenv
         qpdf

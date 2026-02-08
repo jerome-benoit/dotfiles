@@ -40,6 +40,7 @@ in
       allowUnfree = true;
       permittedInsecurePackages = lib.optionals pkgs.stdenv.isDarwin [
         "olm-3.2.16"
+        "google-chrome-144.0.7559.97"
       ];
     };
   };
