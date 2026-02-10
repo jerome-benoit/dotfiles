@@ -12,10 +12,17 @@ let
   opencodePackage = inputs.opencode.packages.${system}.default or null;
 
   desktopPackage =
-    if inputs.opencode.packages.${system}.desktop or null != null then
-      inputs.opencode.packages.${system}.desktop.override {
-        opencode = opencodePackage;
-      }
+    let
+      desktop = inputs.opencode.packages.${system}.desktop or null;
+      outputHashes = import ./opencode-hashes.nix;
+    in
+    if desktop != null then
+      (desktop.override { opencode = opencodePackage; }).overrideAttrs (_: {
+        cargoDeps = pkgs.rustPlatform.importCargoLock {
+          lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
+          inherit outputHashes;
+        };
+      })
     else
       null;
 in
