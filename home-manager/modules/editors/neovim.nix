@@ -11,7 +11,7 @@ let
 
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
     pname = "opencode-nvim";
-    version = "unstable-${lib.substring 0 9 inputs.opencode-nvim.rev}";
+    version = "unstable-${inputs.opencode-nvim.shortRev}";
     src = inputs.opencode-nvim;
     meta = with lib; {
       homepage = "https://github.com/NickvanDyke/opencode.nvim";
