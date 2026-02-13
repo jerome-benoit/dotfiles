@@ -9,6 +9,11 @@
 let
   cfg = config.modules.development.aoe;
 
+  aoeConfig = ''
+    [session]
+    default_tool = "${cfg.defaultTool}"
+  '';
+
   aoePackage = pkgs.rustPlatform.buildRustPackage {
     pname = "aoe";
     version = "unstable-${inputs.agent-of-empires.shortRev}";
@@ -54,9 +59,35 @@ in
       defaultText = lib.literalExpression "inputs.agent-of-empires built with rustPlatform";
       description = "Agent of Empires package";
     };
+
+    defaultTool = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.enum [
+          "claude"
+          "opencode"
+          "vibe"
+          "codex"
+          "gemini"
+        ]
+      );
+      default = "opencode";
+      description = "Default AI agent for new sessions";
+    };
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
+
+    home.file.".agent-of-empires/config.toml" =
+      lib.mkIf (pkgs.stdenv.isDarwin && cfg.defaultTool != null)
+        {
+          text = aoeConfig;
+        };
+
+    xdg.configFile."agent-of-empires/config.toml" =
+      lib.mkIf (pkgs.stdenv.isLinux && cfg.defaultTool != null)
+        {
+          text = aoeConfig;
+        };
   };
 }
