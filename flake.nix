@@ -11,6 +11,10 @@
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
     };
+    agent-of-empires = {
+      url = "github:njbrake/agent-of-empires";
+      flake = false;
+    };
     openspec.url = "github:Fission-AI/OpenSpec";
     openspec.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -22,6 +26,7 @@
       home-manager,
       opencode,
       opencode-nvim,
+      agent-of-empires,
       openspec,
     }@inputs:
     let

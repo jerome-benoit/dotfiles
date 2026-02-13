@@ -16,6 +16,7 @@ let
     };
 
     development = {
+      aoe = true;
       bun = true;
       claudeCode = true;
       gh = true;
@@ -63,6 +64,7 @@ let
     };
 
     development = {
+      aoe = false;
       bun = false;
       claudeCode = false;
       gh = false;

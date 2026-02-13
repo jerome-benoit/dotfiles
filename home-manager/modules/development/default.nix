@@ -1,5 +1,6 @@
 {
   imports = [
+    ./aoe.nix
     ./bun.nix
     ./claude-code.nix
     ./gh.nix

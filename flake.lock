@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "agent-of-empires": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1770998558,
+        "narHash": "sha256-8Hejd4vhTQOVrvLdhz98Fq4m4pyXGbiRdWMxhY9T1Xw=",
+        "owner": "njbrake",
+        "repo": "agent-of-empires",
+        "rev": "9b2ca699d6564470ed8789273a52be2c58140e4a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "njbrake",
+        "repo": "agent-of-empires",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -7,11 +23,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1770975156,
-        "narHash": "sha256-bPKv7BcIOGp4R1Q3hKhiD2CT3+7D6ibNIaJfEJdeOzo=",
+        "lastModified": 1770995331,
+        "narHash": "sha256-MZOF7PVKDOMAOp6bJpzuKOb1DVcyUT84568r8y3iVGg=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "de4cfffc98f43ab8ba90739b56991f068f9e9018",
+        "rev": "5e90b62996d56da9acb21e502c078e7c4e6ab40f",
         "type": "github"
       },
       "original": {
@@ -43,11 +59,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1770983563,
-        "narHash": "sha256-YiCSKmgYzYYPO+ZFzcLFa+vmO/X+wMlRyp7NXnUCzbU=",
+        "lastModified": 1770996002,
+        "narHash": "sha256-NteYB7UjSmNBFlgvXea4dgpfquQzKlbq5ezEfyFVFQc=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "4f51c0912d76698325862e8fcd7d484b7b9a61fe",
+        "rev": "bc1fd0633dfd021545cd22041fab995f93ec2413",
         "type": "github"
       },
       "original": {
@@ -59,11 +75,11 @@
     "opencode-nvim": {
       "flake": false,
       "locked": {
-        "lastModified": 1770750753,
-        "narHash": "sha256-ShAot7XV5IgXIeb6FDo8Md4Y3KFHzNEaKOM2k7tXvxs=",
+        "lastModified": 1771004922,
+        "narHash": "sha256-Ttb5famgjDlg3lv2AaQbL7/iqq4g32+GqIIoOrosLqo=",
         "owner": "NickvanDyke",
         "repo": "opencode.nvim",
-        "rev": "e876696dc93c1962eaeff8ca5114c23c20485d09",
+        "rev": "9fa26f0146fa00801f2c0eaefb4b75f0051d7292",
         "type": "github"
       },
       "original": {
@@ -94,6 +110,7 @@
     },
     "root": {
       "inputs": {
+        "agent-of-empires": "agent-of-empires",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
         "opencode": "opencode",
