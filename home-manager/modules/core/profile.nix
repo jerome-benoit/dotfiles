@@ -17,6 +17,7 @@ let
 
     development = {
       bun = true;
+      claudeCode = true;
       gh = true;
       git = true;
       lazygit = true;
@@ -63,6 +64,7 @@ let
 
     development = {
       bun = false;
+      claudeCode = false;
       gh = false;
       git = true;
       lazygit = true;

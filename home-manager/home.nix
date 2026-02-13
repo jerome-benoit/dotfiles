@@ -64,6 +64,7 @@ in
 
   modules.development = {
     bun.enable = bunSupported && profileModules.development.bun;
+    claudeCode.enable = profileModules.development.claudeCode;
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
     lazygit.enable = profileModules.development.lazygit;

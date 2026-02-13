@@ -1,6 +1,7 @@
 {
   imports = [
     ./bun.nix
+    ./claude-code.nix
     ./gh.nix
     ./git.nix
     ./lazygit.nix
