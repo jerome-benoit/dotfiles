@@ -78,16 +78,23 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
 
-    home.file.".agent-of-empires/config.toml" =
-      lib.mkIf (pkgs.stdenv.isDarwin && cfg.defaultTool != null)
-        {
-          text = aoeConfig;
-        };
-
-    xdg.configFile."agent-of-empires/config.toml" =
-      lib.mkIf (pkgs.stdenv.isLinux && cfg.defaultTool != null)
-        {
-          text = aoeConfig;
-        };
+    home.activation.aoeConfig = lib.mkIf (cfg.defaultTool != null) (
+      let
+        configDir =
+          if pkgs.stdenv.isDarwin then
+            "${config.home.homeDirectory}/.agent-of-empires"
+          else
+            "${config.xdg.configHome}/agent-of-empires";
+        configFile = "${configDir}/config.toml";
+      in
+      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run mkdir -p "${configDir}"
+        if [[ ! -f "${configFile}" ]]; then
+          run cat > "${configFile}" << 'EOF'
+        ${aoeConfig}
+        EOF
+        fi
+      ''
+    );
   };
 }
