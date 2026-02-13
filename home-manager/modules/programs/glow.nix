@@ -8,6 +8,14 @@
 let
   cfg = config.modules.programs.glow;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+
+  glowConfig = lib.generators.toYAML { } {
+    style = "auto";
+    mouse = true;
+    pager = true;
+    width = 100;
+    all = false;
+  };
 in
 {
   options.modules.programs.glow = {
@@ -17,12 +25,12 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = if pkgs.stdenv.isDarwin then [ pkgs.glow ] else [ (mkSystemPackage "glow" { }) ];
 
-    xdg.configFile."glow/glow.yml".text = lib.generators.toYAML { } {
-      style = "auto";
-      mouse = true;
-      pager = true;
-      width = 100;
-      all = false;
+    home.file = lib.mkIf pkgs.stdenv.isDarwin {
+      "Library/Preferences/glow/glow.yml".text = glowConfig;
+    };
+
+    xdg.configFile = lib.mkIf pkgs.stdenv.isLinux {
+      "glow/glow.yml".text = glowConfig;
     };
   };
 }
