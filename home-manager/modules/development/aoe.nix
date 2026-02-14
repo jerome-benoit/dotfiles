@@ -19,8 +19,7 @@ let
     version = "unstable-${inputs.agent-of-empires.shortRev}";
     src = inputs.agent-of-empires;
 
-    cargoLock.lockFile = ./aoe-Cargo.lock;
-    postPatch = "cp ${./aoe-Cargo.lock} Cargo.lock";
+    cargoLock.lockFile = "${inputs.agent-of-empires}/Cargo.lock";
 
     nativeBuildInputs = with pkgs; [
       pkg-config
