@@ -24,14 +24,6 @@ let
     ];
 
     doCheck = false;
-    nativeBuildInputs = [ pkgs.installShellFiles ];
-
-    postInstall = lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
-      installShellCompletion --cmd agent-deck \
-        --bash <($out/bin/agent-deck completion bash 2>/dev/null || true) \
-        --fish <($out/bin/agent-deck completion fish 2>/dev/null || true) \
-        --zsh <($out/bin/agent-deck completion zsh 2>/dev/null || true)
-    '';
 
     meta = with lib; {
       description = "Terminal session manager for AI coding agents";
