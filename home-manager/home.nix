@@ -63,6 +63,7 @@ in
   };
 
   modules.development = {
+    agent-deck.enable = profileModules.development.agentDeck;
     aoe.enable = profileModules.development.aoe;
     bun.enable = bunSupported && profileModules.development.bun;
     claudeCode.enable = profileModules.development.claudeCode;

@@ -16,6 +16,7 @@ let
     };
 
     development = {
+      agentDeck = true;
       aoe = true;
       bun = true;
       claudeCode = true;
@@ -64,6 +65,7 @@ let
     };
 
     development = {
+      agentDeck = false;
       aoe = false;
       bun = false;
       claudeCode = false;

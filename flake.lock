@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "agent-deck": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771095020,
+        "narHash": "sha256-5v2CjGWlcO9Y/A8ueLEBD0LW2PxIgTTF8W/O9Jb2zkM=",
+        "owner": "asheshgoplani",
+        "repo": "agent-deck",
+        "rev": "d585678927965b5f4ca15c87e13c59a2989e5f38",
+        "type": "github"
+      },
+      "original": {
+        "owner": "asheshgoplani",
+        "repo": "agent-deck",
+        "type": "github"
+      }
+    },
     "agent-of-empires": {
       "flake": false,
       "locked": {
@@ -59,11 +75,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1771051670,
-        "narHash": "sha256-+EqMprhfze7K/tOrIxdRFbvl8JaZbO5Y5DJmdjl38f0=",
+        "lastModified": 1771096138,
+        "narHash": "sha256-WloVpVut70DMswLD1EVaWsOGVujyktNRbhqo65wp95Q=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "df3203d2dd06edd70693ea99312e1ae3e59accd5",
+        "rev": "3b6b3e6fc8a8a4da5798c9f00027e954263a483e",
         "type": "github"
       },
       "original": {
@@ -110,6 +126,7 @@
     },
     "root": {
       "inputs": {
+        "agent-deck": "agent-deck",
         "agent-of-empires": "agent-of-empires",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
