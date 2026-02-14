@@ -5,7 +5,9 @@
 
 {
   imports = [
+    ./tokyo-night.nix
     ./tokyo-night-storm.nix
+    ./tokyo-night-light.nix
   ];
 
   options.modules.themes = lib.mkOption {
