@@ -19,6 +19,7 @@ in
       enable = true;
       package = if pkgs.stdenv.isDarwin then pkgs.tmux else mkSystemPackage "tmux" { };
       keyMode = "vi";
+      terminal = "tmux-256color";
       mouse = true;
       baseIndex = 1;
       escapeTime = 10;
@@ -33,9 +34,11 @@ in
 
         # Server Options
         set -s extended-keys on
+        set -s focus-events on
 
         # Session Options
         set -g renumber-windows on
+        set -g allow-passthrough on
 
         # Window Options
         set -g set-titles on

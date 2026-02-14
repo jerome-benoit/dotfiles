@@ -63,6 +63,11 @@ in
         # Performance
         resize-overlay = "never";
 
+        # Quick Terminal
+        keybind = "global:ctrl+grave_accent=toggle_quick_terminal";
+        quick-terminal-position = "center";
+        quick-terminal-animation-duration = 0;
+
         # Updates
         auto-update = "off";
       }
