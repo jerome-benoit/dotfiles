@@ -10,7 +10,7 @@
     fileName = "tokyo_night";
 
     colors = {
-      # Base colors (from official tokyo-night-color-theme.json)
+      # Base colors
       bg = "#1a1b26";
       fg = "#a9b1d6";
 

@@ -10,7 +10,7 @@
     fileName = "tokyo_night_light";
 
     colors = {
-      # Base colors (from official tokyo-night-light-color-theme.json)
+      # Base colors
       bg = "#e6e7ed";
       fg = "#343b58";
 
