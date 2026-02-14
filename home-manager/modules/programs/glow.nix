@@ -9,7 +9,7 @@ let
   cfg = config.modules.programs.glow;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 
-  glowConfig = lib.generators.toYAML { } {
+  glowConfig = (pkgs.formats.yaml { }).generate "glow.yml" {
     style = "auto";
     mouse = true;
     pager = true;
@@ -26,11 +26,11 @@ in
     home.packages = if pkgs.stdenv.isDarwin then [ pkgs.glow ] else [ (mkSystemPackage "glow" { }) ];
 
     home.file = lib.mkIf pkgs.stdenv.isDarwin {
-      "Library/Preferences/glow/glow.yml".text = glowConfig;
+      "Library/Preferences/glow/glow.yml".source = glowConfig;
     };
 
     xdg.configFile = lib.mkIf pkgs.stdenv.isLinux {
-      "glow/glow.yml".text = glowConfig;
+      "glow/glow.yml".source = glowConfig;
     };
   };
 }
