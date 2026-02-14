@@ -152,6 +152,14 @@ in
 
       envExtra = ''
         [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+
+        if command -v gh >/dev/null 2>&1; then
+          _gh_token=$(gh auth token 2>/dev/null)
+          if [[ -n "$_gh_token" ]]; then
+            export NIX_CONFIG="access-tokens = github.com=$_gh_token"
+          fi
+          unset _gh_token
+        fi
       '';
 
       profileExtra = ''
