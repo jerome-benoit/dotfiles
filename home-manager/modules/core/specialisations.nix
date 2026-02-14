@@ -1,4 +1,9 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  ...
+}:
+
 let
   cfg = config.modules.core.specialisations;
   constants = config.modules.core.constants;
