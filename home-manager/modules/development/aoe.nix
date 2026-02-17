@@ -24,11 +24,19 @@ let
     nativeBuildInputs = [
       pkgs.pkg-config
       pkgs.perl
+      pkgs.installShellFiles
     ];
 
     buildInputs = [ ];
 
     doCheck = false;
+
+    # postInstall = ''
+    #   installShellCompletion --cmd aoe \
+    #     --bash <($out/bin/aoe completion bash) \
+    #     --fish <($out/bin/aoe completion fish) \
+    #     --zsh <($out/bin/aoe completion zsh)
+    # '';
 
     meta = with lib; {
       description = "Terminal session manager for AI coding agents";
