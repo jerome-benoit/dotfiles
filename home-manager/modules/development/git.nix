@@ -130,23 +130,7 @@ in
           interactive = {
             diffFilter = "delta --color-only";
           };
-          delta = {
-            navigate = true;
-            line-numbers = true;
-            side-by-side = false;
-            hyperlinks = true;
-            hyperlinks-file-link-format = "file://{path}#{line}";
-            dark = true;
-            syntax-theme = "Visual Studio Dark+";
-            true-color = "always";
-            max-line-length = 0;
-            features = "decorations";
-            whitespace-error-style = "22 reverse";
-            file-style = "bold #DCDCAA ul";
-            file-decoration-style = "none";
-            hunk-header-style = "file line-number syntax";
-            hunk-header-decoration-style = "#569cd6 box";
-          };
+          delta = config.modules.core.constants.deltaConfig;
         };
       }
       (lib.mkIf pkgs.stdenv.isDarwin {
