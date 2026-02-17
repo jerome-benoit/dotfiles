@@ -21,42 +21,42 @@ let
     };
   };
 
-  nvimBasePlugins = with pkgs.vimPlugins; [
+  nvimBasePlugins = [
     # UI & Theme
-    snacks-nvim
-    tokyonight-nvim
-    lualine-nvim
-    nvim-web-devicons
+    pkgs.vimPlugins.snacks-nvim
+    pkgs.vimPlugins.tokyonight-nvim
+    pkgs.vimPlugins.lualine-nvim
+    pkgs.vimPlugins.nvim-web-devicons
 
     # File Management
-    neo-tree-nvim
-    nui-nvim
-    oil-nvim
+    pkgs.vimPlugins.neo-tree-nvim
+    pkgs.vimPlugins.nui-nvim
+    pkgs.vimPlugins.oil-nvim
 
     # Editor Essentials
-    nvim-surround
-    nvim-autopairs
-    comment-nvim
-    nvim-ts-context-commentstring
-    which-key-nvim
-    gitsigns-nvim
+    pkgs.vimPlugins.nvim-surround
+    pkgs.vimPlugins.nvim-autopairs
+    pkgs.vimPlugins.comment-nvim
+    pkgs.vimPlugins.nvim-ts-context-commentstring
+    pkgs.vimPlugins.which-key-nvim
+    pkgs.vimPlugins.gitsigns-nvim
 
     # Treesitter
-    nvim-treesitter.withAllGrammars
-    nvim-treesitter-textobjects
+    pkgs.vimPlugins.nvim-treesitter.withAllGrammars
+    pkgs.vimPlugins.nvim-treesitter-textobjects
 
     # Fuzzy Finder
-    telescope-nvim
-    telescope-fzf-native-nvim
-    plenary-nvim
+    pkgs.vimPlugins.telescope-nvim
+    pkgs.vimPlugins.telescope-fzf-native-nvim
+    pkgs.vimPlugins.plenary-nvim
 
     # Formatting
-    conform-nvim
+    pkgs.vimPlugins.conform-nvim
 
     # LSP & Completion
-    blink-cmp
-    friendly-snippets
-    lazydev-nvim
+    pkgs.vimPlugins.blink-cmp
+    pkgs.vimPlugins.friendly-snippets
+    pkgs.vimPlugins.lazydev-nvim
   ];
 
   nvimAiPlugins = [ nvimAiPluginOpencode ];
@@ -465,32 +465,30 @@ in
 
       plugins = nvimPlugins;
 
-      extraPackages =
-        with pkgs;
-        [
-          # LSP Servers
-          nodePackages.bash-language-server
-          pyright
-          nodePackages.typescript-language-server
-          gopls
-          rust-analyzer
-          nixd
-          lua-language-server
+      extraPackages = [
+        # LSP Servers
+        pkgs.nodePackages.bash-language-server
+        pkgs.pyright
+        pkgs.nodePackages.typescript-language-server
+        pkgs.gopls
+        pkgs.rust-analyzer
+        pkgs.nixd
+        pkgs.lua-language-server
 
-          # Formatters
-          stylua
-          nodePackages.prettier
-          nixfmt
-          ruff
+        # Formatters
+        pkgs.stylua
+        pkgs.nodePackages.prettier
+        pkgs.nixfmt
+        pkgs.ruff
 
-          # Tools
-          tree-sitter
-        ]
-        ++ lib.optionals cfg.plugins.opencode.enable (
-          lib.optional (
-            config.modules.development.opencode.opencodePackage != null
-          ) config.modules.development.opencode.opencodePackage
-        );
+        # Tools
+        pkgs.tree-sitter
+      ]
+      ++ lib.optionals cfg.plugins.opencode.enable (
+        lib.optional (
+          config.modules.development.opencode.opencodePackage != null
+        ) config.modules.development.opencode.opencodePackage
+      );
 
       initLua = nvimLuaConfig;
     };

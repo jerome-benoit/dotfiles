@@ -97,13 +97,13 @@ let
     vnoremap < <gv
     vnoremap > >gv
   '';
-  vimPlugins = with pkgs.vimPlugins; [
-    vim-airline
-    vim-airline-themes
-    vim-nix
-    vim-commentary
-    vim-surround
-    vim-gitgutter
+  vimPlugins = [
+    pkgs.vimPlugins.vim-airline
+    pkgs.vimPlugins.vim-airline-themes
+    pkgs.vimPlugins.vim-nix
+    pkgs.vimPlugins.vim-commentary
+    pkgs.vimPlugins.vim-surround
+    pkgs.vimPlugins.vim-gitgutter
   ];
 
 in

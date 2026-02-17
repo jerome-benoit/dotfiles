@@ -80,13 +80,13 @@ in
         bind -r C-l next-window
       '';
 
-      plugins = with pkgs.tmuxPlugins; [
-        sensible
-        yank
-        pain-control
-        vim-tmux-navigator
+      plugins = [
+        pkgs.tmuxPlugins.sensible
+        pkgs.tmuxPlugins.yank
+        pkgs.tmuxPlugins.pain-control
+        pkgs.tmuxPlugins.vim-tmux-navigator
         {
-          plugin = tokyo-night-tmux;
+          plugin = pkgs.tmuxPlugins.tokyo-night-tmux;
           extraConfig = ''
             set -g @tokyo-night-tmux_theme storm
             set -g @tokyo-night-tmux_window_id_style digital
@@ -102,7 +102,7 @@ in
           '';
         }
         {
-          plugin = resurrect;
+          plugin = pkgs.tmuxPlugins.resurrect;
           extraConfig = ''
             set -g @resurrect-strategy-nvim 'session'
             set -g @resurrect-capture-pane-contents 'on'
@@ -111,7 +111,7 @@ in
           '';
         }
         {
-          plugin = continuum;
+          plugin = pkgs.tmuxPlugins.continuum;
           extraConfig = ''
             set -g @continuum-restore 'on'
             set -g @continuum-save-interval '15'

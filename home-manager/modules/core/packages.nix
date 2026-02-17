@@ -13,69 +13,68 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages =
-      with pkgs;
-      [
-        mergiraf
-        nerd-fonts.jetbrains-mono
-        nh
-        nixfmt
-        volta
-      ]
-      ++ lib.optionals pkgs.stdenv.isLinux (
-        [ ]
-        ++
-          lib.optionals (config.modules.core.profile.name == config.modules.core.constants.profiles.server)
-            [
-              delta
-              grc
-            ]
-      )
-      ++ lib.optionals pkgs.stdenv.isDarwin [
-        autoconf
-        automake
-        bat
-        bruno
-        chroma
-        cloudfoundry-cli
-        cmake
-        coreutils
-        delta
-        firefox
-        gnused
-        go
-        google-chrome
-        grc
-        hyperfine
-        insomnia
-        iterm2
-        jdk25
-        # jetbrains.pycharm
-        jetbrains.rust-rover
-        mitmproxy
-        nheko
-        ninja
-        pass
-        pipenv
-        pkg-config
-        podman
-        podman-compose
-        podman-desktop
-        # poetry
-        python3
-        python3Packages.virtualenv
-        qpdf
-        rectangle
-        ruff
-        rustup
-        uv
-        vscode
-        yq
-        (zed-editor.overrideAttrs (oldAttrs: {
-          doCheck = false;
-        }))
-        zoom-us
-      ];
+    home.packages = [
+      pkgs.mergiraf
+      pkgs.nerd-fonts.jetbrains-mono
+      pkgs.nh
+      pkgs.nixfmt
+      pkgs.ollama
+      pkgs.volta
+    ]
+    ++ lib.optionals pkgs.stdenv.isLinux (
+      [ ]
+      ++
+        lib.optionals (config.modules.core.profile.name == config.modules.core.constants.profiles.server)
+          [
+            pkgs.delta
+            pkgs.grc
+          ]
+    )
+    ++ lib.optionals pkgs.stdenv.isDarwin [
+      pkgs.autoconf
+      pkgs.automake
+      pkgs.bat
+      pkgs.bruno
+      pkgs.chroma
+      pkgs.cloudfoundry-cli
+      pkgs.cmake
+      pkgs.coreutils
+      pkgs.delta
+      pkgs.firefox
+      pkgs.gnused
+      pkgs.go
+      pkgs.google-chrome
+      pkgs.grc
+      pkgs.hyperfine
+      pkgs.insomnia
+      pkgs.iterm2
+      pkgs.jdk25
+      # jetbrains.pycharm
+      pkgs.jetbrains.rust-rover
+      pkgs.mitmproxy
+      pkgs.nheko
+      pkgs.ninja
+      pkgs.pass
+      pkgs.pipenv
+      pkgs.pkg-config
+      pkgs.podman
+      pkgs.podman-compose
+      pkgs.podman-desktop
+      # poetry
+      pkgs.python3
+      pkgs.python3Packages.virtualenv
+      pkgs.qpdf
+      pkgs.rectangle
+      pkgs.ruff
+      pkgs.rustup
+      pkgs.uv
+      pkgs.vscode
+      pkgs.yq
+      (pkgs.zed-editor.overrideAttrs (oldAttrs: {
+        doCheck = false;
+      }))
+      pkgs.zoom-us
+    ];
 
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
       text = ''

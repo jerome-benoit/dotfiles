@@ -121,7 +121,50 @@ in
     };
 
     modules = lib.mkOption {
-      type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
+      type = lib.types.submodule {
+        options = {
+          shell = lib.mkOption {
+            type = lib.types.attrsOf lib.types.bool;
+          };
+          development = lib.mkOption {
+            type = lib.types.attrsOf (
+              lib.types.oneOf [
+                lib.types.bool
+                (lib.types.submodule {
+                  options = {
+                    enable = lib.mkOption {
+                      type = lib.types.bool;
+                    };
+                    enableDesktop = lib.mkOption {
+                      type = lib.types.bool;
+                    };
+                  };
+                })
+              ]
+            );
+          };
+          programs = lib.mkOption {
+            type = lib.types.attrsOf lib.types.bool;
+          };
+          editors = lib.mkOption {
+            type = lib.types.attrsOf (
+              lib.types.oneOf [
+                lib.types.bool
+                (lib.types.submodule {
+                  options = {
+                    enable = lib.mkOption {
+                      type = lib.types.bool;
+                    };
+                    plugins = lib.mkOption {
+                      type = lib.types.attrsOf lib.types.bool;
+                    };
+                  };
+                })
+              ]
+            );
+          };
+        };
+      };
       readOnly = true;
       description = "Modules enabled for the profile.";
     };

@@ -21,9 +21,9 @@ let
 
     cargoLock.lockFile = "${inputs.agent-of-empires}/Cargo.lock";
 
-    nativeBuildInputs = with pkgs; [
-      pkg-config
-      perl
+    nativeBuildInputs = [
+      pkgs.pkg-config
+      pkgs.perl
     ];
 
     buildInputs = [ ];
