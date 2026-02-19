@@ -14,6 +14,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = [
+      pkgs.litellm
       pkgs.mergiraf
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nh
