@@ -4,21 +4,21 @@ on:
   push:
     branches: [main]
     paths:
-      - 'flake.nix'
-      - 'flake.lock'
-      - 'home-manager/**'
-      - 'checks/**'
-      - 'constants.nix'
-      - '.github/workflows/check.yml'
+      - "flake.nix"
+      - "flake.lock"
+      - "home-manager/**"
+      - "checks/**"
+      - "constants.nix"
+      - ".github/workflows/check.yml"
   pull_request:
     branches: [main]
     paths:
-      - 'flake.nix'
-      - 'flake.lock'
-      - 'home-manager/**'
-      - 'checks/**'
-      - 'constants.nix'
-      - '.github/workflows/check.yml'
+      - "flake.nix"
+      - "flake.lock"
+      - "home-manager/**"
+      - "checks/**"
+      - "constants.nix"
+      - ".github/workflows/check.yml"
   workflow_dispatch:
 
 permissions:

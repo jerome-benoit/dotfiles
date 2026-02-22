@@ -3,21 +3,25 @@
 ## Before Committing Any Changes
 
 ### 1. Format Code
+
 ```bash
 nix fmt
 ```
 
 ### 2. Run All Checks
+
 ```bash
 nix flake check
 ```
 
 This validates:
+
 - [ ] All .nix files are properly formatted
 - [ ] No broken symlinks in build output
 - [ ] All home configurations build successfully (fraggle, almalinux, I339261)
 
 ### 3. Test Changes Locally
+
 ```bash
 hm  # Apply changes with home-manager
 ```
@@ -36,11 +40,13 @@ hm  # Apply changes with home-manager
 ## Adding New Modules
 
 1. **Create module file** in appropriate category:
+
    ```
    home-manager/modules/<category>/<name>.nix
    ```
 
 2. **Follow standard structure**:
+
    ```nix
    { config, lib, pkgs, ... }:
    let
@@ -58,6 +64,7 @@ hm  # Apply changes with home-manager
    ```
 
 3. **Add import** to category's `default.nix`:
+
    ```nix
    imports = [
      # ... existing imports
@@ -66,6 +73,7 @@ hm  # Apply changes with home-manager
    ```
 
 4. **Add to profile.nix** (both desktop and server):
+
    ```nix
    desktopModules = {
      <category> = {
@@ -76,6 +84,7 @@ hm  # Apply changes with home-manager
    ```
 
 5. **Wire up in home.nix**:
+
    ```nix
    modules.<category> = {
      # ... existing
@@ -91,11 +100,13 @@ hm  # Apply changes with home-manager
 ## Adding New Themes
 
 1. **Create theme file**:
+
    ```
    home-manager/modules/themes/<theme-name>.nix
    ```
 
 2. **Define theme structure**:
+
    ```nix
    { lib, ... }:
    {
@@ -123,6 +134,7 @@ hm  # Apply changes with home-manager
 ## Platform-Specific Changes
 
 ### Adding Linux-only Packages
+
 ```nix
 home.packages = with pkgs; [
   # common packages
@@ -132,6 +144,7 @@ home.packages = with pkgs; [
 ```
 
 ### Adding macOS-only Packages
+
 ```nix
 home.packages = with pkgs; [
   # common packages
@@ -141,7 +154,9 @@ home.packages = with pkgs; [
 ```
 
 ### Adding macOS Casks (Homebrew)
+
 In `modules/core/packages.nix`:
+
 ```nix
 home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
   text = ''
@@ -166,6 +181,7 @@ nix flake lock --update-input opencode-nvim
 ## Adding New Users
 
 1. **Add homeConfiguration** in `flake.nix`:
+
    ```nix
    homeConfigurations = {
      # ... existing
@@ -183,27 +199,32 @@ nix flake lock --update-input opencode-nvim
 ## CI/CD Notes
 
 The GitHub workflow (`.github/workflows/check.yml`) runs on:
-- Push to `main` (paths: flake.*, home-manager/**, checks/**, constants.nix)
+
+- Push to `main` (paths: flake.\*, home-manager/**, checks/**, constants.nix)
 - Pull requests to `main`
 - Manual dispatch
 
 Matrix:
+
 - `ubuntu-latest` / `x86_64-linux`
 - `macos-latest` / `aarch64-darwin`
 
 ## Debugging Tips
 
 ### Build specific configuration
+
 ```bash
 nix build .#homeConfigurations.fraggle.activationPackage
 ```
 
 ### Check what would be installed
+
 ```bash
 nix eval .#homeConfigurations.fraggle.config.home.packages --apply 'pkgs: map (p: p.name or p.pname or "unknown") pkgs'
 ```
 
 ### Interactive debugging
+
 ```bash
 nix repl
 :lf .
@@ -211,6 +232,7 @@ homeConfigurations.fraggle.config.modules.core.profile.name
 ```
 
 ### Check module option values
+
 ```bash
 nix eval .#homeConfigurations.fraggle.config.modules.shell.zsh.enable
 ```

@@ -1,53 +1,62 @@
 # Project Overview
 
 ## Purpose
+
 Home Manager configuration using Nix flakes for managing dotfiles and user environment across multiple platforms (Linux and macOS).
 
 ## Tech Stack
+
 - **Nix Flakes** - Declarative package management and system configuration
 - **Home Manager** - User environment management for Nix
 - **Language**: Nix expression language
 - **Renovate** - Automated dependency updates
 
 ## Flake Inputs
-| Input | Source | Description |
-|-------|--------|-------------|
-| `nixpkgs` | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable) |
-| `home-manager` | `github:nix-community/home-manager` | Home Manager, follows nixpkgs |
-| `opencode` | `github:anomalyco/opencode` | OpenCode TUI/CLI/Desktop |
-| `opencode-nvim` | `github:NickvanDyke/opencode.nvim` | Neovim plugin (non-flake) |
-| `agent-of-empires` | `github:njbrake/agent-of-empires` | AI agent session manager (non-flake) |
-| `agent-deck` | `github:asheshgoplani/agent-deck` | AI agent command center (non-flake) |
-| `openspec` | `github:Fission-AI/OpenSpec` | OpenSpec CLI, follows nixpkgs |
+
+| Input              | Source                                      | Description                          |
+| ------------------ | ------------------------------------------- | ------------------------------------ |
+| `nixpkgs`          | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)              |
+| `home-manager`     | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs        |
+| `opencode`         | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop             |
+| `opencode-nvim`    | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)            |
+| `agent-of-empires` | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake) |
+| `agent-deck`       | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)  |
+| `openspec`         | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs        |
 
 ## Supported Platforms
-| Platform | Architecture | Users |
-|----------|--------------|-------|
-| Linux | `x86_64-linux` | `fraggle`, `almalinux` |
-| macOS | `aarch64-darwin` | `I339261` |
+
+| Platform | Architecture     | Users                  |
+| -------- | ---------------- | ---------------------- |
+| Linux    | `x86_64-linux`   | `fraggle`, `almalinux` |
+| macOS    | `aarch64-darwin` | `I339261`              |
 
 ## Profiles
-| Profile | Description | Use Case |
-|---------|-------------|----------|
-| `desktop` | Full configuration | Personal workstation, development |
-| `server` | Minimal configuration | Remote servers (ns3108029) |
+
+| Profile   | Description           | Use Case                          |
+| --------- | --------------------- | --------------------------------- |
+| `desktop` | Full configuration    | Personal workstation, development |
+| `server`  | Minimal configuration | Remote servers (ns3108029)        |
 
 ## Specialisations
-| Name | Email | Signature |
-|------|-------|-----------|
-| `work` | jerome.benoit@sap.com | SAP Labs France |
-| `personal` | jerome.benoit@piment-noir.org | Piment Noir |
+
+| Name       | Email                         | Signature       |
+| ---------- | ----------------------------- | --------------- |
+| `work`     | jerome.benoit@sap.com         | SAP Labs France |
+| `personal` | jerome.benoit@piment-noir.org | Piment Noir     |
 
 ## Known Hosts
-| Hostname | Profile | Notes |
-|----------|---------|-------|
-| `rigel` | desktop | Bun not supported |
-| `ns3108029.ip-54-37-87.eu` | server | Remote server |
+
+| Hostname                   | Profile | Notes             |
+| -------------------------- | ------- | ----------------- |
+| `rigel`                    | desktop | Bun not supported |
+| `ns3108029.ip-54-37-87.eu` | server  | Remote server     |
 
 ## Supported Linux Distros
+
 Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 
 ## Project Structure
+
 ```
 ~/.nix/
 ├── flake.nix                    # Main flake definition
@@ -116,6 +125,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 ```
 
 ## Configuration Flow
+
 1. `flake.nix` defines inputs and creates `homeConfigurations` per user
 2. `mkHomeConfiguration` passes `arch`, `username`, `constants`, `inputs` to modules
 3. `home.nix` detects hostname → determines profile → enables modules accordingly
@@ -124,6 +134,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 6. Each module follows `options` + `config = lib.mkIf cfg.enable { ... }` pattern
 
 ## Key Design Patterns
+
 - **System packages on Linux**: Most shell tools use system-installed binaries via dummy `pkgs.runCommand` packages
 - **Nix packages on macOS**: Full packages installed via Nix on Darwin
 - **Profile-driven**: Modules check `profileModules.<category>.<module>` for enable state

@@ -2,7 +2,8 @@
 
 ## File Formatting (.editorconfig)
 
-### Nix Files (*.nix)
+### Nix Files (\*.nix)
+
 - **Indent**: 2 spaces
 - **Max line length**: 100 characters
 - **Charset**: UTF-8
@@ -11,12 +12,13 @@
 - **Trailing whitespace**: Trimmed
 
 ### Other Files
-| Type | Indent | Notes |
-|------|--------|-------|
-| YAML (*.yml, *.yaml) | 2 spaces | |
-| JSON (*.json) | 2 spaces | |
-| Markdown (*.md) | - | No trailing whitespace trim, no max line |
-| Lock files (*.lock) | - | No modifications |
+
+| Type                 | Indent   | Notes                                    |
+| -------------------- | -------- | ---------------------------------------- |
+| YAML (_.yml, _.yaml) | 2 spaces |                                          |
+| JSON (\*.json)       | 2 spaces |                                          |
+| Markdown (\*.md)     | -        | No trailing whitespace trim, no max line |
+| Lock files (\*.lock) | -        | No modifications                         |
 
 ## Nix Module Structure
 
@@ -58,13 +60,13 @@ in
 
 ## Naming Conventions
 
-| Element | Convention | Example |
-|---------|------------|---------|
-| Module paths | `modules.<category>.<name>` | `modules.shell.zsh` |
-| Option names | camelCase | `enableDesktop`, `shellAliases` |
-| File names | lowercase, hyphens | `home-manager.nix`, `tokyo-night-storm.nix` |
-| Theme attribute | camelCase | `tokyoNightStorm` |
-| Constants | camelCase | `historySize`, `workEmail` |
+| Element         | Convention                  | Example                                     |
+| --------------- | --------------------------- | ------------------------------------------- |
+| Module paths    | `modules.<category>.<name>` | `modules.shell.zsh`                         |
+| Option names    | camelCase                   | `enableDesktop`, `shellAliases`             |
+| File names      | lowercase, hyphens          | `home-manager.nix`, `tokyo-night-storm.nix` |
+| Theme attribute | camelCase                   | `tokyoNightStorm`                           |
+| Constants       | camelCase                   | `historySize`, `workEmail`                  |
 
 ## Import Pattern
 
@@ -97,7 +99,9 @@ Main `modules/default.nix` imports category directories:
 ## Constants Access
 
 ### Root constants (flake-level)
+
 Passed via `extraSpecialArgs` in flake.nix:
+
 ```nix
 constants.systems.linux.arch  # "x86_64-linux"
 constants.profiles.desktop    # "desktop"
@@ -105,7 +109,9 @@ constants.distros.fedora      # "fedora"
 ```
 
 ### Module constants (user-level)
+
 Defined in `modules/core/constants.nix`:
+
 ```nix
 config.modules.core.constants.username      # "Jérôme Benoit"
 config.modules.core.constants.email         # "jerome.benoit@piment-noir.org"
@@ -119,6 +125,7 @@ config.modules.core.constants.hosts.rigel   # "rigel"
 ## Profile System
 
 Access profile-enabled modules:
+
 ```nix
 profileModules = config.modules.core.profile.modules;
 
@@ -135,6 +142,7 @@ profileModules.editors.neovim.plugins.opencode
 ## Distro Detection
 
 Access detected distro:
+
 ```nix
 distroId = config.modules.core.distro.id;      # "fedora", "ubuntu", etc. or null
 distroIds = config.modules.core.distro.ids;    # { fedora = "fedora"; ... }
@@ -146,6 +154,7 @@ lib.optionals (distroId == distroIds.fedora) [ ... ]
 ## Theme System
 
 Access theme colors:
+
 ```nix
 theme = config.modules.themes.tokyoNightStorm;
 
@@ -161,6 +170,7 @@ theme.colors.blue # "#7aa2f7"
 ## Platform-Specific Code
 
 ### Package selection
+
 ```nix
 # Use system binary on Linux, Nix package on macOS
 package = if pkgs.stdenv.isDarwin then pkgs.fzf else systemFzf;
@@ -173,6 +183,7 @@ systemFzf = pkgs.runCommand "fzf-system" {
 ```
 
 ### Conditional configuration
+
 ```nix
 # Platform-specific packages
 lib.optionals pkgs.stdenv.isLinux [ pkgs.delta pkgs.grc ]
@@ -193,6 +204,7 @@ programs.git = lib.mkMerge [
 ## Assertions Pattern
 
 Validate module dependencies:
+
 ```nix
 assertions = [
   {
@@ -209,6 +221,7 @@ assertions = [
 ## Warnings Pattern
 
 Emit warnings for non-fatal issues:
+
 ```nix
 warnings =
   lib.optional (cfg.opencodePackage == null)
@@ -217,23 +230,24 @@ warnings =
 
 ## Lib Functions Reference
 
-| Function | Usage |
-|----------|-------|
-| `lib.mkIf` | Conditional config block |
-| `lib.mkMerge` | Merge multiple configs |
-| `lib.mkDefault` | Set overridable default |
-| `lib.mkForce` | Force override value |
-| `lib.mkEnableOption` | Create `enable` option |
-| `lib.mkOption` | Create custom option |
-| `lib.optional` | Single item if condition true |
-| `lib.optionals` | List if condition true |
-| `lib.optionalString` | String if condition true |
-| `lib.optionalAttrs` | Attrs if condition true |
+| Function                | Usage                            |
+| ----------------------- | -------------------------------- |
+| `lib.mkIf`              | Conditional config block         |
+| `lib.mkMerge`           | Merge multiple configs           |
+| `lib.mkDefault`         | Set overridable default          |
+| `lib.mkForce`           | Force override value             |
+| `lib.mkEnableOption`    | Create `enable` option           |
+| `lib.mkOption`          | Create custom option             |
+| `lib.optional`          | Single item if condition true    |
+| `lib.optionals`         | List if condition true           |
+| `lib.optionalString`    | String if condition true         |
+| `lib.optionalAttrs`     | Attrs if condition true          |
 | `lib.hm.dag.entryAfter` | Home Manager activation ordering |
 
 ## Specialisation Overrides
 
 Override settings per specialisation:
+
 ```nix
 specialisation.work.configuration = {
   programs.ssh.matchBlocks."*.local" = {
