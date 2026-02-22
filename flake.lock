@@ -111,11 +111,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1771716880,
-        "narHash": "sha256-O2T91pOGURcOnPDUhURg7GDftyojmZZW4V80uM4jCWE=",
+        "lastModified": 1771767301,
+        "narHash": "sha256-A5rp7idnbRh+hCHIWiGQ2QYFaZVLOHTJM69QpoAvrlU=",
         "owner": "Fission-AI",
         "repo": "OpenSpec",
-        "rev": "e4c32dbe074823efc2a7eb75ac18c8501b6e8656",
+        "rev": "a0608d0bab1b558916ed1536100e7f654ced7cf1",
         "type": "github"
       },
       "original": {
