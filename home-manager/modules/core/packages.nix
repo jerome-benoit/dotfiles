@@ -50,7 +50,7 @@ in
       pkgs.insomnia
       pkgs.iterm2
       pkgs.jdk25
-      # pkgs.jetbrains.pycharm
+      pkgs.jetbrains.pycharm
       pkgs.jetbrains.rust-rover
       pkgs.mitmproxy
       pkgs.nheko
