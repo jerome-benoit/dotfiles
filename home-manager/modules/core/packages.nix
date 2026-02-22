@@ -50,7 +50,7 @@ in
       pkgs.insomnia
       pkgs.iterm2
       pkgs.jdk25
-      # jetbrains.pycharm
+      # pkgs.jetbrains.pycharm
       pkgs.jetbrains.rust-rover
       pkgs.mitmproxy
       pkgs.nheko
@@ -61,7 +61,7 @@ in
       pkgs.podman
       pkgs.podman-compose
       pkgs.podman-desktop
-      # poetry
+      pkgs.poetry
       pkgs.python3
       pkgs.python3Packages.virtualenv
       pkgs.qpdf
