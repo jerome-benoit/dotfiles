@@ -53,10 +53,15 @@ Profile system defining which modules are enabled per profile:
 | development | git | ✓ | ✓ |
 | development | lazygit | ✓ | ✓ |
 | development | opencode | ✓ | ✗ |
+| development | agentDeck | ✓ | ✗ |
+| development | aoe | ✓ | ✗ |
+| development | claudeCode | ✓ | ✗ |
+| development | openspec | ✓ | ✗ |
 | programs | alacritty | ✓ | ✗ |
 | programs | btop | ✓ | ✓ |
 | programs | ghostty | ✓ | ✗ |
 | programs | glow | ✓ | ✓ |
+| programs | himalaya | ✓ | ✗ |
 | programs | lazydocker | ✓ | ✓ |
 | programs | ssh | ✓ | ✓ |
 | programs | tmux | ✓ | ✓ |
@@ -140,6 +145,32 @@ OpenCode AI assistant:
 ### bun.nix
 Simple Bun JavaScript runtime enablement.
 
+### claude-code.nix
+Claude Code AI assistant:
+- Simple wrapper installing `pkgs.claude-code`
+
+### agent-deck.nix
+AI agent command center TUI:
+- Options: `enable`, `package`, `defaultTool`, `theme`
+- Default tool: opencode (supports claude, gemini, opencode, codex)
+- Theme: system (supports dark, light, system)
+- Config: `~/.agent-deck/config.toml` (created on first activation)
+- Built from flake input with `buildGoModule`
+
+### aoe.nix
+Agent of Empires session manager:
+- Options: `enable`, `package`, `defaultTool`
+- Default tool: opencode (supports claude, opencode, vibe, codex, gemini)
+- Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
+- Shell completions: bash, fish, zsh
+- Built from flake input with `rustPlatform.buildRustPackage`
+
+### openspec.nix
+OpenSpec CLI:
+- Options: `enable`, `openspecPackage`
+- Package from flake input
+- Warnings if package unavailable for system
+
 ---
 
 ## Programs Modules (`modules/programs/`)
@@ -186,6 +217,13 @@ SSH configuration:
 - macOS: UseKeychain
 - SSH matchBlocks defined in specialisations.nix (work: *.local -> fraggle user)
 
+### himalaya.nix
+CLI email client:
+- Platform-aware password command (macOS keychain / Linux pass)
+- Common settings: signature, datetime-local-tz, auto format
+- Account: piment-noir (OVH IMAP/SMTP)
+- GPG signing enabled by default
+
 ### btop.nix, glow.nix
 Simple wrappers with basic configuration.
 
@@ -229,11 +267,25 @@ Full IDE configuration (~500 lines):
 
 ## Themes Modules (`modules/themes/`)
 
-### tokyo-night-storm.nix
+### tokyo-night-storm.nix (default)
 Color palette definition:
 - `name`: "tokyo-night-storm"
 - `altName`: "TokyoNight Storm"
 - `fileName`: "tokyo_night_storm"
-- `colors`: Full 16-color palette + bg/fg
+- `colors`: Full 16-color palette + bg/fg (bg: #24283b)
+
+### tokyo-night.nix
+Color palette definition:
+- `name`: "tokyo-night"
+- `altName`: "TokyoNight"
+- `fileName`: "tokyo_night"
+- `colors`: Full 16-color palette + bg/fg (bg: #1a1b26)
+
+### tokyo-night-light.nix
+Color palette definition:
+- `name`: "tokyo-night-light"
+- `altName`: "TokyoNight Light"
+- `fileName`: "tokyo_night_light"
+- `colors`: Full 16-color palette + bg/fg (bg: #e6e7ed)
 
 Used by: alacritty, ghostty, lazygit, lazydocker, tmux, zellij, neovim
