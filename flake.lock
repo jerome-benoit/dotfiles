@@ -75,11 +75,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1771678913,
-        "narHash": "sha256-GgLgYaz7wol1SqYGgxtRMvynkKo0kBqOZEJtAoTAonE=",
+        "lastModified": 1771719838,
+        "narHash": "sha256-GRefgIHU2atFRXvlGLsS/BvRb9iRcyQRfXqSXICIjw4=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "a41c81dcd25194f5b14b390377a326341247cc40",
+        "rev": "13616e345930b6c9e7cca898fcb98a8c4ff896b5",
         "type": "github"
       },
       "original": {
@@ -111,11 +111,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1771681730,
-        "narHash": "sha256-rI+EeWgErCFlCXqPW9mSK3HcR3smeE9aA+6Ud1Wde5s=",
+        "lastModified": 1771716880,
+        "narHash": "sha256-O2T91pOGURcOnPDUhURg7GDftyojmZZW4V80uM4jCWE=",
         "owner": "Fission-AI",
         "repo": "OpenSpec",
-        "rev": "2d4c98e196b36b032c8f473e426c05e5452fee61",
+        "rev": "e4c32dbe074823efc2a7eb75ac18c8501b6e8656",
         "type": "github"
       },
       "original": {
