@@ -166,31 +166,30 @@ in
       default = agentDeckPackage;
       defaultText = lib.literalExpression "inputs.agent-deck built with buildGoModule";
       description = "Agent Deck package";
+      example = lib.literalExpression "pkgs.agent-deck";
     };
 
     defaultTool = lib.mkOption {
-      type = lib.types.nullOr (
-        lib.types.enum [
-          "claude"
-          "gemini"
-          "opencode"
-          "codex"
-        ]
-      );
+      type = lib.types.enum [
+        "claude"
+        "gemini"
+        "opencode"
+        "codex"
+      ];
       default = "opencode";
       description = "Default AI tool for new sessions";
+      example = "claude";
     };
 
     theme = lib.mkOption {
-      type = lib.types.nullOr (
-        lib.types.enum [
-          "dark"
-          "light"
-          "system"
-        ]
-      );
+      type = lib.types.enum [
+        "dark"
+        "light"
+        "system"
+      ];
       default = "system";
       description = "Color scheme: dark, light, or system";
+      example = "dark";
     };
   };
 

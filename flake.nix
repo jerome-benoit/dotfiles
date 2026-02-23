@@ -11,10 +11,8 @@
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
     };
-    agent-of-empires = {
-      url = "github:njbrake/agent-of-empires";
-      flake = false;
-    };
+    agent-of-empires.url = "github:njbrake/agent-of-empires";
+    agent-of-empires.inputs.nixpkgs.follows = "nixpkgs";
     agent-deck = {
       url = "github:asheshgoplani/agent-deck";
       flake = false;

@@ -8,63 +8,36 @@
 
 let
   cfg = config.modules.development.aoe;
+  system = pkgs.stdenv.hostPlatform.system;
 
   aoeConfig = ''
+    [theme]
+    name = "${cfg.theme}"
+
     [session]
     default_tool = "${cfg.defaultTool}"
   '';
-
-  aoePackage = pkgs.rustPlatform.buildRustPackage {
-    pname = "aoe";
-    version = "unstable-${inputs.agent-of-empires.shortRev}";
-    src = inputs.agent-of-empires;
-
-    cargoLock.lockFile = "${inputs.agent-of-empires}/Cargo.lock";
-
-    nativeBuildInputs = [
-      pkgs.pkg-config
-      pkgs.perl
-      pkgs.installShellFiles
-    ];
-
-    buildInputs = [ ];
-
-    doCheck = false;
-
-    postInstall = ''
-      installShellCompletion --cmd aoe \
-        --bash <($out/bin/aoe completion bash) \
-        --fish <($out/bin/aoe completion fish) \
-        --zsh <($out/bin/aoe completion zsh)
-    '';
-
-    meta = with lib; {
-      description = "Terminal session manager for AI coding agents";
-      longDescription = ''
-        Agent of Empires (AoE) is a terminal session manager for AI coding agents
-        on Linux and macOS. Built on tmux, it allows running multiple AI agents
-        in parallel across different branches of your codebase, each in its own
-        isolated session with optional Docker sandboxing.
-
-        Supports Claude Code, OpenCode, Mistral Vibe, Codex CLI, and Gemini CLI.
-      '';
-      homepage = "https://github.com/njbrake/agent-of-empires";
-      license = licenses.mit;
-      maintainers = [ ];
-      platforms = platforms.unix;
-      mainProgram = "aoe";
-    };
-  };
 in
 {
   options.modules.development.aoe = {
     enable = lib.mkEnableOption "agent-of-empires (aoe) configuration";
 
     package = lib.mkOption {
-      type = lib.types.package;
-      default = aoePackage;
-      defaultText = lib.literalExpression "inputs.agent-of-empires built with rustPlatform";
+      type = lib.types.nullOr lib.types.package;
+      default = inputs.agent-of-empires.packages.${system}.default or null;
+      defaultText = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";
       description = "Agent of Empires package";
+      example = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";
+    };
+
+    theme = lib.mkOption {
+      type = lib.types.enum [
+        "phosphor"
+        "tokyo-night-storm"
+        "catppuccin-latte"
+      ];
+      default = "tokyo-night-storm";
+      description = "TUI theme";
     };
 
     defaultTool = lib.mkOption {
@@ -83,9 +56,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
+    home.packages = lib.optional (cfg.package != null) cfg.package;
 
-    home.activation.aoeConfig = lib.mkIf (cfg.defaultTool != null) (
+    warnings = lib.optional (cfg.package == null) "aoe: package not available for system ${system}";
+
+    home.activation.aoeConfig = lib.mkIf (cfg.package != null && cfg.defaultTool != null) (
       let
         configDir =
           if pkgs.stdenv.isDarwin then
