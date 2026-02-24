@@ -79,6 +79,7 @@ in
 
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
       text = ''
+        tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
         tap "steipete/tap"
         cask "docker-desktop"
         cask "ferdium"
@@ -86,22 +87,36 @@ in
         cask "gpg-suite@nightly"
         cask "jordanbaird-ice"
         cask "shuttle"
+        brew "hai"
         brew "steipete/tap/peekaboo"
       '';
     };
     home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        _brew=""
         if [[ -f /opt/homebrew/bin/brew ]]; then
-          verboseEcho "Installing Homebrew packages from Brewfile"
-          run /opt/homebrew/bin/brew bundle install --global
-          run /opt/homebrew/bin/brew bundle cleanup --global --force
+          _brew=/opt/homebrew/bin/brew
         elif [[ -f /usr/local/bin/brew ]]; then
-          verboseEcho "Installing Homebrew packages from Brewfile"
-          run /usr/local/bin/brew bundle install --global
-          run /usr/local/bin/brew bundle cleanup --global --force
-        else
-          warnEcho "Homebrew not found at /opt/homebrew/bin/brew or /usr/local/bin/brew"
+          _brew=/usr/local/bin/brew
         fi
+
+        if [[ -n "$_brew" ]]; then
+          if command -v gh >/dev/null 2>&1; then
+            _gh_sap_token=$(gh auth token --hostname github.tools.sap 2>/dev/null)
+            if [[ -n "$_gh_sap_token" ]]; then
+              export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
+            fi
+          fi
+
+          verboseEcho "Installing Homebrew packages from Brewfile"
+          run "$_brew" bundle install --global
+          run "$_brew" bundle cleanup --global --force
+
+          unset _gh_sap_token
+        else
+          warnEcho "Homebrew not found"
+        fi
+        unset _brew
       ''
     );
   };

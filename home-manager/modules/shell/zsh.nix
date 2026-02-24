@@ -158,7 +158,11 @@ in
           if [[ -n "$_gh_token" ]]; then
             export NIX_CONFIG="access-tokens = github.com=$_gh_token"
           fi
-          unset _gh_token
+          _gh_sap_token=$(gh auth token --hostname github.tools.sap 2>/dev/null)
+          if [[ -n "$_gh_sap_token" ]]; then
+            export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
+          fi
+          unset _gh_token _gh_sap_token
         fi
       '';
 
