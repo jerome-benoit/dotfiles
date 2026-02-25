@@ -52,7 +52,7 @@ in
       pkgs.jdk25
       pkgs.jetbrains.pycharm
       pkgs.jetbrains.rust-rover
-      pkgs.mitmproxy
+      # pkgs.mitmproxy
       pkgs.nheko
       pkgs.ninja
       pkgs.pass
