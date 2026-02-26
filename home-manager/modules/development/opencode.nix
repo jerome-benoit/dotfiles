@@ -16,7 +16,7 @@ let
     if baseOpencodePackage != null then
       baseOpencodePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
-          (self + "/patches/disable-bun-version-check.patch")
+          (self + "/patches/relax-bun-version-check.patch")
         ];
       })
     else

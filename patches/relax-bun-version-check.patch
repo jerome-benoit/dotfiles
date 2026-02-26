@@ -1,0 +1,13 @@
+diff --git a/packages/script/src/index.ts b/packages/script/src/index.ts
+--- a/packages/script/src/index.ts
++++ b/packages/script/src/index.ts
+@@ -10,7 +10,8 @@ if (!expectedBunVersion) {
+ }
+ 
+ // relax version requirement
+-const expectedBunVersionRange = `^${expectedBunVersion}`
++const [major, minor] = expectedBunVersion.split(".")
++const expectedBunVersionRange = `${major}.${minor}.x`
+ 
+ if (!semver.satisfies(process.versions.bun, expectedBunVersionRange)) {
+   throw new Error(`This script requires bun@${expectedBunVersionRange}, but you are using bun@${process.versions.bun}`)
