@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  self,
   inputs,
   ...
 }:
@@ -9,7 +10,17 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
 
-  opencodePackage = inputs.opencode.packages.${system}.default or null;
+  baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
+
+  opencodePackage =
+    if baseOpencodePackage != null then
+      baseOpencodePackage.overrideAttrs (oldAttrs: {
+        patches = (oldAttrs.patches or [ ]) ++ [
+          (self + "/patches/disable-bun-version-check.patch")
+        ];
+      })
+    else
+      null;
 
   desktopPackage =
     let
