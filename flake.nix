@@ -5,7 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    opencode.url = "github:anomalyco/opencode";
+    opencode.url = "github:anomalyco/opencode/3dc10a1c165e0a8c567718c33ddd8a62814e0c14"; # pin: TEAM_MEMBERS fix pending (#15401)
     opencode.inputs.nixpkgs.follows = "nixpkgs";
     opencode-nvim = {
       url = "github:NickvanDyke/opencode.nvim";
