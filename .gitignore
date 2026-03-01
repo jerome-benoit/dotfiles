@@ -196,4 +196,7 @@ $RECYCLE.BIN/
 
 # End of https://www.toptal.com/developers/gitignore/api/jetbrains,vim,linux,windows,visualstudiocode
 
+# oh-my-opencode
+.sisyphus/
+
 .secrets

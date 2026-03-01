@@ -107,7 +107,7 @@ in
             set -g @resurrect-strategy-nvim 'session'
             set -g @resurrect-capture-pane-contents 'on'
             set -g @resurrect-save-shell-history 'on'
-            set -g @resurrect-processes 'ssh btop sqlite3 "~gh" "~opencode"'
+            set -g @resurrect-processes 'ssh btop top htop less man'
           '';
         }
         {

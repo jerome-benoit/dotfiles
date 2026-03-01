@@ -35,6 +35,7 @@ in
         "phosphor"
         "tokyo-night-storm"
         "catppuccin-latte"
+        "dracula"
       ];
       default = "tokyo-night-storm";
       description = "TUI theme";
