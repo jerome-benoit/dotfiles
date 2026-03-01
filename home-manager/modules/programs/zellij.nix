@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.zellij;
-  theme = config.modules.themes.tokyoNightStorm;
+  theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
 in
 {

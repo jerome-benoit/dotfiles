@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.ghostty;
-  theme = config.modules.themes.tokyoNightStorm;
+  theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = config.modules.core.constants.fontFamily;
   isDarwin = pkgs.stdenv.isDarwin;

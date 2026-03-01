@@ -6,7 +6,7 @@
 
 let
   cfg = config.modules.programs.lazydocker;
-  theme = config.modules.themes.tokyoNightStorm;
+  theme = config.modules.themes.current;
 in
 {
   options.modules.programs.lazydocker = {
