@@ -9,6 +9,14 @@
 let
   cfg = config.modules.editors.neovim;
 
+  theme = config.modules.themes.current;
+  # Extract style from theme name: "tokyo-night-storm" → "storm"
+  themeStyle =
+    let
+      parts = lib.splitString "-" theme.name;
+    in
+    if builtins.length parts >= 3 then builtins.elemAt parts 2 else "storm";
+
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
     pname = "opencode-nvim";
     version = "unstable-${inputs.opencode-nvim.shortRev}";
@@ -83,11 +91,11 @@ let
       terminal = { enabled = true }, words = { enabled = true },
     })
     require("tokyonight").setup({
-      style = "storm", transparent = true, terminal_colors = true,
+      style = "${themeStyle}", transparent = true, terminal_colors = true,
       styles = { comments = { italic = true }, keywords = { italic = true }, functions = {}, variables = {}, sidebars = "dark", floats = "dark" },
       cache = true,
     })
-    vim.cmd.colorscheme "tokyonight-storm"
+    vim.cmd.colorscheme "${theme.name}"
 
     -- File Management
     require("neo-tree").setup({

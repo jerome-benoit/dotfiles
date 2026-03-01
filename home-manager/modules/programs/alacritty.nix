@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.alacritty;
-  theme = config.modules.themes.tokyoNightStorm;
+  theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = config.modules.core.constants.fontFamily;
 in

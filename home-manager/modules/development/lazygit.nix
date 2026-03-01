@@ -6,7 +6,7 @@
 
 let
   cfg = config.modules.development.lazygit;
-  theme = config.modules.themes.tokyoNightStorm;
+  theme = config.modules.themes.current;
   constants = config.modules.core.constants;
   deltaFlags = constants.deltaConfigToCli constants.deltaConfig;
 in

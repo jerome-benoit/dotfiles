@@ -8,6 +8,14 @@
 let
   cfg = config.modules.programs.tmux;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  theme = config.modules.themes.current;
+  # Map theme name to tmux plugin style
+  tmuxStyleMap = {
+    "tokyo-night-storm" = "storm";
+    "tokyo-night" = "night";
+    "tokyo-night-light" = "day";
+  };
+  tmuxStyle = tmuxStyleMap.${theme.name} or "storm";
 in
 {
   options.modules.programs.tmux = {
@@ -88,7 +96,7 @@ in
         {
           plugin = pkgs.tmuxPlugins.tokyo-night-tmux;
           extraConfig = ''
-            set -g @tokyo-night-tmux_theme storm
+            set -g @tokyo-night-tmux_theme ${tmuxStyle}
             set -g @tokyo-night-tmux_window_id_style digital
             set -g @tokyo-night-tmux_pane_id_style hsquare
             set -g @tokyo-night-tmux_zoom_id_style dsquare

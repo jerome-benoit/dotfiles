@@ -4,7 +4,7 @@
 }:
 
 {
-  config.modules.themes.tokyoNight = {
+  config.modules.themes.registry.tokyoNight = {
     name = "tokyo-night";
     altName = "TokyoNight";
     fileName = "tokyo_night";
