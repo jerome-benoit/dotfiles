@@ -9,13 +9,25 @@ let
   cfg = config.modules.programs.tmux;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   theme = config.modules.themes.current;
-  # Map theme name to tmux plugin style
-  tmuxStyleMap = {
-    "tokyo-night-storm" = "storm";
-    "tokyo-night" = "night";
-    "tokyo-night-light" = "day";
+
+  tmuxThemePlugins = {
+    tokyonight = {
+      plugin = pkgs.tmuxPlugins.tokyo-night-tmux;
+      extraConfig = ''
+        set -g @tokyo-night-tmux_theme ${theme.style}
+        set -g @tokyo-night-tmux_window_id_style digital
+        set -g @tokyo-night-tmux_pane_id_style hsquare
+        set -g @tokyo-night-tmux_zoom_id_style dsquare
+        set -g @tokyo-night-tmux_show_datetime 1
+        set -g @tokyo-night-tmux_date_format DMY
+        set -g @tokyo-night-tmux_time_format 24H
+        set -g @tokyo-night-tmux_show_path 1
+        set -g @tokyo-night-tmux_path_format relative
+        set -g @tokyo-night-tmux_show_battery_widget 1
+        set -g @tokyo-night-tmux_show_netspeed 1
+      '';
+    };
   };
-  tmuxStyle = tmuxStyleMap.${theme.name} or "storm";
 in
 {
   options.modules.programs.tmux = {
@@ -23,6 +35,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = tmuxThemePlugins ? ${theme.family};
+        message = "tmux: theme family '${theme.family}' not found. Available: ${builtins.concatStringsSep ", " (builtins.attrNames tmuxThemePlugins)}";
+      }
+    ];
+
     programs.tmux = {
       enable = true;
       package = if pkgs.stdenv.isDarwin then pkgs.tmux else mkSystemPackage "tmux" { };
@@ -93,22 +112,7 @@ in
         pkgs.tmuxPlugins.yank
         pkgs.tmuxPlugins.pain-control
         pkgs.tmuxPlugins.vim-tmux-navigator
-        {
-          plugin = pkgs.tmuxPlugins.tokyo-night-tmux;
-          extraConfig = ''
-            set -g @tokyo-night-tmux_theme ${tmuxStyle}
-            set -g @tokyo-night-tmux_window_id_style digital
-            set -g @tokyo-night-tmux_pane_id_style hsquare
-            set -g @tokyo-night-tmux_zoom_id_style dsquare
-            set -g @tokyo-night-tmux_show_datetime 1
-            set -g @tokyo-night-tmux_date_format DMY
-            set -g @tokyo-night-tmux_time_format 24H
-            set -g @tokyo-night-tmux_show_path 1
-            set -g @tokyo-night-tmux_path_format relative
-            set -g @tokyo-night-tmux_show_battery_widget 1
-            set -g @tokyo-night-tmux_show_netspeed 1
-          '';
-        }
+        tmuxThemePlugins.${theme.family}
         {
           plugin = pkgs.tmuxPlugins.resurrect;
           extraConfig = ''

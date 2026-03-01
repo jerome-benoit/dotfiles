@@ -18,7 +18,7 @@ in
     assertions = [
       {
         assertion = config.modules.shell.fd.enable;
-        message = "fzf: fd module must be enabled (modules.shell.fd.enable = true)";
+        message = "fzf: fd module must be enabled (set modules.shell.fd.enable = true)";
       }
     ];
 

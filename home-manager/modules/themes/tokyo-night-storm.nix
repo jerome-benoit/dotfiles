@@ -5,9 +5,11 @@
 
 {
   config.modules.themes.registry.tokyoNightStorm = {
+    family = "tokyonight";
     name = "tokyo-night-storm";
     altName = "TokyoNight Storm";
     fileName = "tokyo_night_storm";
+    style = "storm";
 
     colors = {
       # Base colors

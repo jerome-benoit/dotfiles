@@ -19,7 +19,7 @@ in
     assertions = [
       {
         assertion = constants.gpg.keyId != "";
-        message = "git: GPG key ID must be configured for commit signing";
+        message = "git: GPG key ID must be configured (set constants.gpg.keyId in home-manager/constants.nix)";
       }
     ];
 

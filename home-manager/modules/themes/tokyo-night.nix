@@ -5,9 +5,11 @@
 
 {
   config.modules.themes.registry.tokyoNight = {
+    family = "tokyonight";
     name = "tokyo-night";
     altName = "TokyoNight";
     fileName = "tokyo_night";
+    style = "night";
 
     colors = {
       # Base colors

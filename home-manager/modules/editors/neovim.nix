@@ -10,13 +10,6 @@ let
   cfg = config.modules.editors.neovim;
 
   theme = config.modules.themes.current;
-  # Extract style from theme name: "tokyo-night-storm" → "storm"
-  themeStyle =
-    let
-      parts = lib.splitString "-" theme.name;
-    in
-    if builtins.length parts >= 3 then builtins.elemAt parts 2 else "storm";
-
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
     pname = "opencode-nvim";
     version = "unstable-${inputs.opencode-nvim.shortRev}";
@@ -90,8 +83,8 @@ let
       quickfile = { enabled = true }, scroll = { enabled = true }, statuscolumn = { enabled = true },
       terminal = { enabled = true }, words = { enabled = true },
     })
-    require("tokyonight").setup({
-      style = "${themeStyle}", transparent = true, terminal_colors = true,
+    require("${theme.family}").setup({
+      style = "${theme.style}", transparent = true, terminal_colors = true,
       styles = { comments = { italic = true }, keywords = { italic = true }, functions = {}, variables = {}, sidebars = "dark", floats = "dark" },
       cache = true,
     })
@@ -416,7 +409,7 @@ let
   nvimLualineConfig = ''
     require('lualine').setup({
       options = {
-        theme = 'tokyonight',
+        theme = '${theme.family}',
         icons_enabled = true,
         component_separators = { left = "", right = ""},
         section_separators = { left = "", right = ""},
@@ -460,7 +453,7 @@ in
     assertions = [
       {
         assertion = cfg.plugins.opencode.enable -> config.modules.development.opencode.enable;
-        message = "Neovim opencode integration requires opencode module enabled (modules.development.opencode.enable = true)";
+        message = "neovim: opencode module must be enabled (set modules.development.opencode.enable = true)";
       }
     ];
 

@@ -16,39 +16,26 @@
       type = lib.types.attrsOf (
         lib.types.submodule {
           options = {
-            name = lib.mkOption {
-              type = lib.types.str;
-              description = "Theme name";
-            };
-            altName = lib.mkOption {
-              type = lib.types.str;
-              description = "Alternative theme name";
-            };
-            fileName = lib.mkOption {
-              type = lib.types.str;
-              description = "Theme file name";
-            };
-            colors = lib.mkOption {
-              type = lib.types.attrsOf lib.types.str;
-              description = "Theme color palette";
-            };
+            family = lib.mkOption { type = lib.types.str; };
+            name = lib.mkOption { type = lib.types.str; };
+            altName = lib.mkOption { type = lib.types.str; };
+            fileName = lib.mkOption { type = lib.types.str; };
+            colors = lib.mkOption { type = lib.types.attrsOf lib.types.str; };
+            style = lib.mkOption { type = lib.types.str; };
           };
         }
       );
       default = { };
-      description = "Available themes registry";
     };
 
     active = lib.mkOption {
       type = lib.types.str;
       default = "tokyoNightStorm";
-      description = "Active theme key (must exist in registry)";
     };
 
     current = lib.mkOption {
       type = lib.types.attrs;
       readOnly = true;
-      description = "Currently active theme (derived from registry[active])";
     };
   };
 
@@ -56,7 +43,7 @@
     assertions = [
       {
         assertion = config.modules.themes.registry ? ${config.modules.themes.active};
-        message = "modules.themes.active '${config.modules.themes.active}' not found in registry. Available: ${builtins.concatStringsSep ", " (builtins.attrNames config.modules.themes.registry)}";
+        message = "themes: '${config.modules.themes.active}' not found in registry. Available: ${builtins.concatStringsSep ", " (builtins.attrNames config.modules.themes.registry)}";
       }
     ];
 

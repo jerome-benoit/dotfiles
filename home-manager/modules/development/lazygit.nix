@@ -19,7 +19,7 @@ in
     assertions = [
       {
         assertion = config.modules.development.git.enable;
-        message = "lazygit: Git module must be enabled (modules.development.git.enable = true)";
+        message = "lazygit: git module must be enabled (set modules.development.git.enable = true)";
       }
     ];
 

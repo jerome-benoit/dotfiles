@@ -53,11 +53,11 @@ in
     assertions = [
       {
         assertion = config.modules.development.git.enable;
-        message = "specialisations: Git module must be enabled (modules.development.git.enable = true)";
+        message = "specialisations: git module must be enabled (set modules.development.git.enable = true)";
       }
       {
         assertion = config.modules.shell.zsh.enable;
-        message = "specialisations: Zsh module must be enabled (modules.shell.zsh.enable = true)";
+        message = "specialisations: zsh module must be enabled (set modules.shell.zsh.enable = true)";
       }
     ];
 
