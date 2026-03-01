@@ -11,9 +11,11 @@ let
 
   theme = config.modules.themes.current;
   # Extract style from theme name: "tokyo-night-storm" → "storm"
-  themeStyle = let
-    parts = lib.splitString "-" theme.name;
-  in if builtins.length parts >= 3 then builtins.elemAt parts 2 else "storm";
+  themeStyle =
+    let
+      parts = lib.splitString "-" theme.name;
+    in
+    if builtins.length parts >= 3 then builtins.elemAt parts 2 else "storm";
 
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
     pname = "opencode-nvim";
