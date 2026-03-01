@@ -14,6 +14,7 @@ let
       name,
       email,
       signature,
+      theme,
       sshMatchBlocks ? { },
     }:
     {
@@ -41,6 +42,8 @@ let
           };
 
           programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
+
+          modules.themes.active = lib.mkForce theme;
         };
     };
 in
@@ -69,6 +72,7 @@ in
           ${constants.username} - R&D Software Engineer
           SAP Labs France
         '';
+        theme = "tokyoNightStorm";
         sshMatchBlocks = {
           "*.local" = {
             user = "fraggle";
@@ -83,6 +87,7 @@ in
           ${constants.username} aka fraggle
           Piment Noir - https://piment-noir.org
         '';
+        theme = "tokyoNightStorm";
       };
     };
   };

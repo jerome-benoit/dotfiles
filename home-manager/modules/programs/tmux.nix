@@ -26,6 +26,26 @@ let
         set -g @tokyo-night-tmux_show_battery_widget 1
         set -g @tokyo-night-tmux_show_netspeed 1
       '';
+      extraPlugins = [ ];
+      postConfig = "";
+    };
+    catppuccin = {
+      plugin = pkgs.tmuxPlugins.catppuccin;
+      extraConfig = ''
+        set -g @catppuccin_flavor '${theme.style}'
+        set -g @catppuccin_window_status_style "rounded"
+        set -g @catppuccin_date_time_text "%H:%M"
+      '';
+      extraPlugins = [ pkgs.tmuxPlugins.battery ];
+      postConfig = ''
+        # Status line modules
+        set -g status-right-length 100
+        set -g status-left-length 100
+        set -g status-left ""
+        set -g status-right "#{E:@catppuccin_status_directory}"
+        set -ag status-right "#{E:@catppuccin_status_date_time}"
+        set -agF status-right "#{E:@catppuccin_status_battery}"
+      '';
     };
   };
 in
@@ -105,6 +125,11 @@ in
         # Window Navigation
         bind -r C-h previous-window
         bind -r C-l next-window
+
+        # ============================================================================
+        # THEME POST-CONFIG
+        # ============================================================================
+        ${tmuxThemePlugins.${theme.family}.postConfig}
       '';
 
       plugins = [
@@ -112,7 +137,10 @@ in
         pkgs.tmuxPlugins.yank
         pkgs.tmuxPlugins.pain-control
         pkgs.tmuxPlugins.vim-tmux-navigator
-        tmuxThemePlugins.${theme.family}
+        {
+          plugin = tmuxThemePlugins.${theme.family}.plugin;
+          extraConfig = tmuxThemePlugins.${theme.family}.extraConfig;
+        }
         {
           plugin = pkgs.tmuxPlugins.resurrect;
           extraConfig = ''
@@ -129,7 +157,8 @@ in
             set -g @continuum-save-interval '15'
           '';
         }
-      ];
+      ]
+      ++ tmuxThemePlugins.${theme.family}.extraPlugins;
     };
   };
 }

@@ -166,7 +166,7 @@ in
         };
       };
       readOnly = true;
-      description = "Modules enabled for the profile.";
+      description = "Modules enabled for the profile";
     };
   };
 

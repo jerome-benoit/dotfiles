@@ -22,10 +22,15 @@ let
     };
   };
 
+  nvimThemePlugins = {
+    tokyonight = pkgs.vimPlugins.tokyonight-nvim;
+    catppuccin = pkgs.vimPlugins.catppuccin-nvim;
+  };
+
   nvimBasePlugins = [
     # UI & Theme
     pkgs.vimPlugins.snacks-nvim
-    pkgs.vimPlugins.tokyonight-nvim
+    nvimThemePlugins.${theme.family}
     pkgs.vimPlugins.lualine-nvim
     pkgs.vimPlugins.nvim-web-devicons
 
@@ -62,6 +67,26 @@ let
 
   nvimAiPlugins = [ nvimAiPluginOpencode ];
 
+  nvimThemeSetup = {
+    tokyonight = ''
+      require("tokyonight").setup({
+        style = "${theme.style}", transparent = true, terminal_colors = true,
+        styles = { comments = { italic = true }, keywords = { italic = true }, functions = {}, variables = {}, sidebars = "dark", floats = "dark" },
+        cache = true,
+      })
+    '';
+    catppuccin = ''
+      require("catppuccin").setup({
+        flavour = "${theme.style}", transparent_background = true, term_colors = true,
+        styles = { comments = { "italic" }, keywords = { "italic" }, functions = {}, variables = {} },
+        integrations = {
+          gitsigns = true, neotree = true, treesitter = true, which_key = true,
+          telescope = { enabled = true }, snacks = true, blink_cmp = true,
+        },
+      })
+    '';
+  };
+
   nvimPlugins = nvimBasePlugins ++ lib.optionals cfg.plugins.opencode.enable nvimAiPlugins;
 
   nvimBaseLuaConfig = ''
@@ -83,11 +108,7 @@ let
       quickfile = { enabled = true }, scroll = { enabled = true }, statuscolumn = { enabled = true },
       terminal = { enabled = true }, words = { enabled = true },
     })
-    require("${theme.family}").setup({
-      style = "${theme.style}", transparent = true, terminal_colors = true,
-      styles = { comments = { italic = true }, keywords = { italic = true }, functions = {}, variables = {}, sidebars = "dark", floats = "dark" },
-      cache = true,
-    })
+    ${nvimThemeSetup.${theme.family}}
     vim.cmd.colorscheme "${theme.name}"
 
     -- File Management
@@ -451,6 +472,10 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = nvimThemePlugins ? ${theme.family};
+        message = "neovim: theme family '${theme.family}' not found. Available: ${builtins.concatStringsSep ", " (builtins.attrNames nvimThemePlugins)}";
+      }
       {
         assertion = cfg.plugins.opencode.enable -> config.modules.development.opencode.enable;
         message = "neovim: opencode module must be enabled (set modules.development.opencode.enable = true)";

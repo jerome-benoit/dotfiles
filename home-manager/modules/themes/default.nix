@@ -9,6 +9,10 @@
     ./tokyo-night.nix
     ./tokyo-night-storm.nix
     ./tokyo-night-light.nix
+    ./catppuccin-mocha.nix
+    ./catppuccin-macchiato.nix
+    ./catppuccin-frappe.nix
+    ./catppuccin-latte.nix
   ];
 
   options.modules.themes = {
