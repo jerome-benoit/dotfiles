@@ -3,11 +3,11 @@
     "agent-deck": {
       "flake": false,
       "locked": {
-        "lastModified": 1772165270,
-        "narHash": "sha256-A9fo6xg3BEdmQgvAXuRVdTOgDzMmuVEabTTaTUW3lTY=",
+        "lastModified": 1772396427,
+        "narHash": "sha256-0d0x58XDFGOJN0zXoVEKCCbJVPC/D2GU2aqB9XVUzyA=",
         "owner": "asheshgoplani",
         "repo": "agent-deck",
-        "rev": "020b7f794d639891c833504b8d26e83b513240d4",
+        "rev": "b59cbf5b699e71b5ab040e99fde76341c16484aa",
         "type": "github"
       },
       "original": {
@@ -25,11 +25,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1772240136,
-        "narHash": "sha256-UaMFlO2i7mMagyYql2xR0Jzysv2V42QwRsEIq3vqQ0I=",
+        "lastModified": 1772392414,
+        "narHash": "sha256-Nk/oIrsfzM+s4CLs8P1MbURX5Yxv99fRGZ6Ax9Rrk0M=",
         "owner": "njbrake",
         "repo": "agent-of-empires",
-        "rev": "b0975e8462e0ffb14bba95b6c84aa5825274b45a",
+        "rev": "cbd83fa0e45fbe68a42e0625e6d93f78ff6f08ed",
         "type": "github"
       },
       "original": {
