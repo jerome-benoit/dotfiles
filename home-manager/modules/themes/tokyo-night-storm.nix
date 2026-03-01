@@ -4,7 +4,7 @@
 }:
 
 {
-  config.modules.themes.tokyoNightStorm = {
+  config.modules.themes.registry.tokyoNightStorm = {
     name = "tokyo-night-storm";
     altName = "TokyoNight Storm";
     fileName = "tokyo_night_storm";
