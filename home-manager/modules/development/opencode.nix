@@ -16,11 +16,11 @@ let
     if baseOpencodePackage != null then
       baseOpencodePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
-          (self + "/patches/relax-bun-version-check.patch")
-          (self + "/patches/disable-session-nav-without-parent.patch")
-          (self + "/patches/sap-ai-thinking-variants.patch")
-          (self + "/patches/remove-env-namespace.patch")
-          (self + "/patches/bun-track-provider-packages.patch")
+          (self + "/patches/opencode/relax-bun-version-check.patch")
+          (self + "/patches/opencode/disable-session-nav-without-parent.patch")
+          (self + "/patches/opencode/sap-ai-thinking-variants.patch")
+          (self + "/patches/opencode/remove-env-namespace.patch")
+          (self + "/patches/opencode/bun-track-provider-packages.patch")
         ];
         preBuild = (oldAttrs.preBuild or "") + ''
           if [[ ! -f .github/TEAM_MEMBERS ]]; then
