@@ -17,6 +17,7 @@ let
       baseOpencodePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
           (self + "/patches/relax-bun-version-check.patch")
+          (self + "/patches/disable-session-nav-without-parent.patch")
         ];
         preBuild = (oldAttrs.preBuild or "") + ''
           if [[ ! -f .github/TEAM_MEMBERS ]]; then
