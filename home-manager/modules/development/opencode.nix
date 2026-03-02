@@ -18,6 +18,12 @@ let
         patches = (oldAttrs.patches or [ ]) ++ [
           (self + "/patches/relax-bun-version-check.patch")
         ];
+        preBuild = (oldAttrs.preBuild or "") + ''
+          if [[ ! -f .github/TEAM_MEMBERS ]]; then
+            mkdir -p .github
+            cp ${inputs.opencode}/.github/TEAM_MEMBERS .github/TEAM_MEMBERS
+          fi
+        '';
       })
     else
       null;
