@@ -1,15 +1,3 @@
-diff --git a/.gitignore b/.gitignore
-index bf78c046d4b..2bbbd982eed 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -14,6 +14,7 @@ ts-dist
- .turbo
- **/.serena
- .serena/
-+.sisyphus/
- /result
- refs
- Session.vim
 diff --git a/packages/opencode/src/cli/cmd/acp.ts b/packages/opencode/src/cli/cmd/acp.ts
 index 99a9a81ab9c..a6dca88d53d 100644
 --- a/packages/opencode/src/cli/cmd/acp.ts
