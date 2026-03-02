@@ -1,0 +1,1127 @@
+diff --git a/.gitignore b/.gitignore
+index bf78c046d4b..2bbbd982eed 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,6 +14,7 @@ ts-dist
+ .turbo
+ **/.serena
+ .serena/
++.sisyphus/
+ /result
+ refs
+ Session.vim
+diff --git a/packages/opencode/src/cli/cmd/acp.ts b/packages/opencode/src/cli/cmd/acp.ts
+index 99a9a81ab9c..a6dca88d53d 100644
+--- a/packages/opencode/src/cli/cmd/acp.ts
++++ b/packages/opencode/src/cli/cmd/acp.ts
+@@ -1,4 +1,5 @@
+ import { Log } from "@/util/log"
++
+ import { bootstrap } from "../bootstrap"
+ import { cmd } from "./cmd"
+ import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk"
+@@ -20,7 +21,7 @@ export const AcpCommand = cmd({
+     })
+   },
+   handler: async (args) => {
+-    process.env.OPENCODE_CLIENT = "acp"
++    process.env["OPENCODE_CLIENT"] = "acp"
+     await bootstrap(process.cwd(), async () => {
+       const opts = await resolveNetworkOptions(args)
+       const server = Server.listen(opts)
+diff --git a/packages/opencode/src/cli/cmd/auth.ts b/packages/opencode/src/cli/cmd/auth.ts
+index 95635916413..8648a9129db 100644
+--- a/packages/opencode/src/cli/cmd/auth.ts
++++ b/packages/opencode/src/cli/cmd/auth.ts
+@@ -1,4 +1,5 @@
+ import { Auth } from "../../auth"
++
+ import { cmd } from "./cmd"
+ import * as prompts from "@clack/prompts"
+ import { UI } from "../ui"
+diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
+index 672e73d49a9..c4bb4248a7e 100644
+--- a/packages/opencode/src/cli/cmd/github.ts
++++ b/packages/opencode/src/cli/cmd/github.ts
+@@ -17,6 +17,7 @@ import type {
+   PullRequestEvent,
+ } from "@octokit/webhooks-types"
+ import { UI } from "../ui"
++
+ import { cmd } from "./cmd"
+ import { ModelsDev } from "../../provider/models"
+ import { Instance } from "@/project/instance"
+diff --git a/packages/opencode/src/cli/cmd/tui/attach.ts b/packages/opencode/src/cli/cmd/tui/attach.ts
+index e892f9922d1..18620575c41 100644
+--- a/packages/opencode/src/cli/cmd/tui/attach.ts
++++ b/packages/opencode/src/cli/cmd/tui/attach.ts
+@@ -1,6 +1,7 @@
+ import { cmd } from "../cmd"
+ import { UI } from "@/cli/ui"
+ import { tui } from "./app"
++
+ import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
+ import { TuiConfig } from "@/config/tui"
+ import { Instance } from "@/project/instance"
+@@ -61,7 +62,7 @@ export const AttachCommand = cmd({
+         }
+       })()
+       const headers = (() => {
+-        const password = args.password ?? process.env.OPENCODE_SERVER_PASSWORD
++        const password = args.password ?? process.env["OPENCODE_SERVER_PASSWORD"]
+         if (!password) return undefined
+         const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
+         return { Authorization: auth }
+diff --git a/packages/opencode/src/cli/cmd/tui/thread.ts b/packages/opencode/src/cli/cmd/tui/thread.ts
+index 750347d9d63..a51ace1539c 100644
+--- a/packages/opencode/src/cli/cmd/tui/thread.ts
++++ b/packages/opencode/src/cli/cmd/tui/thread.ts
+@@ -11,6 +11,7 @@ import { withNetworkOptions, resolveNetworkOptions } from "@/cli/network"
+ import { Filesystem } from "@/util/filesystem"
+ import type { Event } from "@opencode-ai/sdk/v2"
+ import type { EventSource } from "./context/sdk"
++
+ import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
+ import { TuiConfig } from "@/config/tui"
+ import { Instance } from "@/project/instance"
+@@ -97,7 +98,7 @@ export const TuiThreadCommand = cmd({
+       }
+ 
+       // Resolve relative paths against PWD to preserve behavior when using --cwd flag
+-      const baseCwd = process.env.PWD ?? process.cwd()
++      const baseCwd = process.env["PWD"] ?? process.cwd()
+       const cwd = args.project ? path.resolve(baseCwd, args.project) : process.cwd()
+       const localWorker = new URL("./worker.ts", import.meta.url)
+       const distWorker = new URL("./cli/cmd/tui/worker.js", import.meta.url)
+diff --git a/packages/opencode/src/cli/cmd/uninstall.ts b/packages/opencode/src/cli/cmd/uninstall.ts
+index 3d8e7e3f75e..56a1ea54d0a 100644
+--- a/packages/opencode/src/cli/cmd/uninstall.ts
++++ b/packages/opencode/src/cli/cmd/uninstall.ts
+@@ -3,6 +3,7 @@ import { UI } from "../ui"
+ import * as prompts from "@clack/prompts"
+ import { Installation } from "../../installation"
+ import { Global } from "../../global"
++
+ import { $ } from "bun"
+ import fs from "fs/promises"
+ import path from "path"
+@@ -236,9 +237,9 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
+ }
+ 
+ async function getShellConfigFile(): Promise<string | null> {
+-  const shell = path.basename(process.env.SHELL || "bash")
++  const shell = path.basename(process.env["SHELL"] || "bash")
+   const home = os.homedir()
+-  const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, ".config")
++  const xdgConfig = process.env["XDG_CONFIG_HOME"] || path.join(home, ".config")
+ 
+   const configFiles: Record<string, string[]> = {
+     fish: [path.join(xdgConfig, "fish", "config.fish")],
+diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
+deleted file mode 100644
+index 003b59fc71c..00000000000
+--- a/packages/opencode/src/env/index.ts
++++ /dev/null
+@@ -1,28 +0,0 @@
+-import { Instance } from "../project/instance"
+-
+-export namespace Env {
+-  const state = Instance.state(() => {
+-    // Create a shallow copy to isolate environment per instance
+-    // Prevents parallel tests from interfering with each other's env vars
+-    return { ...process.env } as Record<string, string | undefined>
+-  })
+-
+-  export function get(key: string) {
+-    const env = state()
+-    return env[key]
+-  }
+-
+-  export function all() {
+-    return state()
+-  }
+-
+-  export function set(key: string, value: string) {
+-    const env = state()
+-    env[key] = value
+-  }
+-
+-  export function remove(key: string) {
+-    const env = state()
+-    delete env[key]
+-  }
+-}
+diff --git a/packages/opencode/src/ide/index.ts b/packages/opencode/src/ide/index.ts
+index 0837b2aa5ff..f602200be26 100644
+--- a/packages/opencode/src/ide/index.ts
++++ b/packages/opencode/src/ide/index.ts
+@@ -4,7 +4,6 @@ import { spawn } from "bun"
+ import z from "zod"
+ import { NamedError } from "@opencode-ai/util/error"
+ import { Log } from "../util/log"
+-
+ const SUPPORTED_IDES = [
+   { name: "Windsurf" as const, cmd: "windsurf" },
+   { name: "Visual Studio Code - Insiders" as const, cmd: "code-insiders" },
+diff --git a/packages/opencode/src/index.ts b/packages/opencode/src/index.ts
+index 35b42dce77c..37066cb3dfc 100644
+--- a/packages/opencode/src/index.ts
++++ b/packages/opencode/src/index.ts
+@@ -21,6 +21,7 @@ import { McpCommand } from "./cli/cmd/mcp"
+ import { GithubCommand } from "./cli/cmd/github"
+ import { ExportCommand } from "./cli/cmd/export"
+ import { ImportCommand } from "./cli/cmd/import"
++
+ import { AttachCommand } from "./cli/cmd/tui/attach"
+ import { TuiThreadCommand } from "./cli/cmd/tui/thread"
+ import { AcpCommand } from "./cli/cmd/acp"
+@@ -74,9 +75,9 @@ let cli = yargs(hideBin(process.argv))
+       })(),
+     })
+ 
+-    process.env.AGENT = "1"
+-    process.env.OPENCODE = "1"
+-    process.env.OPENCODE_PID = String(process.pid)
++    process.env["AGENT"] = "1"
++    process.env["OPENCODE"] = "1"
++    process.env["OPENCODE_PID"] = String(process.pid)
+ 
+     Log.Default.info("opencode", {
+       version: Installation.VERSION,
+diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
+index 022ec316795..debbe38f1b7 100644
+--- a/packages/opencode/src/provider/provider.ts
++++ b/packages/opencode/src/provider/provider.ts
+@@ -10,7 +10,7 @@ import { Plugin } from "../plugin"
+ import { ModelsDev } from "./models"
+ import { NamedError } from "@opencode-ai/util/error"
+ import { Auth } from "../auth"
+-import { Env } from "../env"
++
+ import { Instance } from "../project/instance"
+ import { Flag } from "../flag/flag"
+ import { iife } from "@/util/iife"
+@@ -62,9 +62,12 @@ export namespace Provider {
+ 
+   function googleVertexVars(options: Record<string, any>) {
+     const project =
+-      options["project"] ?? Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
++      options["project"] ??
++      process.env["GOOGLE_CLOUD_PROJECT"] ??
++      process.env["GCP_PROJECT"] ??
++      process.env["GCLOUD_PROJECT"]
+     const location =
+-      options["location"] ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
++      options["location"] ?? process.env["GOOGLE_CLOUD_LOCATION"] ?? process.env["VERTEX_LOCATION"] ?? "us-central1"
+     const endpoint = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`
+ 
+     return {
+@@ -79,7 +82,7 @@ export namespace Provider {
+     if (typeof raw !== "string") return raw
+     const vars = model.providerID === "google-vertex" ? googleVertexVars(options) : undefined
+     return raw.replace(/\$\{([^}]+)\}/g, (match, key) => {
+-      const val = Env.get(String(key)) ?? vars?.[String(key) as keyof typeof vars]
++      const val = process.env[String(key)] ?? vars?.[String(key) as keyof typeof vars]
+       return val ?? match
+     })
+   }
+@@ -130,7 +133,7 @@ export namespace Provider {
+     },
+     async opencode(input) {
+       const hasKey = await (async () => {
+-        const env = Env.all()
++        const env = process.env
+         if (input.env.some((item) => env[item])) return true
+         if (await Auth.get(input.id)) return true
+         const config = await Config.get()
+@@ -193,7 +196,7 @@ export namespace Provider {
+       }
+     },
+     "azure-cognitive-services": async () => {
+-      const resourceName = Env.get("AZURE_COGNITIVE_SERVICES_RESOURCE_NAME")
++      const resourceName = process.env["AZURE_COGNITIVE_SERVICES_RESOURCE_NAME"]
+       return {
+         autoload: false,
+         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
+@@ -216,32 +219,30 @@ export namespace Provider {
+ 
+       // Region precedence: 1) config file, 2) env var, 3) default
+       const configRegion = providerConfig?.options?.region
+-      const envRegion = Env.get("AWS_REGION")
++      const envRegion = process.env["AWS_REGION"]
+       const defaultRegion = configRegion ?? envRegion ?? "us-east-1"
+ 
+       // Profile: config file takes precedence over env var
+       const configProfile = providerConfig?.options?.profile
+-      const envProfile = Env.get("AWS_PROFILE")
++      const envProfile = process.env["AWS_PROFILE"]
+       const profile = configProfile ?? envProfile
+ 
+-      const awsAccessKeyId = Env.get("AWS_ACCESS_KEY_ID")
++      const awsAccessKeyId = process.env["AWS_ACCESS_KEY_ID"]
+ 
+-      // TODO: Using process.env directly because Env.set only updates a process.env shallow copy,
+-      // until the scope of the Env API is clarified (test only or runtime?)
+       const awsBearerToken = iife(() => {
+-        const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
++        const envToken = process.env["AWS_BEARER_TOKEN_BEDROCK"]
+         if (envToken) return envToken
+         if (auth?.type === "api") {
+-          process.env.AWS_BEARER_TOKEN_BEDROCK = auth.key
++          process.env["AWS_BEARER_TOKEN_BEDROCK"] = auth.key
+           return auth.key
+         }
+         return undefined
+       })
+ 
+-      const awsWebIdentityTokenFile = Env.get("AWS_WEB_IDENTITY_TOKEN_FILE")
++      const awsWebIdentityTokenFile = process.env["AWS_WEB_IDENTITY_TOKEN_FILE"]
+ 
+       const containerCreds = Boolean(
+-        process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
++        process.env["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"] || process.env["AWS_CONTAINER_CREDENTIALS_FULL_URI"],
+       )
+ 
+       if (!profile && !awsAccessKeyId && !awsBearerToken && !awsWebIdentityTokenFile && !containerCreds)
+@@ -381,12 +382,15 @@ export namespace Provider {
+     "google-vertex": async (provider) => {
+       const project =
+         provider.options?.project ??
+-        Env.get("GOOGLE_CLOUD_PROJECT") ??
+-        Env.get("GCP_PROJECT") ??
+-        Env.get("GCLOUD_PROJECT")
++        process.env["GOOGLE_CLOUD_PROJECT"] ??
++        process.env["GCP_PROJECT"] ??
++        process.env["GCLOUD_PROJECT"]
+ 
+       const location =
+-        provider.options?.location ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
++        provider.options?.location ??
++        process.env["GOOGLE_CLOUD_LOCATION"] ??
++        process.env["VERTEX_LOCATION"] ??
++        "us-central1"
+ 
+       const autoload = Boolean(project)
+       if (!autoload) return { autoload: false }
+@@ -413,8 +417,8 @@ export namespace Provider {
+       }
+     },
+     "google-vertex-anthropic": async () => {
+-      const project = Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
+-      const location = Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "global"
++      const project = process.env["GOOGLE_CLOUD_PROJECT"] ?? process.env["GCP_PROJECT"] ?? process.env["GCLOUD_PROJECT"]
++      const location = process.env["GOOGLE_CLOUD_LOCATION"] ?? process.env["VERTEX_LOCATION"] ?? "global"
+       const autoload = Boolean(project)
+       if (!autoload) return { autoload: false }
+       return {
+@@ -431,19 +435,17 @@ export namespace Provider {
+     },
+     "sap-ai-core": async () => {
+       const auth = await Auth.get("sap-ai-core")
+-      // TODO: Using process.env directly because Env.set only updates a shallow copy (not process.env),
+-      // until the scope of the Env API is clarified (test only or runtime?)
+       const envServiceKey = iife(() => {
+-        const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
++        const envAICoreServiceKey = process.env["AICORE_SERVICE_KEY"]
+         if (envAICoreServiceKey) return envAICoreServiceKey
+         if (auth?.type === "api") {
+-          process.env.AICORE_SERVICE_KEY = auth.key
++          process.env["AICORE_SERVICE_KEY"] = auth.key
+           return auth.key
+         }
+         return undefined
+       })
+-      const deploymentId = process.env.AICORE_DEPLOYMENT_ID
+-      const resourceGroup = process.env.AICORE_RESOURCE_GROUP
++      const deploymentId = process.env["AICORE_DEPLOYMENT_ID"]
++      const resourceGroup = process.env["AICORE_RESOURCE_GROUP"]
+ 
+       return {
+         autoload: !!envServiceKey,
+@@ -465,13 +467,13 @@ export namespace Provider {
+       }
+     },
+     gitlab: async (input) => {
+-      const instanceUrl = Env.get("GITLAB_INSTANCE_URL") || "https://gitlab.com"
++      const instanceUrl = process.env["GITLAB_INSTANCE_URL"] || "https://gitlab.com"
+ 
+       const auth = await Auth.get(input.id)
+       const apiKey = await (async () => {
+         if (auth?.type === "oauth") return auth.access
+         if (auth?.type === "api") return auth.key
+-        return Env.get("GITLAB_TOKEN")
++        return process.env["GITLAB_TOKEN"]
+       })()
+ 
+       const config = await Config.get()
+@@ -507,11 +509,11 @@ export namespace Provider {
+       }
+     },
+     "cloudflare-workers-ai": async (input) => {
+-      const accountId = Env.get("CLOUDFLARE_ACCOUNT_ID")
++      const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"]
+       if (!accountId) return { autoload: false }
+ 
+       const apiKey = await iife(async () => {
+-        const envToken = Env.get("CLOUDFLARE_API_KEY")
++        const envToken = process.env["CLOUDFLARE_API_KEY"]
+         if (envToken) return envToken
+         const auth = await Auth.get(input.id)
+         if (auth?.type === "api") return auth.key
+@@ -530,14 +532,14 @@ export namespace Provider {
+       }
+     },
+     "cloudflare-ai-gateway": async (input) => {
+-      const accountId = Env.get("CLOUDFLARE_ACCOUNT_ID")
+-      const gateway = Env.get("CLOUDFLARE_GATEWAY_ID")
++      const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"]
++      const gateway = process.env["CLOUDFLARE_GATEWAY_ID"]
+ 
+       if (!accountId || !gateway) return { autoload: false }
+ 
+       // Get API token from env or auth - required for authenticated gateways
+       const apiToken = await (async () => {
+-        const envToken = Env.get("CLOUDFLARE_API_TOKEN") || Env.get("CF_AIG_TOKEN")
++        const envToken = process.env["CLOUDFLARE_API_TOKEN"] || process.env["CF_AIG_TOKEN"]
+         if (envToken) return envToken
+         const auth = await Auth.get(input.id)
+         if (auth?.type === "api") return auth.key
+@@ -891,7 +893,7 @@ export namespace Provider {
+     }
+ 
+     // load env
+-    const env = Env.all()
++    const env = process.env
+     for (const [providerID, provider] of Object.entries(database)) {
+       if (disabled.has(providerID)) continue
+       const apiKey = provider.env.map((item) => env[item]).find(Boolean)
+diff --git a/packages/opencode/src/shell/shell.ts b/packages/opencode/src/shell/shell.ts
+index e7b7cdb3e4d..7b9578fa923 100644
+--- a/packages/opencode/src/shell/shell.ts
++++ b/packages/opencode/src/shell/shell.ts
+@@ -1,4 +1,5 @@
+ import { Flag } from "@/flag/flag"
++
+ import { lazy } from "@/util/lazy"
+ import { Filesystem } from "@/util/filesystem"
+ import path from "path"
+@@ -46,7 +47,7 @@ export namespace Shell {
+         const bash = path.join(git, "..", "..", "bin", "bash.exe")
+         if (Filesystem.stat(bash)?.size) return bash
+       }
+-      return process.env.COMSPEC || "cmd.exe"
++      return process.env["COMSPEC"] || "cmd.exe"
+     }
+     if (process.platform === "darwin") return "/bin/zsh"
+     const bash = Bun.which("bash")
+@@ -55,13 +56,13 @@ export namespace Shell {
+   }
+ 
+   export const preferred = lazy(() => {
+-    const s = process.env.SHELL
++    const s = process.env["SHELL"]
+     if (s) return s
+     return fallback()
+   })
+ 
+   export const acceptable = lazy(() => {
+-    const s = process.env.SHELL
++    const s = process.env["SHELL"]
+     if (s && !BLACKLIST.has(process.platform === "win32" ? path.win32.basename(s) : path.basename(s))) return s
+     return fallback()
+   })
+diff --git a/packages/opencode/src/util/proxied.ts b/packages/opencode/src/util/proxied.ts
+index 440a9cccedb..c8ffdd170d1 100644
+--- a/packages/opencode/src/util/proxied.ts
++++ b/packages/opencode/src/util/proxied.ts
+@@ -1,3 +1,8 @@
+ export function proxied() {
+-  return !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy)
++  return !!(
++    process.env["HTTP_PROXY"] ||
++    process.env["HTTPS_PROXY"] ||
++    process.env["http_proxy"] ||
++    process.env["https_proxy"]
++  )
+ }
+diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
+index 41028633e83..110c05e3b54 100644
+--- a/packages/opencode/test/preload.ts
++++ b/packages/opencode/test/preload.ts
+@@ -3,7 +3,7 @@
+ import os from "os"
+ import path from "path"
+ import fs from "fs/promises"
+-import { afterAll } from "bun:test"
++import { afterAll, beforeEach, afterEach } from "bun:test"
+ 
+ // Set XDG env vars FIRST, before any src/ imports
+ const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
+@@ -78,3 +78,27 @@ Log.init({
+   dev: true,
+   level: "DEBUG",
+ })
++
++// Snapshot env vars for isolation
++let envSnapshot: Record<string, string | undefined>
++
++beforeEach(() => {
++  envSnapshot = { ...process.env }
++})
++
++afterEach(() => {
++  // Remove keys added during test
++  for (const key in process.env) {
++    if (!(key in envSnapshot)) {
++      delete process.env[key]
++    }
++  }
++  // Restore original values
++  for (const key in envSnapshot) {
++    if (envSnapshot[key] === undefined) {
++      delete process.env[key]
++    } else {
++      process.env[key] = envSnapshot[key]
++    }
++  }
++})
+diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
+index cb64455b4dd..2540d9a5fab 100644
+--- a/packages/opencode/test/provider/amazon-bedrock.test.ts
++++ b/packages/opencode/test/provider/amazon-bedrock.test.ts
+@@ -5,7 +5,6 @@ import { unlink } from "fs/promises"
+ import { tmpdir } from "../fixture/fixture"
+ import { Instance } from "../../src/project/instance"
+ import { Provider } from "../../src/provider/provider"
+-import { Env } from "../../src/env"
+ import { Global } from "../../src/global"
+ import { Filesystem } from "../../src/util/filesystem"
+ 
+@@ -30,8 +29,8 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_REGION", "us-east-1")
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_REGION"] = "us-east-1"
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -55,8 +54,8 @@ test("Bedrock: falls back to AWS_REGION env var when no config region", async ()
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_REGION", "eu-west-1")
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_REGION"] = "eu-west-1"
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -110,9 +109,9 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
+     await Instance.provide({
+       directory: tmp.path,
+       init: async () => {
+-        Env.set("AWS_PROFILE", "")
+-        Env.set("AWS_ACCESS_KEY_ID", "")
+-        Env.set("AWS_BEARER_TOKEN_BEDROCK", "")
++        process.env["AWS_PROFILE"] = ""
++        process.env["AWS_ACCESS_KEY_ID"] = ""
++        process.env["AWS_BEARER_TOKEN_BEDROCK"] = ""
+       },
+       fn: async () => {
+         const providers = await Provider.list()
+@@ -156,8 +155,8 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_PROFILE", "default")
+-      Env.set("AWS_ACCESS_KEY_ID", "test-key-id")
++      process.env["AWS_PROFILE"] = "default"
++      process.env["AWS_ACCESS_KEY_ID"] = "test-key-id"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -188,7 +187,7 @@ test("Bedrock: includes custom endpoint in options when specified", async () =>
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -221,10 +220,10 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async ()
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
+-      Env.set("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/my-eks-role")
+-      Env.set("AWS_PROFILE", "")
+-      Env.set("AWS_ACCESS_KEY_ID", "")
++      process.env["AWS_WEB_IDENTITY_TOKEN_FILE"] = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
++      process.env["AWS_ROLE_ARN"] = "arn:aws:iam::123456789012:role/my-eks-role"
++      process.env["AWS_PROFILE"] = ""
++      process.env["AWS_ACCESS_KEY_ID"] = ""
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -264,7 +263,7 @@ test("Bedrock: model with us. prefix should not be double-prefixed", async () =>
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -301,7 +300,7 @@ test("Bedrock: model with global. prefix should not be prefixed", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -337,7 +336,7 @@ test("Bedrock: model with eu. prefix should not be double-prefixed", async () =>
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -373,7 +372,7 @@ test("Bedrock: model without prefix in US region should get us. prefix added", a
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("AWS_PROFILE", "default")
++      process.env["AWS_PROFILE"] = "default"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+diff --git a/packages/opencode/test/provider/gitlab-duo.test.ts b/packages/opencode/test/provider/gitlab-duo.test.ts
+index c512a45909d..51edc8a3694 100644
+--- a/packages/opencode/test/provider/gitlab-duo.test.ts
++++ b/packages/opencode/test/provider/gitlab-duo.test.ts
+@@ -4,7 +4,6 @@ import path from "path"
+ import { tmpdir } from "../fixture/fixture"
+ import { Instance } from "../../src/project/instance"
+ import { Provider } from "../../src/provider/provider"
+-import { Env } from "../../src/env"
+ import { Global } from "../../src/global"
+ 
+ test("GitLab Duo: loads provider with API key from environment", async () => {
+@@ -21,7 +20,7 @@ test("GitLab Duo: loads provider with API key from environment", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "test-gitlab-token")
++      process.env["GITLAB_TOKEN"] = "test-gitlab-token"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -52,8 +51,8 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "test-token")
+-      Env.set("GITLAB_INSTANCE_URL", "https://gitlab.example.com")
++      process.env["GITLAB_TOKEN"] = "test-token"
++      process.env["GITLAB_INSTANCE_URL"] = "https://gitlab.example.com"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -91,7 +90,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "")
++      process.env["GITLAB_TOKEN"] = ""
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -126,7 +125,7 @@ test("GitLab Duo: loads with Personal Access Token from auth.json", async () =>
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "")
++      process.env["GITLAB_TOKEN"] = ""
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -158,7 +157,7 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_INSTANCE_URL", "https://gitlab.company.internal")
++      process.env["GITLAB_INSTANCE_URL"] = "https://gitlab.company.internal"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -189,7 +188,7 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "env-token")
++      process.env["GITLAB_TOKEN"] = "env-token"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -222,7 +221,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "test-token")
++      process.env["GITLAB_TOKEN"] = "test-token"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -247,7 +246,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "test-token")
++      process.env["GITLAB_TOKEN"] = "test-token"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
+index 0a5aa415131..76b7fb0ebe0 100644
+--- a/packages/opencode/test/provider/provider.test.ts
++++ b/packages/opencode/test/provider/provider.test.ts
+@@ -4,7 +4,6 @@ import path from "path"
+ import { tmpdir } from "../fixture/fixture"
+ import { Instance } from "../../src/project/instance"
+ import { Provider } from "../../src/provider/provider"
+-import { Env } from "../../src/env"
+ 
+ test("provider loaded from env variable", async () => {
+   await using tmp = await tmpdir({
+@@ -20,7 +19,7 @@ test("provider loaded from env variable", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -75,7 +74,7 @@ test("disabled_providers excludes provider", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -99,8 +98,8 @@ test("enabled_providers restricts to only listed providers", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
+-      Env.set("OPENAI_API_KEY", "test-openai-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env["OPENAI_API_KEY"] = "test-openai-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -129,7 +128,7 @@ test("model whitelist filters models for provider", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -160,7 +159,7 @@ test("model blacklist excludes specific models", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -195,7 +194,7 @@ test("custom model alias via config", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -270,7 +269,7 @@ test("env variable takes precedence, config merges options", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "env-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "env-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -295,7 +294,7 @@ test("getModel returns model for valid provider/model", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const model = await Provider.getModel("anthropic", "claude-sonnet-4-20250514")
+@@ -322,7 +321,7 @@ test("getModel throws ModelNotFoundError for invalid model", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       expect(Provider.getModel("anthropic", "nonexistent-model")).rejects.toThrow()
+@@ -375,7 +374,7 @@ test("defaultModel returns first available model when no config set", async () =
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const model = await Provider.defaultModel()
+@@ -400,7 +399,7 @@ test("defaultModel respects config model setting", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const model = await Provider.defaultModel()
+@@ -515,7 +514,7 @@ test("model options are merged from existing model", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -544,7 +543,7 @@ test("provider removed when all models filtered out", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -567,7 +566,7 @@ test("closest finds model by partial match", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const result = await Provider.closest("anthropic", ["sonnet-4"])
+@@ -622,7 +621,7 @@ test("getModel uses realIdByKey for aliased models", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -737,7 +736,7 @@ test("model inherits properties from existing database model", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -765,7 +764,7 @@ test("disabled_providers prevents loading even with env var", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("OPENAI_API_KEY", "test-openai-key")
++      process.env["OPENAI_API_KEY"] = "test-openai-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -789,8 +788,8 @@ test("enabled_providers with empty array allows no providers", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
+-      Env.set("OPENAI_API_KEY", "test-openai-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env["OPENAI_API_KEY"] = "test-openai-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -819,7 +818,7 @@ test("whitelist and blacklist can be combined", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -928,7 +927,7 @@ test("getSmallModel returns appropriate small model", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const model = await Provider.getSmallModel("anthropic")
+@@ -953,7 +952,7 @@ test("getSmallModel respects config small_model override", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const model = await Provider.getSmallModel("anthropic")
+@@ -1001,8 +1000,8 @@ test("multiple providers can be configured simultaneously", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-anthropic-key")
+-      Env.set("OPENAI_API_KEY", "test-openai-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-anthropic-key"
++      process.env["OPENAI_API_KEY"] = "test-openai-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1080,7 +1079,7 @@ test("model alias name defaults to alias key when id differs", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1120,7 +1119,7 @@ test("provider with multiple env var options only includes apiKey when single en
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("MULTI_ENV_KEY_1", "test-key")
++      process.env["MULTI_ENV_KEY_1"] = "test-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1162,7 +1161,7 @@ test("provider with single env var includes apiKey automatically", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("SINGLE_ENV_KEY", "my-api-key")
++      process.env["SINGLE_ENV_KEY"] = "my-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1199,7 +1198,7 @@ test("model cost overrides existing cost values", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1278,9 +1277,9 @@ test("disabled_providers and enabled_providers interaction", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-anthropic")
+-      Env.set("OPENAI_API_KEY", "test-openai")
+-      Env.set("GOOGLE_GENERATIVE_AI_API_KEY", "test-google")
++      process.env["ANTHROPIC_API_KEY"] = "test-anthropic"
++      process.env["OPENAI_API_KEY"] = "test-openai"
++      process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = "test-google"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1437,7 +1436,7 @@ test("provider env fallback - second env var used if first missing", async () =>
+     directory: tmp.path,
+     init: async () => {
+       // Only set fallback, not primary
+-      Env.set("FALLBACK_KEY", "fallback-api-key")
++      process.env["FALLBACK_KEY"] = "fallback-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1461,7 +1460,7 @@ test("getModel returns consistent results", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const model1 = await Provider.getModel("anthropic", "claude-sonnet-4-20250514")
+@@ -1522,7 +1521,7 @@ test("ModelNotFoundError includes suggestions for typos", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       try {
+@@ -1550,7 +1549,7 @@ test("ModelNotFoundError for provider includes suggestions", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       try {
+@@ -1598,7 +1597,7 @@ test("getProvider returns provider info", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const provider = await Provider.getProvider("anthropic")
+@@ -1622,7 +1621,7 @@ test("closest returns undefined when no partial match found", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const result = await Provider.closest("anthropic", ["nonexistent-xyz-model"])
+@@ -1645,7 +1644,7 @@ test("closest checks multiple query terms in order", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       // First term won't match, second will
+@@ -1717,7 +1716,7 @@ test("provider options are deeply merged", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1755,7 +1754,7 @@ test("custom model inherits npm package from models.dev provider config", async
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("OPENAI_API_KEY", "test-api-key")
++      process.env["OPENAI_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1790,7 +1789,7 @@ test("custom model inherits api.url from models.dev provider", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("OPENROUTER_API_KEY", "test-api-key")
++      process.env["OPENROUTER_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1824,7 +1823,7 @@ test("model variants are generated for reasoning models", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1862,7 +1861,7 @@ test("model variants can be disabled via config", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1905,7 +1904,7 @@ test("model variants can be customized via config", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1944,7 +1943,7 @@ test("disabled key is stripped from variant config", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -1982,7 +1981,7 @@ test("all variants can be disabled via config", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -2020,7 +2019,7 @@ test("variant config merges with generated variants", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -2058,7 +2057,7 @@ test("variants filtered in second pass for database models", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("OPENAI_API_KEY", "test-api-key")
++      process.env["OPENAI_API_KEY"] = "test-api-key"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -2162,7 +2161,7 @@ test("Google Vertex: retains baseURL for custom proxy", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GOOGLE_APPLICATION_CREDENTIALS", "test-creds")
++      process.env["GOOGLE_APPLICATION_CREDENTIALS"] = "test-creds"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -2207,7 +2206,7 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GOOGLE_APPLICATION_CREDENTIALS", "test-creds")
++      process.env["GOOGLE_APPLICATION_CREDENTIALS"] = "test-creds"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
