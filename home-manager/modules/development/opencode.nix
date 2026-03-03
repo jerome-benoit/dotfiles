@@ -17,18 +17,15 @@ let
       baseOpencodePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
           (self + "/patches/opencode/relax-bun-version-check.patch")
-          (self + "/patches/opencode/disable-session-nav-without-parent.patch")
+          # https://github.com/anomalyco/opencode/pull/14958
           (self + "/patches/opencode/sap-ai-thinking-variants.patch")
+          # https://github.com/anomalyco/opencode/pull/12822
           (self + "/patches/opencode/remove-env-namespace.patch")
+          # https://github.com/anomalyco/opencode/pull/10275
           (self + "/patches/opencode/bun-track-provider-packages.patch")
+          # https://github.com/anomalyco/opencode/pull/15770
           (self + "/patches/opencode/restore-task-click-navigation.patch")
         ];
-        preBuild = (oldAttrs.preBuild or "") + ''
-          if [[ ! -f .github/TEAM_MEMBERS ]]; then
-            mkdir -p .github
-            cp ${inputs.opencode}/.github/TEAM_MEMBERS .github/TEAM_MEMBERS
-          fi
-        '';
       })
     else
       null;
