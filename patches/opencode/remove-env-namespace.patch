@@ -177,7 +177,7 @@ index 35b42dce77c..37066cb3dfc 100644
      Log.Default.info("opencode", {
        version: Installation.VERSION,
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 022ec316795..debbe38f1b7 100644
+index 81703836524..76876daf845 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -10,7 +10,7 @@ import { Plugin } from "../plugin"
@@ -374,7 +374,7 @@ index 022ec316795..debbe38f1b7 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -891,7 +893,7 @@ export namespace Provider {
+@@ -912,7 +914,7 @@ export namespace Provider {
      }
  
      // load env
@@ -678,7 +678,7 @@ index c512a45909d..51edc8a3694 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index 0a5aa415131..76b7fb0ebe0 100644
+index 11c943db6f8..e343b01837d 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
 @@ -4,7 +4,6 @@ import path from "path"
@@ -1110,6 +1110,32 @@ index 0a5aa415131..76b7fb0ebe0 100644
      init: async () => {
 -      Env.set("GOOGLE_APPLICATION_CREDENTIALS", "test-creds")
 +      process.env["GOOGLE_APPLICATION_CREDENTIALS"] = "test-creds"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -2233,9 +2232,9 @@ test("cloudflare-ai-gateway loads with env variables", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("CLOUDFLARE_ACCOUNT_ID", "test-account")
+-      Env.set("CLOUDFLARE_GATEWAY_ID", "test-gateway")
+-      Env.set("CLOUDFLARE_API_TOKEN", "test-token")
++      process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account"
++      process.env["CLOUDFLARE_GATEWAY_ID"] = "test-gateway"
++      process.env["CLOUDFLARE_API_TOKEN"] = "test-token"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -2265,9 +2264,9 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("CLOUDFLARE_ACCOUNT_ID", "test-account")
+-      Env.set("CLOUDFLARE_GATEWAY_ID", "test-gateway")
+-      Env.set("CLOUDFLARE_API_TOKEN", "test-token")
++      process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account"
++      process.env["CLOUDFLARE_GATEWAY_ID"] = "test-gateway"
++      process.env["CLOUDFLARE_API_TOKEN"] = "test-token"
      },
      fn: async () => {
        const providers = await Provider.list()

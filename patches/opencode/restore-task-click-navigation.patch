@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-index 68f6796cddd..f907c2812bd 100644
+index 6062bb07b11..9f5fc63d6a5 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-@@ -1974,33 +1974,40 @@ function Task(props: ToolProps<typeof TaskTool>) {
+@@ -1977,33 +1977,40 @@ function Task(props: ToolProps<typeof TaskTool>) {
    })
  
    return (

@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index b659799c1b6..070e02a2568 100644
+index 6980be05188..0000e61f9b2 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -655,9 +655,21 @@ export namespace ProviderTransform {
@@ -54,10 +54,10 @@ index b659799c1b6..070e02a2568 100644
      return {}
    }
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 189bdfd32b4..361885c2ed3 100644
+index 2329846351c..45661b3b410 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
-@@ -2350,4 +2350,145 @@ describe("ProviderTransform.variants", () => {
+@@ -2450,4 +2450,145 @@ describe("ProviderTransform.variants", () => {
        expect(result).toEqual({})
      })
    })
