@@ -21,6 +21,7 @@ let
           (self + "/patches/opencode/sap-ai-thinking-variants.patch")
           (self + "/patches/opencode/remove-env-namespace.patch")
           (self + "/patches/opencode/bun-track-provider-packages.patch")
+          (self + "/patches/opencode/restore-task-click-navigation.patch")
         ];
         preBuild = (oldAttrs.preBuild or "") + ''
           if [[ ! -f .github/TEAM_MEMBERS ]]; then
