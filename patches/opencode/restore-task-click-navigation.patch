@@ -1,68 +1,65 @@
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-index 6062bb07b11..9f5fc63d6a5 100644
+index e2747ad3b7a..812ce85f041 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-@@ -1977,33 +1977,40 @@ function Task(props: ToolProps<typeof TaskTool>) {
-   })
+@@ -1625,9 +1625,12 @@ function InlineTool(props: {
+   spinner?: boolean
+   children: JSX.Element
+   part: ToolPart
++  onClick?: () => void
+ }) {
+   const [margin, setMargin] = createSignal(0)
++  const [hover, setHover] = createSignal(false)
+   const { theme } = useTheme()
++  const renderer = useRenderer()
+   const ctx = use()
+   const sync = useSync()
  
-   return (
--    <InlineTool
--      icon="≡"
--      spinner={isRunning()}
--      complete={props.input.description}
--      pending="Delegating..."
-+    <BlockTool
-+      title={"# " + (props.input.description || Locale.titlecase(props.input.subagent_type ?? "unknown") + " Task")}
+@@ -1684,11 +1687,21 @@ function InlineTool(props: {
+           <Spinner color={fg()} children={props.children} />
+         </Match>
+         <Match when={true}>
+-          <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
+-            <Show fallback={<>~ {props.pending}</>} when={props.complete}>
+-              <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
+-            </Show>
+-          </text>
++          <box
++            onMouseOver={() => props.onClick && setHover(true)}
++            onMouseOut={() => setHover(false)}
++            onMouseUp={() => {
++              if (renderer.getSelection()?.getSelectedText()) return
++              props.onClick?.()
++            }}
++            backgroundColor={hover() ? theme.backgroundElement : undefined}
++          >
++            <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
++              <Show fallback={<>~ {props.pending}</>} when={props.complete}>
++                <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
++              </Show>
++            </text>
++          </box>
+         </Match>
+       </Switch>
+       <Show when={error() && !denied()}>
+@@ -1941,10 +1954,7 @@ function WebSearch(props: ToolProps<any>) {
+ }
+ 
+ function Task(props: ToolProps<typeof TaskTool>) {
+-  const { theme } = useTheme()
+-  const keybind = useKeybind()
+   const { navigate } = useRoute()
+-  const local = useLocal()
+   const sync = useSync()
+ 
+   onMount(() => {
+@@ -1997,6 +2007,9 @@ function Task(props: ToolProps<typeof TaskTool>) {
+       complete={props.input.description}
+       pending="Delegating..."
+       part={props.part}
 +      onClick={
 +        props.metadata.sessionId ? () => navigate({ type: "session", sessionID: props.metadata.sessionId! }) : undefined
 +      }
-       part={props.part}
-+      spinner={isRunning()}
      >
--      {props.input.description}
--      <Show when={isRunning() && tools().length > 0}>
--        {" "}
--        · {tools().length} toolcalls
--        <Show fallback={"\n└ Running..."} when={current()}>
--          {(item) => {
--            const title = createMemo(() => (item().state as any).title)
--            return (
--              <>
--                {"\n"}└ {Locale.titlecase(item().tool)} {title()}
--              </>
--            )
--          }}
-+      <box>
-+        <Show when={isRunning() && tools().length > 0}>
-+          <text style={{ fg: theme.textMuted }}>
-+            {tools().length} toolcalls
-+            <Show fallback={"\n└ Running..."} when={current()}>
-+              {(item) => {
-+                const title = createMemo(() => (item().state as any).title)
-+                return (
-+                  <>
-+                    {"\n"}└ {Locale.titlecase(item().tool)} {title()}
-+                  </>
-+                )
-+              }}
-+            </Show>
-+          </text>
-         </Show>
-+        <Show when={duration() && props.part.state.status === "completed"}>
-+          <text style={{ fg: theme.textMuted }}>
-+            {tools().length} toolcalls · {Locale.duration(duration())}
-+          </text>
-+        </Show>
-+      </box>
-+      <Show when={props.metadata.sessionId}>
-+        <text style={{ fg: theme.textMuted }}>{keybind.print("session_child_first")} view subagents</text>
-       </Show>
--      <Show when={duration() && props.part.state.status === "completed"}>
--        {"\n  "}
--        {tools().length} toolcalls · {Locale.duration(duration())}
--      </Show>
--    </InlineTool>
-+    </BlockTool>
-   )
- }
- 
+       {content()}
+     </InlineTool>

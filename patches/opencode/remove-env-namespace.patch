@@ -18,7 +18,7 @@ index 99a9a81ab9c..a6dca88d53d 100644
        const opts = await resolveNetworkOptions(args)
        const server = Server.listen(opts)
 diff --git a/packages/opencode/src/cli/cmd/auth.ts b/packages/opencode/src/cli/cmd/auth.ts
-index 95635916413..8648a9129db 100644
+index 4afe7a8224a..86bc56bf10a 100644
 --- a/packages/opencode/src/cli/cmd/auth.ts
 +++ b/packages/opencode/src/cli/cmd/auth.ts
 @@ -1,4 +1,5 @@
