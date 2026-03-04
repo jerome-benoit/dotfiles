@@ -61,7 +61,7 @@ index e892f9922d1..18620575c41 100644
          const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
          return { Authorization: auth }
 diff --git a/packages/opencode/src/cli/cmd/tui/thread.ts b/packages/opencode/src/cli/cmd/tui/thread.ts
-index 750347d9d63..a51ace1539c 100644
+index f53cc392552..594a46e1463 100644
 --- a/packages/opencode/src/cli/cmd/tui/thread.ts
 +++ b/packages/opencode/src/cli/cmd/tui/thread.ts
 @@ -11,6 +11,7 @@ import { withNetworkOptions, resolveNetworkOptions } from "@/cli/network"
@@ -72,15 +72,15 @@ index 750347d9d63..a51ace1539c 100644
  import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
  import { TuiConfig } from "@/config/tui"
  import { Instance } from "@/project/instance"
-@@ -97,7 +98,7 @@ export const TuiThreadCommand = cmd({
+@@ -111,7 +112,7 @@ export const TuiThreadCommand = cmd({
        }
  
        // Resolve relative paths against PWD to preserve behavior when using --cwd flag
--      const baseCwd = process.env.PWD ?? process.cwd()
-+      const baseCwd = process.env["PWD"] ?? process.cwd()
-       const cwd = args.project ? path.resolve(baseCwd, args.project) : process.cwd()
-       const localWorker = new URL("./worker.ts", import.meta.url)
-       const distWorker = new URL("./cli/cmd/tui/worker.js", import.meta.url)
+-      const root = process.env.PWD ?? process.cwd()
++      const root = process.env["PWD"] ?? process.cwd()
+       const cwd = args.project ? path.resolve(root, args.project) : process.cwd()
+       const file = await target()
+       try {
 diff --git a/packages/opencode/src/cli/cmd/uninstall.ts b/packages/opencode/src/cli/cmd/uninstall.ts
 index 3d8e7e3f75e..56a1ea54d0a 100644
 --- a/packages/opencode/src/cli/cmd/uninstall.ts
