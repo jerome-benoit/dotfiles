@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-index e2747ad3b7a..9b9a13c5d81 100644
+index e2747ad3b7a..cffd519fabd 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 @@ -1312,6 +1312,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
@@ -11,14 +11,16 @@ index e2747ad3b7a..9b9a13c5d81 100644
    const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
  
    const final = createMemo(() => {
-@@ -1347,10 +1349,17 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1346,11 +1348,18 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+         }}
        </For>
        <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
-         <box paddingTop={1} paddingLeft={3}>
+-        <box paddingTop={1} paddingLeft={3}>
 -          <text fg={theme.text}>
 -            {keybind.print("session_child_first")}
 -            <span style={{ fg: theme.textMuted }}> view subagents</span>
 -          </text>
++        <box paddingTop={1} paddingLeft={3} flexDirection="row">
 +          <box
 +            onMouseOver={() => setHover(true)}
 +            onMouseOut={() => setHover(false)}
