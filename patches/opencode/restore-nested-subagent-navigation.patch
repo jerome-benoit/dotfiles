@@ -1,0 +1,113 @@
+diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
+index e2747ad3b7a..1f0e1f436f4 100644
+--- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
++++ b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
+@@ -128,6 +128,11 @@ export function Session() {
+       .filter((x) => x.parentID === parentID || x.id === parentID)
+       .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+   })
++  const subagents = createMemo(() => {
++    return sync.data.session
++      .filter((x) => x.parentID === route.sessionID)
++      .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
++  })
+   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+   const permissions = createMemo(() => {
+     if (session()?.parentID) return []
+@@ -316,20 +321,14 @@ export function Session() {
+   const local = useLocal()
+ 
+   function moveFirstChild() {
+-    if (children().length === 1) return
+-    const next = children().find((x) => !!x.parentID)
+-    if (next) {
+-      navigate({
+-        type: "session",
+-        sessionID: next.id,
+-      })
+-    }
++    const next = subagents()[0]
++    if (!next) return
++    navigate({ type: "session", sessionID: next.id })
+   }
+ 
+   function moveChild(direction: number) {
+-    if (children().length === 1) return
+-
+     const sessions = children().filter((x) => !!x.parentID)
++    if (sessions.length === 0) return
+     let next = sessions.findIndex((x) => x.id === session()?.id) + direction
+ 
+     if (next >= sessions.length) next = 0
+@@ -1124,7 +1123,7 @@ export function Session() {
+                       <UserMessage
+                         index={index()}
+                         onMouseUp={() => {
+-                          if (renderer.getSelection()?.getSelectedText()) return
++                          if (renderer.hasSelection) return
+                           dialog.replace(() => (
+                             <DialogMessage
+                               messageID={message.id}
+@@ -1623,6 +1622,7 @@ function InlineTool(props: {
+   complete: any
+   pending: string
+   spinner?: boolean
++  onClick?: () => void
+   children: JSX.Element
+   part: ToolPart
+ }) {
+@@ -1630,6 +1630,7 @@ function InlineTool(props: {
+   const { theme } = useTheme()
+   const ctx = use()
+   const sync = useSync()
++  const renderer = useRenderer()
+ 
+   const permission = createMemo(() => {
+     const callID = sync.data.permission[ctx.sessionID]?.at(0)?.tool?.callID
+@@ -1678,6 +1679,10 @@ function InlineTool(props: {
+           return
+         }
+       }}
++      onMouseUp={() => {
++        if (renderer.hasSelection) return
++        props.onClick?.()
++      }}
+     >
+       <Switch>
+         <Match when={props.spinner}>
+@@ -1723,7 +1728,7 @@ function BlockTool(props: {
+       onMouseOver={() => props.onClick && setHover(true)}
+       onMouseOut={() => setHover(false)}
+       onMouseUp={() => {
+-        if (renderer.getSelection()?.getSelectedText()) return
++        if (renderer.hasSelection) return
+         props.onClick?.()
+       }}
+     >
+@@ -1941,10 +1946,7 @@ function WebSearch(props: ToolProps<any>) {
+ }
+ 
+ function Task(props: ToolProps<typeof TaskTool>) {
+-  const { theme } = useTheme()
+-  const keybind = useKeybind()
+   const { navigate } = useRoute()
+-  const local = useLocal()
+   const sync = useSync()
+ 
+   onMount(() => {
+@@ -1997,6 +1999,15 @@ function Task(props: ToolProps<typeof TaskTool>) {
+       complete={props.input.description}
+       pending="Delegating..."
+       part={props.part}
++      onClick={
++        props.metadata.sessionId
++          ? () => {
++              const id = props.metadata.sessionId
++              if (!id) return
++              navigate({ type: "session", sessionID: id })
++            }
++          : undefined
++      }
+     >
+       {content()}
+     </InlineTool>
