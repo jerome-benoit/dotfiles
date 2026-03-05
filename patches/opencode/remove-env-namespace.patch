@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/acp.ts b/packages/opencode/src/cli/cmd/acp.ts
-index 99a9a81ab9c..a6dca88d53d 100644
+index 99a9a81ab9c..48214236bd0 100644
 --- a/packages/opencode/src/cli/cmd/acp.ts
 +++ b/packages/opencode/src/cli/cmd/acp.ts
 @@ -1,4 +1,5 @@
@@ -8,15 +8,6 @@ index 99a9a81ab9c..a6dca88d53d 100644
  import { bootstrap } from "../bootstrap"
  import { cmd } from "./cmd"
  import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk"
-@@ -20,7 +21,7 @@ export const AcpCommand = cmd({
-     })
-   },
-   handler: async (args) => {
--    process.env.OPENCODE_CLIENT = "acp"
-+    process.env["OPENCODE_CLIENT"] = "acp"
-     await bootstrap(process.cwd(), async () => {
-       const opts = await resolveNetworkOptions(args)
-       const server = Server.listen(opts)
 diff --git a/packages/opencode/src/cli/cmd/auth.ts b/packages/opencode/src/cli/cmd/auth.ts
 index a7300e02930..fad4b66d51a 100644
 --- a/packages/opencode/src/cli/cmd/auth.ts
@@ -28,7 +19,7 @@ index a7300e02930..fad4b66d51a 100644
  import * as prompts from "@clack/prompts"
  import { UI } from "../ui"
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index 672e73d49a9..c4bb4248a7e 100644
+index 672e73d49a9..c24abbac63c 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -17,6 +17,7 @@ import type {
@@ -39,8 +30,87 @@ index 672e73d49a9..c4bb4248a7e 100644
  import { cmd } from "./cmd"
  import { ModelsDev } from "../../provider/models"
  import { Instance } from "@/project/instance"
+@@ -450,7 +451,7 @@ export const GithubRunCommand = cmd({
+       const isWorkflowDispatchEvent = context.eventName === "workflow_dispatch"
+ 
+       const { providerID, modelID } = normalizeModel()
+-      const variant = process.env["VARIANT"] || undefined
++      const variant = process.env.VARIANT || undefined
+       const runId = normalizeRunId()
+       const share = normalizeShare()
+       const oidcBaseUrl = normalizeOidcBaseUrl()
+@@ -495,7 +496,7 @@ export const GithubRunCommand = cmd({
+ 
+       try {
+         if (useGithubToken) {
+-          const githubToken = process.env["GITHUB_TOKEN"]
++          const githubToken = process.env.GITHUB_TOKEN
+           if (!githubToken) {
+             throw new Error(
+               "GITHUB_TOKEN environment variable is not set. When using use_github_token, you must provide GITHUB_TOKEN.",
+@@ -678,7 +679,7 @@ export const GithubRunCommand = cmd({
+       process.exit(exitCode)
+ 
+       function normalizeModel() {
+-        const value = process.env["MODEL"]
++        const value = process.env.MODEL
+         if (!value) throw new Error(`Environment variable "MODEL" is not set`)
+ 
+         const { providerID, modelID } = Provider.parseModel(value)
+@@ -689,13 +690,13 @@ export const GithubRunCommand = cmd({
+       }
+ 
+       function normalizeRunId() {
+-        const value = process.env["GITHUB_RUN_ID"]
++        const value = process.env.GITHUB_RUN_ID
+         if (!value) throw new Error(`Environment variable "GITHUB_RUN_ID" is not set`)
+         return value
+       }
+ 
+       function normalizeShare() {
+-        const value = process.env["SHARE"]
++        const value = process.env.SHARE
+         if (!value) return undefined
+         if (value === "true") return true
+         if (value === "false") return false
+@@ -703,7 +704,7 @@ export const GithubRunCommand = cmd({
+       }
+ 
+       function normalizeUseGithubToken() {
+-        const value = process.env["USE_GITHUB_TOKEN"]
++        const value = process.env.USE_GITHUB_TOKEN
+         if (!value) return false
+         if (value === "true") return true
+         if (value === "false") return false
+@@ -711,7 +712,7 @@ export const GithubRunCommand = cmd({
+       }
+ 
+       function normalizeOidcBaseUrl(): string {
+-        const value = process.env["OIDC_BASE_URL"]
++        const value = process.env.OIDC_BASE_URL
+         if (!value) return "https://api.opencode.ai"
+         return value.replace(/\/+$/, "")
+       }
+@@ -746,7 +747,7 @@ export const GithubRunCommand = cmd({
+       }
+ 
+       async function getUserPrompt() {
+-        const customPrompt = process.env["PROMPT"]
++        const customPrompt = process.env.PROMPT
+         // For repo events and issues events, PROMPT is required since there's no comment to extract from
+         if (isRepoEvent || isIssuesEvent) {
+           if (!customPrompt) {
+@@ -761,7 +762,7 @@ export const GithubRunCommand = cmd({
+         }
+ 
+         const reviewContext = getReviewCommentContext()
+-        const mentions = (process.env["MENTIONS"] || "/opencode,/oc")
++        const mentions = (process.env.MENTIONS || "/opencode,/oc")
+           .split(",")
+           .map((m) => m.trim().toLowerCase())
+           .filter(Boolean)
 diff --git a/packages/opencode/src/cli/cmd/tui/attach.ts b/packages/opencode/src/cli/cmd/tui/attach.ts
-index e892f9922d1..18620575c41 100644
+index e892f9922d1..0b7906235ab 100644
 --- a/packages/opencode/src/cli/cmd/tui/attach.ts
 +++ b/packages/opencode/src/cli/cmd/tui/attach.ts
 @@ -1,6 +1,7 @@
@@ -51,17 +121,23 @@ index e892f9922d1..18620575c41 100644
  import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
  import { TuiConfig } from "@/config/tui"
  import { Instance } from "@/project/instance"
-@@ -61,7 +62,7 @@ export const AttachCommand = cmd({
-         }
-       })()
-       const headers = (() => {
--        const password = args.password ?? process.env.OPENCODE_SERVER_PASSWORD
-+        const password = args.password ?? process.env["OPENCODE_SERVER_PASSWORD"]
-         if (!password) return undefined
-         const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
-         return { Authorization: auth }
+diff --git a/packages/opencode/src/cli/cmd/tui/context/route.tsx b/packages/opencode/src/cli/cmd/tui/context/route.tsx
+index 358461921b2..1c203bac6ea 100644
+--- a/packages/opencode/src/cli/cmd/tui/context/route.tsx
++++ b/packages/opencode/src/cli/cmd/tui/context/route.tsx
+@@ -19,8 +19,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
+   name: "Route",
+   init: () => {
+     const [store, setStore] = createStore<Route>(
+-      process.env["OPENCODE_ROUTE"]
+-        ? JSON.parse(process.env["OPENCODE_ROUTE"])
++      process.env.OPENCODE_ROUTE
++        ? JSON.parse(process.env.OPENCODE_ROUTE)
+         : {
+             type: "home",
+           },
 diff --git a/packages/opencode/src/cli/cmd/tui/thread.ts b/packages/opencode/src/cli/cmd/tui/thread.ts
-index f53cc392552..594a46e1463 100644
+index f53cc392552..49babb8b5ae 100644
 --- a/packages/opencode/src/cli/cmd/tui/thread.ts
 +++ b/packages/opencode/src/cli/cmd/tui/thread.ts
 @@ -11,6 +11,7 @@ import { withNetworkOptions, resolveNetworkOptions } from "@/cli/network"
@@ -72,17 +148,43 @@ index f53cc392552..594a46e1463 100644
  import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
  import { TuiConfig } from "@/config/tui"
  import { Instance } from "@/project/instance"
-@@ -111,7 +112,7 @@ export const TuiThreadCommand = cmd({
-       }
+diff --git a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
+index 1a8197bf4e8..14732c08a2c 100644
+--- a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
++++ b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
+@@ -16,7 +16,7 @@ function writeOsc52(text: string): void {
+   if (!process.stdout.isTTY) return
+   const base64 = Buffer.from(text).toString("base64")
+   const osc52 = `\x1b]52;c;${base64}\x07`
+-  const passthrough = process.env["TMUX"] || process.env["STY"]
++  const passthrough = process.env.TMUX || process.env.STY
+   const sequence = passthrough ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52
+   process.stdout.write(sequence)
+ }
+@@ -85,7 +85,7 @@ export namespace Clipboard {
+     }
  
-       // Resolve relative paths against PWD to preserve behavior when using --cwd flag
--      const root = process.env.PWD ?? process.cwd()
-+      const root = process.env["PWD"] ?? process.cwd()
-       const cwd = args.project ? path.resolve(root, args.project) : process.cwd()
-       const file = await target()
-       try {
+     if (os === "linux") {
+-      if (process.env["WAYLAND_DISPLAY"] && Bun.which("wl-copy")) {
++      if (process.env.WAYLAND_DISPLAY && Bun.which("wl-copy")) {
+         console.log("clipboard: using wl-copy")
+         return async (text: string) => {
+           const proc = Process.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
+diff --git a/packages/opencode/src/cli/cmd/tui/util/editor.ts b/packages/opencode/src/cli/cmd/tui/util/editor.ts
+index 6d32c63c001..43e1b50ae45 100644
+--- a/packages/opencode/src/cli/cmd/tui/util/editor.ts
++++ b/packages/opencode/src/cli/cmd/tui/util/editor.ts
+@@ -8,7 +8,7 @@ import { Process } from "@/util/process"
+ 
+ export namespace Editor {
+   export async function open(opts: { value: string; renderer: CliRenderer }): Promise<string | undefined> {
+-    const editor = process.env["VISUAL"] || process.env["EDITOR"]
++    const editor = process.env.VISUAL || process.env.EDITOR
+     if (!editor) return
+ 
+     const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/cli/cmd/uninstall.ts b/packages/opencode/src/cli/cmd/uninstall.ts
-index 3d8e7e3f75e..56a1ea54d0a 100644
+index 3d8e7e3f75e..c2ae8681c27 100644
 --- a/packages/opencode/src/cli/cmd/uninstall.ts
 +++ b/packages/opencode/src/cli/cmd/uninstall.ts
 @@ -3,6 +3,7 @@ import { UI } from "../ui"
@@ -93,18 +195,6 @@ index 3d8e7e3f75e..56a1ea54d0a 100644
  import { $ } from "bun"
  import fs from "fs/promises"
  import path from "path"
-@@ -236,9 +237,9 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
- }
- 
- async function getShellConfigFile(): Promise<string | null> {
--  const shell = path.basename(process.env.SHELL || "bash")
-+  const shell = path.basename(process.env["SHELL"] || "bash")
-   const home = os.homedir()
--  const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, ".config")
-+  const xdgConfig = process.env["XDG_CONFIG_HOME"] || path.join(home, ".config")
- 
-   const configFiles: Record<string, string[]> = {
-     fish: [path.join(xdgConfig, "fish", "config.fish")],
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
 deleted file mode 100644
 index 003b59fc71c..00000000000
@@ -139,8 +229,93 @@ index 003b59fc71c..00000000000
 -    delete env[key]
 -  }
 -}
+diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
+index 22eba6320e9..30ba1d5063f 100644
+--- a/packages/opencode/src/flag/flag.ts
++++ b/packages/opencode/src/flag/flag.ts
+@@ -10,15 +10,15 @@ function falsy(key: string) {
+ 
+ export namespace Flag {
+   export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
+-  export const OPENCODE_GIT_BASH_PATH = process.env["OPENCODE_GIT_BASH_PATH"]
+-  export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
++  export const OPENCODE_GIT_BASH_PATH = process.env.OPENCODE_GIT_BASH_PATH
++  export const OPENCODE_CONFIG = process.env.OPENCODE_CONFIG
+   export declare const OPENCODE_TUI_CONFIG: string | undefined
+   export declare const OPENCODE_CONFIG_DIR: string | undefined
+-  export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
++  export const OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT
+   export const OPENCODE_DISABLE_AUTOUPDATE = truthy("OPENCODE_DISABLE_AUTOUPDATE")
+   export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
+   export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
+-  export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]
++  export const OPENCODE_PERMISSION = process.env.OPENCODE_PERMISSION
+   export const OPENCODE_DISABLE_DEFAULT_PLUGINS = truthy("OPENCODE_DISABLE_DEFAULT_PLUGINS")
+   export const OPENCODE_DISABLE_LSP_DOWNLOAD = truthy("OPENCODE_DISABLE_LSP_DOWNLOAD")
+   export const OPENCODE_ENABLE_EXPERIMENTAL_MODELS = truthy("OPENCODE_ENABLE_EXPERIMENTAL_MODELS")
+@@ -32,10 +32,10 @@ export namespace Flag {
+   export const OPENCODE_DISABLE_EXTERNAL_SKILLS =
+     OPENCODE_DISABLE_CLAUDE_CODE_SKILLS || truthy("OPENCODE_DISABLE_EXTERNAL_SKILLS")
+   export declare const OPENCODE_DISABLE_PROJECT_CONFIG: boolean
+-  export const OPENCODE_FAKE_VCS = process.env["OPENCODE_FAKE_VCS"]
++  export const OPENCODE_FAKE_VCS = process.env.OPENCODE_FAKE_VCS
+   export declare const OPENCODE_CLIENT: string
+-  export const OPENCODE_SERVER_PASSWORD = process.env["OPENCODE_SERVER_PASSWORD"]
+-  export const OPENCODE_SERVER_USERNAME = process.env["OPENCODE_SERVER_USERNAME"]
++  export const OPENCODE_SERVER_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD
++  export const OPENCODE_SERVER_USERNAME = process.env.OPENCODE_SERVER_USERNAME
+   export const OPENCODE_ENABLE_QUESTION_TOOL = truthy("OPENCODE_ENABLE_QUESTION_TOOL")
+ 
+   // Experimental
+@@ -45,7 +45,7 @@ export namespace Flag {
+   export const OPENCODE_EXPERIMENTAL_ICON_DISCOVERY =
+     OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY")
+ 
+-  const copy = process.env["OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"]
++  const copy = process.env.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT
+   export const OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
+     copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
+   export const OPENCODE_ENABLE_EXA =
+@@ -58,8 +58,8 @@ export namespace Flag {
+   export const OPENCODE_DISABLE_FILETIME_CHECK = truthy("OPENCODE_DISABLE_FILETIME_CHECK")
+   export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
+   export const OPENCODE_EXPERIMENTAL_MARKDOWN = !falsy("OPENCODE_EXPERIMENTAL_MARKDOWN")
+-  export const OPENCODE_MODELS_URL = process.env["OPENCODE_MODELS_URL"]
+-  export const OPENCODE_MODELS_PATH = process.env["OPENCODE_MODELS_PATH"]
++  export const OPENCODE_MODELS_URL = process.env.OPENCODE_MODELS_URL
++  export const OPENCODE_MODELS_PATH = process.env.OPENCODE_MODELS_PATH
+ 
+   function number(key: string) {
+     const value = process.env[key]
+@@ -85,7 +85,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+ // because tests and external tooling may set this env var at runtime
+ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+   get() {
+-    return process.env["OPENCODE_TUI_CONFIG"]
++    return process.env.OPENCODE_TUI_CONFIG
+   },
+   enumerable: true,
+   configurable: false,
+@@ -96,7 +96,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+ // because external tooling may set this env var at runtime
+ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+   get() {
+-    return process.env["OPENCODE_CONFIG_DIR"]
++    return process.env.OPENCODE_CONFIG_DIR
+   },
+   enumerable: true,
+   configurable: false,
+@@ -107,7 +107,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+ // because some commands override the client at runtime
+ Object.defineProperty(Flag, "OPENCODE_CLIENT", {
+   get() {
+-    return process.env["OPENCODE_CLIENT"] ?? "cli"
++    return process.env.OPENCODE_CLIENT ?? "cli"
+   },
+   enumerable: true,
+   configurable: false,
 diff --git a/packages/opencode/src/ide/index.ts b/packages/opencode/src/ide/index.ts
-index 0837b2aa5ff..f602200be26 100644
+index 0837b2aa5ff..71b32a321a1 100644
 --- a/packages/opencode/src/ide/index.ts
 +++ b/packages/opencode/src/ide/index.ts
 @@ -4,7 +4,6 @@ import { spawn } from "bun"
@@ -151,8 +326,28 @@ index 0837b2aa5ff..f602200be26 100644
  const SUPPORTED_IDES = [
    { name: "Windsurf" as const, cmd: "windsurf" },
    { name: "Visual Studio Code - Insiders" as const, cmd: "code-insiders" },
+@@ -35,8 +34,8 @@ export namespace Ide {
+   )
+ 
+   export function ide() {
+-    if (process.env["TERM_PROGRAM"] === "vscode") {
+-      const v = process.env["GIT_ASKPASS"]
++    if (process.env.TERM_PROGRAM === "vscode") {
++      const v = process.env.GIT_ASKPASS
+       for (const ide of SUPPORTED_IDES) {
+         if (v?.includes(ide.name)) return ide.name
+       }
+@@ -45,7 +44,7 @@ export namespace Ide {
+   }
+ 
+   export function alreadyInstalled() {
+-    return process.env["OPENCODE_CALLER"] === "vscode" || process.env["OPENCODE_CALLER"] === "vscode-insiders"
++    return process.env.OPENCODE_CALLER === "vscode" || process.env.OPENCODE_CALLER === "vscode-insiders"
+   }
+ 
+   export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {
 diff --git a/packages/opencode/src/index.ts b/packages/opencode/src/index.ts
-index 4fd5f0e67b3..58e1413c101 100644
+index 4fd5f0e67b3..5a3c8264ca8 100644
 --- a/packages/opencode/src/index.ts
 +++ b/packages/opencode/src/index.ts
 @@ -21,6 +21,7 @@ import { McpCommand } from "./cli/cmd/mcp"
@@ -163,21 +358,111 @@ index 4fd5f0e67b3..58e1413c101 100644
  import { AttachCommand } from "./cli/cmd/tui/attach"
  import { TuiThreadCommand } from "./cli/cmd/tui/thread"
  import { AcpCommand } from "./cli/cmd/acp"
-@@ -79,9 +80,9 @@ let cli = yargs(hideBin(process.argv))
-       })(),
-     })
+diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
+index afd297a5ed6..5c1f60fc638 100644
+--- a/packages/opencode/src/lsp/server.ts
++++ b/packages/opencode/src/lsp/server.ts
+@@ -369,7 +369,7 @@ export namespace LSPServer {
+     extensions: [".go"],
+     async spawn(root) {
+       let bin = Bun.which("gopls", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+       if (!bin) {
+         if (!Bun.which("go")) return
+@@ -406,7 +406,7 @@ export namespace LSPServer {
+     extensions: [".rb", ".rake", ".gemspec", ".ru"],
+     async spawn(root) {
+       let bin = Bun.which("rubocop", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+       if (!bin) {
+         const ruby = Bun.which("ruby")
+@@ -461,7 +461,7 @@ export namespace LSPServer {
  
--    process.env.AGENT = "1"
--    process.env.OPENCODE = "1"
--    process.env.OPENCODE_PID = String(process.pid)
-+    process.env["AGENT"] = "1"
-+    process.env["OPENCODE"] = "1"
-+    process.env["OPENCODE_PID"] = String(process.pid)
+       const initialization: Record<string, string> = {}
  
-     Log.Default.info("opencode", {
-       version: Installation.VERSION,
+-      const potentialVenvPaths = [process.env["VIRTUAL_ENV"], path.join(root, ".venv"), path.join(root, "venv")].filter(
++      const potentialVenvPaths = [process.env.VIRTUAL_ENV, path.join(root, ".venv"), path.join(root, "venv")].filter(
+         (p): p is string => p !== undefined,
+       )
+       for (const venvPath of potentialVenvPaths) {
+@@ -530,7 +530,7 @@ export namespace LSPServer {
+ 
+       const initialization: Record<string, string> = {}
+ 
+-      const potentialVenvPaths = [process.env["VIRTUAL_ENV"], path.join(root, ".venv"), path.join(root, "venv")].filter(
++      const potentialVenvPaths = [process.env.VIRTUAL_ENV, path.join(root, ".venv"), path.join(root, "venv")].filter(
+         (p): p is string => p !== undefined,
+       )
+       for (const venvPath of potentialVenvPaths) {
+@@ -626,7 +626,7 @@ export namespace LSPServer {
+     root: NearestRoot(["build.zig"]),
+     async spawn(root) {
+       let bin = Bun.which("zls", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+ 
+       if (!bin) {
+@@ -738,7 +738,7 @@ export namespace LSPServer {
+     extensions: [".cs"],
+     async spawn(root) {
+       let bin = Bun.which("csharp-ls", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+       if (!bin) {
+         if (!Bun.which("dotnet")) {
+@@ -777,7 +777,7 @@ export namespace LSPServer {
+     extensions: [".fs", ".fsi", ".fsx", ".fsscript"],
+     async spawn(root) {
+       let bin = Bun.which("fsautocomplete", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+       if (!bin) {
+         if (!Bun.which("dotnet")) {
+@@ -1381,7 +1381,7 @@ export namespace LSPServer {
+     extensions: [".lua"],
+     async spawn(root) {
+       let bin = Bun.which("lua-language-server", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+ 
+       if (!bin) {
+@@ -1649,7 +1649,7 @@ export namespace LSPServer {
+     root: NearestRoot([".terraform.lock.hcl", "terraform.tfstate", "*.tf"]),
+     async spawn(root) {
+       let bin = Bun.which("terraform-ls", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+ 
+       if (!bin) {
+@@ -1732,7 +1732,7 @@ export namespace LSPServer {
+     root: NearestRoot([".latexmkrc", "latexmkrc", ".texlabroot", "texlabroot"]),
+     async spawn(root) {
+       let bin = Bun.which("texlab", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+ 
+       if (!bin) {
+@@ -1931,7 +1931,7 @@ export namespace LSPServer {
+     root: NearestRoot(["typst.toml"]),
+     async spawn(root) {
+       let bin = Bun.which("tinymist", {
+-        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
++        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
+       })
+ 
+       if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 81703836524..76876daf845 100644
+index 81703836524..5d35d9ee8a5 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -10,7 +10,7 @@ import { Plugin } from "../plugin"
@@ -195,12 +480,12 @@ index 81703836524..76876daf845 100644
      const project =
 -      options["project"] ?? Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
 +      options["project"] ??
-+      process.env["GOOGLE_CLOUD_PROJECT"] ??
-+      process.env["GCP_PROJECT"] ??
-+      process.env["GCLOUD_PROJECT"]
++      process.env.GOOGLE_CLOUD_PROJECT ??
++      process.env.GCP_PROJECT ??
++      process.env.GCLOUD_PROJECT
      const location =
 -      options["location"] ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
-+      options["location"] ?? process.env["GOOGLE_CLOUD_LOCATION"] ?? process.env["VERTEX_LOCATION"] ?? "us-central1"
++      options["location"] ?? process.env.GOOGLE_CLOUD_LOCATION ?? process.env.VERTEX_LOCATION ?? "us-central1"
      const endpoint = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`
  
      return {
@@ -227,50 +512,41 @@ index 81703836524..76876daf845 100644
      },
      "azure-cognitive-services": async () => {
 -      const resourceName = Env.get("AZURE_COGNITIVE_SERVICES_RESOURCE_NAME")
-+      const resourceName = process.env["AZURE_COGNITIVE_SERVICES_RESOURCE_NAME"]
++      const resourceName = process.env.AZURE_COGNITIVE_SERVICES_RESOURCE_NAME
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -216,32 +219,30 @@ export namespace Provider {
+@@ -216,18 +219,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
 -      const envRegion = Env.get("AWS_REGION")
-+      const envRegion = process.env["AWS_REGION"]
++      const envRegion = process.env.AWS_REGION
        const defaultRegion = configRegion ?? envRegion ?? "us-east-1"
  
        // Profile: config file takes precedence over env var
        const configProfile = providerConfig?.options?.profile
 -      const envProfile = Env.get("AWS_PROFILE")
-+      const envProfile = process.env["AWS_PROFILE"]
++      const envProfile = process.env.AWS_PROFILE
        const profile = configProfile ?? envProfile
  
 -      const awsAccessKeyId = Env.get("AWS_ACCESS_KEY_ID")
-+      const awsAccessKeyId = process.env["AWS_ACCESS_KEY_ID"]
++      const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID
  
 -      // TODO: Using process.env directly because Env.set only updates a process.env shallow copy,
 -      // until the scope of the Env API is clarified (test only or runtime?)
        const awsBearerToken = iife(() => {
--        const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
-+        const envToken = process.env["AWS_BEARER_TOKEN_BEDROCK"]
+         const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-         if (auth?.type === "api") {
--          process.env.AWS_BEARER_TOKEN_BEDROCK = auth.key
-+          process.env["AWS_BEARER_TOKEN_BEDROCK"] = auth.key
-           return auth.key
-         }
+@@ -238,7 +239,7 @@ export namespace Provider {
          return undefined
        })
  
 -      const awsWebIdentityTokenFile = Env.get("AWS_WEB_IDENTITY_TOKEN_FILE")
-+      const awsWebIdentityTokenFile = process.env["AWS_WEB_IDENTITY_TOKEN_FILE"]
++      const awsWebIdentityTokenFile = process.env.AWS_WEB_IDENTITY_TOKEN_FILE
  
        const containerCreds = Boolean(
--        process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-+        process.env["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"] || process.env["AWS_CONTAINER_CREDENTIALS_FULL_URI"],
-       )
- 
-       if (!profile && !awsAccessKeyId && !awsBearerToken && !awsWebIdentityTokenFile && !containerCreds)
+         process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
 @@ -381,12 +382,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
@@ -278,15 +554,15 @@ index 81703836524..76876daf845 100644
 -        Env.get("GOOGLE_CLOUD_PROJECT") ??
 -        Env.get("GCP_PROJECT") ??
 -        Env.get("GCLOUD_PROJECT")
-+        process.env["GOOGLE_CLOUD_PROJECT"] ??
-+        process.env["GCP_PROJECT"] ??
-+        process.env["GCLOUD_PROJECT"]
++        process.env.GOOGLE_CLOUD_PROJECT ??
++        process.env.GCP_PROJECT ??
++        process.env.GCLOUD_PROJECT
  
        const location =
 -        provider.options?.location ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
 +        provider.options?.location ??
-+        process.env["GOOGLE_CLOUD_LOCATION"] ??
-+        process.env["VERTEX_LOCATION"] ??
++        process.env.GOOGLE_CLOUD_LOCATION ??
++        process.env.VERTEX_LOCATION ??
 +        "us-central1"
  
        const autoload = Boolean(project)
@@ -297,48 +573,33 @@ index 81703836524..76876daf845 100644
      "google-vertex-anthropic": async () => {
 -      const project = Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
 -      const location = Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "global"
-+      const project = process.env["GOOGLE_CLOUD_PROJECT"] ?? process.env["GCP_PROJECT"] ?? process.env["GCLOUD_PROJECT"]
-+      const location = process.env["GOOGLE_CLOUD_LOCATION"] ?? process.env["VERTEX_LOCATION"] ?? "global"
++      const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCP_PROJECT ?? process.env.GCLOUD_PROJECT
++      const location = process.env.GOOGLE_CLOUD_LOCATION ?? process.env.VERTEX_LOCATION ?? "global"
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -431,19 +435,17 @@ export namespace Provider {
+@@ -431,8 +435,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
 -      // TODO: Using process.env directly because Env.set only updates a shallow copy (not process.env),
 -      // until the scope of the Env API is clarified (test only or runtime?)
        const envServiceKey = iife(() => {
--        const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
-+        const envAICoreServiceKey = process.env["AICORE_SERVICE_KEY"]
+         const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-         if (auth?.type === "api") {
--          process.env.AICORE_SERVICE_KEY = auth.key
-+          process.env["AICORE_SERVICE_KEY"] = auth.key
-           return auth.key
-         }
-         return undefined
-       })
--      const deploymentId = process.env.AICORE_DEPLOYMENT_ID
--      const resourceGroup = process.env.AICORE_RESOURCE_GROUP
-+      const deploymentId = process.env["AICORE_DEPLOYMENT_ID"]
-+      const resourceGroup = process.env["AICORE_RESOURCE_GROUP"]
- 
-       return {
-         autoload: !!envServiceKey,
 @@ -465,13 +467,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
 -      const instanceUrl = Env.get("GITLAB_INSTANCE_URL") || "https://gitlab.com"
-+      const instanceUrl = process.env["GITLAB_INSTANCE_URL"] || "https://gitlab.com"
++      const instanceUrl = process.env.GITLAB_INSTANCE_URL || "https://gitlab.com"
  
        const auth = await Auth.get(input.id)
        const apiKey = await (async () => {
          if (auth?.type === "oauth") return auth.access
          if (auth?.type === "api") return auth.key
 -        return Env.get("GITLAB_TOKEN")
-+        return process.env["GITLAB_TOKEN"]
++        return process.env.GITLAB_TOKEN
        })()
  
        const config = await Config.get()
@@ -347,12 +608,12 @@ index 81703836524..76876daf845 100644
      },
      "cloudflare-workers-ai": async (input) => {
 -      const accountId = Env.get("CLOUDFLARE_ACCOUNT_ID")
-+      const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"]
++      const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
        if (!accountId) return { autoload: false }
  
        const apiKey = await iife(async () => {
 -        const envToken = Env.get("CLOUDFLARE_API_KEY")
-+        const envToken = process.env["CLOUDFLARE_API_KEY"]
++        const envToken = process.env.CLOUDFLARE_API_KEY
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
@@ -362,15 +623,15 @@ index 81703836524..76876daf845 100644
      "cloudflare-ai-gateway": async (input) => {
 -      const accountId = Env.get("CLOUDFLARE_ACCOUNT_ID")
 -      const gateway = Env.get("CLOUDFLARE_GATEWAY_ID")
-+      const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"]
-+      const gateway = process.env["CLOUDFLARE_GATEWAY_ID"]
++      const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
++      const gateway = process.env.CLOUDFLARE_GATEWAY_ID
  
        if (!accountId || !gateway) return { autoload: false }
  
        // Get API token from env or auth - required for authenticated gateways
        const apiToken = await (async () => {
 -        const envToken = Env.get("CLOUDFLARE_API_TOKEN") || Env.get("CF_AIG_TOKEN")
-+        const envToken = process.env["CLOUDFLARE_API_TOKEN"] || process.env["CF_AIG_TOKEN"]
++        const envToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_AIG_TOKEN
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
@@ -383,8 +644,21 @@ index 81703836524..76876daf845 100644
      for (const [providerID, provider] of Object.entries(database)) {
        if (disabled.has(providerID)) continue
        const apiKey = provider.env.map((item) => env[item]).find(Boolean)
+diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
+index c36616b7ef9..365d161dfb7 100644
+--- a/packages/opencode/src/share/share-next.ts
++++ b/packages/opencode/src/share/share-next.ts
+@@ -16,7 +16,7 @@ export namespace ShareNext {
+     return Config.get().then((x) => x.enterprise?.url ?? "https://opncd.ai")
+   }
+ 
+-  const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
++  const disabled = process.env.OPENCODE_DISABLE_SHARE === "true" || process.env.OPENCODE_DISABLE_SHARE === "1"
+ 
+   export async function init() {
+     if (disabled) return
 diff --git a/packages/opencode/src/shell/shell.ts b/packages/opencode/src/shell/shell.ts
-index e7b7cdb3e4d..7b9578fa923 100644
+index e7b7cdb3e4d..e8a4977fc52 100644
 --- a/packages/opencode/src/shell/shell.ts
 +++ b/packages/opencode/src/shell/shell.ts
 @@ -1,4 +1,5 @@
@@ -393,47 +667,361 @@ index e7b7cdb3e4d..7b9578fa923 100644
  import { lazy } from "@/util/lazy"
  import { Filesystem } from "@/util/filesystem"
  import path from "path"
-@@ -46,7 +47,7 @@ export namespace Shell {
-         const bash = path.join(git, "..", "..", "bin", "bash.exe")
-         if (Filesystem.stat(bash)?.size) return bash
-       }
--      return process.env.COMSPEC || "cmd.exe"
-+      return process.env["COMSPEC"] || "cmd.exe"
-     }
-     if (process.platform === "darwin") return "/bin/zsh"
-     const bash = Bun.which("bash")
-@@ -55,13 +56,13 @@ export namespace Shell {
-   }
- 
-   export const preferred = lazy(() => {
--    const s = process.env.SHELL
-+    const s = process.env["SHELL"]
-     if (s) return s
-     return fallback()
-   })
- 
-   export const acceptable = lazy(() => {
--    const s = process.env.SHELL
-+    const s = process.env["SHELL"]
-     if (s && !BLACKLIST.has(process.platform === "win32" ? path.win32.basename(s) : path.basename(s))) return s
-     return fallback()
-   })
 diff --git a/packages/opencode/src/util/proxied.ts b/packages/opencode/src/util/proxied.ts
-index 440a9cccedb..c8ffdd170d1 100644
+index 440a9cccedb..29214615e6a 100644
 --- a/packages/opencode/src/util/proxied.ts
 +++ b/packages/opencode/src/util/proxied.ts
 @@ -1,3 +1,8 @@
  export function proxied() {
 -  return !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy)
 +  return !!(
-+    process.env["HTTP_PROXY"] ||
-+    process.env["HTTPS_PROXY"] ||
-+    process.env["http_proxy"] ||
-+    process.env["https_proxy"]
++    process.env.HTTP_PROXY ||
++    process.env.HTTPS_PROXY ||
++    process.env.http_proxy ||
++    process.env.https_proxy
 +  )
  }
+diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
+index 40ab97449fb..a646f6f9eb6 100644
+--- a/packages/opencode/test/config/config.test.ts
++++ b/packages/opencode/test/config/config.test.ts
+@@ -131,8 +131,8 @@ test("merges multiple config files with correct precedence", async () => {
+ })
+ 
+ test("handles environment variable substitution", async () => {
+-  const originalEnv = process.env["TEST_VAR"]
+-  process.env["TEST_VAR"] = "test-user"
++  const originalEnv = process.env.TEST_VAR
++  process.env.TEST_VAR = "test-user"
+ 
+   try {
+     await using tmp = await tmpdir({
+@@ -152,16 +152,16 @@ test("handles environment variable substitution", async () => {
+     })
+   } finally {
+     if (originalEnv !== undefined) {
+-      process.env["TEST_VAR"] = originalEnv
++      process.env.TEST_VAR = originalEnv
+     } else {
+-      delete process.env["TEST_VAR"]
++      delete process.env.TEST_VAR
+     }
+   }
+ })
+ 
+ test("preserves env variables when adding $schema to config", async () => {
+-  const originalEnv = process.env["PRESERVE_VAR"]
+-  process.env["PRESERVE_VAR"] = "secret_value"
++  const originalEnv = process.env.PRESERVE_VAR
++  process.env.PRESERVE_VAR = "secret_value"
+ 
+   try {
+     await using tmp = await tmpdir({
+@@ -190,9 +190,9 @@ test("preserves env variables when adding $schema to config", async () => {
+     })
+   } finally {
+     if (originalEnv !== undefined) {
+-      process.env["PRESERVE_VAR"] = originalEnv
++      process.env.PRESERVE_VAR = originalEnv
+     } else {
+-      delete process.env["PRESERVE_VAR"]
++      delete process.env.PRESERVE_VAR
+     }
+   }
+ })
+@@ -1690,8 +1690,8 @@ describe("deduplicatePlugins", () => {
+ 
+ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+   test("skips project config files when flag is set", async () => {
+-    const originalEnv = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
+-    process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
++    const originalEnv = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
++    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "true"
+ 
+     try {
+       await using tmp = await tmpdir({
+@@ -1718,16 +1718,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+       })
+     } finally {
+       if (originalEnv === undefined) {
+-        delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
++        delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+       } else {
+-        process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = originalEnv
++        process.env.OPENCODE_DISABLE_PROJECT_CONFIG = originalEnv
+       }
+     }
+   })
+ 
+   test("skips project .opencode/ directories when flag is set", async () => {
+-    const originalEnv = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
+-    process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
++    const originalEnv = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
++    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "true"
+ 
+     try {
+       await using tmp = await tmpdir({
+@@ -1749,16 +1749,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+       })
+     } finally {
+       if (originalEnv === undefined) {
+-        delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
++        delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+       } else {
+-        process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = originalEnv
++        process.env.OPENCODE_DISABLE_PROJECT_CONFIG = originalEnv
+       }
+     }
+   })
+ 
+   test("still loads global config when flag is set", async () => {
+-    const originalEnv = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
+-    process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
++    const originalEnv = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
++    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "true"
+ 
+     try {
+       await using tmp = await tmpdir()
+@@ -1773,21 +1773,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+       })
+     } finally {
+       if (originalEnv === undefined) {
+-        delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
++        delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+       } else {
+-        process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = originalEnv
++        process.env.OPENCODE_DISABLE_PROJECT_CONFIG = originalEnv
+       }
+     }
+   })
+ 
+   test("skips relative instructions with warning when flag is set but no config dir", async () => {
+-    const originalDisable = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
+-    const originalConfigDir = process.env["OPENCODE_CONFIG_DIR"]
++    const originalDisable = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
++    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR
+ 
+     try {
+       // Ensure no config dir is set
+-      delete process.env["OPENCODE_CONFIG_DIR"]
+-      process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
++      delete process.env.OPENCODE_CONFIG_DIR
++      process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "true"
+ 
+       await using tmp = await tmpdir({
+         init: async (dir) => {
+@@ -1818,21 +1818,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+       })
+     } finally {
+       if (originalDisable === undefined) {
+-        delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
++        delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+       } else {
+-        process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = originalDisable
++        process.env.OPENCODE_DISABLE_PROJECT_CONFIG = originalDisable
+       }
+       if (originalConfigDir === undefined) {
+-        delete process.env["OPENCODE_CONFIG_DIR"]
++        delete process.env.OPENCODE_CONFIG_DIR
+       } else {
+-        process.env["OPENCODE_CONFIG_DIR"] = originalConfigDir
++        process.env.OPENCODE_CONFIG_DIR = originalConfigDir
+       }
+     }
+   })
+ 
+   test("OPENCODE_CONFIG_DIR still works when flag is set", async () => {
+-    const originalDisable = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
+-    const originalConfigDir = process.env["OPENCODE_CONFIG_DIR"]
++    const originalDisable = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
++    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR
+ 
+     try {
+       await using configDirTmp = await tmpdir({
+@@ -1861,8 +1861,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+         },
+       })
+ 
+-      process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
+-      process.env["OPENCODE_CONFIG_DIR"] = configDirTmp.path
++      process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "true"
++      process.env.OPENCODE_CONFIG_DIR = configDirTmp.path
+ 
+       await Instance.provide({
+         directory: projectTmp.path,
+@@ -1874,14 +1874,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+       })
+     } finally {
+       if (originalDisable === undefined) {
+-        delete process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
++        delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+       } else {
+-        process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = originalDisable
++        process.env.OPENCODE_DISABLE_PROJECT_CONFIG = originalDisable
+       }
+       if (originalConfigDir === undefined) {
+-        delete process.env["OPENCODE_CONFIG_DIR"]
++        delete process.env.OPENCODE_CONFIG_DIR
+       } else {
+-        process.env["OPENCODE_CONFIG_DIR"] = originalConfigDir
++        process.env.OPENCODE_CONFIG_DIR = originalConfigDir
+       }
+     }
+   })
+@@ -1889,10 +1889,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+ 
+ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+   test("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
+-    const originalEnv = process.env["OPENCODE_CONFIG_CONTENT"]
+-    const originalTestVar = process.env["TEST_CONFIG_VAR"]
+-    process.env["TEST_CONFIG_VAR"] = "test_api_key_12345"
+-    process.env["OPENCODE_CONFIG_CONTENT"] = JSON.stringify({
++    const originalEnv = process.env.OPENCODE_CONFIG_CONTENT
++    const originalTestVar = process.env.TEST_CONFIG_VAR
++    process.env.TEST_CONFIG_VAR = "test_api_key_12345"
++    process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+       $schema: "https://opencode.ai/config.json",
+       username: "{env:TEST_CONFIG_VAR}",
+     })
+@@ -1908,26 +1908,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+       })
+     } finally {
+       if (originalEnv !== undefined) {
+-        process.env["OPENCODE_CONFIG_CONTENT"] = originalEnv
++        process.env.OPENCODE_CONFIG_CONTENT = originalEnv
+       } else {
+-        delete process.env["OPENCODE_CONFIG_CONTENT"]
++        delete process.env.OPENCODE_CONFIG_CONTENT
+       }
+       if (originalTestVar !== undefined) {
+-        process.env["TEST_CONFIG_VAR"] = originalTestVar
++        process.env.TEST_CONFIG_VAR = originalTestVar
+       } else {
+-        delete process.env["TEST_CONFIG_VAR"]
++        delete process.env.TEST_CONFIG_VAR
+       }
+     }
+   })
+ 
+   test("substitutes {file:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
+-    const originalEnv = process.env["OPENCODE_CONFIG_CONTENT"]
++    const originalEnv = process.env.OPENCODE_CONFIG_CONTENT
+ 
+     try {
+       await using tmp = await tmpdir({
+         init: async (dir) => {
+           await Filesystem.write(path.join(dir, "api_key.txt"), "secret_key_from_file")
+-          process.env["OPENCODE_CONFIG_CONTENT"] = JSON.stringify({
++          process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+             $schema: "https://opencode.ai/config.json",
+             username: "{file:./api_key.txt}",
+           })
+@@ -1942,9 +1942,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+       })
+     } finally {
+       if (originalEnv !== undefined) {
+-        process.env["OPENCODE_CONFIG_CONTENT"] = originalEnv
++        process.env.OPENCODE_CONFIG_CONTENT = originalEnv
+       } else {
+-        delete process.env["OPENCODE_CONFIG_CONTENT"]
++        delete process.env.OPENCODE_CONFIG_CONTENT
+       }
+     }
+   })
+diff --git a/packages/opencode/test/ide/ide.test.ts b/packages/opencode/test/ide/ide.test.ts
+index e10700e80ff..c366bab0704 100644
+--- a/packages/opencode/test/ide/ide.test.ts
++++ b/packages/opencode/test/ide/ide.test.ts
+@@ -12,70 +12,70 @@ describe("ide", () => {
+   })
+ 
+   test("should detect Visual Studio Code", () => {
+-    process.env["TERM_PROGRAM"] = "vscode"
+-    process.env["GIT_ASKPASS"] = "/path/to/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
++    process.env.TERM_PROGRAM = "vscode"
++    process.env.GIT_ASKPASS = "/path/to/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("Visual Studio Code")
+   })
+ 
+   test("should detect Visual Studio Code Insiders", () => {
+-    process.env["TERM_PROGRAM"] = "vscode"
+-    process.env["GIT_ASKPASS"] =
++    process.env.TERM_PROGRAM = "vscode"
++    process.env.GIT_ASKPASS =
+       "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("Visual Studio Code - Insiders")
+   })
+ 
+   test("should detect Cursor", () => {
+-    process.env["TERM_PROGRAM"] = "vscode"
+-    process.env["GIT_ASKPASS"] = "/path/to/Cursor.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
++    process.env.TERM_PROGRAM = "vscode"
++    process.env.GIT_ASKPASS = "/path/to/Cursor.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("Cursor")
+   })
+ 
+   test("should detect VSCodium", () => {
+-    process.env["TERM_PROGRAM"] = "vscode"
+-    process.env["GIT_ASKPASS"] = "/path/to/VSCodium.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
++    process.env.TERM_PROGRAM = "vscode"
++    process.env.GIT_ASKPASS = "/path/to/VSCodium.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("VSCodium")
+   })
+ 
+   test("should detect Windsurf", () => {
+-    process.env["TERM_PROGRAM"] = "vscode"
+-    process.env["GIT_ASKPASS"] = "/path/to/Windsurf.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
++    process.env.TERM_PROGRAM = "vscode"
++    process.env.GIT_ASKPASS = "/path/to/Windsurf.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("Windsurf")
+   })
+ 
+   test("should return unknown when TERM_PROGRAM is not vscode", () => {
+-    process.env["TERM_PROGRAM"] = "iTerm2"
+-    process.env["GIT_ASKPASS"] =
++    process.env.TERM_PROGRAM = "iTerm2"
++    process.env.GIT_ASKPASS =
+       "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/extensions/git/dist/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("unknown")
+   })
+ 
+   test("should return unknown when GIT_ASKPASS does not contain IDE name", () => {
+-    process.env["TERM_PROGRAM"] = "vscode"
+-    process.env["GIT_ASKPASS"] = "/path/to/unknown/askpass.sh"
++    process.env.TERM_PROGRAM = "vscode"
++    process.env.GIT_ASKPASS = "/path/to/unknown/askpass.sh"
+ 
+     expect(Ide.ide()).toBe("unknown")
+   })
+ 
+   test("should recognize vscode-insiders OPENCODE_CALLER", () => {
+-    process.env["OPENCODE_CALLER"] = "vscode-insiders"
++    process.env.OPENCODE_CALLER = "vscode-insiders"
+ 
+     expect(Ide.alreadyInstalled()).toBe(true)
+   })
+ 
+   test("should recognize vscode OPENCODE_CALLER", () => {
+-    process.env["OPENCODE_CALLER"] = "vscode"
++    process.env.OPENCODE_CALLER = "vscode"
+ 
+     expect(Ide.alreadyInstalled()).toBe(true)
+   })
+ 
+   test("should return false for unknown OPENCODE_CALLER", () => {
+-    process.env["OPENCODE_CALLER"] = "unknown"
++    process.env.OPENCODE_CALLER = "unknown"
+ 
+     expect(Ide.alreadyInstalled()).toBe(false)
+   })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 41028633e83..110c05e3b54 100644
+index 41028633e83..e801a72c442 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -3,7 +3,7 @@
@@ -445,6 +1033,80 @@ index 41028633e83..110c05e3b54 100644
  
  // Set XDG env vars FIRST, before any src/ imports
  const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
+@@ -28,21 +28,21 @@ afterAll(async () => {
+   await rm(30)
+ })
+ 
+-process.env["XDG_DATA_HOME"] = path.join(dir, "share")
+-process.env["XDG_CACHE_HOME"] = path.join(dir, "cache")
+-process.env["XDG_CONFIG_HOME"] = path.join(dir, "config")
+-process.env["XDG_STATE_HOME"] = path.join(dir, "state")
+-process.env["OPENCODE_MODELS_PATH"] = path.join(import.meta.dir, "tool", "fixtures", "models-api.json")
++process.env.XDG_DATA_HOME = path.join(dir, "share")
++process.env.XDG_CACHE_HOME = path.join(dir, "cache")
++process.env.XDG_CONFIG_HOME = path.join(dir, "config")
++process.env.XDG_STATE_HOME = path.join(dir, "state")
++process.env.OPENCODE_MODELS_PATH = path.join(import.meta.dir, "tool", "fixtures", "models-api.json")
+ 
+ // Set test home directory to isolate tests from user's actual home directory
+ // This prevents tests from picking up real user configs/skills from ~/.claude/skills
+ const testHome = path.join(dir, "home")
+ await fs.mkdir(testHome, { recursive: true })
+-process.env["OPENCODE_TEST_HOME"] = testHome
++process.env.OPENCODE_TEST_HOME = testHome
+ 
+ // Set test managed config directory to isolate tests from system managed settings
+ const testManagedConfigDir = path.join(dir, "managed")
+-process.env["OPENCODE_TEST_MANAGED_CONFIG_DIR"] = testManagedConfigDir
++process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = testManagedConfigDir
+ 
+ // Write the cache version file to prevent global/index.ts from clearing the cache
+ const cacheDir = path.join(dir, "cache", "opencode")
+@@ -50,25 +50,25 @@ await fs.mkdir(cacheDir, { recursive: true })
+ await fs.writeFile(path.join(cacheDir, "version"), "14")
+ 
+ // Clear provider env vars to ensure clean test state
+-delete process.env["ANTHROPIC_API_KEY"]
+-delete process.env["OPENAI_API_KEY"]
+-delete process.env["GOOGLE_API_KEY"]
+-delete process.env["GOOGLE_GENERATIVE_AI_API_KEY"]
+-delete process.env["AZURE_OPENAI_API_KEY"]
+-delete process.env["AWS_ACCESS_KEY_ID"]
+-delete process.env["AWS_PROFILE"]
+-delete process.env["AWS_REGION"]
+-delete process.env["AWS_BEARER_TOKEN_BEDROCK"]
+-delete process.env["OPENROUTER_API_KEY"]
+-delete process.env["GROQ_API_KEY"]
+-delete process.env["MISTRAL_API_KEY"]
+-delete process.env["PERPLEXITY_API_KEY"]
+-delete process.env["TOGETHER_API_KEY"]
+-delete process.env["XAI_API_KEY"]
+-delete process.env["DEEPSEEK_API_KEY"]
+-delete process.env["FIREWORKS_API_KEY"]
+-delete process.env["CEREBRAS_API_KEY"]
+-delete process.env["SAMBANOVA_API_KEY"]
++delete process.env.ANTHROPIC_API_KEY
++delete process.env.OPENAI_API_KEY
++delete process.env.GOOGLE_API_KEY
++delete process.env.GOOGLE_GENERATIVE_AI_API_KEY
++delete process.env.AZURE_OPENAI_API_KEY
++delete process.env.AWS_ACCESS_KEY_ID
++delete process.env.AWS_PROFILE
++delete process.env.AWS_REGION
++delete process.env.AWS_BEARER_TOKEN_BEDROCK
++delete process.env.OPENROUTER_API_KEY
++delete process.env.GROQ_API_KEY
++delete process.env.MISTRAL_API_KEY
++delete process.env.PERPLEXITY_API_KEY
++delete process.env.TOGETHER_API_KEY
++delete process.env.XAI_API_KEY
++delete process.env.DEEPSEEK_API_KEY
++delete process.env.FIREWORKS_API_KEY
++delete process.env.CEREBRAS_API_KEY
++delete process.env.SAMBANOVA_API_KEY
+ 
+ // Now safe to import from src/
+ const { Log } = await import("../src/util/log")
 @@ -78,3 +78,27 @@ Log.init({
    dev: true,
    level: "DEBUG",
@@ -474,7 +1136,7 @@ index 41028633e83..110c05e3b54 100644
 +  }
 +})
 diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
-index cb64455b4dd..2540d9a5fab 100644
+index cb64455b4dd..76145acd3c7 100644
 --- a/packages/opencode/test/provider/amazon-bedrock.test.ts
 +++ b/packages/opencode/test/provider/amazon-bedrock.test.ts
 @@ -5,7 +5,6 @@ import { unlink } from "fs/promises"
@@ -491,8 +1153,8 @@ index cb64455b4dd..2540d9a5fab 100644
      init: async () => {
 -      Env.set("AWS_REGION", "us-east-1")
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_REGION"] = "us-east-1"
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_REGION = "us-east-1"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -502,8 +1164,8 @@ index cb64455b4dd..2540d9a5fab 100644
      init: async () => {
 -      Env.set("AWS_REGION", "eu-west-1")
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_REGION"] = "eu-west-1"
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_REGION = "eu-west-1"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -514,9 +1176,9 @@ index cb64455b4dd..2540d9a5fab 100644
 -        Env.set("AWS_PROFILE", "")
 -        Env.set("AWS_ACCESS_KEY_ID", "")
 -        Env.set("AWS_BEARER_TOKEN_BEDROCK", "")
-+        process.env["AWS_PROFILE"] = ""
-+        process.env["AWS_ACCESS_KEY_ID"] = ""
-+        process.env["AWS_BEARER_TOKEN_BEDROCK"] = ""
++        process.env.AWS_PROFILE = ""
++        process.env.AWS_ACCESS_KEY_ID = ""
++        process.env.AWS_BEARER_TOKEN_BEDROCK = ""
        },
        fn: async () => {
          const providers = await Provider.list()
@@ -526,8 +1188,8 @@ index cb64455b4dd..2540d9a5fab 100644
      init: async () => {
 -      Env.set("AWS_PROFILE", "default")
 -      Env.set("AWS_ACCESS_KEY_ID", "test-key-id")
-+      process.env["AWS_PROFILE"] = "default"
-+      process.env["AWS_ACCESS_KEY_ID"] = "test-key-id"
++      process.env.AWS_PROFILE = "default"
++      process.env.AWS_ACCESS_KEY_ID = "test-key-id"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -536,7 +1198,7 @@ index cb64455b4dd..2540d9a5fab 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -548,10 +1210,10 @@ index cb64455b4dd..2540d9a5fab 100644
 -      Env.set("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/my-eks-role")
 -      Env.set("AWS_PROFILE", "")
 -      Env.set("AWS_ACCESS_KEY_ID", "")
-+      process.env["AWS_WEB_IDENTITY_TOKEN_FILE"] = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
-+      process.env["AWS_ROLE_ARN"] = "arn:aws:iam::123456789012:role/my-eks-role"
-+      process.env["AWS_PROFILE"] = ""
-+      process.env["AWS_ACCESS_KEY_ID"] = ""
++      process.env.AWS_WEB_IDENTITY_TOKEN_FILE = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
++      process.env.AWS_ROLE_ARN = "arn:aws:iam::123456789012:role/my-eks-role"
++      process.env.AWS_PROFILE = ""
++      process.env.AWS_ACCESS_KEY_ID = ""
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -560,7 +1222,7 @@ index cb64455b4dd..2540d9a5fab 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -569,7 +1231,7 @@ index cb64455b4dd..2540d9a5fab 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -578,7 +1240,7 @@ index cb64455b4dd..2540d9a5fab 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -587,12 +1249,12 @@ index cb64455b4dd..2540d9a5fab 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("AWS_PROFILE", "default")
-+      process.env["AWS_PROFILE"] = "default"
++      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/gitlab-duo.test.ts b/packages/opencode/test/provider/gitlab-duo.test.ts
-index c512a45909d..51edc8a3694 100644
+index c512a45909d..db9449331b7 100644
 --- a/packages/opencode/test/provider/gitlab-duo.test.ts
 +++ b/packages/opencode/test/provider/gitlab-duo.test.ts
 @@ -4,7 +4,6 @@ import path from "path"
@@ -608,7 +1270,7 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "test-gitlab-token")
-+      process.env["GITLAB_TOKEN"] = "test-gitlab-token"
++      process.env.GITLAB_TOKEN = "test-gitlab-token"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -618,8 +1280,8 @@ index c512a45909d..51edc8a3694 100644
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "test-token")
 -      Env.set("GITLAB_INSTANCE_URL", "https://gitlab.example.com")
-+      process.env["GITLAB_TOKEN"] = "test-token"
-+      process.env["GITLAB_INSTANCE_URL"] = "https://gitlab.example.com"
++      process.env.GITLAB_TOKEN = "test-token"
++      process.env.GITLAB_INSTANCE_URL = "https://gitlab.example.com"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -628,7 +1290,7 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "")
-+      process.env["GITLAB_TOKEN"] = ""
++      process.env.GITLAB_TOKEN = ""
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -637,7 +1299,7 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "")
-+      process.env["GITLAB_TOKEN"] = ""
++      process.env.GITLAB_TOKEN = ""
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -646,7 +1308,7 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_INSTANCE_URL", "https://gitlab.company.internal")
-+      process.env["GITLAB_INSTANCE_URL"] = "https://gitlab.company.internal"
++      process.env.GITLAB_INSTANCE_URL = "https://gitlab.company.internal"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -655,7 +1317,7 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "env-token")
-+      process.env["GITLAB_TOKEN"] = "env-token"
++      process.env.GITLAB_TOKEN = "env-token"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -664,7 +1326,7 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "test-token")
-+      process.env["GITLAB_TOKEN"] = "test-token"
++      process.env.GITLAB_TOKEN = "test-token"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -673,12 +1335,12 @@ index c512a45909d..51edc8a3694 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GITLAB_TOKEN", "test-token")
-+      process.env["GITLAB_TOKEN"] = "test-token"
++      process.env.GITLAB_TOKEN = "test-token"
      },
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index 11c943db6f8..e343b01837d 100644
+index 11c943db6f8..3b332c106ec 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
 @@ -4,7 +4,6 @@ import path from "path"
@@ -694,7 +1356,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -703,7 +1365,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -713,8 +1375,8 @@ index 11c943db6f8..e343b01837d 100644
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
 -      Env.set("OPENAI_API_KEY", "test-openai-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
-+      process.env["OPENAI_API_KEY"] = "test-openai-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
++      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -723,7 +1385,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -732,7 +1394,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -741,7 +1403,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -750,7 +1412,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "env-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "env-api-key"
++      process.env.ANTHROPIC_API_KEY = "env-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -759,7 +1421,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const model = await Provider.getModel("anthropic", "claude-sonnet-4-20250514")
@@ -768,7 +1430,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        expect(Provider.getModel("anthropic", "nonexistent-model")).rejects.toThrow()
@@ -777,7 +1439,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const model = await Provider.defaultModel()
@@ -786,7 +1448,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const model = await Provider.defaultModel()
@@ -795,7 +1457,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -804,7 +1466,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -813,7 +1475,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const result = await Provider.closest("anthropic", ["sonnet-4"])
@@ -822,7 +1484,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -831,7 +1493,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -840,7 +1502,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("OPENAI_API_KEY", "test-openai-key")
-+      process.env["OPENAI_API_KEY"] = "test-openai-key"
++      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -850,8 +1512,8 @@ index 11c943db6f8..e343b01837d 100644
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
 -      Env.set("OPENAI_API_KEY", "test-openai-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
-+      process.env["OPENAI_API_KEY"] = "test-openai-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
++      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -860,7 +1522,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -869,7 +1531,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const model = await Provider.getSmallModel("anthropic")
@@ -878,7 +1540,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const model = await Provider.getSmallModel("anthropic")
@@ -888,8 +1550,8 @@ index 11c943db6f8..e343b01837d 100644
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-anthropic-key")
 -      Env.set("OPENAI_API_KEY", "test-openai-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-anthropic-key"
-+      process.env["OPENAI_API_KEY"] = "test-openai-key"
++      process.env.ANTHROPIC_API_KEY = "test-anthropic-key"
++      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -898,7 +1560,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -907,7 +1569,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("MULTI_ENV_KEY_1", "test-key")
-+      process.env["MULTI_ENV_KEY_1"] = "test-key"
++      process.env.MULTI_ENV_KEY_1 = "test-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -916,7 +1578,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("SINGLE_ENV_KEY", "my-api-key")
-+      process.env["SINGLE_ENV_KEY"] = "my-api-key"
++      process.env.SINGLE_ENV_KEY = "my-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -925,7 +1587,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -936,9 +1598,9 @@ index 11c943db6f8..e343b01837d 100644
 -      Env.set("ANTHROPIC_API_KEY", "test-anthropic")
 -      Env.set("OPENAI_API_KEY", "test-openai")
 -      Env.set("GOOGLE_GENERATIVE_AI_API_KEY", "test-google")
-+      process.env["ANTHROPIC_API_KEY"] = "test-anthropic"
-+      process.env["OPENAI_API_KEY"] = "test-openai"
-+      process.env["GOOGLE_GENERATIVE_AI_API_KEY"] = "test-google"
++      process.env.ANTHROPIC_API_KEY = "test-anthropic"
++      process.env.OPENAI_API_KEY = "test-openai"
++      process.env.GOOGLE_GENERATIVE_AI_API_KEY = "test-google"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -947,7 +1609,7 @@ index 11c943db6f8..e343b01837d 100644
      init: async () => {
        // Only set fallback, not primary
 -      Env.set("FALLBACK_KEY", "fallback-api-key")
-+      process.env["FALLBACK_KEY"] = "fallback-api-key"
++      process.env.FALLBACK_KEY = "fallback-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -956,7 +1618,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const model1 = await Provider.getModel("anthropic", "claude-sonnet-4-20250514")
@@ -965,7 +1627,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        try {
@@ -974,7 +1636,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        try {
@@ -983,7 +1645,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const provider = await Provider.getProvider("anthropic")
@@ -992,7 +1654,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const result = await Provider.closest("anthropic", ["nonexistent-xyz-model"])
@@ -1001,7 +1663,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        // First term won't match, second will
@@ -1010,7 +1672,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1019,7 +1681,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("OPENAI_API_KEY", "test-api-key")
-+      process.env["OPENAI_API_KEY"] = "test-api-key"
++      process.env.OPENAI_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1028,7 +1690,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("OPENROUTER_API_KEY", "test-api-key")
-+      process.env["OPENROUTER_API_KEY"] = "test-api-key"
++      process.env.OPENROUTER_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1037,7 +1699,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1046,7 +1708,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1055,7 +1717,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1064,7 +1726,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1073,7 +1735,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1082,7 +1744,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env["ANTHROPIC_API_KEY"] = "test-api-key"
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1091,7 +1753,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("OPENAI_API_KEY", "test-api-key")
-+      process.env["OPENAI_API_KEY"] = "test-api-key"
++      process.env.OPENAI_API_KEY = "test-api-key"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1100,7 +1762,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GOOGLE_APPLICATION_CREDENTIALS", "test-creds")
-+      process.env["GOOGLE_APPLICATION_CREDENTIALS"] = "test-creds"
++      process.env.GOOGLE_APPLICATION_CREDENTIALS = "test-creds"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1109,7 +1771,7 @@ index 11c943db6f8..e343b01837d 100644
      directory: tmp.path,
      init: async () => {
 -      Env.set("GOOGLE_APPLICATION_CREDENTIALS", "test-creds")
-+      process.env["GOOGLE_APPLICATION_CREDENTIALS"] = "test-creds"
++      process.env.GOOGLE_APPLICATION_CREDENTIALS = "test-creds"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1120,9 +1782,9 @@ index 11c943db6f8..e343b01837d 100644
 -      Env.set("CLOUDFLARE_ACCOUNT_ID", "test-account")
 -      Env.set("CLOUDFLARE_GATEWAY_ID", "test-gateway")
 -      Env.set("CLOUDFLARE_API_TOKEN", "test-token")
-+      process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account"
-+      process.env["CLOUDFLARE_GATEWAY_ID"] = "test-gateway"
-+      process.env["CLOUDFLARE_API_TOKEN"] = "test-token"
++      process.env.CLOUDFLARE_ACCOUNT_ID = "test-account"
++      process.env.CLOUDFLARE_GATEWAY_ID = "test-gateway"
++      process.env.CLOUDFLARE_API_TOKEN = "test-token"
      },
      fn: async () => {
        const providers = await Provider.list()
@@ -1133,9 +1795,58 @@ index 11c943db6f8..e343b01837d 100644
 -      Env.set("CLOUDFLARE_ACCOUNT_ID", "test-account")
 -      Env.set("CLOUDFLARE_GATEWAY_ID", "test-gateway")
 -      Env.set("CLOUDFLARE_API_TOKEN", "test-token")
-+      process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account"
-+      process.env["CLOUDFLARE_GATEWAY_ID"] = "test-gateway"
-+      process.env["CLOUDFLARE_API_TOKEN"] = "test-token"
++      process.env.CLOUDFLARE_ACCOUNT_ID = "test-account"
++      process.env.CLOUDFLARE_GATEWAY_ID = "test-gateway"
++      process.env.CLOUDFLARE_API_TOKEN = "test-token"
      },
      fn: async () => {
        const providers = await Provider.list()
+diff --git a/packages/opencode/test/session/instruction.test.ts b/packages/opencode/test/session/instruction.test.ts
+index e0bf94a9500..524e7886805 100644
+--- a/packages/opencode/test/session/instruction.test.ts
++++ b/packages/opencode/test/session/instruction.test.ts
+@@ -74,14 +74,14 @@ describe("InstructionPrompt.systemPaths OPENCODE_CONFIG_DIR", () => {
+   let originalConfigDir: string | undefined
+ 
+   beforeEach(() => {
+-    originalConfigDir = process.env["OPENCODE_CONFIG_DIR"]
++    originalConfigDir = process.env.OPENCODE_CONFIG_DIR
+   })
+ 
+   afterEach(() => {
+     if (originalConfigDir === undefined) {
+-      delete process.env["OPENCODE_CONFIG_DIR"]
++      delete process.env.OPENCODE_CONFIG_DIR
+     } else {
+-      process.env["OPENCODE_CONFIG_DIR"] = originalConfigDir
++      process.env.OPENCODE_CONFIG_DIR = originalConfigDir
+     }
+   })
+ 
+@@ -98,7 +98,7 @@ describe("InstructionPrompt.systemPaths OPENCODE_CONFIG_DIR", () => {
+     })
+     await using projectTmp = await tmpdir()
+ 
+-    process.env["OPENCODE_CONFIG_DIR"] = profileTmp.path
++    process.env.OPENCODE_CONFIG_DIR = profileTmp.path
+     const originalGlobalConfig = Global.Path.config
+     ;(Global.Path as { config: string }).config = globalTmp.path
+ 
+@@ -125,7 +125,7 @@ describe("InstructionPrompt.systemPaths OPENCODE_CONFIG_DIR", () => {
+     })
+     await using projectTmp = await tmpdir()
+ 
+-    process.env["OPENCODE_CONFIG_DIR"] = profileTmp.path
++    process.env.OPENCODE_CONFIG_DIR = profileTmp.path
+     const originalGlobalConfig = Global.Path.config
+     ;(Global.Path as { config: string }).config = globalTmp.path
+ 
+@@ -151,7 +151,7 @@ describe("InstructionPrompt.systemPaths OPENCODE_CONFIG_DIR", () => {
+     })
+     await using projectTmp = await tmpdir()
+ 
+-    delete process.env["OPENCODE_CONFIG_DIR"]
++    delete process.env.OPENCODE_CONFIG_DIR
+     const originalGlobalConfig = Global.Path.config
+     ;(Global.Path as { config: string }).config = globalTmp.path
+ 
