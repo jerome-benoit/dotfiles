@@ -18,7 +18,7 @@ index 99a9a81ab9c..a6dca88d53d 100644
        const opts = await resolveNetworkOptions(args)
        const server = Server.listen(opts)
 diff --git a/packages/opencode/src/cli/cmd/auth.ts b/packages/opencode/src/cli/cmd/auth.ts
-index 4afe7a8224a..86bc56bf10a 100644
+index a7300e02930..fad4b66d51a 100644
 --- a/packages/opencode/src/cli/cmd/auth.ts
 +++ b/packages/opencode/src/cli/cmd/auth.ts
 @@ -1,4 +1,5 @@
@@ -152,7 +152,7 @@ index 0837b2aa5ff..f602200be26 100644
    { name: "Windsurf" as const, cmd: "windsurf" },
    { name: "Visual Studio Code - Insiders" as const, cmd: "code-insiders" },
 diff --git a/packages/opencode/src/index.ts b/packages/opencode/src/index.ts
-index 35b42dce77c..37066cb3dfc 100644
+index 4fd5f0e67b3..58e1413c101 100644
 --- a/packages/opencode/src/index.ts
 +++ b/packages/opencode/src/index.ts
 @@ -21,6 +21,7 @@ import { McpCommand } from "./cli/cmd/mcp"
@@ -163,7 +163,7 @@ index 35b42dce77c..37066cb3dfc 100644
  import { AttachCommand } from "./cli/cmd/tui/attach"
  import { TuiThreadCommand } from "./cli/cmd/tui/thread"
  import { AcpCommand } from "./cli/cmd/acp"
-@@ -74,9 +75,9 @@ let cli = yargs(hideBin(process.argv))
+@@ -79,9 +80,9 @@ let cli = yargs(hideBin(process.argv))
        })(),
      })
  
