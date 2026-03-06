@@ -20,7 +20,8 @@ let
           # https://github.com/anomalyco/opencode/pull/14958
           (self + "/patches/opencode/sap-ai-thinking-variants.patch")
           # https://github.com/anomalyco/opencode/pull/12822
-          (self + "/patches/opencode/remove-env-namespace.patch")
+          # FIXME: patch based on dev HEAD, needs rebase for pinned commit
+          # (self + "/patches/opencode/remove-env-namespace.patch")
           # https://github.com/anomalyco/opencode/pull/10275
           (self + "/patches/opencode/bun-track-provider-packages.patch")
         ];

@@ -230,7 +230,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index 22eba6320e9..30ba1d5063f 100644
+index c743cd18d1c..7436c548b9e 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -10,15 +10,15 @@ function falsy(key: string) {
@@ -284,10 +284,10 @@ index 22eba6320e9..30ba1d5063f 100644
 -  export const OPENCODE_MODELS_PATH = process.env["OPENCODE_MODELS_PATH"]
 +  export const OPENCODE_MODELS_URL = process.env.OPENCODE_MODELS_URL
 +  export const OPENCODE_MODELS_PATH = process.env.OPENCODE_MODELS_PATH
+   export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
  
    function number(key: string) {
-     const value = process.env[key]
-@@ -85,7 +85,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+@@ -86,7 +86,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -296,7 +296,7 @@ index 22eba6320e9..30ba1d5063f 100644
    },
    enumerable: true,
    configurable: false,
-@@ -96,7 +96,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -97,7 +97,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -305,7 +305,7 @@ index 22eba6320e9..30ba1d5063f 100644
    },
    enumerable: true,
    configurable: false,
-@@ -107,7 +107,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -108,7 +108,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {
@@ -645,10 +645,10 @@ index b4836ae047d..5061a8093a8 100644
        if (disabled.has(providerID)) continue
        const apiKey = provider.env.map((item) => env[item]).find(Boolean)
 diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
-index c36616b7ef9..365d161dfb7 100644
+index 54437627845..27a5a327a80 100644
 --- a/packages/opencode/src/share/share-next.ts
 +++ b/packages/opencode/src/share/share-next.ts
-@@ -16,7 +16,7 @@ export namespace ShareNext {
+@@ -15,7 +15,7 @@ export namespace ShareNext {
      return Config.get().then((x) => x.enterprise?.url ?? "https://opncd.ai")
    }
  

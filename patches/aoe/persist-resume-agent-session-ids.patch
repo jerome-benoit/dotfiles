@@ -1,0 +1,1235 @@
+diff --git a/src/cli/session.rs b/src/cli/session.rs
+index 8a816977..61512d26 100644
+--- a/src/cli/session.rs
++++ b/src/cli/session.rs
+@@ -28,6 +28,9 @@ pub enum SessionCommands {
+ 
+     /// Auto-detect current session
+     Current(CurrentArgs),
++
++    /// Set agent session ID for a session
++    SetSessionId(SetSessionIdArgs),
+ }
+ 
+ #[derive(Args)]
+@@ -71,6 +74,14 @@ pub struct CurrentArgs {
+     json: bool,
+ }
+ 
++#[derive(Args)]
++pub struct SetSessionIdArgs {
++    /// Session ID or title
++    identifier: String,
++    /// Agent session ID to set (pass empty string to clear)
++    session_id: String,
++}
++
+ #[derive(Serialize)]
+ struct SessionDetails {
+     id: String,
+@@ -94,6 +105,7 @@ pub async fn run(profile: &str, command: SessionCommands) -> Result<()> {
+         SessionCommands::Show(args) => show_session(profile, args).await,
+         SessionCommands::Rename(args) => rename_session(profile, args).await,
+         SessionCommands::Current(args) => current_session(args).await,
++        SessionCommands::SetSessionId(args) => set_session_id(profile, args).await,
+     }
+ }
+ 
+@@ -377,3 +389,35 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
+ 
+     bail!("Current tmux session is not an Agent of Empires session")
+ }
++
++async fn set_session_id(profile: &str, args: SetSessionIdArgs) -> Result<()> {
++    let storage = Storage::new(profile)?;
++    let (mut instances, groups) = storage.load_with_groups()?;
++
++    let idx = instances
++        .iter()
++        .position(|i| {
++            i.id == args.identifier
++                || i.id.starts_with(&args.identifier)
++                || i.title == args.identifier
++        })
++        .ok_or_else(|| anyhow::anyhow!("Session not found: {}", args.identifier))?;
++
++    let new_id = if args.session_id.trim().is_empty() {
++        None
++    } else {
++        Some(args.session_id.trim().to_string())
++    };
++
++    instances[idx].agent_session_id = new_id.clone();
++    let title = instances[idx].title.clone();
++
++    let group_tree = GroupTree::new_with_groups(&instances, &groups);
++    storage.save_with_groups(&instances, &group_tree)?;
++
++    match new_id {
++        Some(id) => println!("Set session ID for '{}': {}", title, id),
++        None => println!("Cleared session ID for '{}'", title),
++    }
++    Ok(())
++}
+diff --git a/src/session/instance.rs b/src/session/instance.rs
+index 006f6d25..68fcde87 100644
+--- a/src/session/instance.rs
++++ b/src/session/instance.rs
+@@ -1,9 +1,14 @@
+ //! Session instance definition and operations
+ 
+ use std::path::Path;
++use std::process::Stdio;
++use std::sync::mpsc;
++use std::time::Duration;
+ 
+-use anyhow::Result;
++use anyhow::{Context, Result};
+ use chrono::{DateTime, Utc};
++use nix::sys::signal::Signal;
++use nix::unistd::Pid;
+ use serde::{Deserialize, Serialize};
+ use uuid::Uuid;
+ 
+@@ -13,6 +18,14 @@ use crate::tmux;
+ use super::container_config;
+ use super::environment::{build_docker_env_args, shell_escape};
+ 
++const OPENCODE_MAX_RETRY_ATTEMPTS: u32 = 3;
++const OPENCODE_RETRY_DELAY: Duration = Duration::from_secs(2);
++const OPENCODE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
++const OPENCODE_CAPTURE_DEADLINE: Duration = Duration::from_secs(15);
++const DEFERRED_CAPTURE_INITIAL_DELAY: Duration = Duration::from_secs(5);
++const DEFERRED_CAPTURE_MAX_ATTEMPTS: u32 = 6;
++const DEFERRED_CAPTURE_RETRY_DELAY: Duration = Duration::from_secs(5);
++
+ fn default_true() -> bool {
+     true
+ }
+@@ -67,6 +80,15 @@ pub struct SandboxInfo {
+     pub custom_instruction: Option<String>,
+ }
+ 
++/// Deserializer for agent_session_id that converts empty and whitespace-only strings to None
++fn deserialize_session_id<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
++where
++    D: serde::Deserializer<'de>,
++{
++    let opt: Option<String> = Option::deserialize(deserializer)?;
++    Ok(opt.filter(|s| !s.trim().is_empty()))
++}
++
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct Instance {
+     pub id: String,
+@@ -102,6 +124,14 @@ pub struct Instance {
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub terminal_info: Option<TerminalInfo>,
+ 
++    // Agent session ID for conversation persistence
++    #[serde(
++        default,
++        skip_serializing_if = "Option::is_none",
++        deserialize_with = "deserialize_session_id"
++    )]
++    pub agent_session_id: Option<String>,
++
+     // Runtime state (not serialized)
+     #[serde(skip)]
+     pub last_error_check: Option<std::time::Instant>,
+@@ -111,6 +141,396 @@ pub struct Instance {
+     pub last_error: Option<String>,
+ }
+ 
++/// Generate a new UUID for Claude Code session.
++///
++/// Creates a new universally unique identifier (UUID v4) for use as a Claude Code session ID.
++/// This function is used when a new Claude Code session is started without an existing session
++/// to resume from. The UUID is converted to a string representation suitable for passing to
++/// Claude Code CLI commands.
++fn generate_claude_session_id() -> String {
++    Uuid::new_v4().to_string()
++}
++
++/// Capture session ID from OpenCode CLI with retry logic.
++///
++/// Attempts up to 3 times to capture an OpenCode session ID, with 2-second delays between
++/// retries. Each attempt executes `opencode session list --format json` with a 5-second
++/// timeout. When a `project_path` is provided, sessions are filtered to prefer those matching
++/// the project directory, sorted by most recently updated. Falls back to the first session
++/// if no directory match is found.
++///
++/// # Errors
++///
++/// Returns an error if all attempts fail due to:
++/// - The `opencode` command cannot be spawned
++/// - The command execution fails before completing
++/// - The command times out after 5 seconds
++/// - The command exits with a non-zero status code
++/// - The JSON output cannot be parsed
++/// - No sessions are found in the response
++fn capture_opencode_session_id(project_path: &str) -> Result<String> {
++    let deadline = std::time::Instant::now() + OPENCODE_CAPTURE_DEADLINE;
++    let mut last_err = None;
++
++    for attempt in 0..OPENCODE_MAX_RETRY_ATTEMPTS {
++        if attempt > 0 {
++            if std::time::Instant::now() + OPENCODE_RETRY_DELAY > deadline {
++                break;
++            }
++            std::thread::sleep(OPENCODE_RETRY_DELAY);
++            tracing::debug!(
++                "Retrying OpenCode session capture (attempt {})",
++                attempt + 1
++            );
++        }
++
++        match try_capture_opencode_session_id(project_path) {
++            Ok(id) => return Ok(id),
++            Err(e) => {
++                tracing::debug!(
++                    "OpenCode session capture attempt {} failed: {}",
++                    attempt + 1,
++                    e
++                );
++                last_err = Some(e);
++            }
++        }
++    }
++
++    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("OpenCode session capture timed out")))
++}
++
++/// Single attempt to capture an OpenCode session ID.
++///
++/// Spawns `opencode session list --format json` with a 5-second timeout, parses the JSON,
++/// and selects the best matching session based on project directory and update time.
++fn try_capture_opencode_session_id(project_path: &str) -> Result<String> {
++    let child = std::process::Command::new("opencode")
++        .args(["session", "list", "--format", "json"])
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .context("Failed to spawn 'opencode session list'")?;
++
++    let child_id = child.id();
++    let (tx, rx) = mpsc::channel();
++
++    std::thread::spawn(move || {
++        let _ = tx.send(child.wait_with_output());
++    });
++
++    let output = match rx.recv_timeout(OPENCODE_COMMAND_TIMEOUT) {
++        Ok(Ok(out)) => out,
++        Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute opencode: {}", e)),
++        Err(_) => {
++            tracing::debug!("OpenCode session list timed out");
++            let _ = nix::sys::signal::kill(Pid::from_raw(child_id as i32), Signal::SIGKILL);
++            return Err(anyhow::anyhow!("OpenCode session list timed out"));
++        }
++    };
++
++    if !output.status.success() {
++        anyhow::bail!("OpenCode session list command failed");
++    }
++
++    let stdout = String::from_utf8_lossy(&output.stdout);
++    let sessions: Vec<serde_json::Value> =
++        serde_json::from_str(&stdout).context("Failed to parse OpenCode session list JSON")?;
++
++    // Try to match by project directory first
++    let canonical_path = std::fs::canonicalize(project_path)
++        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
++    let canonical_str = canonical_path.to_string_lossy();
++
++    let mut matching: Vec<&serde_json::Value> = sessions
++        .iter()
++        .filter(|s| {
++            s.get("directory")
++                .or_else(|| s.get("path"))
++                .and_then(|v| v.as_str())
++                .map(|dir| {
++                    let session_path = std::fs::canonicalize(dir)
++                        .unwrap_or_else(|_| std::path::PathBuf::from(dir));
++                    session_path.to_string_lossy() == canonical_str
++                })
++                .unwrap_or(false)
++        })
++        .collect();
++
++    // Sort by updated time (most recent first).
++    // OpenCode stores `updated` as a numeric epoch (Date.now() milliseconds), not a string.
++    matching.sort_by(|a, b| {
++        let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++        let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++        b_time
++            .partial_cmp(&a_time)
++            .unwrap_or(std::cmp::Ordering::Equal)
++    });
++
++    // Use directory match if found, otherwise fall back to first session
++    let session = matching.first().copied().or_else(|| sessions.first());
++
++    session
++        .and_then(|s| s["id"].as_str())
++        .map(|s| s.to_string())
++        .ok_or_else(|| anyhow::anyhow!("No OpenCode sessions found"))
++}
++
++/// Capture session ID from Codex filesystem.
++///
++/// Walks the Codex sessions directory (including date-partitioned `YYYY/MM/DD/` subdirectories)
++/// for `.jsonl` rollout files and extracts the UUID from the most recent one.
++/// Codex filenames follow the pattern `rollout-<timestamp>-<uuid>.jsonl`.
++/// Respects `CODEX_HOME` env var, falling back to `~/.codex`.
++fn capture_codex_session_id(project_path: &str) -> Result<String> {
++    let codex_home = match std::env::var("CODEX_HOME") {
++        Ok(val) => std::path::PathBuf::from(val),
++        Err(_) => dirs::home_dir()
++            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
++            .join(".codex"),
++    };
++    let sessions_dir = codex_home.join("sessions");
++
++    if !sessions_dir.exists() {
++        anyhow::bail!(
++            "Codex sessions directory not found: {}",
++            sessions_dir.display()
++        );
++    }
++
++    let mut session_entries: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
++    collect_codex_sessions(&sessions_dir, &mut session_entries)?;
++
++    if session_entries.is_empty() {
++        anyhow::bail!("No Codex sessions found in {}", sessions_dir.display());
++    }
++
++    session_entries.sort_by(|a, b| b.1.cmp(&a.1));
++
++    let canonical_project = std::fs::canonicalize(project_path)
++        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
++
++    // Prefer the most recent session whose CWD matches the project directory
++    let cwd_match = session_entries.iter().find(|(path, _)| {
++        extract_codex_cwd_from_file(path)
++            .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
++            .map(|cwd| cwd == canonical_project)
++            .unwrap_or(false)
++    });
++
++    let chosen = cwd_match
++        .or_else(|| session_entries.first())
++        .and_then(|(path, _)| extract_codex_uuid_from_filename(path));
++
++    chosen.ok_or_else(|| anyhow::anyhow!("No valid Codex session files found"))
++}
++
++/// Extract UUID from a Codex rollout filename.
++///
++/// Codex filenames follow the pattern `rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl`.
++/// The UUID is the last hyphen-delimited segment before `.jsonl`, comprising 5 groups
++/// (e.g. `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
++fn extract_codex_uuid_from_filename(path: &std::path::Path) -> Option<String> {
++    let stem = path.file_stem()?.to_str()?;
++    // Pattern: rollout-YYYY-MM-DDThh-mm-ss-<uuid>
++    // The UUID is always 36 chars (8-4-4-4-12) at the end of the stem
++    if stem.len() >= 36 {
++        let candidate = &stem[stem.len() - 36..];
++        if candidate.chars().filter(|&c| c == '-').count() == 4
++            && candidate.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
++        {
++            return Some(candidate.to_string());
++        }
++    }
++    // Fallback: return the full stem (for non-standard filenames or thread names)
++    Some(stem.to_string())
++}
++
++/// Extract the working directory from a Codex rollout `.jsonl` file.
++///
++/// The first line is always a `session_meta` event containing `payload.cwd`.
++/// Returns `None` if the file cannot be read or the field is missing.
++fn extract_codex_cwd_from_file(path: &std::path::Path) -> Option<String> {
++    let file = std::fs::File::open(path).ok()?;
++    let reader = std::io::BufReader::new(file);
++    let first_line = std::io::BufRead::lines(reader).next()?.ok()?;
++    let parsed: serde_json::Value = serde_json::from_str(&first_line).ok()?;
++    parsed
++        .get("payload")
++        .and_then(|p| p.get("cwd"))
++        .and_then(|v| v.as_str())
++        .map(|s| s.to_string())
++}
++
++/// Recursively collect Codex session `.jsonl` files, descending into date-partitioned dirs.
++///
++/// Directories whose names are all ASCII digits (e.g. `2025`, `03`, `06`) are treated as
++/// date components and recursed into. Files ending in `.jsonl` are collected as session entries.
++fn collect_codex_sessions(
++    dir: &std::path::Path,
++    entries: &mut Vec<(std::path::PathBuf, std::time::SystemTime)>,
++) -> Result<()> {
++    for entry in std::fs::read_dir(dir)? {
++        let entry = entry?;
++        let path = entry.path();
++        if path.is_dir() {
++            let name = entry.file_name();
++            let name_str = name.to_string_lossy();
++            if name_str.chars().all(|c| c.is_ascii_digit()) {
++                collect_codex_sessions(&path, entries)?;
++            }
++        } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
++            let modified = entry
++                .metadata()
++                .and_then(|m| m.modified())
++                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
++            entries.push((path, modified));
++        }
++    }
++    Ok(())
++}
++
++/// Build resume flags for agent command.
++///
++/// Constructs a tool-specific command-line flag string to resume an existing session.
++/// Each agent tool uses a different flag format, and for unrecognized tools returns
++/// an empty string.
++///
++/// For Claude, the flag depends on whether conversation data already exists:
++/// `--resume` only works for sessions that have prior conversation data, while
++/// `--session-id` creates or attaches to a session unconditionally.
++fn build_resume_flags(tool: &str, session_id: &str, is_existing_session: bool) -> String {
++    match tool {
++        "claude" if is_existing_session => format!("--resume {}", session_id),
++        "claude" => format!("--session-id {}", session_id),
++        "opencode" => format!("--session {}", session_id),
++        "codex" => format!("resume {}", session_id),
++        _ => String::new(),
++    }
++}
++
++fn append_resume_flags(
++    tool: &str,
++    session_id: Option<&str>,
++    is_existing_session: bool,
++    cmd: &mut String,
++    context: &str,
++) {
++    if let Some(session_id) = session_id {
++        let resume_flags = build_resume_flags(tool, session_id, is_existing_session);
++        if !resume_flags.is_empty() {
++            *cmd = format!("{} {}", cmd, resume_flags);
++            tracing::debug!(
++                "Added resume flags to {} command: {}",
++                context,
++                resume_flags
++            );
++        }
++    }
++}
++
++fn capture_from_host(tool: &str, project_path: &str) -> Option<String> {
++    match tool {
++        "opencode" => capture_opencode_session_id(project_path)
++            .map_err(|e| tracing::debug!("Deferred host capture (opencode): {}", e))
++            .ok(),
++        "codex" => capture_codex_session_id(project_path)
++            .map_err(|e| tracing::debug!("Deferred host capture (codex): {}", e))
++            .ok(),
++        _ => None,
++    }
++}
++
++fn capture_from_container(instance_id: &str, tool: &str) -> Option<String> {
++    let container = DockerContainer::from_session_id(instance_id);
++    if !container.is_running().unwrap_or(false) {
++        tracing::debug!(
++            "Container not running for deferred capture: {}",
++            instance_id
++        );
++        return None;
++    }
++
++    match tool {
++        "opencode" => {
++            let output = container
++                .exec(&["opencode", "session", "list", "--format", "json"])
++                .map_err(|e| tracing::debug!("Deferred container exec (opencode): {}", e))
++                .ok()?;
++
++            if !output.status.success() {
++                return None;
++            }
++
++            let stdout = String::from_utf8_lossy(&output.stdout);
++            let sessions: Vec<serde_json::Value> = serde_json::from_str(&stdout)
++                .map_err(|e| tracing::debug!("Deferred container JSON parse: {}", e))
++                .ok()?;
++
++            let mut sorted = sessions;
++            sorted.sort_by(|a, b| {
++                let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++                let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++                b_time
++                    .partial_cmp(&a_time)
++                    .unwrap_or(std::cmp::Ordering::Equal)
++            });
++
++            sorted
++                .first()
++                .and_then(|s| s["id"].as_str())
++                .map(|s| s.to_string())
++        }
++        "codex" => {
++            let output = container
++                .exec(&[
++                    "sh",
++                    "-c",
++                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1",
++                ])
++                .map_err(|e| tracing::debug!("Deferred container exec (codex): {}", e))
++                .ok()?;
++
++            if !output.status.success() {
++                return None;
++            }
++
++            let stdout = String::from_utf8_lossy(&output.stdout);
++            stdout
++                .lines()
++                .next()
++                .and_then(|line| line.split_once(' '))
++                .and_then(|(_, path)| extract_codex_uuid_from_filename(std::path::Path::new(path)))
++        }
++        _ => None,
++    }
++}
++
++fn persist_deferred_session_id(profile: &str, instance_id: &str, session_id: &str) {
++    let storage = match super::storage::Storage::new(profile) {
++        Ok(s) => s,
++        Err(e) => {
++            tracing::debug!("Deferred persist: failed to create storage: {}", e);
++            return;
++        }
++    };
++    let mut instances = match storage.load() {
++        Ok(i) => i,
++        Err(e) => {
++            tracing::debug!("Deferred persist: failed to load instances: {}", e);
++            return;
++        }
++    };
++    if let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) {
++        inst.agent_session_id = Some(session_id.to_string());
++        if let Err(e) = storage.save(&instances) {
++            tracing::debug!("Deferred persist: failed to save: {}", e);
++        } else {
++            tracing::debug!("Deferred persist: session ID saved for {}", instance_id);
++        }
++    }
++}
++
+ impl Instance {
+     pub fn new(title: &str, project_path: &str) -> Self {
+         Self {
+@@ -129,6 +549,7 @@ impl Instance {
+             worktree_info: None,
+             sandbox_info: None,
+             terminal_info: None,
++            agent_session_id: None,
+             last_error_check: None,
+             last_start_time: None,
+             last_error: None,
+@@ -147,6 +568,35 @@ impl Instance {
+         self.yolo_mode
+     }
+ 
++    /// Acquire a pre-launch session ID for the agent.
++    ///
++    /// Returns `(session_id, is_existing)`. If a persisted ID exists, returns it
++    /// with `is_existing = true`. Otherwise, only Claude gets a new UUID here
++    /// (it requires `--session-id <uuid>` at launch). OpenCode/Codex create their
++    /// own sessions on startup; their IDs are captured post-launch by
++    /// `deferred_capture_session_id()`.
++    pub fn acquire_session_id(&mut self) -> (Option<String>, bool) {
++        if self.agent_session_id.is_some() {
++            return (self.agent_session_id.clone(), true);
++        }
++
++        // For OpenCode/Codex on first launch (no persisted ID), skip capture.
++        // These agents create their own sessions; the ID is captured post-launch
++        // via deferred_capture_session_id() and persisted for future relaunches.
++        // Only Claude needs a pre-launch ID (--session-id <uuid> creates a new session).
++        let session_id = match self.tool.as_str() {
++            "claude" => Some(generate_claude_session_id()),
++            _ => None,
++        };
++
++        if let Some(ref id) = session_id {
++            tracing::debug!("Session ID for {}: {}", self.tool, id);
++            self.agent_session_id = session_id.clone();
++        }
++
++        (session_id, false)
++    }
++
+     fn has_custom_command(&self) -> bool {
+         if !self.extra_args.is_empty() {
+             return true;
+@@ -318,15 +768,16 @@ impl Instance {
+             return Ok(());
+         }
+ 
++        let profile = super::config::Config::load()
++            .map(|c| c.default_profile)
++            .unwrap_or_else(|_| "default".to_string());
++
+         // Resolve on_launch hooks from the full config chain (global > profile > repo).
+         // Repo hooks go through trust verification; global/profile hooks are implicitly trusted.
+         let on_launch_hooks = if skip_on_launch {
+             None
+         } else {
+             // Start with global+profile hooks as the base
+-            let profile = super::config::Config::load()
+-                .map(|c| c.default_profile)
+-                .unwrap_or_else(|_| "default".to_string());
+             let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
+                 .map(|c| c.hooks.on_launch)
+                 .unwrap_or_default();
+@@ -364,6 +815,8 @@ impl Instance {
+                 }
+             }
+ 
++            let (session_id, is_existing) = self.acquire_session_id();
++
+             let sandbox = self.sandbox_info.as_ref().unwrap();
+             let agent = crate::agents::get_agent(&self.tool);
+             let base_cmd = if self.extra_args.is_empty() {
+@@ -395,6 +848,14 @@ impl Instance {
+                 }
+             }
+ 
++            append_resume_flags(
++                &self.tool,
++                session_id.as_deref(),
++                is_existing,
++                &mut tool_cmd,
++                "sandboxed",
++            );
++
+             let env_args = build_docker_env_args(sandbox);
+             let env_part = if env_args.is_empty() {
+                 String::new()
+@@ -434,6 +895,14 @@ impl Instance {
+                                 }
+                             }
+                         }
++                        let (session_id, is_existing) = self.acquire_session_id();
++                        append_resume_flags(
++                            &self.tool,
++                            session_id.as_deref(),
++                            is_existing,
++                            &mut cmd,
++                            "host agent",
++                        );
+                         wrap_command_ignore_suspend(&cmd)
+                     })
+             } else {
+@@ -454,6 +923,14 @@ impl Instance {
+                         }
+                     }
+                 }
++                let (session_id, is_existing) = self.acquire_session_id();
++                append_resume_flags(
++                    &self.tool,
++                    session_id.as_deref(),
++                    is_existing,
++                    &mut cmd,
++                    "host custom",
++                );
+                 Some(wrap_command_ignore_suspend(&cmd))
+             }
+         };
+@@ -461,6 +938,9 @@ impl Instance {
+         tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
+         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
+ 
++        self.persist_session_id(&profile);
++        self.deferred_capture_session_id(&profile);
++
+         // Apply all configured tmux options (status bar, mouse, etc.)
+         self.apply_tmux_options();
+ 
+@@ -470,6 +950,99 @@ impl Instance {
+         Ok(())
+     }
+ 
++    /// Persist the agent session ID to storage so it survives across sessions.
++    fn persist_session_id(&self, profile: &str) {
++        if self.agent_session_id.is_none() {
++            return;
++        }
++        match super::storage::Storage::new(profile) {
++            Ok(storage) => match storage.load() {
++                Ok(mut instances) => {
++                    if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
++                        inst.agent_session_id = self.agent_session_id.clone();
++                    }
++                    if let Err(e) = storage.save(&instances) {
++                        tracing::debug!(
++                            "Failed to save instances for session ID persistence: {}",
++                            e
++                        );
++                    } else {
++                        tracing::debug!("Session ID persisted successfully");
++                    }
++                }
++                Err(e) => {
++                    tracing::debug!("Failed to load instances for session ID persistence: {}", e)
++                }
++            },
++            Err(e) => {
++                tracing::debug!("Failed to create storage for session ID persistence: {}", e)
++            }
++        }
++    }
++
++    /// Spawn a background thread to capture the session ID after the agent starts.
++    ///
++    /// OpenCode and Codex create their own sessions on launch, so the ID cannot be
++    /// known in advance. This method polls the agent's CLI or filesystem until a
++    /// session appears, then persists it so that future relaunches resume the same
++    /// conversation.
++    fn deferred_capture_session_id(&self, profile: &str) {
++        if self.agent_session_id.is_some() {
++            return;
++        }
++        if !matches!(self.tool.as_str(), "opencode" | "codex") {
++            return;
++        }
++
++        let instance_id = self.id.clone();
++        let tool = self.tool.clone();
++        let project_path = self.project_path.clone();
++        let profile = profile.to_string();
++        let is_sandboxed = self.is_sandboxed();
++
++        std::thread::Builder::new()
++            .name(format!("deferred-capture-{}", instance_id))
++            .spawn(move || {
++                std::thread::sleep(DEFERRED_CAPTURE_INITIAL_DELAY);
++
++                for attempt in 1..=DEFERRED_CAPTURE_MAX_ATTEMPTS {
++                    let captured = if is_sandboxed {
++                        capture_from_container(&instance_id, &tool)
++                    } else {
++                        capture_from_host(&tool, &project_path)
++                    };
++
++                    if let Some(ref session_id) = captured {
++                        tracing::debug!(
++                            "Deferred capture succeeded for {} (attempt {}): {}",
++                            instance_id,
++                            attempt,
++                            session_id
++                        );
++                        persist_deferred_session_id(&profile, &instance_id, session_id);
++                        return;
++                    }
++
++                    if attempt < DEFERRED_CAPTURE_MAX_ATTEMPTS {
++                        tracing::debug!(
++                            "Deferred capture attempt {}/{} found nothing for {}, retrying",
++                            attempt,
++                            DEFERRED_CAPTURE_MAX_ATTEMPTS,
++                            instance_id
++                        );
++                        std::thread::sleep(DEFERRED_CAPTURE_RETRY_DELAY);
++                    }
++                }
++
++                tracing::debug!(
++                    "Deferred capture exhausted all {} attempts for {}",
++                    DEFERRED_CAPTURE_MAX_ATTEMPTS,
++                    instance_id
++                );
++            })
++            .ok();
++    }
++
+     fn apply_tmux_options(&self) {
+         let name = tmux::Session::generate_name(&self.id, &self.title);
+         self.apply_session_tmux_options(&name, &self.title);
+@@ -669,6 +1242,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use serial_test::serial;
+ 
+     #[test]
+     fn test_new_instance() {
+@@ -996,6 +1570,300 @@ mod tests {
+         assert!(!inst.has_terminal());
+     }
+ 
++    // Tests for agent_session_id field
++    #[test]
++    fn test_agent_session_id_none_by_default() {
++        let inst = Instance::new("test", "/tmp/test");
++        assert!(inst.agent_session_id.is_none());
++    }
++
++    #[test]
++    fn test_agent_session_id_serialization() {
++        let mut inst = Instance::new("test", "/tmp/test");
++        inst.agent_session_id = Some("session-123".to_string());
++
++        let json = serde_json::to_string(&inst).unwrap();
++        let deserialized: Instance = serde_json::from_str(&json).unwrap();
++
++        assert_eq!(
++            deserialized.agent_session_id,
++            Some("session-123".to_string())
++        );
++    }
++
++    #[test]
++    fn test_agent_session_id_skips_none() {
++        let inst = Instance::new("test", "/tmp/test");
++        let json = serde_json::to_string(&inst).unwrap();
++
++        // agent_session_id should not appear in JSON when None
++        assert!(!json.contains("agent_session_id"));
++    }
++
++    #[test]
++    fn test_agent_session_id_defaults_to_none() {
++        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z"}"#;
++        let inst: Instance = serde_json::from_str(json).unwrap();
++
++        assert!(inst.agent_session_id.is_none());
++    }
++
++    #[test]
++    fn test_build_claude_resume_flags_existing() {
++        let session_id = "abc123-def456";
++        let flags = build_resume_flags("claude", session_id, true);
++        assert_eq!(flags, "--resume abc123-def456");
++    }
++
++    #[test]
++    fn test_build_claude_session_id_flags_new() {
++        let session_id = "abc123-def456";
++        let flags = build_resume_flags("claude", session_id, false);
++        assert_eq!(flags, "--session-id abc123-def456");
++    }
++
++    #[test]
++    fn test_build_opencode_resume_flags() {
++        let session_id = "session-789";
++        let flags = build_resume_flags("opencode", session_id, false);
++        assert_eq!(flags, "--session session-789");
++    }
++
++    #[test]
++    fn test_build_codex_resume_flags() {
++        let session_id = "codex-session-xyz";
++        let flags = build_resume_flags("codex", session_id, false);
++        assert_eq!(flags, "resume codex-session-xyz");
++    }
++
++    // Tests for Claude session ID generation
++    #[test]
++    fn test_generate_claude_session_id() {
++        let id = generate_claude_session_id();
++
++        // Should be a valid UUID format
++        assert!(uuid::Uuid::parse_str(&id).is_ok());
++    }
++
++    #[test]
++    fn test_generate_claude_session_id_uniqueness() {
++        let ids: Vec<String> = (0..100).map(|_| generate_claude_session_id()).collect();
++        let unique_ids: std::collections::HashSet<_> = ids.iter().collect();
++
++        assert_eq!(ids.len(), unique_ids.len());
++    }
++
++    // Test that instance with agent_session_id can be serialized and deserialized
++    #[test]
++    fn test_instance_with_agent_session_id_roundtrip() {
++        let mut inst = Instance::new("Test", "/home/user/project");
++        inst.tool = "claude".to_string();
++        inst.agent_session_id = Some("session-abc-123".to_string());
++
++        let json = serde_json::to_string(&inst).unwrap();
++        let deserialized: Instance = serde_json::from_str(&json).unwrap();
++
++        assert_eq!(inst.id, deserialized.id);
++        assert_eq!(inst.title, deserialized.title);
++        assert_eq!(inst.project_path, deserialized.project_path);
++        assert_eq!(inst.tool, deserialized.tool);
++        assert_eq!(inst.agent_session_id, deserialized.agent_session_id);
++    }
++
++    // Test: agent switch clears session ID
++    #[test]
++    fn test_agent_switch_clears_session_id() {
++        let mut inst = Instance::new("Test", "/home/user/project");
++        inst.tool = "claude".to_string();
++        inst.agent_session_id = Some("claude-session-123".to_string());
++
++        // Simulate agent switch by clearing session ID
++        inst.agent_session_id = None;
++        inst.tool = "opencode".to_string();
++
++        // Session ID should be None after switch
++        assert!(inst.agent_session_id.is_none());
++        assert_eq!(inst.tool, "opencode");
++    }
++
++    // Test: empty string session ID treated as None (this test is now covered by test_empty_string_deserializes_to_none)
++    // Kept for backwards compatibility check that the deserializer works correctly
++    #[test]
++    fn test_empty_string_session_id_treated_as_none() {
++        // When deserializing, empty string should be treated as None
++        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":""}"#;
++        let inst: Instance = serde_json::from_str(json).unwrap();
++
++        // Empty string should deserialize to None, not Some("")
++        assert_eq!(inst.agent_session_id, None);
++    }
++
++    #[test]
++    fn test_opencode_acquire_returns_none_for_deferred_capture() {
++        let mut inst = Instance::new("Test", "/tmp/test");
++        inst.tool = "opencode".to_string();
++
++        let (session_id, is_existing) = inst.acquire_session_id();
++
++        assert!(session_id.is_none());
++        assert!(!is_existing);
++        assert!(inst.agent_session_id.is_none());
++    }
++
++    #[test]
++    fn test_codex_acquire_returns_none_for_deferred_capture() {
++        let mut inst = Instance::new("Test", "/nonexistent/path");
++        inst.tool = "codex".to_string();
++
++        let (session_id, is_existing) = inst.acquire_session_id();
++
++        assert!(session_id.is_none());
++        assert!(!is_existing);
++        assert!(inst.agent_session_id.is_none());
++    }
++
++    #[test]
++    fn test_persisted_opencode_session_id_reused() {
++        let mut inst = Instance::new("Test", "/tmp/test");
++        inst.tool = "opencode".to_string();
++        inst.agent_session_id = Some("oc-session-42".to_string());
++
++        let (session_id, is_existing) = inst.acquire_session_id();
++
++        assert_eq!(session_id, Some("oc-session-42".to_string()));
++        assert!(is_existing);
++    }
++
++    #[test]
++    fn test_persisted_codex_session_id_reused() {
++        let mut inst = Instance::new("Test", "/tmp/test");
++        inst.tool = "codex".to_string();
++        inst.agent_session_id = Some("codex-sess-99".to_string());
++
++        let (session_id, is_existing) = inst.acquire_session_id();
++
++        assert_eq!(session_id, Some("codex-sess-99".to_string()));
++        assert!(is_existing);
++    }
++
++    // Test: resume with invalid session ID
++    #[test]
++    fn test_resume_with_invalid_session_id() {
++        // Test that an invalid session ID is still stored and used
++        let mut inst = Instance::new("Test", "/home/user/project");
++        inst.tool = "claude".to_string();
++        inst.agent_session_id = Some("invalid-session-id".to_string());
++
++        // With an existing (persisted) session, should use --resume
++        let flags = build_resume_flags(&inst.tool, inst.agent_session_id.as_ref().unwrap(), true);
++        assert_eq!(flags, "--resume invalid-session-id");
++
++        // The method should return the existing session ID and mark it as existing
++        let (session_id, is_existing) = inst.acquire_session_id();
++        assert_eq!(session_id, Some("invalid-session-id".to_string()));
++        assert!(is_existing);
++    }
++
++    // Test: backwards compatibility - load old JSON without agent_session_id
++    #[test]
++    fn test_backwards_compatibility() {
++        // Old JSON without agent_session_id field
++        let old_json = r#"{"id":"old-session-123","title":"Old Session","project_path":"/home/user/old","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z"}"#;
++
++        let inst: Instance = serde_json::from_str(old_json).unwrap();
++
++        // Should parse successfully with agent_session_id defaulting to None
++        assert_eq!(inst.id, "old-session-123");
++        assert_eq!(inst.title, "Old Session");
++        assert_eq!(inst.project_path, "/home/user/old");
++        assert_eq!(inst.tool, "claude");
++        assert!(inst.agent_session_id.is_none());
++
++        // After loading, can set a new session ID
++        let mut inst = inst;
++        inst.agent_session_id = Some("new-session-456".to_string());
++        assert_eq!(inst.agent_session_id, Some("new-session-456".to_string()));
++    }
++
++    #[test]
++    fn test_empty_string_deserializes_to_none() {
++        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":""}"#;
++        let inst: Instance = serde_json::from_str(json).unwrap();
++        assert!(inst.agent_session_id.is_none());
++    }
++
++    #[test]
++    fn test_whitespace_string_deserializes_to_none() {
++        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":"   "}"#;
++        let inst: Instance = serde_json::from_str(json).unwrap();
++        assert!(inst.agent_session_id.is_none());
++    }
++
++    #[test]
++    fn test_valid_session_id_preserved() {
++        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":"abc-123"}"#;
++        let inst: Instance = serde_json::from_str(json).unwrap();
++        assert_eq!(inst.agent_session_id, Some("abc-123".to_string()));
++    }
++
++    #[test]
++    fn test_build_unknown_tool_resume_flags() {
++        let flags = build_resume_flags("mistral", "session-123", false);
++        assert!(flags.is_empty());
++    }
++
++    #[test]
++    fn test_acquire_session_id_idempotence() {
++        let mut inst = Instance::new("Test", "/tmp/test");
++        inst.tool = "claude".to_string();
++
++        let (first, first_existing) = inst.acquire_session_id();
++        let (second, second_existing) = inst.acquire_session_id();
++
++        assert!(first.is_some());
++        assert!(!first_existing);
++        assert!(second_existing);
++        assert_eq!(first, second);
++    }
++
++    // Tests the timeout+SIGKILL pattern, not the actual capture_opencode_session_id
++    // function, since that requires the opencode binary to be installed.
++    #[test]
++    fn test_opencode_timeout_returns_error() {
++        let result = slow_command_with_timeout();
++        assert!(result.is_err());
++        let err_msg = result.unwrap_err().to_string();
++        assert!(err_msg.contains("timed out"));
++    }
++
++    fn slow_command_with_timeout() -> Result<String> {
++        let child = std::process::Command::new("sleep")
++            .args(["10"])
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped())
++            .spawn()
++            .context("Failed to spawn sleep command")?;
++
++        let child_id = child.id();
++        let (tx, rx) = mpsc::channel();
++
++        std::thread::spawn(move || {
++            let _ = tx.send(child.wait_with_output());
++        });
++
++        let _output = match rx.recv_timeout(Duration::from_secs(1)) {
++            Ok(Ok(out)) => out,
++            Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute: {}", e)),
++            Err(_) => {
++                tracing::debug!("Command timed out after 1 second");
++                let _ = nix::sys::signal::kill(Pid::from_raw(child_id as i32), Signal::SIGKILL);
++                return Err(anyhow::anyhow!("Command timed out"));
++            }
++        };
++
++        Ok("dummy".to_string())
++    }
++
+     #[test]
+     fn test_has_custom_command_empty() {
+         let inst = Instance::new("test", "/tmp/test");
+@@ -1034,4 +1902,161 @@ mod tests {
+         let deserialized: Status = serde_json::from_str(&json).unwrap();
+         assert_eq!(deserialized, Status::Unknown);
+     }
++
++    #[test]
++    fn test_opencode_directory_matching() {
++        // Use numeric epoch timestamps (milliseconds) matching OpenCode's Date.now() format.
++        let sessions_json = serde_json::json!([
++            {"id": "wrong-session", "directory": "/home/user/other-project", "updated": 1735689600000_u64},
++            {"id": "correct-session", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
++            {"id": "older-match", "directory": "/tmp/my-project", "updated": 1735689600000_u64},
++        ]);
++        let sessions: Vec<serde_json::Value> = serde_json::from_value(sessions_json).unwrap();
++
++        let project_path = "/tmp/my-project";
++        let canonical_path = std::fs::canonicalize(project_path)
++            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
++        let canonical_str = canonical_path.to_string_lossy();
++
++        let mut matching: Vec<&serde_json::Value> = sessions
++            .iter()
++            .filter(|s| {
++                s.get("directory")
++                    .or_else(|| s.get("path"))
++                    .and_then(|v| v.as_str())
++                    .map(|dir| {
++                        let session_path = std::fs::canonicalize(dir)
++                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
++                        session_path.to_string_lossy() == canonical_str
++                    })
++                    .unwrap_or(false)
++            })
++            .collect();
++
++        // Sort by numeric epoch (most recent first), matching production code.
++        matching.sort_by(|a, b| {
++            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++            b_time
++                .partial_cmp(&a_time)
++                .unwrap_or(std::cmp::Ordering::Equal)
++        });
++
++        let session = matching.first().copied().or_else(|| sessions.first());
++        let id = session.and_then(|s| s["id"].as_str()).unwrap();
++
++        assert_eq!(id, "correct-session");
++        assert_eq!(matching.len(), 2);
++    }
++
++    #[test]
++    fn test_codex_most_recent_session_selected() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        std::fs::create_dir_all(&sessions_dir).unwrap();
++
++        let uuid_old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        let uuid_new = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++        std::fs::write(
++            sessions_dir.join(format!("rollout-2025-01-01T00-00-00-{}.jsonl", uuid_old)),
++            "{}",
++        )
++        .unwrap();
++        std::thread::sleep(std::time::Duration::from_millis(50));
++        std::fs::write(
++            sessions_dir.join(format!("rollout-2025-01-02T00-00-00-{}.jsonl", uuid_new)),
++            "{}",
++        )
++        .unwrap();
++
++        let mut entries: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
++        collect_codex_sessions(&sessions_dir, &mut entries).unwrap();
++        entries.sort_by(|a, b| b.1.cmp(&a.1));
++
++        let selected = entries
++            .first()
++            .and_then(|(p, _)| extract_codex_uuid_from_filename(p))
++            .unwrap();
++        assert_eq!(selected, uuid_new);
++    }
++
++    #[test]
++    #[serial]
++    fn test_codex_respects_codex_home_env() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        std::fs::create_dir_all(&sessions_dir).unwrap();
++
++        let uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc";
++        std::fs::write(
++            sessions_dir.join(format!("rollout-2025-03-06T10-30-00-{}.jsonl", uuid)),
++            "{}",
++        )
++        .unwrap();
++
++        let old_val = std::env::var("CODEX_HOME").ok();
++        std::env::set_var("CODEX_HOME", tmp.path());
++
++        let result = capture_codex_session_id("/tmp/test");
++        assert!(result.is_ok());
++        assert_eq!(result.unwrap(), uuid);
++
++        match old_val {
++            Some(v) => std::env::set_var("CODEX_HOME", v),
++            None => std::env::remove_var("CODEX_HOME"),
++        }
++    }
++
++    #[test]
++    fn test_codex_walks_date_partitioned_dirs() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++
++        let date_path = sessions_dir.join("2025").join("03").join("06");
++        std::fs::create_dir_all(&date_path).unwrap();
++
++        let uuid_deep = "dddddddd-dddd-dddd-dddd-dddddddddddd";
++        let uuid_flat = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
++        std::fs::write(
++            date_path.join(format!("rollout-2025-03-06T12-00-00-{}.jsonl", uuid_deep)),
++            "{}",
++        )
++        .unwrap();
++        std::fs::write(
++            sessions_dir.join(format!("rollout-2025-01-01T00-00-00-{}.jsonl", uuid_flat)),
++            "{}",
++        )
++        .unwrap();
++
++        let mut entries: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
++        collect_codex_sessions(&sessions_dir, &mut entries).unwrap();
++
++        let uuids: Vec<String> = entries
++            .iter()
++            .filter_map(|(p, _)| extract_codex_uuid_from_filename(p))
++            .collect();
++
++        assert!(uuids.contains(&uuid_deep.to_string()));
++        assert!(uuids.contains(&uuid_flat.to_string()));
++        assert_eq!(uuids.len(), 2);
++    }
++
++    #[test]
++    fn test_extract_codex_uuid_from_filename() {
++        let uuid = "abcdef01-2345-6789-abcd-ef0123456789";
++        let path = std::path::PathBuf::from(format!("rollout-2025-03-06T12-00-00-{}.jsonl", uuid));
++        assert_eq!(
++            extract_codex_uuid_from_filename(&path),
++            Some(uuid.to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_codex_uuid_fallback_for_non_standard_filename() {
++        let path = std::path::PathBuf::from("my-thread-name.jsonl");
++        assert_eq!(
++            extract_codex_uuid_from_filename(&path),
++            Some("my-thread-name".to_string())
++        );
++    }
+ }

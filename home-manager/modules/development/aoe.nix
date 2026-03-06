@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  self,
   inputs,
   ...
 }:
@@ -9,6 +10,21 @@
 let
   cfg = config.modules.development.aoe;
   system = pkgs.stdenv.hostPlatform.system;
+
+  baseAoePackage = inputs.agent-of-empires.packages.${system}.default or null;
+
+  aoePackage =
+    if baseAoePackage != null then
+      baseAoePackage.overrideAttrs (oldAttrs: {
+        patches = (oldAttrs.patches or [ ]) ++ [
+          # https://github.com/njbrake/agent-of-empires/pull/386
+          (self + "/patches/aoe/detect-shell-pane-relaunch.patch")
+          # https://github.com/njbrake/agent-of-empires/pull/382
+          (self + "/patches/aoe/persist-resume-agent-session-ids.patch")
+        ];
+      })
+    else
+      null;
 
   aoeConfig = ''
     [theme]
@@ -24,7 +40,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = inputs.agent-of-empires.packages.${system}.default or null;
+      default = aoePackage;
       defaultText = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";
       description = "Agent of Empires package";
       example = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";

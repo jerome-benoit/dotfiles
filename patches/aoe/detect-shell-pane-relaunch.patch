@@ -1,0 +1,288 @@
+diff --git a/src/session/instance.rs b/src/session/instance.rs
+index 006f6d25..803be36b 100644
+--- a/src/session/instance.rs
++++ b/src/session/instance.rs
+@@ -159,6 +159,10 @@ impl Instance {
+             .unwrap_or(true)
+     }
+ 
++    pub fn expects_shell(&self) -> bool {
++        crate::tmux::utils::is_shell_command(self.get_tool_command())
++    }
++
+     pub fn get_tool_command(&self) -> &str {
+         if self.command.is_empty() {
+             crate::agents::get_agent(&self.tool)
+@@ -620,15 +624,16 @@ impl Instance {
+             self.has_custom_command(),
+             detected
+         );
++        let shell_pane_is_stale = !self.expects_shell() && session.is_pane_running_shell();
+         self.status = match detected {
+             Status::Idle if self.has_custom_command() => {
+-                if session.is_pane_dead() {
++                if session.is_pane_dead() || shell_pane_is_stale {
+                     Status::Error
+                 } else {
+                     Status::Unknown
+                 }
+             }
+-            Status::Idle if session.is_pane_dead() => Status::Error,
++            Status::Idle if session.is_pane_dead() || shell_pane_is_stale => Status::Error,
+             other => other,
+         };
+ 
+@@ -1026,6 +1031,23 @@ mod tests {
+         assert!(inst.has_custom_command());
+     }
+ 
++    #[test]
++    fn test_expects_shell() {
++        let mut inst = Instance::new("test", "/tmp/test");
++        assert!(!inst.expects_shell());
++
++        inst.tool = "unknown-tool".to_string();
++        inst.command = String::new();
++        assert!(inst.expects_shell());
++
++        inst.tool = "claude".to_string();
++        inst.command = "bash".to_string();
++        assert!(inst.expects_shell());
++
++        inst.command = "my-agent".to_string();
++        assert!(!inst.expects_shell());
++    }
++
+     #[test]
+     fn test_status_unknown_serialization() {
+         let status = Status::Unknown;
+diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
+index be1a70af..3cc4b3ef 100644
+--- a/src/tmux/mod.rs
++++ b/src/tmux/mod.rs
+@@ -4,7 +4,7 @@ mod session;
+ pub mod status_bar;
+ pub(crate) mod status_detection;
+ mod terminal_session;
+-mod utils;
++pub(crate) mod utils;
+ 
+ pub use session::Session;
+ pub use status_bar::{get_session_info_for_current, get_status_for_current_session};
+diff --git a/src/tmux/session.rs b/src/tmux/session.rs
+index b884dc91..223b441a 100644
+--- a/src/tmux/session.rs
++++ b/src/tmux/session.rs
+@@ -4,7 +4,9 @@ use anyhow::{bail, Result};
+ use std::process::Command;
+ 
+ use super::{
+-    refresh_session_cache, session_exists_from_cache, utils::is_pane_dead, SESSION_PREFIX,
++    refresh_session_cache, session_exists_from_cache,
++    utils::{is_pane_dead, is_pane_running_shell},
++    SESSION_PREFIX,
+ };
+ use crate::cli::truncate_id;
+ use crate::process;
+@@ -79,6 +81,10 @@ impl Session {
+         is_pane_dead(&self.name)
+     }
+ 
++    pub fn is_pane_running_shell(&self) -> bool {
++        is_pane_running_shell(&self.name)
++    }
++
+     pub fn kill(&self) -> Result<()> {
+         if !self.exists() {
+             return Ok(());
+@@ -440,4 +446,81 @@ mod tests {
+         // Command should be last
+         assert_eq!(args.last().unwrap(), "claude");
+     }
++
++    #[test]
++    #[serial_test::serial]
++    fn test_is_pane_running_shell_on_shell_session() {
++        if !tmux_available() {
++            eprintln!("Skipping test: tmux not available");
++            return;
++        }
++
++        let session_name = format!("aoe_test_shell_{}", std::process::id());
++
++        let output = Command::new("tmux")
++            .args([
++                "new-session",
++                "-d",
++                "-s",
++                &session_name,
++                "-x",
++                "80",
++                "-y",
++                "24",
++                "sh",
++            ])
++            .output()
++            .expect("tmux new-session");
++        assert!(output.status.success());
++
++        std::thread::sleep(std::time::Duration::from_millis(200));
++
++        assert!(
++            is_pane_running_shell(&session_name),
++            "Session running sh should be detected as a shell"
++        );
++
++        let _ = Command::new("tmux")
++            .args(["kill-session", "-t", &session_name])
++            .output();
++    }
++
++    #[test]
++    #[serial_test::serial]
++    fn test_is_pane_running_shell_on_non_shell_session() {
++        if !tmux_available() {
++            eprintln!("Skipping test: tmux not available");
++            return;
++        }
++
++        let session_name = format!("aoe_test_noshell_{}", std::process::id());
++
++        let output = Command::new("tmux")
++            .args([
++                "new-session",
++                "-d",
++                "-s",
++                &session_name,
++                "-x",
++                "80",
++                "-y",
++                "24",
++                "sleep",
++                "30",
++            ])
++            .output()
++            .expect("tmux new-session");
++        assert!(output.status.success());
++
++        std::thread::sleep(std::time::Duration::from_millis(200));
++
++        assert!(
++            !is_pane_running_shell(&session_name),
++            "Session running 'sleep' should not be detected as a shell"
++        );
++
++        let _ = Command::new("tmux")
++            .args(["kill-session", "-t", &session_name])
++            .output();
++    }
+ }
+diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
+index 3eda653c..e44d32e6 100644
+--- a/src/tmux/utils.rs
++++ b/src/tmux/utils.rs
+@@ -48,6 +48,39 @@ pub fn is_pane_dead(session_name: &str) -> bool {
+         .unwrap_or(false)
+ }
+ 
++fn pane_current_command(session_name: &str) -> Option<String> {
++    Command::new("tmux")
++        .args([
++            "display-message",
++            "-t",
++            session_name,
++            "-p",
++            "#{pane_current_command}",
++        ])
++        .output()
++        .ok()
++        .and_then(|o| String::from_utf8(o.stdout).ok())
++        .map(|s| s.trim().to_string())
++        .filter(|s| !s.is_empty())
++}
++
++// Shells that indicate the agent is not running (the pane was restored by
++// tmux-resurrect, the agent crashed back to a prompt, or the user exited).
++const KNOWN_SHELLS: &[&str] = &[
++    "bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "pwsh",
++];
++
++pub(crate) fn is_shell_command(cmd: &str) -> bool {
++    let normalized = cmd.strip_prefix('-').unwrap_or(cmd);
++    KNOWN_SHELLS.contains(&normalized)
++}
++
++pub fn is_pane_running_shell(session_name: &str) -> bool {
++    pane_current_command(session_name)
++        .map(|cmd| is_shell_command(&cmd))
++        .unwrap_or(false)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -122,4 +155,36 @@ mod tests {
+         assert!(result.contains('_'));
+         assert!(!result.contains('😀'));
+     }
++
++    #[test]
++    fn test_is_shell_command_recognizes_common_shells() {
++        for shell in KNOWN_SHELLS {
++            assert!(
++                is_shell_command(shell),
++                "{shell} should be recognized as a shell"
++            );
++        }
++    }
++
++    #[test]
++    fn test_is_shell_command_recognizes_login_shells() {
++        for shell in ["-bash", "-zsh", "-sh", "-fish"] {
++            assert!(
++                is_shell_command(shell),
++                "{shell} should be recognized as a login shell"
++            );
++        }
++    }
++
++    #[test]
++    fn test_is_shell_command_rejects_agent_binaries() {
++        for cmd in [
++            "claude", "opencode", "codex", "gemini", "cursor", "sleep", "python",
++        ] {
++            assert!(
++                !is_shell_command(cmd),
++                "{cmd} should not be recognized as a shell"
++            );
++        }
++    }
+ }
+diff --git a/src/tui/app.rs b/src/tui/app.rs
+index 8c46cac1..afe9f195 100644
+--- a/src/tui/app.rs
++++ b/src/tui/app.rs
+@@ -383,7 +383,10 @@ impl App {
+ 
+         let tmux_session = instance.tmux_session()?;
+ 
+-        if !tmux_session.exists() || tmux_session.is_pane_dead() {
++        if !tmux_session.exists()
++            || tmux_session.is_pane_dead()
++            || (!instance.expects_shell() && tmux_session.is_pane_running_shell())
++        {
+             if tmux_session.exists() {
+                 let _ = tmux_session.kill();
+             }
+diff --git a/src/tui/styles.rs b/src/tui/styles.rs
+index 2283c528..db2ec05b 100644
+--- a/src/tui/styles.rs
++++ b/src/tui/styles.rs
+@@ -257,6 +257,7 @@ mod tests {
+         assert_eq!(theme.title, Color::Rgb(122, 162, 247));
+         assert_eq!(theme.background, Color::Rgb(36, 40, 59));
+     }
++
+     #[test]
+     fn test_load_dracula() {
+         let theme = load_theme("dracula");
