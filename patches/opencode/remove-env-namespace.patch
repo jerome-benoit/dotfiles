@@ -9,7 +9,7 @@ index 99a9a81ab9c..48214236bd0 100644
  import { cmd } from "./cmd"
  import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk"
 diff --git a/packages/opencode/src/cli/cmd/auth.ts b/packages/opencode/src/cli/cmd/auth.ts
-index a7300e02930..fad4b66d51a 100644
+index 38fba0ce703..47622ba7d7a 100644
 --- a/packages/opencode/src/cli/cmd/auth.ts
 +++ b/packages/opencode/src/cli/cmd/auth.ts
 @@ -1,4 +1,5 @@
@@ -19,7 +19,7 @@ index a7300e02930..fad4b66d51a 100644
  import * as prompts from "@clack/prompts"
  import { UI } from "../ui"
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index 672e73d49a9..c24abbac63c 100644
+index 2491abc567d..703fc0c97ac 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -17,6 +17,7 @@ import type {
@@ -30,7 +30,7 @@ index 672e73d49a9..c24abbac63c 100644
  import { cmd } from "./cmd"
  import { ModelsDev } from "../../provider/models"
  import { Instance } from "@/project/instance"
-@@ -450,7 +451,7 @@ export const GithubRunCommand = cmd({
+@@ -451,7 +452,7 @@ export const GithubRunCommand = cmd({
        const isWorkflowDispatchEvent = context.eventName === "workflow_dispatch"
  
        const { providerID, modelID } = normalizeModel()
@@ -39,7 +39,7 @@ index 672e73d49a9..c24abbac63c 100644
        const runId = normalizeRunId()
        const share = normalizeShare()
        const oidcBaseUrl = normalizeOidcBaseUrl()
-@@ -495,7 +496,7 @@ export const GithubRunCommand = cmd({
+@@ -496,7 +497,7 @@ export const GithubRunCommand = cmd({
  
        try {
          if (useGithubToken) {
@@ -48,7 +48,7 @@ index 672e73d49a9..c24abbac63c 100644
            if (!githubToken) {
              throw new Error(
                "GITHUB_TOKEN environment variable is not set. When using use_github_token, you must provide GITHUB_TOKEN.",
-@@ -678,7 +679,7 @@ export const GithubRunCommand = cmd({
+@@ -679,7 +680,7 @@ export const GithubRunCommand = cmd({
        process.exit(exitCode)
  
        function normalizeModel() {
@@ -57,7 +57,7 @@ index 672e73d49a9..c24abbac63c 100644
          if (!value) throw new Error(`Environment variable "MODEL" is not set`)
  
          const { providerID, modelID } = Provider.parseModel(value)
-@@ -689,13 +690,13 @@ export const GithubRunCommand = cmd({
+@@ -690,13 +691,13 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeRunId() {
@@ -73,7 +73,7 @@ index 672e73d49a9..c24abbac63c 100644
          if (!value) return undefined
          if (value === "true") return true
          if (value === "false") return false
-@@ -703,7 +704,7 @@ export const GithubRunCommand = cmd({
+@@ -704,7 +705,7 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeUseGithubToken() {
@@ -82,7 +82,7 @@ index 672e73d49a9..c24abbac63c 100644
          if (!value) return false
          if (value === "true") return true
          if (value === "false") return false
-@@ -711,7 +712,7 @@ export const GithubRunCommand = cmd({
+@@ -712,7 +713,7 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeOidcBaseUrl(): string {
@@ -91,7 +91,7 @@ index 672e73d49a9..c24abbac63c 100644
          if (!value) return "https://api.opencode.ai"
          return value.replace(/\/+$/, "")
        }
-@@ -746,7 +747,7 @@ export const GithubRunCommand = cmd({
+@@ -747,7 +748,7 @@ export const GithubRunCommand = cmd({
        }
  
        async function getUserPrompt() {
@@ -100,7 +100,7 @@ index 672e73d49a9..c24abbac63c 100644
          // For repo events and issues events, PROMPT is required since there's no comment to extract from
          if (isRepoEvent || isIssuesEvent) {
            if (!customPrompt) {
-@@ -761,7 +762,7 @@ export const GithubRunCommand = cmd({
+@@ -762,7 +763,7 @@ export const GithubRunCommand = cmd({
          }
  
          const reviewContext = getReviewCommentContext()
@@ -149,10 +149,10 @@ index f53cc392552..49babb8b5ae 100644
  import { TuiConfig } from "@/config/tui"
  import { Instance } from "@/project/instance"
 diff --git a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
-index 1a8197bf4e8..14732c08a2c 100644
+index 412ec654ff9..04bb5cc1a3e 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
-@@ -16,7 +16,7 @@ function writeOsc52(text: string): void {
+@@ -17,7 +17,7 @@ function writeOsc52(text: string): void {
    if (!process.stdout.isTTY) return
    const base64 = Buffer.from(text).toString("base64")
    const osc52 = `\x1b]52;c;${base64}\x07`
@@ -161,12 +161,12 @@ index 1a8197bf4e8..14732c08a2c 100644
    const sequence = passthrough ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52
    process.stdout.write(sequence)
  }
-@@ -85,7 +85,7 @@ export namespace Clipboard {
+@@ -86,7 +86,7 @@ export namespace Clipboard {
      }
  
      if (os === "linux") {
--      if (process.env["WAYLAND_DISPLAY"] && Bun.which("wl-copy")) {
-+      if (process.env.WAYLAND_DISPLAY && Bun.which("wl-copy")) {
+-      if (process.env["WAYLAND_DISPLAY"] && which("wl-copy")) {
++      if (process.env.WAYLAND_DISPLAY && which("wl-copy")) {
          console.log("clipboard: using wl-copy")
          return async (text: string) => {
            const proc = Process.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
@@ -359,28 +359,28 @@ index 4fd5f0e67b3..5a3c8264ca8 100644
  import { TuiThreadCommand } from "./cli/cmd/tui/thread"
  import { AcpCommand } from "./cli/cmd/acp"
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index afd297a5ed6..5c1f60fc638 100644
+index e09fbc97fe3..e90a0ce86a5 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
-@@ -369,7 +369,7 @@ export namespace LSPServer {
+@@ -370,7 +370,7 @@ export namespace LSPServer {
      extensions: [".go"],
      async spawn(root) {
-       let bin = Bun.which("gopls", {
+       let bin = which("gopls", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
        if (!bin) {
-         if (!Bun.which("go")) return
-@@ -406,7 +406,7 @@ export namespace LSPServer {
+         if (!which("go")) return
+@@ -407,7 +407,7 @@ export namespace LSPServer {
      extensions: [".rb", ".rake", ".gemspec", ".ru"],
      async spawn(root) {
-       let bin = Bun.which("rubocop", {
+       let bin = which("rubocop", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
        if (!bin) {
-         const ruby = Bun.which("ruby")
-@@ -461,7 +461,7 @@ export namespace LSPServer {
+         const ruby = which("ruby")
+@@ -462,7 +462,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -389,7 +389,7 @@ index afd297a5ed6..5c1f60fc638 100644
          (p): p is string => p !== undefined,
        )
        for (const venvPath of potentialVenvPaths) {
-@@ -530,7 +530,7 @@ export namespace LSPServer {
+@@ -531,7 +531,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -398,83 +398,83 @@ index afd297a5ed6..5c1f60fc638 100644
          (p): p is string => p !== undefined,
        )
        for (const venvPath of potentialVenvPaths) {
-@@ -626,7 +626,7 @@ export namespace LSPServer {
+@@ -627,7 +627,7 @@ export namespace LSPServer {
      root: NearestRoot(["build.zig"]),
      async spawn(root) {
-       let bin = Bun.which("zls", {
+       let bin = which("zls", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
  
        if (!bin) {
-@@ -738,7 +738,7 @@ export namespace LSPServer {
+@@ -739,7 +739,7 @@ export namespace LSPServer {
      extensions: [".cs"],
      async spawn(root) {
-       let bin = Bun.which("csharp-ls", {
+       let bin = which("csharp-ls", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
        if (!bin) {
-         if (!Bun.which("dotnet")) {
-@@ -777,7 +777,7 @@ export namespace LSPServer {
+         if (!which("dotnet")) {
+@@ -778,7 +778,7 @@ export namespace LSPServer {
      extensions: [".fs", ".fsi", ".fsx", ".fsscript"],
      async spawn(root) {
-       let bin = Bun.which("fsautocomplete", {
+       let bin = which("fsautocomplete", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
        if (!bin) {
-         if (!Bun.which("dotnet")) {
-@@ -1381,7 +1381,7 @@ export namespace LSPServer {
+         if (!which("dotnet")) {
+@@ -1382,7 +1382,7 @@ export namespace LSPServer {
      extensions: [".lua"],
      async spawn(root) {
-       let bin = Bun.which("lua-language-server", {
+       let bin = which("lua-language-server", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
  
        if (!bin) {
-@@ -1649,7 +1649,7 @@ export namespace LSPServer {
+@@ -1650,7 +1650,7 @@ export namespace LSPServer {
      root: NearestRoot([".terraform.lock.hcl", "terraform.tfstate", "*.tf"]),
      async spawn(root) {
-       let bin = Bun.which("terraform-ls", {
+       let bin = which("terraform-ls", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
  
        if (!bin) {
-@@ -1732,7 +1732,7 @@ export namespace LSPServer {
+@@ -1733,7 +1733,7 @@ export namespace LSPServer {
      root: NearestRoot([".latexmkrc", "latexmkrc", ".texlabroot", "texlabroot"]),
      async spawn(root) {
-       let bin = Bun.which("texlab", {
+       let bin = which("texlab", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
  
        if (!bin) {
-@@ -1931,7 +1931,7 @@ export namespace LSPServer {
+@@ -1932,7 +1932,7 @@ export namespace LSPServer {
      root: NearestRoot(["typst.toml"]),
      async spawn(root) {
-       let bin = Bun.which("tinymist", {
+       let bin = which("tinymist", {
 -        PATH: process.env["PATH"] + path.delimiter + Global.Path.bin,
 +        PATH: process.env.PATH + path.delimiter + Global.Path.bin,
        })
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 81703836524..5d35d9ee8a5 100644
+index b4836ae047d..5061a8093a8 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -10,7 +10,7 @@ import { Plugin } from "../plugin"
- import { ModelsDev } from "./models"
+@@ -11,7 +11,7 @@ import { Plugin } from "../plugin"
  import { NamedError } from "@opencode-ai/util/error"
+ import { ModelsDev } from "./models"
  import { Auth } from "../auth"
 -import { Env } from "../env"
 +
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -62,9 +62,12 @@ export namespace Provider {
+@@ -63,9 +63,12 @@ export namespace Provider {
  
    function googleVertexVars(options: Record<string, any>) {
      const project =
@@ -489,7 +489,7 @@ index 81703836524..5d35d9ee8a5 100644
      const endpoint = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`
  
      return {
-@@ -79,7 +82,7 @@ export namespace Provider {
+@@ -80,7 +83,7 @@ export namespace Provider {
      if (typeof raw !== "string") return raw
      const vars = model.providerID === "google-vertex" ? googleVertexVars(options) : undefined
      return raw.replace(/\$\{([^}]+)\}/g, (match, key) => {
@@ -498,7 +498,7 @@ index 81703836524..5d35d9ee8a5 100644
        return val ?? match
      })
    }
-@@ -130,7 +133,7 @@ export namespace Provider {
+@@ -131,7 +134,7 @@ export namespace Provider {
      },
      async opencode(input) {
        const hasKey = await (async () => {
@@ -507,7 +507,7 @@ index 81703836524..5d35d9ee8a5 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -193,7 +196,7 @@ export namespace Provider {
+@@ -194,7 +197,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -516,7 +516,7 @@ index 81703836524..5d35d9ee8a5 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -216,18 +219,16 @@ export namespace Provider {
+@@ -217,18 +220,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -538,7 +538,7 @@ index 81703836524..5d35d9ee8a5 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -238,7 +239,7 @@ export namespace Provider {
+@@ -239,7 +240,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -547,7 +547,7 @@ index 81703836524..5d35d9ee8a5 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -381,12 +382,15 @@ export namespace Provider {
+@@ -382,12 +383,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -567,7 +567,7 @@ index 81703836524..5d35d9ee8a5 100644
  
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
-@@ -413,8 +417,8 @@ export namespace Provider {
+@@ -414,8 +418,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -578,7 +578,7 @@ index 81703836524..5d35d9ee8a5 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -431,8 +435,6 @@ export namespace Provider {
+@@ -432,8 +436,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -587,7 +587,7 @@ index 81703836524..5d35d9ee8a5 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -465,13 +467,13 @@ export namespace Provider {
+@@ -466,13 +468,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -603,7 +603,7 @@ index 81703836524..5d35d9ee8a5 100644
        })()
  
        const config = await Config.get()
-@@ -507,11 +509,11 @@ export namespace Provider {
+@@ -508,11 +510,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -617,7 +617,7 @@ index 81703836524..5d35d9ee8a5 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -530,14 +532,14 @@ export namespace Provider {
+@@ -531,14 +533,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -635,7 +635,7 @@ index 81703836524..5d35d9ee8a5 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -912,7 +914,7 @@ export namespace Provider {
+@@ -913,7 +915,7 @@ export namespace Provider {
      }
  
      // load env
@@ -658,7 +658,7 @@ index c36616b7ef9..365d161dfb7 100644
    export async function init() {
      if (disabled) return
 diff --git a/packages/opencode/src/shell/shell.ts b/packages/opencode/src/shell/shell.ts
-index e7b7cdb3e4d..e8a4977fc52 100644
+index 60ae46f5ee7..158da96259b 100644
 --- a/packages/opencode/src/shell/shell.ts
 +++ b/packages/opencode/src/shell/shell.ts
 @@ -1,4 +1,5 @@
@@ -666,7 +666,7 @@ index e7b7cdb3e4d..e8a4977fc52 100644
 +
  import { lazy } from "@/util/lazy"
  import { Filesystem } from "@/util/filesystem"
- import path from "path"
+ import { which } from "@/util/which"
 diff --git a/packages/opencode/src/util/proxied.ts b/packages/opencode/src/util/proxied.ts
 index 440a9cccedb..29214615e6a 100644
 --- a/packages/opencode/src/util/proxied.ts
@@ -1021,19 +1021,19 @@ index e10700e80ff..c366bab0704 100644
      expect(Ide.alreadyInstalled()).toBe(false)
    })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 41028633e83..e801a72c442 100644
+index caac3bb0de0..3ae0dac37b1 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
-@@ -3,7 +3,7 @@
- import os from "os"
+@@ -4,7 +4,7 @@ import os from "os"
  import path from "path"
  import fs from "fs/promises"
+ import { setTimeout as sleep } from "node:timers/promises"
 -import { afterAll } from "bun:test"
 +import { afterAll, beforeEach, afterEach } from "bun:test"
  
  // Set XDG env vars FIRST, before any src/ imports
  const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
-@@ -28,21 +28,21 @@ afterAll(async () => {
+@@ -29,21 +29,21 @@ afterAll(async () => {
    await rm(30)
  })
  
@@ -1062,7 +1062,7 @@ index 41028633e83..e801a72c442 100644
  
  // Write the cache version file to prevent global/index.ts from clearing the cache
  const cacheDir = path.join(dir, "cache", "opencode")
-@@ -50,25 +50,25 @@ await fs.mkdir(cacheDir, { recursive: true })
+@@ -51,25 +51,25 @@ await fs.mkdir(cacheDir, { recursive: true })
  await fs.writeFile(path.join(cacheDir, "version"), "14")
  
  // Clear provider env vars to ensure clean test state
@@ -1107,7 +1107,7 @@ index 41028633e83..e801a72c442 100644
  
  // Now safe to import from src/
  const { Log } = await import("../src/util/log")
-@@ -78,3 +78,27 @@ Log.init({
+@@ -79,3 +79,27 @@ Log.init({
    dev: true,
    level: "DEBUG",
  })
