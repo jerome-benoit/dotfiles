@@ -17,10 +17,8 @@ let
     if baseAoePackage != null then
       baseAoePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
-          # https://github.com/njbrake/agent-of-empires/pull/386
-          (self + "/patches/aoe/detect-shell-pane-relaunch.patch")
           # https://github.com/njbrake/agent-of-empires/pull/382
-          (self + "/patches/aoe/persist-resume-agent-session-ids.patch")
+          # (self + "/patches/aoe/persist-resume-agent-session-ids.patch")
         ];
       })
     else
