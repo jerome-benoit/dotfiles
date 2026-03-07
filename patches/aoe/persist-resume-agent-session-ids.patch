@@ -1,5 +1,136 @@
+diff --git a/docs/cli/reference.md b/docs/cli/reference.md
+index bba4d9a5..7601fbf9 100644
+--- a/docs/cli/reference.md
++++ b/docs/cli/reference.md
+@@ -18,6 +18,7 @@ This document contains the help content for the `aoe` command-line program.
+ * [`aoe session show`↴](#aoe-session-show)
+ * [`aoe session rename`↴](#aoe-session-rename)
+ * [`aoe session current`↴](#aoe-session-current)
++* [`aoe session set-session-id`↴](#aoe-session-set-session-id)
+ * [`aoe group`↴](#aoe-group)
+ * [`aoe group list`↴](#aoe-group-list)
+ * [`aoe group create`↴](#aoe-group-create)
+@@ -176,6 +177,7 @@ Manage session lifecycle (start, stop, attach, etc.)
+ * `show` — Show session details
+ * `rename` — Rename a session
+ * `current` — Auto-detect current session
++* `set-session-id` — Set agent session ID for a session
+ 
+ 
+ 
+@@ -273,6 +275,19 @@ Auto-detect current session
+ 
+ 
+ 
++## `aoe session set-session-id`
++
++Set agent session ID for a session
++
++**Usage:** `aoe session set-session-id <IDENTIFIER> <SESSION_ID>`
++
++###### **Arguments:**
++
++* `<IDENTIFIER>` — Session ID or title
++* `<SESSION_ID>` — Agent session ID to set (pass empty string to clear)
++
++
++
+ ## `aoe group`
+ 
+ Manage groups for organizing sessions
+diff --git a/src/agents.rs b/src/agents.rs
+index 6bb5fb0d..b8b76754 100644
+--- a/src/agents.rs
++++ b/src/agents.rs
+@@ -22,6 +22,26 @@ pub enum YoloMode {
+     EnvVar(&'static str, &'static str),
+ }
+ 
++/// How an agent resumes an existing session from the CLI.
++pub enum ResumeStrategy {
++    /// Append a flag (e.g. `--session <id>`). For agents where new and existing
++    /// sessions use the same flag.
++    Flag(&'static str),
++    /// Two different flags depending on whether conversation data already exists.
++    /// `existing` is used when there is prior conversation data (e.g. `--resume`),
++    /// `new_session` when creating/attaching unconditionally (e.g. `--session-id`).
++    FlagPair {
++        existing: &'static str,
++        new_session: &'static str,
++    },
++    /// Resume is a subcommand rather than a flag (e.g. `codex resume <id>`).
++    /// The subcommand + id are inserted right after the binary name so that
++    /// other flags land after it.
++    Subcommand(&'static str),
++    /// Agent does not support session resume.
++    Unsupported,
++}
++
+ /// Configuration for installing status-detection hooks into an agent's settings file.
+ pub struct AgentHookConfig {
+     /// Path relative to the project/home dir where the agent's settings live
+@@ -56,6 +76,8 @@ pub struct AgentDef {
+     /// hooks into the agent's settings file so status is written to a file instead
+     /// of being parsed from tmux pane content.
+     pub hook_config: Option<AgentHookConfig>,
++    /// How this agent resumes a prior session.
++    pub resume_strategy: ResumeStrategy,
+ }
+ 
+ pub const AGENTS: &[AgentDef] = &[
+@@ -73,6 +95,10 @@ pub const AGENTS: &[AgentDef] = &[
+         hook_config: Some(AgentHookConfig {
+             settings_rel_path: ".claude/settings.json",
+         }),
++        resume_strategy: ResumeStrategy::FlagPair {
++            existing: "--resume",
++            new_session: "--session-id",
++        },
+     },
+     AgentDef {
+         name: "opencode",
+@@ -86,6 +112,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_opencode_status,
+         container_env: &[],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Flag("--session"),
+     },
+     AgentDef {
+         name: "vibe",
+@@ -99,6 +126,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_vibe_status,
+         container_env: &[],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Flag("--resume"),
+     },
+     AgentDef {
+         name: "codex",
+@@ -114,6 +142,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_codex_status,
+         container_env: &[],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Subcommand("resume"),
+     },
+     AgentDef {
+         name: "gemini",
+@@ -127,6 +156,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_gemini_status,
+         container_env: &[],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Flag("--resume"),
+     },
+     AgentDef {
+         name: "cursor",
+@@ -142,6 +172,7 @@ pub const AGENTS: &[AgentDef] = &[
+         hook_config: Some(AgentHookConfig {
+             settings_rel_path: ".cursor/settings.json",
+         }),
++        resume_strategy: ResumeStrategy::Unsupported,
+     },
+ ];
+ 
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index 8a816977..61512d26 100644
+index 8a816977..a3bee81c 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -28,6 +28,9 @@ pub enum SessionCommands {
@@ -35,7 +166,7 @@ index 8a816977..61512d26 100644
      }
  }
  
-@@ -377,3 +389,35 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
+@@ -377,3 +389,42 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
  
      bail!("Current tmux session is not an Agent of Empires session")
  }
@@ -56,7 +187,14 @@ index 8a816977..61512d26 100644
 +    let new_id = if args.session_id.trim().is_empty() {
 +        None
 +    } else {
-+        Some(args.session_id.trim().to_string())
++        let trimmed = args.session_id.trim().to_string();
++        if !crate::session::is_valid_session_id(&trimmed) {
++            bail!(
++                "Invalid session ID {:?}: must be 1-256 ASCII alphanumeric, dash, underscore, or dot characters",
++                trimmed
++            );
++        }
++        Some(trimmed)
 +    };
 +
 +    instances[idx].agent_session_id = new_id.clone();
@@ -71,16 +209,113 @@ index 8a816977..61512d26 100644
 +    }
 +    Ok(())
 +}
+diff --git a/src/session/config.rs b/src/session/config.rs
+index f4cf9a4f..ba6816e9 100644
+--- a/src/session/config.rs
++++ b/src/session/config.rs
+@@ -109,7 +109,7 @@ pub struct AppStateConfig {
+ }
+ 
+ /// Session-related configuration defaults
+-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
++#[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct SessionConfig {
+     /// Default coding tool for new sessions (claude, opencode, vibe, codex)
+     /// If not set or tool is unavailable, falls back to first available tool
+@@ -127,6 +127,52 @@ pub struct SessionConfig {
+     /// Per-agent command override replacing the binary entirely (e.g., claude = "happy cli claude")
+     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+     pub agent_command_override: HashMap<String, String>,
++
++    /// Max retry attempts for OpenCode session capture
++    #[serde(default = "default_opencode_max_retry_attempts")]
++    pub opencode_max_retry_attempts: u32,
++
++    /// Delay between OpenCode session capture retries (seconds)
++    #[serde(default = "default_opencode_retry_delay_secs")]
++    pub opencode_retry_delay_secs: u64,
++
++    /// Timeout for OpenCode session list command (seconds)
++    #[serde(default = "default_opencode_command_timeout_secs")]
++    pub opencode_command_timeout_secs: u64,
++
++    /// Overall deadline for OpenCode session capture (seconds)
++    #[serde(default = "default_opencode_capture_deadline_secs")]
++    pub opencode_capture_deadline_secs: u64,
++
++    /// Initial delay before deferred session capture starts (seconds)
++    #[serde(default = "default_deferred_capture_initial_delay_secs")]
++    pub deferred_capture_initial_delay_secs: u64,
++
++    /// Max attempts for deferred session capture
++    #[serde(default = "default_deferred_capture_max_attempts")]
++    pub deferred_capture_max_attempts: u32,
++
++    /// Delay between deferred session capture retries (seconds)
++    #[serde(default = "default_deferred_capture_retry_delay_secs")]
++    pub deferred_capture_retry_delay_secs: u64,
++}
++
++impl Default for SessionConfig {
++    fn default() -> Self {
++        Self {
++            default_tool: None,
++            yolo_mode_default: false,
++            agent_extra_args: HashMap::new(),
++            agent_command_override: HashMap::new(),
++            opencode_max_retry_attempts: default_opencode_max_retry_attempts(),
++            opencode_retry_delay_secs: default_opencode_retry_delay_secs(),
++            opencode_command_timeout_secs: default_opencode_command_timeout_secs(),
++            opencode_capture_deadline_secs: default_opencode_capture_deadline_secs(),
++            deferred_capture_initial_delay_secs: default_deferred_capture_initial_delay_secs(),
++            deferred_capture_max_attempts: default_deferred_capture_max_attempts(),
++            deferred_capture_retry_delay_secs: default_deferred_capture_retry_delay_secs(),
++        }
++    }
+ }
+ 
+ /// Diff view configuration
+@@ -155,6 +201,28 @@ fn default_context_lines() -> usize {
+     3
+ }
+ 
++fn default_opencode_max_retry_attempts() -> u32 {
++    3
++}
++fn default_opencode_retry_delay_secs() -> u64 {
++    2
++}
++fn default_opencode_command_timeout_secs() -> u64 {
++    5
++}
++fn default_opencode_capture_deadline_secs() -> u64 {
++    15
++}
++fn default_deferred_capture_initial_delay_secs() -> u64 {
++    5
++}
++fn default_deferred_capture_max_attempts() -> u32 {
++    6
++}
++fn default_deferred_capture_retry_delay_secs() -> u64 {
++    5
++}
++
+ fn default_profile() -> String {
+     "default".to_string()
+ }
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 006f6d25..68fcde87 100644
+index 0e9c9a66..f3c335b1 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
-@@ -1,9 +1,14 @@
+@@ -1,9 +1,16 @@
  //! Session instance definition and operations
  
++use std::collections::HashSet;
  use std::path::Path;
 +use std::process::Stdio;
 +use std::sync::mpsc;
++use std::sync::{Arc, Mutex};
 +use std::time::Duration;
  
 -use anyhow::Result;
@@ -91,22 +326,23 @@ index 006f6d25..68fcde87 100644
  use serde::{Deserialize, Serialize};
  use uuid::Uuid;
  
-@@ -13,6 +18,14 @@ use crate::tmux;
+@@ -12,6 +19,15 @@ use crate::tmux;
+ 
  use super::container_config;
  use super::environment::{build_docker_env_args, shell_escape};
- 
-+const OPENCODE_MAX_RETRY_ATTEMPTS: u32 = 3;
-+const OPENCODE_RETRY_DELAY: Duration = Duration::from_secs(2);
-+const OPENCODE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-+const OPENCODE_CAPTURE_DEADLINE: Duration = Duration::from_secs(15);
-+const DEFERRED_CAPTURE_INITIAL_DELAY: Duration = Duration::from_secs(5);
-+const DEFERRED_CAPTURE_MAX_ATTEMPTS: u32 = 6;
-+const DEFERRED_CAPTURE_RETRY_DELAY: Duration = Duration::from_secs(5);
++use super::poller::CaptureGate;
++use super::poller::SessionPoller;
 +
++/// Load session timing configuration from disk (or fall back to defaults).
++fn session_timing() -> super::config::SessionConfig {
++    super::config::Config::load()
++        .map(|c| c.session)
++        .unwrap_or_default()
++}
+ 
  fn default_true() -> bool {
      true
- }
-@@ -67,6 +80,15 @@ pub struct SandboxInfo {
+@@ -67,6 +83,15 @@ pub struct SandboxInfo {
      pub custom_instruction: Option<String>,
  }
  
@@ -122,7 +358,7 @@ index 006f6d25..68fcde87 100644
  #[derive(Debug, Clone, Serialize, Deserialize)]
  pub struct Instance {
      pub id: String,
-@@ -102,6 +124,14 @@ pub struct Instance {
+@@ -102,6 +127,14 @@ pub struct Instance {
      #[serde(default, skip_serializing_if = "Option::is_none")]
      pub terminal_info: Option<TerminalInfo>,
  
@@ -137,10 +373,18 @@ index 006f6d25..68fcde87 100644
      // Runtime state (not serialized)
      #[serde(skip)]
      pub last_error_check: Option<std::time::Instant>,
-@@ -111,6 +141,396 @@ pub struct Instance {
+@@ -109,6 +142,844 @@ pub struct Instance {
+     pub last_start_time: Option<std::time::Instant>,
+     #[serde(skip)]
      pub last_error: Option<String>,
- }
- 
++    #[serde(skip)]
++    pub session_id_poller: Option<Arc<Mutex<SessionPoller>>>,
++    #[serde(skip)]
++    pub(crate) deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
++    #[serde(skip)]
++    pub(crate) capture_gate: Option<Arc<CaptureGate>>,
++}
++
 +/// Generate a new UUID for Claude Code session.
 +///
 +/// Creates a new universally unique identifier (UUID v4) for use as a Claude Code session ID.
@@ -151,11 +395,185 @@ index 006f6d25..68fcde87 100644
 +    Uuid::new_v4().to_string()
 +}
 +
++/// Create a polling closure for Claude that reads the `~/.claude/debug/latest` symlink.
++///
++/// The symlink retargets within ~100ms of `/new`, `/clear`, or session switches.
++/// The target is a file whose name contains the session UUID, e.g.
++/// `~/.claude/debug/<UUID>.txt`. Returns `None` on any failure (missing
++/// symlink, invalid path, non-UUID segment).
++pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
++    move || {
++        let latest = dirs::home_dir()?.join(".claude/debug/latest");
++        extract_uuid_from_symlink_target(&latest)
++    }
++}
++
++/// Check whether a string is a valid UUID (8-4-4-4-12 hex-and-dash format).
++fn is_uuid_format(s: &str) -> bool {
++    s.len() == 36
++        && s.chars().filter(|&c| c == '-').count() == 4
++        && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
++}
++
++/// Read a symlink and walk its target path components looking for a UUID segment.
++///
++/// Returns the first path component that matches the UUID format (8-4-4-4-12).
++/// Also handles filenames with an extension (e.g. `<UUID>.txt`, `<UUID>.log`)
++/// by stripping it before checking. Returns `None` if the symlink is missing,
++/// broken, or its target contains no UUID-shaped component.
++fn extract_uuid_from_symlink_target(symlink_path: &std::path::Path) -> Option<String> {
++    let target = std::fs::read_link(symlink_path).ok()?;
++    let mut path = target.as_path();
++    loop {
++        let name = path.file_name()?.to_str()?;
++        if is_uuid_format(name) {
++            return Some(name.to_string());
++        }
++        // Handle filenames like `<UUID>.txt` where the stem is the UUID
++        if let Some(stem) = std::path::Path::new(name)
++            .file_stem()
++            .and_then(|s| s.to_str())
++        {
++            if stem != name && is_uuid_format(stem) {
++                return Some(stem.to_string());
++            }
++        }
++        path = path.parent()?;
++    }
++}
++
++/// Create a polling closure for OpenCode that re-runs `try_capture_opencode_session_id`.
++///
++/// Each invocation rebuilds the exclusion set from other AoE instances and invokes
++/// the single-attempt capture. The poller's adaptive interval prevents hammering;
++/// under stable conditions polls back off to 60s.
++pub fn opencode_poll_fn(
++    project_path: String,
++    instance_id: String,
++    launch_time_ms: f64,
++) -> impl Fn() -> Option<String> + Send + 'static {
++    let timing = session_timing();
++    move || {
++        let exclusion = build_exclusion_set(&instance_id);
++        try_capture_opencode_session_id(&project_path, &exclusion, launch_time_ms, &timing)
++            .map_err(|e| tracing::debug!("OpenCode poll capture failed: {}", e))
++            .ok()
++    }
++}
++
++/// Build a set of session IDs already claimed by other AoE instances.
++///
++/// Lists all tmux sessions with the AoE prefix, reads each one's hidden env vars
++/// to find its instance ID and captured session ID, and collects all captured IDs
++/// from instances other than `current_instance_id`.
++///
++/// NOTE: This is a point-in-time snapshot. Two instances that call this
++/// concurrently may both see an empty set and claim the same session (TOCTOU).
++/// The deferred capture loop mitigates this by re-reading on each attempt, and
++/// the poller provides an additional layer of correction. Full mutual exclusion
++/// would require a file lock or atomic tmux compare-and-set, which is not
++/// currently justified given the low collision probability in practice.
++fn build_exclusion_set(current_instance_id: &str) -> HashSet<String> {
++    let output = match std::process::Command::new("tmux")
++        .args(["list-sessions", "-F", "#{session_name}"])
++        .output()
++    {
++        Ok(o) if o.status.success() => o,
++        _ => return HashSet::new(),
++    };
++
++    let stdout = String::from_utf8_lossy(&output.stdout);
++    let mut excluded = HashSet::new();
++
++    for session_name in stdout.lines() {
++        if !session_name.starts_with(crate::tmux::SESSION_PREFIX) {
++            continue;
++        }
++
++        let owner =
++            crate::tmux::env::get_hidden_env(session_name, crate::tmux::env::AOE_INSTANCE_ID_KEY);
++
++        if owner.as_deref() == Some(current_instance_id) {
++            continue;
++        }
++
++        if let Some(captured) = crate::tmux::env::get_hidden_env(
++            session_name,
++            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
++        ) {
++            excluded.insert(captured);
++        }
++    }
++
++    excluded
++}
++
++/// Filter, sort, and deduplicate OpenCode sessions by project directory.
++///
++/// Given a list of parsed OpenCode session JSON values:
++/// 1. Filters to sessions matching `project_path` (canonicalized comparison on `directory`/`path`)
++/// 2. Sorts by `updated` timestamp descending (most recent first)
++/// 3. If `launch_time_ms` is `Some`, removes sessions older than that threshold
++/// 4. Removes sessions whose IDs appear in `exclusion`
++fn filter_agent_sessions<'a>(
++    session_entries: &'a [serde_json::Value],
++    project_path: Option<&str>,
++    exclusion: &HashSet<String>,
++    launch_time_ms: Option<f64>,
++) -> Vec<&'a serde_json::Value> {
++    let mut matching: Vec<&serde_json::Value> = if let Some(path) = project_path {
++        let canonical_path =
++            std::fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path));
++        let canonical_str = canonical_path.to_string_lossy();
++
++        session_entries
++            .iter()
++            .filter(|s| {
++                s.get("directory")
++                    .and_then(|v| v.as_str())
++                    .map(|dir| {
++                        let session_path = std::fs::canonicalize(dir)
++                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
++                        session_path.to_string_lossy() == canonical_str
++                    })
++                    .unwrap_or(false)
++            })
++            .collect()
++    } else {
++        session_entries.iter().collect()
++    };
++
++    matching.sort_by(|a, b| {
++        let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++        let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
++        b_time
++            .partial_cmp(&a_time)
++            .unwrap_or(std::cmp::Ordering::Equal)
++    });
++
++    if let Some(threshold) = launch_time_ms {
++        matching.retain(|s| s.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0) >= threshold);
++    }
++
++    matching.retain(|s| {
++        s.get("id")
++            .and_then(|v| v.as_str())
++            .map(|id| !exclusion.contains(id))
++            .unwrap_or(true)
++    });
++
++    matching
++}
++
 +/// Capture session ID from OpenCode CLI with retry logic.
 +///
-+/// Attempts up to 3 times to capture an OpenCode session ID, with 2-second delays between
-+/// retries. Each attempt executes `opencode session list --format json` with a 5-second
-+/// timeout. When a `project_path` is provided, sessions are filtered to prefer those matching
++/// Retries up to `opencode_max_retry_attempts` times (default 3) with
++/// `opencode_retry_delay_secs` between attempts (default 2s). Each attempt runs
++/// `opencode session list --format json` with a configurable timeout
++/// (`opencode_command_timeout_secs`, default 5s). An overall deadline
++/// (`opencode_capture_deadline_secs`, default 15s) caps the total capture time.
++///
++/// When a `project_path` is provided, sessions are filtered to prefer those matching
 +/// the project directory, sorted by most recently updated. Falls back to the first session
 +/// if no directory match is found.
 +///
@@ -168,23 +586,30 @@ index 006f6d25..68fcde87 100644
 +/// - The command exits with a non-zero status code
 +/// - The JSON output cannot be parsed
 +/// - No sessions are found in the response
-+fn capture_opencode_session_id(project_path: &str) -> Result<String> {
-+    let deadline = std::time::Instant::now() + OPENCODE_CAPTURE_DEADLINE;
++fn capture_opencode_session_id(
++    project_path: &str,
++    exclusion: &HashSet<String>,
++    launch_time_ms: f64,
++    timing: &super::config::SessionConfig,
++) -> Result<String> {
++    let deadline =
++        std::time::Instant::now() + Duration::from_secs(timing.opencode_capture_deadline_secs);
 +    let mut last_err = None;
 +
-+    for attempt in 0..OPENCODE_MAX_RETRY_ATTEMPTS {
++    for attempt in 0..timing.opencode_max_retry_attempts {
 +        if attempt > 0 {
-+            if std::time::Instant::now() + OPENCODE_RETRY_DELAY > deadline {
++            let retry_delay = Duration::from_secs(timing.opencode_retry_delay_secs);
++            if std::time::Instant::now() + retry_delay > deadline {
 +                break;
 +            }
-+            std::thread::sleep(OPENCODE_RETRY_DELAY);
++            std::thread::sleep(retry_delay);
 +            tracing::debug!(
 +                "Retrying OpenCode session capture (attempt {})",
 +                attempt + 1
 +            );
 +        }
 +
-+        match try_capture_opencode_session_id(project_path) {
++        match try_capture_opencode_session_id(project_path, exclusion, launch_time_ms, timing) {
 +            Ok(id) => return Ok(id),
 +            Err(e) => {
 +                tracing::debug!(
@@ -202,9 +627,15 @@ index 006f6d25..68fcde87 100644
 +
 +/// Single attempt to capture an OpenCode session ID.
 +///
-+/// Spawns `opencode session list --format json` with a 5-second timeout, parses the JSON,
-+/// and selects the best matching session based on project directory and update time.
-+fn try_capture_opencode_session_id(project_path: &str) -> Result<String> {
++/// Spawns `opencode session list --format json` with a configurable timeout
++/// (`opencode_command_timeout_secs`), parses the JSON, and selects the best
++/// matching session based on project directory and update time.
++fn try_capture_opencode_session_id(
++    project_path: &str,
++    exclusion: &HashSet<String>,
++    launch_time_ms: f64,
++    timing: &super::config::SessionConfig,
++) -> Result<String> {
 +    let child = std::process::Command::new("opencode")
 +        .args(["session", "list", "--format", "json"])
 +        .stdout(Stdio::piped())
@@ -219,7 +650,7 @@ index 006f6d25..68fcde87 100644
 +        let _ = tx.send(child.wait_with_output());
 +    });
 +
-+    let output = match rx.recv_timeout(OPENCODE_COMMAND_TIMEOUT) {
++    let output = match rx.recv_timeout(Duration::from_secs(timing.opencode_command_timeout_secs)) {
 +        Ok(Ok(out)) => out,
 +        Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute opencode: {}", e)),
 +        Err(_) => {
@@ -234,41 +665,24 @@ index 006f6d25..68fcde87 100644
 +    }
 +
 +    let stdout = String::from_utf8_lossy(&output.stdout);
-+    let sessions: Vec<serde_json::Value> =
++    let session_entries: Vec<serde_json::Value> =
 +        serde_json::from_str(&stdout).context("Failed to parse OpenCode session list JSON")?;
 +
-+    // Try to match by project directory first
-+    let canonical_path = std::fs::canonicalize(project_path)
-+        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-+    let canonical_str = canonical_path.to_string_lossy();
++    let matching = filter_agent_sessions(
++        &session_entries,
++        Some(project_path),
++        exclusion,
++        Some(launch_time_ms),
++    );
 +
-+    let mut matching: Vec<&serde_json::Value> = sessions
-+        .iter()
-+        .filter(|s| {
-+            s.get("directory")
-+                .or_else(|| s.get("path"))
-+                .and_then(|v| v.as_str())
-+                .map(|dir| {
-+                    let session_path = std::fs::canonicalize(dir)
-+                        .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-+                    session_path.to_string_lossy() == canonical_str
-+                })
-+                .unwrap_or(false)
-+        })
-+        .collect();
-+
-+    // Sort by updated time (most recent first).
-+    // OpenCode stores `updated` as a numeric epoch (Date.now() milliseconds), not a string.
-+    matching.sort_by(|a, b| {
-+        let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-+        let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-+        b_time
-+            .partial_cmp(&a_time)
-+            .unwrap_or(std::cmp::Ordering::Equal)
++    // Use directory match if found, otherwise fall back to most recent
++    // non-excluded session (without directory filter, but still respecting
++    // exclusion and launch-time constraints).
++    let session = matching.first().copied().or_else(|| {
++        filter_agent_sessions(&session_entries, None, exclusion, Some(launch_time_ms))
++            .into_iter()
++            .next()
 +    });
-+
-+    // Use directory match if found, otherwise fall back to first session
-+    let session = matching.first().copied().or_else(|| sessions.first());
 +
 +    session
 +        .and_then(|s| s["id"].as_str())
@@ -282,7 +696,7 @@ index 006f6d25..68fcde87 100644
 +/// for `.jsonl` rollout files and extracts the UUID from the most recent one.
 +/// Codex filenames follow the pattern `rollout-<timestamp>-<uuid>.jsonl`.
 +/// Respects `CODEX_HOME` env var, falling back to `~/.codex`.
-+fn capture_codex_session_id(project_path: &str) -> Result<String> {
++fn capture_codex_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
 +    let codex_home = match std::env::var("CODEX_HOME") {
 +        Ok(val) => std::path::PathBuf::from(val),
 +        Err(_) => dirs::home_dir()
@@ -306,6 +720,14 @@ index 006f6d25..68fcde87 100644
 +    }
 +
 +    session_entries.sort_by(|a, b| b.1.cmp(&a.1));
++
++    session_entries.retain(|(path, _)| {
++        !exclusion.contains(
++            extract_codex_uuid_from_filename(path)
++                .as_deref()
++                .unwrap_or(""),
++        )
++    });
 +
 +    let canonical_project = std::fs::canonicalize(project_path)
 +        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
@@ -390,22 +812,232 @@ index 006f6d25..68fcde87 100644
 +    Ok(())
 +}
 +
++/// Capture session ID from Gemini CLI filesystem.
++///
++/// Gemini stores sessions at `~/.gemini/tmp/<project_hash>/chats/session-*.json`.
++/// The project hash is a SHA-256 of the project path. Each session file contains
++/// an `id` field. We find all session files, pick the most recently modified one
++/// that matches the project, and return its filename stem (e.g. `session-12345`)
++/// as the session ID.
++fn capture_gemini_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
++    let gemini_home = dirs::home_dir()
++        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
++        .join(".gemini");
++    let tmp_dir = gemini_home.join("tmp");
++
++    if !tmp_dir.exists() {
++        anyhow::bail!("Gemini tmp directory not found: {}", tmp_dir.display());
++    }
++
++    // Gemini hashes the project root to create the subdirectory name.
++    // We scan all subdirs and check for chat sessions rather than
++    // reimplementing their hash, since it may vary across versions.
++    let mut candidates: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
++
++    for project_entry in std::fs::read_dir(&tmp_dir)? {
++        let project_entry = project_entry?;
++        let chats_dir = project_entry.path().join("chats");
++        if !chats_dir.is_dir() {
++            continue;
++        }
++        for chat_entry in std::fs::read_dir(&chats_dir)? {
++            let chat_entry = chat_entry?;
++            let path = chat_entry.path();
++            if path.extension().and_then(|e| e.to_str()) == Some("json")
++                && path
++                    .file_name()
++                    .and_then(|n| n.to_str())
++                    .is_some_and(|n| n.starts_with("session-"))
++            {
++                let modified = chat_entry
++                    .metadata()
++                    .and_then(|m| m.modified())
++                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
++                candidates.push((path, modified));
++            }
++        }
++    }
++
++    if candidates.is_empty() {
++        anyhow::bail!("No Gemini session files found in {}", tmp_dir.display());
++    }
++
++    candidates.sort_by(|a, b| b.1.cmp(&a.1));
++
++    candidates.retain(|(path, _)| {
++        let id = extract_gemini_session_id_from_file(path).unwrap_or_default();
++        !exclusion.contains(&id)
++    });
++
++    let canonical_project = std::fs::canonicalize(project_path)
++        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
++
++    let project_match = candidates.iter().find(|(path, _)| {
++        extract_gemini_cwd_from_file(path)
++            .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
++            .map(|cwd| cwd == canonical_project)
++            .unwrap_or(false)
++    });
++
++    let chosen = project_match.or(candidates.first());
++
++    chosen
++        .and_then(|(path, _)| extract_gemini_session_id_from_file(path))
++        .ok_or_else(|| anyhow::anyhow!("No valid Gemini session found"))
++}
++
++/// Extract the session ID from a Gemini session JSON file.
++///
++/// Falls back to the filename stem if the `id` field is absent, since Gemini
++/// also accepts `--resume <index>` or `--resume` (latest).
++fn extract_gemini_session_id_from_file(path: &std::path::Path) -> Option<String> {
++    let content = std::fs::read_to_string(path).ok()?;
++    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
++    parsed
++        .get("id")
++        .and_then(|v| v.as_str())
++        .map(String::from)
++        .or_else(|| path.file_stem().and_then(|s| s.to_str()).map(String::from))
++}
++
++fn extract_gemini_cwd_from_file(path: &std::path::Path) -> Option<String> {
++    let content = std::fs::read_to_string(path).ok()?;
++    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
++    parsed
++        .get("cwd")
++        .or_else(|| parsed.get("projectPath"))
++        .or_else(|| parsed.get("workingDirectory"))
++        .and_then(|v| v.as_str())
++        .map(String::from)
++}
++
++/// Capture session ID from Mistral Vibe filesystem.
++///
++/// Vibe stores sessions at `~/.vibe/logs/session/<session_id>/meta.json`.
++/// Each `meta.json` contains session metadata including `cwd`. We find the
++/// most recently modified session directory matching the project path.
++fn capture_vibe_session_id(project_path: &str, exclusion: &HashSet<String>) -> Result<String> {
++    let vibe_home = dirs::home_dir()
++        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
++        .join(".vibe");
++    let sessions_dir = vibe_home.join("logs").join("session");
++
++    if !sessions_dir.exists() {
++        anyhow::bail!(
++            "Vibe sessions directory not found: {}",
++            sessions_dir.display()
++        );
++    }
++
++    let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
++
++    for entry in std::fs::read_dir(&sessions_dir)? {
++        let entry = entry?;
++        let path = entry.path();
++        if !path.is_dir() {
++            continue;
++        }
++        let session_id = entry
++            .file_name()
++            .to_str()
++            .map(String::from)
++            .unwrap_or_default();
++        if session_id.is_empty() || exclusion.contains(&session_id) {
++            continue;
++        }
++        let meta_path = path.join("meta.json");
++        let modified = if meta_path.exists() {
++            std::fs::metadata(&meta_path)
++                .and_then(|m| m.modified())
++                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
++        } else {
++            entry
++                .metadata()
++                .and_then(|m| m.modified())
++                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
++        };
++        candidates.push((session_id, modified));
++    }
++
++    if candidates.is_empty() {
++        anyhow::bail!(
++            "No Vibe session directories found in {}",
++            sessions_dir.display()
++        );
++    }
++
++    candidates.sort_by(|a, b| b.1.cmp(&a.1));
++
++    let canonical_project = std::fs::canonicalize(project_path)
++        .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
++
++    let project_match = candidates.iter().find(|(session_id, _)| {
++        let meta_path = sessions_dir.join(session_id).join("meta.json");
++        extract_vibe_cwd_from_meta(&meta_path)
++            .and_then(|cwd| std::fs::canonicalize(&cwd).ok())
++            .map(|cwd| cwd == canonical_project)
++            .unwrap_or(false)
++    });
++
++    let chosen = project_match.or(candidates.first());
++
++    chosen
++        .map(|(id, _)| id.clone())
++        .ok_or_else(|| anyhow::anyhow!("No valid Vibe session found"))
++}
++
++fn extract_vibe_cwd_from_meta(path: &std::path::Path) -> Option<String> {
++    let content = std::fs::read_to_string(path).ok()?;
++    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
++    parsed
++        .get("cwd")
++        .or_else(|| parsed.get("working_directory"))
++        .or_else(|| parsed.get("project_path"))
++        .and_then(|v| v.as_str())
++        .map(String::from)
++}
++
++pub(crate) fn is_valid_session_id(id: &str) -> bool {
++    !id.is_empty()
++        && id.len() <= 256
++        && id
++            .bytes()
++            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
++}
++
 +/// Build resume flags for agent command.
 +///
-+/// Constructs a tool-specific command-line flag string to resume an existing session.
-+/// Each agent tool uses a different flag format, and for unrecognized tools returns
-+/// an empty string.
-+///
-+/// For Claude, the flag depends on whether conversation data already exists:
-+/// `--resume` only works for sessions that have prior conversation data, while
-+/// `--session-id` creates or attaches to a session unconditionally.
++/// Uses the agent's `ResumeStrategy` (from the registry) to construct the correct
++/// CLI flag or subcommand string. Returns an empty string for agents that don't
++/// support resume or for invalid session IDs.
 +fn build_resume_flags(tool: &str, session_id: &str, is_existing_session: bool) -> String {
-+    match tool {
-+        "claude" if is_existing_session => format!("--resume {}", session_id),
-+        "claude" => format!("--session-id {}", session_id),
-+        "opencode" => format!("--session {}", session_id),
-+        "codex" => format!("resume {}", session_id),
-+        _ => String::new(),
++    use crate::agents::{get_agent, ResumeStrategy};
++
++    if !is_valid_session_id(session_id) {
++        tracing::warn!(
++            "Refusing to build resume flags: invalid session ID {:?}",
++            session_id
++        );
++        return String::new();
++    }
++    let Some(agent) = get_agent(tool) else {
++        return String::new();
++    };
++    match &agent.resume_strategy {
++        ResumeStrategy::Flag(flag) => format!("{} {}", flag, session_id),
++        ResumeStrategy::FlagPair {
++            existing,
++            new_session,
++        } => {
++            let flag = if is_existing_session {
++                existing
++            } else {
++                new_session
++            };
++            format!("{} {}", flag, session_id)
++        }
++        ResumeStrategy::Subcommand(sub) => format!("{} {}", sub, session_id),
++        ResumeStrategy::Unsupported => String::new(),
 +    }
 +}
 +
@@ -416,32 +1048,64 @@ index 006f6d25..68fcde87 100644
 +    cmd: &mut String,
 +    context: &str,
 +) {
++    use crate::agents::{get_agent, ResumeStrategy};
++
 +    if let Some(session_id) = session_id {
-+        let resume_flags = build_resume_flags(tool, session_id, is_existing_session);
-+        if !resume_flags.is_empty() {
-+            *cmd = format!("{} {}", cmd, resume_flags);
-+            tracing::debug!(
-+                "Added resume flags to {} command: {}",
-+                context,
-+                resume_flags
-+            );
++        let resume_part = build_resume_flags(tool, session_id, is_existing_session);
++        if resume_part.is_empty() {
++            return;
 +        }
++        let is_subcommand = matches!(
++            get_agent(tool).map(|a| &a.resume_strategy),
++            Some(ResumeStrategy::Subcommand(_))
++        );
++        if is_subcommand {
++            // Subcommand-style resume (e.g. `codex resume <id>`) must appear
++            // right after the binary name so other flags land after it.
++            // Assumes unquoted binary path (no spaces); fine for $PATH lookups.
++            if let Some(space_pos) = cmd.find(' ') {
++                let binary = &cmd[..space_pos];
++                let flags = &cmd[space_pos..];
++                *cmd = format!("{} {}{}", binary, resume_part, flags);
++            } else {
++                *cmd = format!("{} {}", cmd, resume_part);
++            }
++        } else {
++            *cmd = format!("{} {}", cmd, resume_part);
++        }
++        tracing::debug!("Added resume flags to {} command: {}", context, resume_part);
 +    }
 +}
 +
-+fn capture_from_host(tool: &str, project_path: &str) -> Option<String> {
++fn capture_from_host(
++    tool: &str,
++    project_path: &str,
++    exclusion: &HashSet<String>,
++    launch_time_ms: f64,
++    timing: &super::config::SessionConfig,
++) -> Option<String> {
 +    match tool {
-+        "opencode" => capture_opencode_session_id(project_path)
++        "opencode" => capture_opencode_session_id(project_path, exclusion, launch_time_ms, timing)
 +            .map_err(|e| tracing::debug!("Deferred host capture (opencode): {}", e))
 +            .ok(),
-+        "codex" => capture_codex_session_id(project_path)
++        "codex" => capture_codex_session_id(project_path, exclusion)
 +            .map_err(|e| tracing::debug!("Deferred host capture (codex): {}", e))
++            .ok(),
++        "gemini" => capture_gemini_session_id(project_path, exclusion)
++            .map_err(|e| tracing::debug!("Deferred host capture (gemini): {}", e))
++            .ok(),
++        "vibe" => capture_vibe_session_id(project_path, exclusion)
++            .map_err(|e| tracing::debug!("Deferred host capture (vibe): {}", e))
 +            .ok(),
 +        _ => None,
 +    }
 +}
 +
-+fn capture_from_container(instance_id: &str, tool: &str) -> Option<String> {
++fn capture_from_container(
++    instance_id: &str,
++    tool: &str,
++    exclusion: &HashSet<String>,
++) -> Option<String> {
 +    let container = DockerContainer::from_session_id(instance_id);
 +    if !container.is_running().unwrap_or(false) {
 +        tracing::debug!(
@@ -463,20 +1127,12 @@ index 006f6d25..68fcde87 100644
 +            }
 +
 +            let stdout = String::from_utf8_lossy(&output.stdout);
-+            let sessions: Vec<serde_json::Value> = serde_json::from_str(&stdout)
++            let session_entries: Vec<serde_json::Value> = serde_json::from_str(&stdout)
 +                .map_err(|e| tracing::debug!("Deferred container JSON parse: {}", e))
 +                .ok()?;
 +
-+            let mut sorted = sessions;
-+            sorted.sort_by(|a, b| {
-+                let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-+                let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-+                b_time
-+                    .partial_cmp(&a_time)
-+                    .unwrap_or(std::cmp::Ordering::Equal)
-+            });
-+
-+            sorted
++            let matching = filter_agent_sessions(&session_entries, None, exclusion, None);
++            matching
 +                .first()
 +                .and_then(|s| s["id"].as_str())
 +                .map(|s| s.to_string())
@@ -486,7 +1142,7 @@ index 006f6d25..68fcde87 100644
 +                .exec(&[
 +                    "sh",
 +                    "-c",
-+                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1",
++                    "SESS_DIR=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; find \"$SESS_DIR\" -name '*.jsonl' 2>/dev/null | xargs ls -1t 2>/dev/null | head -1",
 +                ])
 +                .map_err(|e| tracing::debug!("Deferred container exec (codex): {}", e))
 +                .ok()?;
@@ -496,45 +1152,73 @@ index 006f6d25..68fcde87 100644
 +            }
 +
 +            let stdout = String::from_utf8_lossy(&output.stdout);
-+            stdout
++            let uuid = stdout
 +                .lines()
 +                .next()
-+                .and_then(|line| line.split_once(' '))
-+                .and_then(|(_, path)| extract_codex_uuid_from_filename(std::path::Path::new(path)))
++                .filter(|line| !line.is_empty())
++                .and_then(|path| {
++                    extract_codex_uuid_from_filename(std::path::Path::new(path.trim()))
++                });
++
++            uuid.filter(|id| !exclusion.contains(id))
 +        }
 +        _ => None,
 +    }
 +}
 +
-+fn persist_deferred_session_id(profile: &str, instance_id: &str, session_id: &str) {
++/// Persist an agent session ID to storage and tmux env for a given instance.
++///
++/// Both the synchronous `persist_session_id` method and the background
++/// `deferred_capture_session_id` thread funnel through this helper so the
++/// load-mutate-save-env-set logic lives in exactly one place.
++fn persist_session_to_storage(profile: &str, instance_id: &str, session_id: &str) {
++    if !is_valid_session_id(session_id) {
++        tracing::warn!(
++            "Refusing to persist invalid session ID {:?} for {}",
++            session_id,
++            instance_id
++        );
++        return;
++    }
++
 +    let storage = match super::storage::Storage::new(profile) {
 +        Ok(s) => s,
 +        Err(e) => {
-+            tracing::debug!("Deferred persist: failed to create storage: {}", e);
++            tracing::warn!("Failed to create storage for session ID persistence: {}", e);
 +            return;
 +        }
 +    };
 +    let mut instances = match storage.load() {
 +        Ok(i) => i,
 +        Err(e) => {
-+            tracing::debug!("Deferred persist: failed to load instances: {}", e);
++            tracing::warn!("Failed to load instances for session ID persistence: {}", e);
 +            return;
 +        }
 +    };
-+    if let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) {
-+        inst.agent_session_id = Some(session_id.to_string());
-+        if let Err(e) = storage.save(&instances) {
-+            tracing::debug!("Deferred persist: failed to save: {}", e);
-+        } else {
-+            tracing::debug!("Deferred persist: session ID saved for {}", instance_id);
++
++    let Some(inst) = instances.iter_mut().find(|i| i.id == instance_id) else {
++        return;
++    };
++
++    let tmux_name = crate::tmux::Session::generate_name(instance_id, &inst.title);
++    inst.agent_session_id = Some(session_id.to_string());
++
++    if let Err(e) = storage.save(&instances) {
++        tracing::warn!("Failed to save instances for session ID persistence: {}", e);
++    } else {
++        tracing::debug!("Session ID persisted for {}", instance_id);
++        if let Err(e) = crate::tmux::env::set_hidden_env(
++            &tmux_name,
++            crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
++            session_id,
++        ) {
++            tracing::warn!("Failed to write captured session ID to tmux env: {}", e);
 +        }
 +    }
-+}
-+
+ }
+ 
  impl Instance {
-     pub fn new(title: &str, project_path: &str) -> Self {
-         Self {
-@@ -129,6 +549,7 @@ impl Instance {
+@@ -129,9 +1000,13 @@ impl Instance {
              worktree_info: None,
              sandbox_info: None,
              terminal_info: None,
@@ -542,7 +1226,13 @@ index 006f6d25..68fcde87 100644
              last_error_check: None,
              last_start_time: None,
              last_error: None,
-@@ -147,6 +568,35 @@ impl Instance {
++            session_id_poller: None,
++            deferred_capture_handle: None,
++            capture_gate: None,
+         }
+     }
+ 
+@@ -147,6 +1022,40 @@ impl Instance {
          self.yolo_mode
      }
  
@@ -550,7 +1240,7 @@ index 006f6d25..68fcde87 100644
 +    ///
 +    /// Returns `(session_id, is_existing)`. If a persisted ID exists, returns it
 +    /// with `is_existing = true`. Otherwise, only Claude gets a new UUID here
-+    /// (it requires `--session-id <uuid>` at launch). OpenCode/Codex create their
++    /// (it requires `--session-id <uuid>` at launch). Other agents create their
 +    /// own sessions on startup; their IDs are captured post-launch by
 +    /// `deferred_capture_session_id()`.
 +    pub fn acquire_session_id(&mut self) -> (Option<String>, bool) {
@@ -558,7 +1248,7 @@ index 006f6d25..68fcde87 100644
 +            return (self.agent_session_id.clone(), true);
 +        }
 +
-+        // For OpenCode/Codex on first launch (no persisted ID), skip capture.
++        // For non-Claude agents on first launch (no persisted ID), skip capture.
 +        // These agents create their own sessions; the ID is captured post-launch
 +        // via deferred_capture_session_id() and persisted for future relaunches.
 +        // Only Claude needs a pre-launch ID (--session-id <uuid> creates a new session).
@@ -575,16 +1265,19 @@ index 006f6d25..68fcde87 100644
 +        (session_id, false)
 +    }
 +
++    fn apply_session_flags(&mut self, cmd: &mut String, context: &str) {
++        let (session_id, is_existing) = self.acquire_session_id();
++        append_resume_flags(&self.tool, session_id.as_deref(), is_existing, cmd, context);
++    }
++
      fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -318,15 +768,16 @@ impl Instance {
+@@ -322,13 +1231,14 @@ impl Instance {
              return Ok(());
          }
  
-+        let profile = super::config::Config::load()
-+            .map(|c| c.default_profile)
-+            .unwrap_or_else(|_| "default".to_string());
++        let profile = super::config::resolve_default_profile();
 +
          // Resolve on_launch hooks from the full config chain (global > profile > repo).
          // Repo hooks go through trust verification; global/profile hooks are implicitly trusted.
@@ -592,123 +1285,81 @@ index 006f6d25..68fcde87 100644
              None
          } else {
              // Start with global+profile hooks as the base
--            let profile = super::config::Config::load()
--                .map(|c| c.default_profile)
--                .unwrap_or_else(|_| "default".to_string());
+-            let profile = super::config::resolve_default_profile();
              let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
                  .map(|c| c.hooks.on_launch)
                  .unwrap_or_default();
-@@ -364,6 +815,8 @@ impl Instance {
-                 }
-             }
- 
-+            let (session_id, is_existing) = self.acquire_session_id();
+@@ -415,6 +1325,8 @@ impl Instance {
+             let mut env_args = build_docker_env_args(sandbox);
+             // Pass AOE_INSTANCE_ID into the container
+             env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
 +
-             let sandbox = self.sandbox_info.as_ref().unwrap();
-             let agent = crate::agents::get_agent(&self.tool);
-             let base_cmd = if self.extra_args.is_empty() {
-@@ -395,6 +848,14 @@ impl Instance {
-                 }
-             }
- 
-+            append_resume_flags(
-+                &self.tool,
-+                session_id.as_deref(),
-+                is_existing,
-+                &mut tool_cmd,
-+                "sandboxed",
-+            );
-+
-             let env_args = build_docker_env_args(sandbox);
-             let env_part = if env_args.is_empty() {
-                 String::new()
-@@ -434,6 +895,14 @@ impl Instance {
++            self.apply_session_flags(&mut tool_cmd, "sandboxed");
+             let env_part = format!("{} ", env_args);
+             Some(wrap_command_ignore_suspend(
+                 &container.exec_command(Some(&env_part), &tool_cmd),
+@@ -456,6 +1368,7 @@ impl Instance {
                                  }
                              }
                          }
-+                        let (session_id, is_existing) = self.acquire_session_id();
-+                        append_resume_flags(
-+                            &self.tool,
-+                            session_id.as_deref(),
-+                            is_existing,
-+                            &mut cmd,
-+                            "host agent",
-+                        );
-                         wrap_command_ignore_suspend(&cmd)
++                        self.apply_session_flags(&mut cmd, "host agent");
+                         wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
                      })
              } else {
-@@ -454,6 +923,14 @@ impl Instance {
+@@ -475,6 +1388,7 @@ impl Instance {
                          }
                      }
                  }
-+                let (session_id, is_existing) = self.acquire_session_id();
-+                append_resume_flags(
-+                    &self.tool,
-+                    session_id.as_deref(),
-+                    is_existing,
-+                    &mut cmd,
-+                    "host custom",
-+                );
-                 Some(wrap_command_ignore_suspend(&cmd))
-             }
-         };
-@@ -461,6 +938,9 @@ impl Instance {
++                self.apply_session_flags(&mut cmd, "host custom");
+                 Some(wrap_command_ignore_suspend(&format!(
+                     "{}{}",
+                     env_prefix, cmd
+@@ -485,6 +1399,18 @@ impl Instance {
          tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
          session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
  
++        if let Err(e) = crate::tmux::env::set_hidden_env(
++            session.name(),
++            crate::tmux::env::AOE_INSTANCE_ID_KEY,
++            &self.id,
++        ) {
++            tracing::warn!("Failed to set AOE_INSTANCE_ID in tmux env: {}", e);
++        }
++
 +        self.persist_session_id(&profile);
 +        self.deferred_capture_session_id(&profile);
++        self.maybe_start_poller();
 +
          // Apply all configured tmux options (status bar, mouse, etc.)
          self.apply_tmux_options();
  
-@@ -470,6 +950,99 @@ impl Instance {
+@@ -494,6 +1420,107 @@ impl Instance {
          Ok(())
      }
  
-+    /// Persist the agent session ID to storage so it survives across sessions.
 +    fn persist_session_id(&self, profile: &str) {
-+        if self.agent_session_id.is_none() {
-+            return;
-+        }
-+        match super::storage::Storage::new(profile) {
-+            Ok(storage) => match storage.load() {
-+                Ok(mut instances) => {
-+                    if let Some(inst) = instances.iter_mut().find(|i| i.id == self.id) {
-+                        inst.agent_session_id = self.agent_session_id.clone();
-+                    }
-+                    if let Err(e) = storage.save(&instances) {
-+                        tracing::debug!(
-+                            "Failed to save instances for session ID persistence: {}",
-+                            e
-+                        );
-+                    } else {
-+                        tracing::debug!("Session ID persisted successfully");
-+                    }
-+                }
-+                Err(e) => {
-+                    tracing::debug!("Failed to load instances for session ID persistence: {}", e)
-+                }
-+            },
-+            Err(e) => {
-+                tracing::debug!("Failed to create storage for session ID persistence: {}", e)
-+            }
++        if let Some(ref sid) = self.agent_session_id {
++            persist_session_to_storage(profile, &self.id, sid);
 +        }
 +    }
 +
 +    /// Spawn a background thread to capture the session ID after the agent starts.
 +    ///
-+    /// OpenCode and Codex create their own sessions on launch, so the ID cannot be
-+    /// known in advance. This method polls the agent's CLI or filesystem until a
-+    /// session appears, then persists it so that future relaunches resume the same
-+    /// conversation.
-+    fn deferred_capture_session_id(&self, profile: &str) {
++    /// Some agents (OpenCode, Codex, Gemini, Vibe) create their own sessions on
++    /// launch, so the ID cannot be known in advance. This method polls the agent's
++    /// CLI or filesystem until a session appears, then persists it so that future
++    /// relaunches resume the same conversation.
++    fn deferred_capture_session_id(&mut self, profile: &str) {
 +        if self.agent_session_id.is_some() {
 +            return;
 +        }
-+        if !matches!(self.tool.as_str(), "opencode" | "codex") {
++        if !matches!(self.tool.as_str(), "opencode" | "codex" | "gemini" | "vibe") {
 +            return;
 +        }
++
++        let gate = Arc::new(CaptureGate::new());
++        let gate_for_thread = Arc::clone(&gate);
++        self.capture_gate = Some(gate);
 +
 +        let instance_id = self.id.clone();
 +        let tool = self.tool.clone();
@@ -716,16 +1367,26 @@ index 006f6d25..68fcde87 100644
 +        let profile = profile.to_string();
 +        let is_sandboxed = self.is_sandboxed();
 +
-+        std::thread::Builder::new()
++        let launch_time_ms = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map(|d| d.as_millis() as f64)
++            .unwrap_or(0.0);
++
++        match std::thread::Builder::new()
 +            .name(format!("deferred-capture-{}", instance_id))
 +            .spawn(move || {
-+                std::thread::sleep(DEFERRED_CAPTURE_INITIAL_DELAY);
++                let timing = session_timing();
++                std::thread::sleep(Duration::from_secs(
++                    timing.deferred_capture_initial_delay_secs,
++                ));
 +
-+                for attempt in 1..=DEFERRED_CAPTURE_MAX_ATTEMPTS {
++                for attempt in 1..=timing.deferred_capture_max_attempts {
++                    let exclusion = build_exclusion_set(&instance_id);
++
 +                    let captured = if is_sandboxed {
-+                        capture_from_container(&instance_id, &tool)
++                        capture_from_container(&instance_id, &tool, &exclusion)
 +                    } else {
-+                        capture_from_host(&tool, &project_path)
++                        capture_from_host(&tool, &project_path, &exclusion, launch_time_ms, &timing)
 +                    };
 +
 +                    if let Some(ref session_id) = captured {
@@ -735,34 +1396,157 @@ index 006f6d25..68fcde87 100644
 +                            attempt,
 +                            session_id
 +                        );
-+                        persist_deferred_session_id(&profile, &instance_id, session_id);
++                        persist_session_to_storage(&profile, &instance_id, session_id);
++                        gate_for_thread.complete(Some(session_id.clone()));
 +                        return;
 +                    }
 +
-+                    if attempt < DEFERRED_CAPTURE_MAX_ATTEMPTS {
++                    if attempt < timing.deferred_capture_max_attempts {
 +                        tracing::debug!(
 +                            "Deferred capture attempt {}/{} found nothing for {}, retrying",
 +                            attempt,
-+                            DEFERRED_CAPTURE_MAX_ATTEMPTS,
++                            timing.deferred_capture_max_attempts,
 +                            instance_id
 +                        );
-+                        std::thread::sleep(DEFERRED_CAPTURE_RETRY_DELAY);
++                        std::thread::sleep(Duration::from_secs(
++                            timing.deferred_capture_retry_delay_secs,
++                        ));
 +                    }
 +                }
 +
 +                tracing::debug!(
 +                    "Deferred capture exhausted all {} attempts for {}",
-+                    DEFERRED_CAPTURE_MAX_ATTEMPTS,
++                    timing.deferred_capture_max_attempts,
 +                    instance_id
 +                );
-+            })
-+            .ok();
++                gate_for_thread.complete(None);
++            }) {
++            Ok(handle) => {
++                self.deferred_capture_handle = Some(Arc::new(Mutex::new(Some(handle))));
++            }
++            Err(e) => {
++                tracing::error!(
++                    session = %self.id,
++                    error = %e,
++                    "Failed to spawn deferred session capture thread"
++                );
++                // Signal the gate so the poller is not stuck waiting
++                if let Some(ref gate) = self.capture_gate {
++                    gate.complete(None);
++                }
++            }
++        }
 +    }
 +
      fn apply_tmux_options(&self) {
          let name = tmux::Session::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &self.title);
-@@ -669,6 +1242,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -556,11 +1583,80 @@ impl Instance {
+         )
+     }
+ 
++    pub fn maybe_start_poller(&mut self) {
++        let tool = self.tool.as_str();
++        if !matches!(tool, "claude" | "opencode") {
++            return;
++        }
++
++        let launch_time_ms = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map(|d| d.as_millis() as f64)
++            .unwrap_or(0.0);
++
++        let tmux_session_name = self
++            .tmux_session()
++            .map(|s| s.name().to_string())
++            .unwrap_or_default();
++        let mut poller = SessionPoller::new(tmux_session_name);
++        let instance_id = self.id.clone();
++        let initial_known = self.agent_session_id.clone();
++
++        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
++            "claude" => Box::new(claude_poll_fn()),
++            "opencode" => Box::new(opencode_poll_fn(
++                self.project_path.clone(),
++                self.id.clone(),
++                launch_time_ms,
++            )),
++            _ => return,
++        };
++
++        let profile = super::config::Config::load()
++            .map(|c| c.default_profile)
++            .unwrap_or_else(|_| "default".to_string());
++        let cb_instance_id = self.id.clone();
++
++        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(move |new_id: &str| {
++            tracing::info!("Session ID changed for {}: {}", cb_instance_id, new_id);
++            persist_session_to_storage(&profile, &cb_instance_id, new_id);
++        });
++
++        if poller.start(
++            instance_id.clone(),
++            poll_fn,
++            on_change,
++            initial_known,
++            self.capture_gate.clone(),
++        ) {
++            self.session_id_poller = Some(Arc::new(Mutex::new(poller)));
++        } else {
++            tracing::warn!(
++                "Failed to start session poller for instance {}, poller will not be stored",
++                instance_id
++            );
++        }
++    }
++
++    fn stop_poller(&self) {
++        if let Some(ref poller_arc) = self.session_id_poller {
++            if let Ok(mut poller) = poller_arc.lock() {
++                poller.stop();
++            }
++        }
++    }
++
+     pub fn restart(&mut self) -> Result<()> {
+         self.restart_with_size(None)
+     }
+ 
+     pub fn restart_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
++        self.stop_poller();
++        self.session_id_poller = None;
++        self.join_deferred_capture();
++        self.deferred_capture_handle = None;
++        self.capture_gate = None;
++
+         let session = self.tmux_session()?;
+ 
+         if session.exists() {
+@@ -574,6 +1670,8 @@ impl Instance {
+     }
+ 
+     pub fn kill(&self) -> Result<()> {
++        self.stop_poller();
++        self.join_deferred_capture();
+         let session = self.tmux_session()?;
+         if session.exists() {
+             session.kill()?;
+@@ -581,6 +1679,14 @@ impl Instance {
+         Ok(())
+     }
+ 
++    fn join_deferred_capture(&self) {
++        if let Some(ref mtx) = self.deferred_capture_handle {
++            if let Some(handle) = mtx.lock().ok().and_then(|mut guard| guard.take()) {
++                let _ = handle.join();
++            }
++        }
++    }
++
+     /// Stop the session: kill the tmux session and stop the Docker container
+     /// (if sandboxed). The container is stopped but not removed, so it can be
+     /// restarted on re-attach.
+@@ -710,6 +1816,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -770,20 +1554,26 @@ index 006f6d25..68fcde87 100644
  
      #[test]
      fn test_new_instance() {
-@@ -996,6 +1570,300 @@ mod tests {
+@@ -1037,18 +2144,292 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
 +    // Tests for agent_session_id field
-+    #[test]
+     #[test]
+-    fn test_has_custom_command_empty() {
 +    fn test_agent_session_id_none_by_default() {
-+        let inst = Instance::new("test", "/tmp/test");
+         let inst = Instance::new("test", "/tmp/test");
+-        assert!(!inst.has_custom_command());
 +        assert!(inst.agent_session_id.is_none());
-+    }
-+
-+    #[test]
+     }
+ 
+     #[test]
+-    fn test_has_custom_command_same_as_agent_binary() {
 +    fn test_agent_session_id_serialization() {
-+        let mut inst = Instance::new("test", "/tmp/test");
+         let mut inst = Instance::new("test", "/tmp/test");
+-        inst.tool = "claude".to_string();
+-        inst.command = "claude".to_string();
+-        assert!(!inst.has_custom_command());
 +        inst.agent_session_id = Some("session-123".to_string());
 +
 +        let json = serde_json::to_string(&inst).unwrap();
@@ -890,18 +1680,6 @@ index 006f6d25..68fcde87 100644
 +        assert_eq!(inst.tool, "opencode");
 +    }
 +
-+    // Test: empty string session ID treated as None (this test is now covered by test_empty_string_deserializes_to_none)
-+    // Kept for backwards compatibility check that the deserializer works correctly
-+    #[test]
-+    fn test_empty_string_session_id_treated_as_none() {
-+        // When deserializing, empty string should be treated as None
-+        let json = r#"{"id":"test123","title":"Test","project_path":"/tmp/test","group_path":"","command":"","tool":"claude","yolo_mode":false,"status":"idle","created_at":"2024-01-01T00:00:00Z","agent_session_id":""}"#;
-+        let inst: Instance = serde_json::from_str(json).unwrap();
-+
-+        // Empty string should deserialize to None, not Some("")
-+        assert_eq!(inst.agent_session_id, None);
-+    }
-+
 +    #[test]
 +    fn test_opencode_acquire_returns_none_for_deferred_capture() {
 +        let mut inst = Instance::new("Test", "/tmp/test");
@@ -950,10 +1728,8 @@ index 006f6d25..68fcde87 100644
 +        assert!(is_existing);
 +    }
 +
-+    // Test: resume with invalid session ID
 +    #[test]
-+    fn test_resume_with_invalid_session_id() {
-+        // Test that an invalid session ID is still stored and used
++    fn test_resume_with_arbitrary_session_id() {
 +        let mut inst = Instance::new("Test", "/home/user/project");
 +        inst.tool = "claude".to_string();
 +        inst.agent_session_id = Some("invalid-session-id".to_string());
@@ -966,6 +1742,38 @@ index 006f6d25..68fcde87 100644
 +        let (session_id, is_existing) = inst.acquire_session_id();
 +        assert_eq!(session_id, Some("invalid-session-id".to_string()));
 +        assert!(is_existing);
++    }
++
++    #[test]
++    fn test_is_valid_session_id() {
++        assert!(is_valid_session_id("abc-123"));
++        assert!(is_valid_session_id("session_id.v2"));
++        assert!(is_valid_session_id("a"));
++        assert!(is_valid_session_id("ABC-def_123.456"));
++
++        assert!(!is_valid_session_id(""));
++        assert!(!is_valid_session_id("bad id!@#"));
++        assert!(!is_valid_session_id("has space"));
++        assert!(!is_valid_session_id("semi;colon"));
++        assert!(!is_valid_session_id("back`tick"));
++        assert!(!is_valid_session_id("path/slash"));
++        assert!(!is_valid_session_id(&"x".repeat(257)));
++    }
++
++    #[test]
++    fn test_build_resume_flags_rejects_invalid_id() {
++        let flags = build_resume_flags("claude", "$(rm -rf /)", true);
++        assert_eq!(flags, "");
++
++        let flags = build_resume_flags("opencode", "id; echo pwned", false);
++        assert_eq!(flags, "");
++    }
++
++    #[test]
++    fn test_codex_append_resume_flags_ordering() {
++        let mut cmd = "codex --dangerously-auto-approve".to_string();
++        append_resume_flags("codex", Some("ses-abc"), true, &mut cmd, "test");
++        assert_eq!(cmd, "codex resume ses-abc --dangerously-auto-approve");
 +    }
 +
 +    // Test: backwards compatibility - load old JSON without agent_session_id
@@ -1030,92 +1838,47 @@ index 006f6d25..68fcde87 100644
 +        assert_eq!(first, second);
 +    }
 +
-+    // Tests the timeout+SIGKILL pattern, not the actual capture_opencode_session_id
-+    // function, since that requires the opencode binary to be installed.
 +    #[test]
-+    fn test_opencode_timeout_returns_error() {
-+        let result = slow_command_with_timeout();
-+        assert!(result.is_err());
-+        let err_msg = result.unwrap_err().to_string();
-+        assert!(err_msg.contains("timed out"));
++    fn test_has_custom_command_empty() {
++        let inst = Instance::new("test", "/tmp/test");
++        assert!(!inst.has_custom_command());
 +    }
 +
-+    fn slow_command_with_timeout() -> Result<String> {
-+        let child = std::process::Command::new("sleep")
-+            .args(["10"])
-+            .stdout(Stdio::piped())
-+            .stderr(Stdio::piped())
-+            .spawn()
-+            .context("Failed to spawn sleep command")?;
-+
-+        let child_id = child.id();
-+        let (tx, rx) = mpsc::channel();
-+
-+        std::thread::spawn(move || {
-+            let _ = tx.send(child.wait_with_output());
-+        });
-+
-+        let _output = match rx.recv_timeout(Duration::from_secs(1)) {
-+            Ok(Ok(out)) => out,
-+            Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute: {}", e)),
-+            Err(_) => {
-+                tracing::debug!("Command timed out after 1 second");
-+                let _ = nix::sys::signal::kill(Pid::from_raw(child_id as i32), Signal::SIGKILL);
-+                return Err(anyhow::anyhow!("Command timed out"));
-+            }
-+        };
-+
-+        Ok("dummy".to_string())
-+    }
-+
++    #[test]
++    fn test_has_custom_command_same_as_agent_binary() {
++        let mut inst = Instance::new("test", "/tmp/test");
++        inst.tool = "claude".to_string();
++        inst.command = "claude".to_string();
++        assert!(!inst.has_custom_command());
+     }
+ 
      #[test]
-     fn test_has_custom_command_empty() {
-         let inst = Instance::new("test", "/tmp/test");
-@@ -1034,4 +1902,161 @@ mod tests {
+@@ -1092,4 +2473,559 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
 +
 +    #[test]
 +    fn test_opencode_directory_matching() {
-+        // Use numeric epoch timestamps (milliseconds) matching OpenCode's Date.now() format.
 +        let sessions_json = serde_json::json!([
 +            {"id": "wrong-session", "directory": "/home/user/other-project", "updated": 1735689600000_u64},
 +            {"id": "correct-session", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
 +            {"id": "older-match", "directory": "/tmp/my-project", "updated": 1735689600000_u64},
 +        ]);
-+        let sessions: Vec<serde_json::Value> = serde_json::from_value(sessions_json).unwrap();
++        let session_entries: Vec<serde_json::Value> =
++            serde_json::from_value(sessions_json).unwrap();
 +
-+        let project_path = "/tmp/my-project";
-+        let canonical_path = std::fs::canonicalize(project_path)
-+            .unwrap_or_else(|_| std::path::PathBuf::from(project_path));
-+        let canonical_str = canonical_path.to_string_lossy();
++        let matching = filter_agent_sessions(
++            &session_entries,
++            Some("/tmp/my-project"),
++            &HashSet::new(),
++            None,
++        );
 +
-+        let mut matching: Vec<&serde_json::Value> = sessions
-+            .iter()
-+            .filter(|s| {
-+                s.get("directory")
-+                    .or_else(|| s.get("path"))
-+                    .and_then(|v| v.as_str())
-+                    .map(|dir| {
-+                        let session_path = std::fs::canonicalize(dir)
-+                            .unwrap_or_else(|_| std::path::PathBuf::from(dir));
-+                        session_path.to_string_lossy() == canonical_str
-+                    })
-+                    .unwrap_or(false)
-+            })
-+            .collect();
-+
-+        // Sort by numeric epoch (most recent first), matching production code.
-+        matching.sort_by(|a, b| {
-+            let a_time = a.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-+            let b_time = b.get("updated").and_then(|v| v.as_f64()).unwrap_or(0.0);
-+            b_time
-+                .partial_cmp(&a_time)
-+                .unwrap_or(std::cmp::Ordering::Equal)
-+        });
-+
-+        let session = matching.first().copied().or_else(|| sessions.first());
++        let session = matching
++            .first()
++            .copied()
++            .or_else(|| session_entries.first());
 +        let id = session.and_then(|s| s["id"].as_str()).unwrap();
 +
 +        assert_eq!(id, "correct-session");
@@ -1170,7 +1933,7 @@ index 006f6d25..68fcde87 100644
 +        let old_val = std::env::var("CODEX_HOME").ok();
 +        std::env::set_var("CODEX_HOME", tmp.path());
 +
-+        let result = capture_codex_session_id("/tmp/test");
++        let result = capture_codex_session_id("/tmp/test", &HashSet::new());
 +        assert!(result.is_ok());
 +        assert_eq!(result.unwrap(), uuid);
 +
@@ -1232,4 +1995,2310 @@ index 006f6d25..68fcde87 100644
 +            Some("my-thread-name".to_string())
 +        );
 +    }
++
++    #[test]
++    fn test_claude_poll_fn_extracts_uuid() {
++        let tmp = tempfile::tempdir().unwrap();
++        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
++        let sessions_dir = tmp.path().join("sessions").join(uuid);
++        std::fs::create_dir_all(&sessions_dir).unwrap();
++        let debug_log = sessions_dir.join("debug.log");
++        std::fs::write(&debug_log, "").unwrap();
++
++        let symlink_path = tmp.path().join("latest");
++        std::os::unix::fs::symlink(&debug_log, &symlink_path).unwrap();
++
++        let result = extract_uuid_from_symlink_target(&symlink_path);
++        assert_eq!(result, Some(uuid.to_string()));
++    }
++
++    #[test]
++    fn test_claude_poll_fn_invalid_target() {
++        let tmp = tempfile::tempdir().unwrap();
++        let target_dir = tmp.path().join("no-uuid-here");
++        std::fs::create_dir_all(&target_dir).unwrap();
++        let target_file = target_dir.join("somefile.log");
++        std::fs::write(&target_file, "").unwrap();
++
++        let symlink_path = tmp.path().join("latest");
++        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
++
++        assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
++    }
++
++    #[test]
++    fn test_claude_poll_fn_broken_symlink() {
++        let tmp = tempfile::tempdir().unwrap();
++        let dangling_target = tmp.path().join("sessions/dead-uuid/debug.log");
++        let symlink_path = tmp.path().join("latest");
++        std::os::unix::fs::symlink(&dangling_target, &symlink_path).unwrap();
++
++        assert_eq!(extract_uuid_from_symlink_target(&symlink_path), None);
++    }
++
++    #[test]
++    fn test_claude_poll_fn_extracts_uuid_from_dotted_filename() {
++        let tmp = tempfile::tempdir().unwrap();
++        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
++        let target_file = tmp.path().join(format!("{uuid}.txt"));
++        std::fs::write(&target_file, "").unwrap();
++
++        let symlink_path = tmp.path().join("latest");
++        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
++
++        let result = extract_uuid_from_symlink_target(&symlink_path);
++        assert_eq!(result, Some(uuid.to_string()));
++    }
++
++    #[test]
++    fn test_is_uuid_format_valid() {
++        assert!(is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
++        assert!(is_uuid_format("00000000-0000-0000-0000-000000000000"));
++        assert!(is_uuid_format("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"));
++    }
++
++    #[test]
++    fn test_is_uuid_format_invalid() {
++        assert!(!is_uuid_format(""));
++        assert!(!is_uuid_format("not-a-uuid"));
++        assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd")); // too short
++        assert!(!is_uuid_format("a1b2c3d4-e5f6-7890-abcd-ef1234567890.txt")); // has extension
++        assert!(!is_uuid_format("a1b2c3d4e5f67890abcdef1234567890")); // no dashes
++        assert!(!is_uuid_format("g1b2c3d4-e5f6-7890-abcd-ef1234567890")); // 'g' is not hex
++    }
++
++    #[test]
++    fn test_extract_gemini_session_id_from_file_with_id() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session-42.json");
++        std::fs::write(&path, r#"{"id": "abc-123", "cwd": "/tmp/project"}"#).unwrap();
++        assert_eq!(
++            extract_gemini_session_id_from_file(&path),
++            Some("abc-123".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_gemini_session_id_from_file_no_id_falls_back_to_stem() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session-42.json");
++        std::fs::write(&path, r#"{"cwd": "/tmp/project"}"#).unwrap();
++        assert_eq!(
++            extract_gemini_session_id_from_file(&path),
++            Some("session-42".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_gemini_session_id_from_file_invalid_json() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session-42.json");
++        std::fs::write(&path, "not json").unwrap();
++        assert_eq!(extract_gemini_session_id_from_file(&path), None);
++    }
++
++    #[test]
++    fn test_extract_gemini_cwd_from_file() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.json");
++        std::fs::write(&path, r#"{"id": "s1", "cwd": "/home/user/project"}"#).unwrap();
++        assert_eq!(
++            extract_gemini_cwd_from_file(&path),
++            Some("/home/user/project".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_gemini_cwd_from_file_project_path_fallback() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.json");
++        std::fs::write(
++            &path,
++            r#"{"id": "s1", "projectPath": "/home/user/project"}"#,
++        )
++        .unwrap();
++        assert_eq!(
++            extract_gemini_cwd_from_file(&path),
++            Some("/home/user/project".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_vibe_cwd_from_meta() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("meta.json");
++        std::fs::write(
++            &path,
++            r#"{"cwd": "/home/user/myrepo", "session_id": "abc"}"#,
++        )
++        .unwrap();
++        assert_eq!(
++            extract_vibe_cwd_from_meta(&path),
++            Some("/home/user/myrepo".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_vibe_cwd_from_meta_working_directory_fallback() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("meta.json");
++        std::fs::write(&path, r#"{"working_directory": "/home/user/myrepo"}"#).unwrap();
++        assert_eq!(
++            extract_vibe_cwd_from_meta(&path),
++            Some("/home/user/myrepo".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_vibe_cwd_from_meta_missing_file() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("nonexistent.json");
++        assert_eq!(extract_vibe_cwd_from_meta(&path), None);
++    }
++
++    #[test]
++    fn test_build_exclusion_set_empty() {
++        let result = build_exclusion_set("nonexistent-instance-id-12345");
++        assert!(result.is_empty());
++    }
++
++    #[test]
++    fn test_exclusion_filters_claimed_sessions() {
++        let sessions_json = serde_json::json!([
++            {"id": "A", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
++            {"id": "C", "directory": "/tmp/my-project", "updated": 1735775000000_u64},
++            {"id": "B", "directory": "/tmp/my-project", "updated": 1735774000000_u64},
++            {"id": "D", "directory": "/tmp/my-project", "updated": 1735773000000_u64},
++        ]);
++        let session_entries: Vec<serde_json::Value> =
++            serde_json::from_value(sessions_json).unwrap();
++
++        let mut exclusion = HashSet::new();
++        exclusion.insert("A".to_string());
++        exclusion.insert("B".to_string());
++
++        let matching = filter_agent_sessions(
++            &session_entries,
++            Some("/tmp/my-project"),
++            &exclusion,
++            Some(0.0),
++        );
++
++        let best = matching.first().unwrap();
++        assert_eq!(best["id"].as_str().unwrap(), "C");
++    }
++
++    #[test]
++    fn test_opencode_capture_with_exclusion() {
++        let sessions_json = serde_json::json!([
++            {"id": "best-session", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
++            {"id": "second-best", "directory": "/tmp/my-project", "updated": 1735775000000_u64},
++        ]);
++        let session_entries: Vec<serde_json::Value> =
++            serde_json::from_value(sessions_json).unwrap();
++
++        let mut exclusion = HashSet::new();
++        exclusion.insert("best-session".to_string());
++
++        let matching =
++            filter_agent_sessions(&session_entries, Some("/tmp/my-project"), &exclusion, None);
++
++        let session = matching
++            .first()
++            .copied()
++            .or_else(|| session_entries.first());
++        let id = session.and_then(|s| s["id"].as_str()).unwrap();
++        assert_eq!(id, "second-best");
++    }
++
++    #[test]
++    fn test_opencode_capture_all_excluded() {
++        let sessions_json = serde_json::json!([
++            {"id": "sess-1", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
++            {"id": "sess-2", "directory": "/tmp/my-project", "updated": 1735775000000_u64},
++        ]);
++        let session_entries: Vec<serde_json::Value> =
++            serde_json::from_value(sessions_json).unwrap();
++
++        let mut exclusion = HashSet::new();
++        exclusion.insert("sess-1".to_string());
++        exclusion.insert("sess-2".to_string());
++
++        let matching =
++            filter_agent_sessions(&session_entries, Some("/tmp/my-project"), &exclusion, None);
++
++        assert!(
++            matching.is_empty(),
++            "All sessions are excluded, matching should be empty"
++        );
++    }
++
++    #[test]
++    fn test_opencode_timestamp_guard() {
++        let sessions_json = serde_json::json!([
++            {"id": "old-session", "directory": "/tmp/my-project", "updated": 1000000000000_u64},
++            {"id": "new-session", "directory": "/tmp/my-project", "updated": 1735776000000_u64},
++            {"id": "stale-session", "directory": "/tmp/my-project", "updated": 1500000000000_u64},
++        ]);
++        let session_entries: Vec<serde_json::Value> =
++            serde_json::from_value(sessions_json).unwrap();
++
++        let launch_time_ms: f64 = 1735000000000.0;
++        let exclusion: HashSet<String> = HashSet::new();
++
++        let matching = filter_agent_sessions(
++            &session_entries,
++            Some("/tmp/my-project"),
++            &exclusion,
++            Some(launch_time_ms),
++        );
++
++        assert_eq!(matching.len(), 1);
++        assert_eq!(matching[0]["id"].as_str().unwrap(), "new-session");
++    }
++
++    struct TmuxSessionGuard {
++        sessions: Vec<String>,
++    }
++
++    impl Drop for TmuxSessionGuard {
++        fn drop(&mut self) {
++            for name in &self.sessions {
++                let _ = std::process::Command::new("tmux")
++                    .args(["kill-session", "-t", name])
++                    .output();
++            }
++        }
++    }
++
++    #[test]
++    #[ignore]
++    #[serial]
++    fn test_parallel_multi_instance_capture() {
++        if std::process::Command::new("tmux")
++            .args(["-V"])
++            .output()
++            .is_err()
++        {
++            return;
++        }
++
++        let session_names = [
++            "aoe_test_parallel_1",
++            "aoe_test_parallel_2",
++            "aoe_test_parallel_3",
++        ];
++        let instance_ids = ["instance-id-1", "instance-id-2", "instance-id-3"];
++        let captured_sessions = [
++            "opencode-session-AAA",
++            "opencode-session-BBB",
++            "opencode-session-CCC",
++        ];
++
++        let _guard = TmuxSessionGuard {
++            sessions: session_names.iter().map(|s| s.to_string()).collect(),
++        };
++
++        for i in 0..3 {
++            let output = std::process::Command::new("tmux")
++                .args([
++                    "new-session",
++                    "-d",
++                    "-s",
++                    session_names[i],
++                    "-x",
++                    "200",
++                    "-y",
++                    "50",
++                ])
++                .output()
++                .expect("Failed to create tmux session");
++            assert!(
++                output.status.success(),
++                "Failed to create tmux session {}: {}",
++                session_names[i],
++                String::from_utf8_lossy(&output.stderr)
++            );
++
++            crate::tmux::env::set_hidden_env(
++                session_names[i],
++                crate::tmux::env::AOE_INSTANCE_ID_KEY,
++                instance_ids[i],
++            )
++            .unwrap_or_else(|e| {
++                panic!("Failed to set instance ID for {}: {}", session_names[i], e)
++            });
++
++            crate::tmux::env::set_hidden_env(
++                session_names[i],
++                crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
++                captured_sessions[i],
++            )
++            .unwrap_or_else(|e| {
++                panic!(
++                    "Failed to set captured session for {}: {}",
++                    session_names[i], e
++                )
++            });
++        }
++
++        let results: Vec<HashSet<String>> = std::thread::scope(|s| {
++            let handles: Vec<_> = instance_ids
++                .iter()
++                .map(|id| s.spawn(move || build_exclusion_set(id)))
++                .collect();
++
++            handles
++                .into_iter()
++                .map(|h| h.join().expect("Thread panicked"))
++                .collect()
++        });
++
++        // Each instance's exclusion set should contain only the other instances' captured sessions
++        assert!(
++            results[0].contains("opencode-session-BBB"),
++            "Instance 1 exclusion set should contain BBB, got: {:?}",
++            results[0]
++        );
++        assert!(
++            results[0].contains("opencode-session-CCC"),
++            "Instance 1 exclusion set should contain CCC, got: {:?}",
++            results[0]
++        );
++        assert!(
++            !results[0].contains("opencode-session-AAA"),
++            "Instance 1 exclusion set must NOT contain its own AAA, got: {:?}",
++            results[0]
++        );
++
++        assert!(
++            results[1].contains("opencode-session-AAA"),
++            "Instance 2 exclusion set should contain AAA, got: {:?}",
++            results[1]
++        );
++        assert!(
++            results[1].contains("opencode-session-CCC"),
++            "Instance 2 exclusion set should contain CCC, got: {:?}",
++            results[1]
++        );
++        assert!(
++            !results[1].contains("opencode-session-BBB"),
++            "Instance 2 exclusion set must NOT contain its own BBB, got: {:?}",
++            results[1]
++        );
++
++        assert!(
++            results[2].contains("opencode-session-AAA"),
++            "Instance 3 exclusion set should contain AAA, got: {:?}",
++            results[2]
++        );
++        assert!(
++            results[2].contains("opencode-session-BBB"),
++            "Instance 3 exclusion set should contain BBB, got: {:?}",
++            results[2]
++        );
++        assert!(
++            !results[2].contains("opencode-session-CCC"),
++            "Instance 3 exclusion set must NOT contain its own CCC, got: {:?}",
++            results[2]
++        );
++
++        for i in 0..3 {
++            assert!(
++                !results[i].contains(captured_sessions[i]),
++                "Instance {} exclusion set must not contain its own captured session {}",
++                i + 1,
++                captured_sessions[i]
++            );
++        }
++    }
  }
+diff --git a/src/session/mod.rs b/src/session/mod.rs
+index 89e32e46..a499a67d 100644
+--- a/src/session/mod.rs
++++ b/src/session/mod.rs
+@@ -7,6 +7,7 @@ mod container_config;
+ mod environment;
+ mod groups;
+ mod instance;
++pub mod poller;
+ pub mod profile_config;
+ pub mod repo_config;
+ mod storage;
+@@ -19,6 +20,7 @@ pub use config::{
+ };
+ pub use environment::validate_env_entry;
+ pub use groups::{flatten_tree, Group, GroupTree, Item};
++pub(crate) use instance::is_valid_session_id;
+ pub use instance::{Instance, SandboxInfo, Status, TerminalInfo, WorktreeInfo};
+ pub use profile_config::{
+     load_profile_config, merge_configs, resolve_config, save_profile_config,
+diff --git a/src/session/poller.rs b/src/session/poller.rs
+new file mode 100644
+index 00000000..ba0ab163
+--- /dev/null
++++ b/src/session/poller.rs
+@@ -0,0 +1,792 @@
++//! Adaptive polling interval and command channel for session monitoring
++
++use std::sync::atomic::{AtomicU32, Ordering};
++use std::sync::mpsc;
++use std::sync::mpsc::RecvTimeoutError;
++use std::sync::{Arc, Condvar, Mutex};
++use std::thread::JoinHandle;
++use std::time::Duration;
++
++/// Global count of active poller threads for budget enforcement
++static ACTIVE_POLLER_COUNT: AtomicU32 = AtomicU32::new(0);
++
++/// Maximum number of concurrent poller threads allowed
++const MAX_POLLER_THREADS: u32 = 20;
++
++const POLL_INITIAL_INTERVAL: Duration = Duration::from_secs(2);
++const POLL_MAX_INTERVAL: Duration = Duration::from_secs(60);
++const POLL_BACKOFF_FACTOR: f64 = 1.5;
++const POLL_STABLE_THRESHOLD: u32 = 3;
++
++/// Bounds how long the poller blocks on a capture gate (covers the full capture
++/// cycle of initial_delay + max_attempts * retry_delay with margin).
++const CAPTURE_GATE_TIMEOUT: Duration = Duration::from_secs(120);
++
++/// Coordination gate between the deferred capture thread and the session poller.
++///
++/// When an agent (e.g. opencode) requires both a deferred capture (to discover the
++/// initial session ID) and continuous polling (to detect later changes), the poller
++/// must wait for the capture to finish before entering its poll loop. This avoids
++/// concurrent writes to the storage file and redundant work.
++///
++/// The capture thread calls [`CaptureGate::complete`] when it finishes (with or
++/// without a result). The poller thread calls [`CaptureGate::wait`] to block until
++/// the gate opens, then uses the captured ID as its `initial_known` value.
++pub struct CaptureGate {
++    inner: Mutex<CaptureGateState>,
++    cond: Condvar,
++}
++
++struct CaptureGateState {
++    done: bool,
++    captured_id: Option<String>,
++}
++
++impl CaptureGate {
++    pub fn new() -> Self {
++        Self {
++            inner: Mutex::new(CaptureGateState {
++                done: false,
++                captured_id: None,
++            }),
++            cond: Condvar::new(),
++        }
++    }
++
++    /// Signal that the deferred capture is complete.
++    ///
++    /// `captured_id` is `Some(id)` on success, `None` if all attempts were exhausted.
++    pub fn complete(&self, captured_id: Option<String>) {
++        let mut state = self.inner.lock().expect("CaptureGate lock poisoned");
++        state.done = true;
++        state.captured_id = captured_id;
++        self.cond.notify_all();
++    }
++
++    /// Block until the deferred capture completes, then return the captured ID (if any).
++    ///
++    /// Uses a timeout so the poller thread is never stuck indefinitely if the capture
++    /// thread panics or is cancelled.
++    pub fn wait(&self, timeout: Duration) -> Option<String> {
++        let state = self.inner.lock().expect("CaptureGate lock poisoned");
++        let result = self
++            .cond
++            .wait_timeout_while(state, timeout, |s| !s.done)
++            .expect("CaptureGate lock poisoned");
++        result.0.captured_id.clone()
++    }
++}
++
++impl Default for CaptureGate {
++    fn default() -> Self {
++        Self::new()
++    }
++}
++
++impl std::fmt::Debug for CaptureGate {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        let state = self.inner.lock().ok();
++        f.debug_struct("CaptureGate")
++            .field("done", &state.as_ref().map(|s| s.done))
++            .finish()
++    }
++}
++
++/// Manages adaptive polling intervals that back off when no changes are detected
++#[derive(Debug)]
++pub struct AdaptiveInterval {
++    initial: Duration,
++    current: Duration,
++    max: Duration,
++    backoff_factor: f64,
++    stable_threshold: u32,
++    stable_count: u32,
++}
++
++impl AdaptiveInterval {
++    /// Create a new adaptive interval with custom parameters
++    pub fn new(
++        initial: Duration,
++        max: Duration,
++        backoff_factor: f64,
++        stable_threshold: u32,
++    ) -> Self {
++        Self {
++            initial,
++            current: initial,
++            max,
++            backoff_factor,
++            stable_threshold,
++            stable_count: 0,
++        }
++    }
++
++    /// Get the current interval duration
++    pub fn current(&self) -> Duration {
++        self.current
++    }
++
++    /// Record that no changes were detected; increases backoff if threshold is reached
++    pub fn record_no_change(&mut self) {
++        self.stable_count += 1;
++        if self.stable_count >= self.stable_threshold {
++            let next = (self.current.as_secs_f64() * self.backoff_factor) as u64;
++            let next_duration = Duration::from_secs(next);
++            self.current = next_duration.min(self.max);
++            self.stable_count = 0;
++        }
++    }
++
++    /// Record that a change was detected; reset to initial interval
++    pub fn record_change(&mut self) {
++        self.current = self.initial;
++        self.stable_count = 0;
++    }
++
++    /// Reset interval to initial state (external trigger)
++    pub fn reset(&mut self) {
++        self.record_change();
++    }
++}
++
++/// Command sent to the session poller thread
++#[derive(Debug, Clone, Copy)]
++pub enum PollCommand {
++    /// Request an immediate poll
++    PollNow,
++    /// Stop the poller thread
++    Stop,
++}
++
++/// Manages polling thread lifecycle and communication
++pub struct SessionPoller {
++    session_name: String,
++    cmd_tx: mpsc::Sender<PollCommand>,
++    cmd_rx: Option<mpsc::Receiver<PollCommand>>,
++    handle: Option<JoinHandle<()>>,
++}
++
++impl std::fmt::Debug for SessionPoller {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("SessionPoller")
++            .field("session_name", &self.session_name)
++            .field("running", &self.handle.is_some())
++            .finish()
++    }
++}
++
++impl SessionPoller {
++    /// Create a new poller (does not start the thread)
++    pub fn new(session_name: String) -> Self {
++        let (tx, rx) = mpsc::channel();
++        Self {
++            session_name,
++            cmd_tx: tx,
++            cmd_rx: Some(rx),
++            handle: None,
++        }
++    }
++
++    /// Start the polling thread with the given callbacks.
++    ///
++    /// When `capture_gate` is `Some`, the thread blocks until the deferred capture
++    /// completes, then uses the captured ID as its initial known value. This
++    /// prevents concurrent storage writes between the capture and poller threads.
++    ///
++    /// Returns `true` if the thread was successfully spawned, `false` if the
++    /// poller was already started, the thread budget was exhausted, or spawning failed.
++    pub fn start(
++        &mut self,
++        instance_id: String,
++        poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static>,
++        on_change: Box<dyn Fn(&str) + Send + 'static>,
++        initial_known: Option<String>,
++        capture_gate: Option<Arc<CaptureGate>>,
++    ) -> bool {
++        let cmd_rx = match self.cmd_rx.take() {
++            Some(rx) => rx,
++            None => {
++                tracing::warn!(
++                    "Poller for {} already started, ignoring duplicate start",
++                    instance_id
++                );
++                return false;
++            }
++        };
++
++        let count = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
++        if count >= MAX_POLLER_THREADS {
++            tracing::warn!(
++                "Poller thread budget exhausted ({}/{}), skipping poller for {}",
++                count,
++                MAX_POLLER_THREADS,
++                instance_id
++            );
++            self.cmd_rx = Some(cmd_rx);
++            return false;
++        }
++
++        ACTIVE_POLLER_COUNT.fetch_add(1, Ordering::SeqCst);
++
++        let session_name = self.session_name.clone();
++        let thread_label = format!("aoe-poller/{}", instance_id);
++
++        let handle = std::thread::Builder::new()
++            .name(thread_label.clone())
++            .stack_size(128 * 1024)
++            .spawn(move || {
++                let mut last_known = initial_known;
++
++                if let Some(gate) = capture_gate {
++                    tracing::debug!("Poller for {} waiting on capture gate", instance_id);
++                    let captured = gate.wait(CAPTURE_GATE_TIMEOUT);
++                    if let Some(ref id) = captured {
++                        tracing::debug!("Poller for {} received captured ID: {}", instance_id, id);
++                    }
++                    last_known = last_known.or(captured);
++                }
++
++                let mut interval = AdaptiveInterval::new(
++                    POLL_INITIAL_INTERVAL,
++                    POLL_MAX_INTERVAL,
++                    POLL_BACKOFF_FACTOR,
++                    POLL_STABLE_THRESHOLD,
++                );
++
++                loop {
++                    match cmd_rx.recv_timeout(interval.current()) {
++                        Ok(PollCommand::Stop) => break,
++                        Ok(PollCommand::PollNow) => { /* fall through to poll */ }
++                        Err(RecvTimeoutError::Timeout) => { /* fall through to poll */ }
++                        Err(RecvTimeoutError::Disconnected) => break,
++                    }
++
++                    if crate::tmux::utils::is_pane_dead(&session_name) {
++                        tracing::info!("Pane dead for {}, stopping poller", session_name);
++                        break;
++                    }
++
++                    if let Some(new_id) = poll_fn() {
++                        let changed = last_known.as_deref() != Some(&new_id);
++                        if changed {
++                            on_change(&new_id);
++                            last_known = Some(new_id);
++                            interval.record_change();
++                        } else {
++                            interval.record_no_change();
++                        }
++                    } else {
++                        interval.record_no_change();
++                    }
++                }
++
++                ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
++            });
++
++        match handle {
++            Ok(h) => {
++                self.handle = Some(h);
++                true
++            }
++            Err(e) => {
++                tracing::warn!("Failed to spawn poller thread {}: {}", thread_label, e);
++                ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
++                // Restore cmd_rx so this poller can be retried.
++                // The closure was consumed by the failed spawn, so recreate the channel.
++                let (tx, rx) = mpsc::channel();
++                self.cmd_tx = tx;
++                self.cmd_rx = Some(rx);
++                false
++            }
++        }
++    }
++
++    /// Send a poll command
++    pub fn poll_now(&self) {
++        let _ = self.cmd_tx.send(PollCommand::PollNow);
++    }
++
++    /// Stop the poller thread and wait for it to finish
++    pub fn stop(&mut self) {
++        let _ = self.cmd_tx.send(PollCommand::Stop);
++        if let Some(handle) = self.handle.take() {
++            let _ = handle.join();
++        }
++    }
++
++    /// Check if the poller thread is running
++    pub fn is_running(&self) -> bool {
++        match &self.handle {
++            Some(handle) => !handle.is_finished(),
++            None => false,
++        }
++    }
++}
++
++impl Default for SessionPoller {
++    fn default() -> Self {
++        Self::new("default".to_string())
++    }
++}
++
++impl Drop for SessionPoller {
++    fn drop(&mut self) {
++        self.stop();
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn test_adaptive_interval_initial() {
++        let interval =
++            AdaptiveInterval::new(Duration::from_secs(2), Duration::from_secs(60), 1.5, 3);
++        assert_eq!(interval.current(), Duration::from_secs(2));
++    }
++
++    #[test]
++    fn test_adaptive_interval_record_no_change_increments_count() {
++        let mut interval =
++            AdaptiveInterval::new(Duration::from_secs(2), Duration::from_secs(60), 1.5, 3);
++        assert_eq!(interval.stable_count, 0);
++        interval.record_no_change();
++        assert_eq!(interval.stable_count, 1);
++        interval.record_no_change();
++        assert_eq!(interval.stable_count, 2);
++    }
++
++    #[test]
++    fn test_adaptive_interval_backoff_at_threshold() {
++        let mut interval =
++            AdaptiveInterval::new(Duration::from_secs(2), Duration::from_secs(60), 1.5, 3);
++        interval.record_no_change();
++        interval.record_no_change();
++        interval.record_no_change();
++        // After 3 calls: 2 * 1.5 = 3 seconds
++        assert_eq!(interval.current(), Duration::from_secs(3));
++        assert_eq!(interval.stable_count, 0);
++    }
++
++    #[test]
++    fn test_adaptive_interval_multiple_backoffs() {
++        let mut interval =
++            AdaptiveInterval::new(Duration::from_secs(2), Duration::from_secs(60), 1.5, 3);
++        // First backoff: 2 -> 3
++        for _ in 0..3 {
++            interval.record_no_change();
++        }
++        assert_eq!(interval.current(), Duration::from_secs(3));
++
++        // Second backoff: 3 -> 4 (actually 4.5, but let's check)
++        for _ in 0..3 {
++            interval.record_no_change();
++        }
++        let expected = (3.0 * 1.5) as u64;
++        assert_eq!(interval.current(), Duration::from_secs(expected));
++    }
++
++    #[test]
++    fn test_adaptive_interval_respects_max() {
++        let mut interval = AdaptiveInterval::new(
++            Duration::from_secs(2),
++            Duration::from_secs(60),
++            1.5,
++            1, // threshold of 1 for faster test
++        );
++        interval.record_no_change(); // 2 * 1.5 = 3
++        interval.record_no_change(); // 3 * 1.5 = 4.5
++        interval.record_no_change(); // 4 * 1.5 = 6
++        interval.record_no_change(); // 6 * 1.5 = 9
++        interval.record_no_change(); // 9 * 1.5 = 13.5
++        interval.record_no_change(); // 13 * 1.5 = 19.5
++        interval.record_no_change(); // 19 * 1.5 = 28.5
++        interval.record_no_change(); // 28 * 1.5 = 42
++        interval.record_no_change(); // 42 * 1.5 = 63 > 60, capped at 60
++        assert!(interval.current() <= Duration::from_secs(60));
++    }
++
++    #[test]
++    fn test_adaptive_interval_record_change_resets() {
++        let mut interval =
++            AdaptiveInterval::new(Duration::from_secs(2), Duration::from_secs(60), 1.5, 3);
++        for _ in 0..3 {
++            interval.record_no_change();
++        }
++        assert_eq!(interval.current(), Duration::from_secs(3));
++
++        interval.record_change();
++        assert_eq!(interval.current(), Duration::from_secs(2));
++        assert_eq!(interval.stable_count, 0);
++    }
++
++    #[test]
++    fn test_adaptive_interval_reset_is_alias() {
++        let mut interval =
++            AdaptiveInterval::new(Duration::from_secs(2), Duration::from_secs(60), 1.5, 3);
++        for _ in 0..3 {
++            interval.record_no_change();
++        }
++        assert_eq!(interval.current(), Duration::from_secs(3));
++
++        interval.reset();
++        assert_eq!(interval.current(), Duration::from_secs(2));
++        assert_eq!(interval.stable_count, 0);
++    }
++
++    #[test]
++    fn test_session_poller_new() {
++        let poller = SessionPoller::new("test-session".to_string());
++        assert!(!poller.is_running());
++    }
++
++    #[test]
++    fn test_session_poller_stop_when_no_thread() {
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.stop(); // Should not panic
++        assert!(!poller.is_running());
++    }
++
++    #[test]
++    fn test_session_poller_double_stop_safe() {
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.stop();
++        poller.stop(); // Should not panic
++        assert!(!poller.is_running());
++    }
++
++    #[test]
++    fn test_session_poller_drop_is_clean() {
++        let poller = SessionPoller::new("test-session".to_string());
++        drop(poller); // Should not panic
++    }
++
++    #[test]
++    fn test_adaptive_interval_with_constants() {
++        let mut interval = AdaptiveInterval::new(
++            POLL_INITIAL_INTERVAL,
++            POLL_MAX_INTERVAL,
++            POLL_BACKOFF_FACTOR,
++            POLL_STABLE_THRESHOLD,
++        );
++        assert_eq!(interval.current(), Duration::from_secs(2));
++        for _ in 0..POLL_STABLE_THRESHOLD {
++            interval.record_no_change();
++        }
++        assert_eq!(interval.current(), Duration::from_secs(3));
++    }
++
++    #[test]
++    fn test_poller_detects_change() {
++        use std::sync::{Arc, Mutex};
++
++        let call_count = Arc::new(Mutex::new(0u32));
++        let call_count_clone = call_count.clone();
++
++        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = Box::new(move || {
++            let mut count = call_count_clone.lock().unwrap();
++            *count += 1;
++            if *count <= 3 {
++                Some("id-1".to_string())
++            } else {
++                Some("id-2".to_string())
++            }
++        });
++
++        let changed_ids: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
++        let changed_ids_clone = changed_ids.clone();
++
++        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(move |id: &str| {
++            changed_ids_clone.lock().unwrap().push(id.to_string());
++        });
++
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.start(
++            "test-change".to_string(),
++            poll_fn,
++            on_change,
++            Some("id-1".to_string()),
++            None,
++        );
++
++        // Force polls via PollNow (the default interval is 2s, too slow for tests)
++        for _ in 0..5 {
++            poller.poll_now();
++            std::thread::sleep(Duration::from_millis(50));
++        }
++        poller.stop();
++
++        let ids = changed_ids.lock().unwrap();
++        assert!(
++            ids.contains(&"id-2".to_string()),
++            "on_change should have been called with id-2, got: {:?}",
++            *ids
++        );
++        assert!(
++            !ids.contains(&"id-1".to_string()),
++            "on_change should NOT have been called with id-1 (initial known)"
++        );
++    }
++
++    #[test]
++    fn test_poll_now_triggers_poll() {
++        use std::sync::{Arc, Mutex};
++
++        let poll_count = Arc::new(Mutex::new(0u32));
++        let poll_count_clone = poll_count.clone();
++
++        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = Box::new(move || {
++            let mut count = poll_count_clone.lock().unwrap();
++            *count += 1;
++            Some("stable-id".to_string())
++        });
++
++        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
++
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.start("test-pollnow".to_string(), poll_fn, on_change, None, None);
++
++        std::thread::sleep(Duration::from_millis(50));
++        poller.poll_now();
++        poller.poll_now();
++        std::thread::sleep(Duration::from_millis(200));
++
++        let count = *poll_count.lock().unwrap();
++        assert!(
++            count >= 2,
++            "poll_fn should have been called at least twice via PollNow, got: {}",
++            count
++        );
++
++        poller.stop();
++    }
++
++    #[test]
++    fn test_thread_budget_cap() {
++        let original = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
++        ACTIVE_POLLER_COUNT.store(MAX_POLLER_THREADS, Ordering::SeqCst);
++
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.start(
++            "test-budget".to_string(),
++            Box::new(|| Some("id".to_string())),
++            Box::new(|_| {}),
++            None,
++            None,
++        );
++
++        assert!(
++            !poller.is_running(),
++            "poller should not have spawned when budget exhausted"
++        );
++        assert!(
++            poller.cmd_rx.is_some(),
++            "cmd_rx should be returned when budget exhausted"
++        );
++
++        ACTIVE_POLLER_COUNT.store(original, Ordering::SeqCst);
++    }
++
++    #[test]
++    fn test_poller_is_running_after_start() {
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.start(
++            "test-running".to_string(),
++            Box::new(|| {
++                std::thread::sleep(Duration::from_millis(10));
++                Some("id".to_string())
++            }),
++            Box::new(|_| {}),
++            None,
++            None,
++        );
++
++        assert!(poller.is_running(), "poller should be running after start");
++        poller.stop();
++    }
++
++    #[test]
++    fn test_poller_cleanup_decrements_counter() {
++        use std::sync::{Arc, Mutex};
++
++        let entered = Arc::new(Mutex::new(false));
++        let entered_clone = entered.clone();
++
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.start(
++            "test-cleanup".to_string(),
++            Box::new(move || {
++                *entered_clone.lock().unwrap() = true;
++                Some("id".to_string())
++            }),
++            Box::new(|_| {}),
++            None,
++            None,
++        );
++
++        poller.poll_now();
++        std::thread::sleep(Duration::from_millis(50));
++
++        let count_before_stop = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
++        poller.stop();
++        let count_after_stop = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
++
++        assert!(
++            count_after_stop < count_before_stop,
++            "counter should decrement after stop (before_stop={}, after_stop={})",
++            count_before_stop,
++            count_after_stop
++        );
++        assert!(*entered.lock().unwrap(), "poll_fn should have been called");
++    }
++
++    #[test]
++    fn test_interval_exact_at_threshold() {
++        let mut interval = AdaptiveInterval::new(
++            Duration::from_secs(2),
++            Duration::from_secs(60),
++            1.5,
++            POLL_STABLE_THRESHOLD,
++        );
++
++        for _ in 0..POLL_STABLE_THRESHOLD {
++            interval.record_no_change();
++        }
++        // 2 * 1.5 = 3
++        assert_eq!(interval.current(), Duration::from_secs(3));
++        assert_eq!(interval.stable_count, 0);
++
++        interval.record_no_change();
++        assert_eq!(interval.current(), Duration::from_secs(3));
++        assert_eq!(interval.stable_count, 1);
++    }
++
++    #[test]
++    fn test_interval_max_clamping_precision() {
++        let mut interval = AdaptiveInterval::new(
++            Duration::from_secs(2),
++            POLL_MAX_INTERVAL,
++            POLL_BACKOFF_FACTOR,
++            POLL_STABLE_THRESHOLD,
++        );
++
++        for _ in 0..1000 {
++            interval.record_no_change();
++            assert!(
++                interval.current() <= POLL_MAX_INTERVAL,
++                "interval {} exceeded max {}",
++                interval.current().as_secs(),
++                POLL_MAX_INTERVAL.as_secs()
++            );
++        }
++        assert_eq!(interval.current(), POLL_MAX_INTERVAL);
++    }
++
++    #[test]
++    fn test_interval_change_mid_backoff() {
++        let mut interval = AdaptiveInterval::new(
++            Duration::from_secs(2),
++            Duration::from_secs(60),
++            1.5,
++            POLL_STABLE_THRESHOLD,
++        );
++
++        interval.record_no_change();
++        interval.record_no_change();
++        assert_eq!(interval.stable_count, 2);
++        assert_eq!(interval.current(), Duration::from_secs(2));
++
++        interval.record_change();
++        assert_eq!(interval.current(), Duration::from_secs(2));
++        assert_eq!(interval.stable_count, 0);
++    }
++
++    #[test]
++    fn test_capture_gate_blocks_until_complete() {
++        let gate = Arc::new(CaptureGate::new());
++        let gate_clone = Arc::clone(&gate);
++
++        let waiter = std::thread::spawn(move || gate_clone.wait(Duration::from_secs(5)));
++
++        std::thread::sleep(Duration::from_millis(50));
++        gate.complete(Some("ses_123".to_string()));
++
++        let result = waiter.join().unwrap();
++        assert_eq!(result, Some("ses_123".to_string()));
++    }
++
++    #[test]
++    fn test_capture_gate_returns_none_on_exhausted() {
++        let gate = Arc::new(CaptureGate::new());
++        let gate_clone = Arc::clone(&gate);
++
++        let waiter = std::thread::spawn(move || gate_clone.wait(Duration::from_secs(5)));
++
++        std::thread::sleep(Duration::from_millis(50));
++        gate.complete(None);
++
++        let result = waiter.join().unwrap();
++        assert_eq!(result, None);
++    }
++
++    #[test]
++    fn test_capture_gate_timeout() {
++        let gate = Arc::new(CaptureGate::new());
++        let result = gate.wait(Duration::from_millis(50));
++        assert_eq!(result, None);
++    }
++
++    #[test]
++    fn test_capture_gate_already_complete_returns_immediately() {
++        let gate = CaptureGate::new();
++        gate.complete(Some("ses_fast".to_string()));
++        let result = gate.wait(Duration::from_millis(10));
++        assert_eq!(result, Some("ses_fast".to_string()));
++    }
++
++    #[test]
++    fn test_poller_with_capture_gate() {
++        let gate = Arc::new(CaptureGate::new());
++        let gate_clone = Arc::clone(&gate);
++
++        let poll_count = Arc::new(Mutex::new(0u32));
++        let poll_count_clone = poll_count.clone();
++
++        let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = Box::new(move || {
++            let mut count = poll_count_clone.lock().unwrap();
++            *count += 1;
++            Some("ses_polled".to_string())
++        });
++
++        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(|_| {});
++
++        let mut poller = SessionPoller::new("test-session".to_string());
++        poller.start(
++            "test-gate".to_string(),
++            poll_fn,
++            on_change,
++            None,
++            Some(gate_clone),
++        );
++
++        std::thread::sleep(Duration::from_millis(100));
++        let count_before = *poll_count.lock().unwrap();
++
++        gate.complete(Some("ses_captured".to_string()));
++
++        std::thread::sleep(Duration::from_millis(300));
++        poller.poll_now();
++        std::thread::sleep(Duration::from_millis(100));
++
++        let count_after = *poll_count.lock().unwrap();
++        assert!(
++            count_after > count_before,
++            "poller should have started polling after gate opened (before={}, after={})",
++            count_before,
++            count_after
++        );
++
++        poller.stop();
++    }
++}
+diff --git a/src/session/profile_config.rs b/src/session/profile_config.rs
+index 93ed65ca..7a698fd1 100644
+--- a/src/session/profile_config.rs
++++ b/src/session/profile_config.rs
+@@ -156,6 +156,27 @@ pub struct SessionConfigOverride {
+ 
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub agent_command_override: Option<HashMap<String, String>>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub opencode_max_retry_attempts: Option<u32>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub opencode_retry_delay_secs: Option<u64>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub opencode_command_timeout_secs: Option<u64>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub opencode_capture_deadline_secs: Option<u64>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub deferred_capture_initial_delay_secs: Option<u64>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub deferred_capture_max_attempts: Option<u32>,
++
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub deferred_capture_retry_delay_secs: Option<u64>,
+ }
+ 
+ #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+@@ -315,6 +336,27 @@ pub fn apply_session_overrides(
+     if let Some(ref overrides) = source.agent_command_override {
+         target.agent_command_override = overrides.clone();
+     }
++    if let Some(v) = source.opencode_max_retry_attempts {
++        target.opencode_max_retry_attempts = v;
++    }
++    if let Some(v) = source.opencode_retry_delay_secs {
++        target.opencode_retry_delay_secs = v;
++    }
++    if let Some(v) = source.opencode_command_timeout_secs {
++        target.opencode_command_timeout_secs = v;
++    }
++    if let Some(v) = source.opencode_capture_deadline_secs {
++        target.opencode_capture_deadline_secs = v;
++    }
++    if let Some(v) = source.deferred_capture_initial_delay_secs {
++        target.deferred_capture_initial_delay_secs = v;
++    }
++    if let Some(v) = source.deferred_capture_max_attempts {
++        target.deferred_capture_max_attempts = v;
++    }
++    if let Some(v) = source.deferred_capture_retry_delay_secs {
++        target.deferred_capture_retry_delay_secs = v;
++    }
+ }
+ 
+ /// Apply tmux config overrides to a target config.
+diff --git a/src/tmux/env.rs b/src/tmux/env.rs
+new file mode 100644
+index 00000000..9e224f38
+--- /dev/null
++++ b/src/tmux/env.rs
+@@ -0,0 +1,378 @@
++//! Hidden environment variable helpers for tmux sessions
++//!
++//! This module provides utilities to get and set hidden environment variables
++//! in tmux sessions using the `-h` flag. Hidden variables are not inherited by
++//! child processes, making them ideal for storing session metadata.
++
++use anyhow::bail;
++use std::collections::HashMap;
++use std::process::Command;
++use std::sync::RwLock;
++use std::time::{Duration, Instant};
++
++pub const AOE_INSTANCE_ID_KEY: &str = "AOE_INSTANCE_ID";
++pub const AOE_CAPTURED_SESSION_ID_KEY: &str = "AOE_CAPTURED_SESSION_ID";
++
++const ENV_CACHE_TTL: Duration = Duration::from_secs(30);
++
++struct EnvCacheEntry {
++    value: String,
++    fetched_at: Instant,
++}
++
++struct EnvCache {
++    entries: Option<HashMap<(String, String), EnvCacheEntry>>,
++}
++
++static ENV_CACHE: RwLock<EnvCache> = RwLock::new(EnvCache { entries: None });
++
++/// Set a hidden environment variable in a tmux session
++///
++/// Hidden variables (set with `-h`) are not inherited by child processes.
++pub fn set_hidden_env(session_name: &str, key: &str, value: &str) -> anyhow::Result<()> {
++    let output = Command::new("tmux")
++        .args(["set-environment", "-h", "-t", session_name, key, value])
++        .output()?;
++
++    if !output.status.success() {
++        let stderr = String::from_utf8_lossy(&output.stderr);
++        bail!("Failed to set hidden env var: {}", stderr);
++    }
++
++    invalidate_cache_entry(session_name, key);
++    Ok(())
++}
++
++/// Get a hidden environment variable from a tmux session
++///
++/// Results are cached for [`ENV_CACHE_TTL`] to reduce subprocess spawns during
++/// polling. Only positive hits (variable exists with a value) are cached; misses
++/// always go through tmux so newly-set variables are picked up immediately.
++///
++/// Returns `None` if the variable is unset or if the command fails.
++pub fn get_hidden_env(session_name: &str, key: &str) -> Option<String> {
++    let cache_key = (session_name.to_string(), key.to_string());
++
++    if let Ok(cache) = ENV_CACHE.read() {
++        if let Some(entries) = &cache.entries {
++            if let Some(entry) = entries.get(&cache_key) {
++                if entry.fetched_at.elapsed() < ENV_CACHE_TTL {
++                    return Some(entry.value.clone());
++                }
++            }
++        }
++    }
++
++    let value = fetch_hidden_env(session_name, key)?;
++
++    if let Ok(mut cache) = ENV_CACHE.write() {
++        let entries = cache.entries.get_or_insert_with(HashMap::new);
++        entries.insert(
++            cache_key,
++            EnvCacheEntry {
++                value: value.clone(),
++                fetched_at: Instant::now(),
++            },
++        );
++    }
++
++    Some(value)
++}
++
++/// Raw tmux call to read a hidden env var (bypasses cache).
++fn fetch_hidden_env(session_name: &str, key: &str) -> Option<String> {
++    let output = Command::new("tmux")
++        .args(["show-environment", "-h", "-t", session_name, key])
++        .output()
++        .ok()?;
++
++    if !output.status.success() {
++        return None;
++    }
++
++    let stdout = String::from_utf8_lossy(&output.stdout);
++    let line = stdout.trim();
++
++    // tmux outputs "-KEY" when the variable is unset
++    if line.starts_with('-') {
++        return None;
++    }
++
++    // Parse "KEY=VALUE" format
++    if let Some((_, value)) = line.split_once('=') {
++        Some(value.to_string())
++    } else {
++        None
++    }
++}
++
++/// Remove a hidden environment variable from a tmux session
++pub fn remove_hidden_env(session_name: &str, key: &str) -> anyhow::Result<()> {
++    let output = Command::new("tmux")
++        .args(["set-environment", "-h", "-u", "-t", session_name, key])
++        .output()?;
++
++    if !output.status.success() {
++        let stderr = String::from_utf8_lossy(&output.stderr);
++        bail!("Failed to remove hidden env var: {}", stderr);
++    }
++
++    invalidate_cache_entry(session_name, key);
++    Ok(())
++}
++
++fn invalidate_cache_entry(session_name: &str, key: &str) {
++    if let Ok(mut cache) = ENV_CACHE.write() {
++        if let Some(entries) = &mut cache.entries {
++            entries.remove(&(session_name.to_string(), key.to_string()));
++        }
++    }
++}
++
++/// Get hidden environment variables from multiple sessions in a single tmux command
++///
++/// Attempts to batch-read from all sessions with a single command. Falls back to
++/// sequential reads if the batch command fails.
++///
++/// Returns a vector of (session_name, value) tuples in the same order as input.
++pub fn get_hidden_env_batch(session_names: &[&str], key: &str) -> Vec<(String, Option<String>)> {
++    if session_names.is_empty() {
++        return Vec::new();
++    }
++
++    // Build a batch tmux command: each segment needs the full
++    // `show-environment -h` prefix since `;` is a command separator.
++    let mut args: Vec<String> = Vec::new();
++    for (i, session_name) in session_names.iter().enumerate() {
++        if i > 0 {
++            args.push(";".to_string());
++        }
++        args.push("show-environment".to_string());
++        args.push("-h".to_string());
++        args.push("-t".to_string());
++        args.push(session_name.to_string());
++        args.push(key.to_string());
++    }
++
++    let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
++    let output = Command::new("tmux").args(&str_args).output();
++
++    let fallback = || {
++        session_names
++            .iter()
++            .map(|name| (name.to_string(), get_hidden_env(name, key)))
++            .collect()
++    };
++
++    let results = match output {
++        Ok(out) if out.status.success() => {
++            parse_batch_output(&String::from_utf8_lossy(&out.stdout), session_names)
++                .unwrap_or_else(fallback)
++        }
++        _ => fallback(),
++    };
++
++    if let Ok(mut cache) = ENV_CACHE.write() {
++        let entries = cache.entries.get_or_insert_with(HashMap::new);
++        let now = Instant::now();
++        for (session_name, value) in &results {
++            if let Some(v) = value {
++                entries.insert(
++                    (session_name.clone(), key.to_string()),
++                    EnvCacheEntry {
++                        value: v.clone(),
++                        fetched_at: now,
++                    },
++                );
++            }
++        }
++    }
++
++    results
++}
++
++/// Parse output from batch show-environment command.
++///
++/// Each session's output is on a separate line in the format "KEY=VALUE" or "-KEY".
++/// If the number of output lines does not match the number of sessions (e.g. due to
++/// tmux error lines), returns `None` so the caller can fall back to sequential reads.
++fn parse_batch_output(
++    output: &str,
++    session_names: &[&str],
++) -> Option<Vec<(String, Option<String>)>> {
++    let lines: Vec<&str> = output.lines().collect();
++    if lines.len() != session_names.len() {
++        return None;
++    }
++    let mut results = Vec::new();
++
++    for (i, session_name) in session_names.iter().enumerate() {
++        let line = lines[i].trim();
++        let value = if line.starts_with('-') {
++            None
++        } else if let Some((_, val)) = line.split_once('=') {
++            Some(val.to_string())
++        } else {
++            None
++        };
++        results.push((session_name.to_string(), value));
++    }
++
++    Some(results)
++}
++
++#[cfg(test)]
++fn clear_env_cache() {
++    if let Ok(mut cache) = ENV_CACHE.write() {
++        cache.entries = None;
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn test_cache_populate_and_lookup() {
++        clear_env_cache();
++        let key = ("cache_test_sess".to_string(), "MY_KEY".to_string());
++
++        if let Ok(mut cache) = ENV_CACHE.write() {
++            let entries = cache.entries.get_or_insert_with(HashMap::new);
++            entries.insert(
++                key.clone(),
++                EnvCacheEntry {
++                    value: "cached_val".to_string(),
++                    fetched_at: Instant::now(),
++                },
++            );
++        }
++
++        let hit = ENV_CACHE.read().ok().and_then(|c| {
++            c.entries
++                .as_ref()?
++                .get(&key)
++                .filter(|e| e.fetched_at.elapsed() < ENV_CACHE_TTL)
++                .map(|e| e.value.clone())
++        });
++        assert_eq!(hit, Some("cached_val".to_string()));
++        clear_env_cache();
++    }
++
++    #[test]
++    fn test_cache_stale_entry_not_returned() {
++        clear_env_cache();
++        let key = ("stale_sess".to_string(), "MY_KEY".to_string());
++
++        if let Ok(mut cache) = ENV_CACHE.write() {
++            let entries = cache.entries.get_or_insert_with(HashMap::new);
++            entries.insert(
++                key.clone(),
++                EnvCacheEntry {
++                    value: "old_val".to_string(),
++                    fetched_at: Instant::now() - Duration::from_secs(60),
++                },
++            );
++        }
++
++        let hit = ENV_CACHE.read().ok().and_then(|c| {
++            c.entries
++                .as_ref()?
++                .get(&key)
++                .filter(|e| e.fetched_at.elapsed() < ENV_CACHE_TTL)
++                .map(|e| e.value.clone())
++        });
++        assert_eq!(hit, None);
++        clear_env_cache();
++    }
++
++    #[test]
++    fn test_invalidate_cache_entry_removes_key() {
++        clear_env_cache();
++        let session = "inv_test_sess";
++        let key = "MY_KEY";
++
++        if let Ok(mut cache) = ENV_CACHE.write() {
++            let entries = cache.entries.get_or_insert_with(HashMap::new);
++            entries.insert(
++                (session.to_string(), key.to_string()),
++                EnvCacheEntry {
++                    value: "val".to_string(),
++                    fetched_at: Instant::now(),
++                },
++            );
++        }
++
++        invalidate_cache_entry(session, key);
++
++        let exists = ENV_CACHE
++            .read()
++            .ok()
++            .and_then(|c| {
++                c.entries
++                    .as_ref()
++                    .map(|e| e.contains_key(&(session.to_string(), key.to_string())))
++            })
++            .unwrap_or(false);
++        assert!(!exists);
++        clear_env_cache();
++    }
++
++    #[test]
++    fn test_parse_key_value() {
++        let output = "AOE_INSTANCE_ID=abc123";
++        let result = parse_batch_output(output, &["test_session"]).unwrap();
++        assert_eq!(result.len(), 1);
++        assert_eq!(result[0].0, "test_session");
++        assert_eq!(result[0].1, Some("abc123".to_string()));
++    }
++
++    #[test]
++    fn test_parse_unset_key() {
++        let output = "-AOE_INSTANCE_ID";
++        let result = parse_batch_output(output, &["test_session"]).unwrap();
++        assert_eq!(result.len(), 1);
++        assert_eq!(result[0].0, "test_session");
++        assert_eq!(result[0].1, None);
++    }
++
++    #[test]
++    fn test_parse_multiple_sessions() {
++        let output = "AOE_INSTANCE_ID=abc123\n-AOE_INSTANCE_ID\nAOE_INSTANCE_ID=xyz789";
++        let result = parse_batch_output(output, &["session1", "session2", "session3"]).unwrap();
++        assert_eq!(result.len(), 3);
++        assert_eq!(result[0].1, Some("abc123".to_string()));
++        assert_eq!(result[1].1, None);
++        assert_eq!(result[2].1, Some("xyz789".to_string()));
++    }
++
++    #[test]
++    fn test_parse_value_with_equals() {
++        let output = "KEY=value=with=equals";
++        let result = parse_batch_output(output, &["test_session"]).unwrap();
++        assert_eq!(result[0].1, Some("value=with=equals".to_string()));
++    }
++
++    #[test]
++    fn test_parse_line_count_mismatch_returns_none() {
++        let output = "";
++        assert!(parse_batch_output(output, &["session1", "session2"]).is_none());
++
++        let output = "VAL1\nVAL2\nVAL3";
++        assert!(parse_batch_output(output, &["session1"]).is_none());
++    }
++
++    #[test]
++    fn test_parse_whitespace_handling() {
++        let output = "  AOE_INSTANCE_ID=value123  \n  -AOE_INSTANCE_ID  ";
++        let result = parse_batch_output(output, &["session1", "session2"]).unwrap();
++        assert_eq!(result[0].1, Some("value123".to_string()));
++        assert_eq!(result[1].1, None);
++    }
++
++    #[test]
++    fn test_get_hidden_env_batch_empty_input() {
++        let result = get_hidden_env_batch(&[], "KEY");
++        assert_eq!(result.len(), 0);
++    }
++}
+diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
+index 3cc4b3ef..1b3a5a45 100644
+--- a/src/tmux/mod.rs
++++ b/src/tmux/mod.rs
+@@ -1,5 +1,6 @@
+ //! tmux integration module
+ 
++pub mod env;
+ mod session;
+ pub mod status_bar;
+ pub(crate) mod status_detection;
+diff --git a/src/tmux/session.rs b/src/tmux/session.rs
+index 223b441a..3976ed0b 100644
+--- a/src/tmux/session.rs
++++ b/src/tmux/session.rs
+@@ -28,6 +28,10 @@ impl Session {
+         format!("{}{}_{}", SESSION_PREFIX, safe_title, truncate_id(id, 8))
+     }
+ 
++    pub fn name(&self) -> &str {
++        &self.name
++    }
++
+     pub fn exists(&self) -> bool {
+         if let Some(exists) = session_exists_from_cache(&self.name) {
+             return exists;
+diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
+index 29f6ee33..48f2f974 100644
+--- a/src/tui/home/mod.rs
++++ b/src/tui/home/mod.rs
+@@ -256,6 +256,28 @@ impl HomeView {
+                 .unwrap_or(35),
+         };
+ 
++        // Start pollers for pre-existing running sessions (TUI relaunch case).
++        // When AoE restarts while agents are still running in tmux, we need to
++        // resume polling for session ID changes.
++        for inst in &mut view.instances {
++            if !matches!(inst.tool.as_str(), "claude" | "opencode") {
++                continue;
++            }
++            if inst.session_id_poller.is_some() {
++                continue;
++            }
++            if let Ok(session) = inst.tmux_session() {
++                if session.exists() && !session.is_pane_dead() {
++                    inst.maybe_start_poller();
++                }
++            }
++        }
++        view.instance_map = view
++            .instances
++            .iter()
++            .map(|i| (i.id.clone(), i.clone()))
++            .collect();
++
+         view.update_selected();
+         Ok(view)
+     }
+@@ -269,6 +291,9 @@ impl HomeView {
+                 inst.last_error = prev.last_error.clone();
+                 inst.last_error_check = prev.last_error_check;
+                 inst.last_start_time = prev.last_start_time;
++                inst.session_id_poller = prev.session_id_poller.clone();
++                inst.deferred_capture_handle = prev.deferred_capture_handle.clone();
++                inst.capture_gate = prev.capture_gate.clone();
+             }
+         }
+ 
+diff --git a/src/tui/settings/fields.rs b/src/tui/settings/fields.rs
+index 0b464a0f..b300a107 100644
+--- a/src/tui/settings/fields.rs
++++ b/src/tui/settings/fields.rs
+@@ -73,6 +73,13 @@ pub enum FieldKey {
+     DefaultTool,
+     AgentExtraArgs,
+     AgentCommandOverride,
++    OpencodeMaxRetryAttempts,
++    OpencodeRetryDelaySecs,
++    OpencodeCommandTimeoutSecs,
++    OpencodeCaptureDeadlineSecs,
++    DeferredCaptureInitialDelaySecs,
++    DeferredCaptureMaxAttempts,
++    DeferredCaptureRetryDelaySecs,
+     // Sound
+     SoundEnabled,
+     SoundMode,
+@@ -898,6 +905,139 @@ fn build_session_fields(
+                 FieldValue::List(global_cmd_override_list),
+             ),
+         },
++        {
++            let (oc_max_retry, oc_max_retry_override) = resolve_value(
++                scope,
++                global.session.opencode_max_retry_attempts as u64,
++                session.and_then(|s| s.opencode_max_retry_attempts.map(|v| v as u64)),
++            );
++            SettingField {
++                key: FieldKey::OpencodeMaxRetryAttempts,
++                label: "OpenCode Max Retry Attempts",
++                description: "Max retry attempts for OpenCode session capture",
++                value: FieldValue::Number(oc_max_retry),
++                category: SettingsCategory::Session,
++                has_override: oc_max_retry_override,
++                inherited_display: inherited_if(
++                    oc_max_retry_override,
++                    FieldValue::Number(global.session.opencode_max_retry_attempts as u64),
++                ),
++            }
++        },
++        {
++            let (oc_retry_delay, oc_retry_delay_override) = resolve_value(
++                scope,
++                global.session.opencode_retry_delay_secs,
++                session.and_then(|s| s.opencode_retry_delay_secs),
++            );
++            SettingField {
++                key: FieldKey::OpencodeRetryDelaySecs,
++                label: "OpenCode Retry Delay (secs)",
++                description: "Delay between OpenCode session capture retries",
++                value: FieldValue::Number(oc_retry_delay),
++                category: SettingsCategory::Session,
++                has_override: oc_retry_delay_override,
++                inherited_display: inherited_if(
++                    oc_retry_delay_override,
++                    FieldValue::Number(global.session.opencode_retry_delay_secs),
++                ),
++            }
++        },
++        {
++            let (oc_cmd_timeout, oc_cmd_timeout_override) = resolve_value(
++                scope,
++                global.session.opencode_command_timeout_secs,
++                session.and_then(|s| s.opencode_command_timeout_secs),
++            );
++            SettingField {
++                key: FieldKey::OpencodeCommandTimeoutSecs,
++                label: "OpenCode Command Timeout (secs)",
++                description: "Timeout for OpenCode session list command",
++                value: FieldValue::Number(oc_cmd_timeout),
++                category: SettingsCategory::Session,
++                has_override: oc_cmd_timeout_override,
++                inherited_display: inherited_if(
++                    oc_cmd_timeout_override,
++                    FieldValue::Number(global.session.opencode_command_timeout_secs),
++                ),
++            }
++        },
++        {
++            let (oc_capture_deadline, oc_capture_deadline_override) = resolve_value(
++                scope,
++                global.session.opencode_capture_deadline_secs,
++                session.and_then(|s| s.opencode_capture_deadline_secs),
++            );
++            SettingField {
++                key: FieldKey::OpencodeCaptureDeadlineSecs,
++                label: "OpenCode Capture Deadline (secs)",
++                description: "Overall deadline for OpenCode session capture",
++                value: FieldValue::Number(oc_capture_deadline),
++                category: SettingsCategory::Session,
++                has_override: oc_capture_deadline_override,
++                inherited_display: inherited_if(
++                    oc_capture_deadline_override,
++                    FieldValue::Number(global.session.opencode_capture_deadline_secs),
++                ),
++            }
++        },
++        {
++            let (def_capture_initial, def_capture_initial_override) = resolve_value(
++                scope,
++                global.session.deferred_capture_initial_delay_secs,
++                session.and_then(|s| s.deferred_capture_initial_delay_secs),
++            );
++            SettingField {
++                key: FieldKey::DeferredCaptureInitialDelaySecs,
++                label: "Deferred Capture Initial Delay (secs)",
++                description: "Initial delay before deferred session capture starts",
++                value: FieldValue::Number(def_capture_initial),
++                category: SettingsCategory::Session,
++                has_override: def_capture_initial_override,
++                inherited_display: inherited_if(
++                    def_capture_initial_override,
++                    FieldValue::Number(global.session.deferred_capture_initial_delay_secs),
++                ),
++            }
++        },
++        {
++            let (def_capture_max, def_capture_max_override) = resolve_value(
++                scope,
++                global.session.deferred_capture_max_attempts as u64,
++                session.and_then(|s| s.deferred_capture_max_attempts.map(|v| v as u64)),
++            );
++            SettingField {
++                key: FieldKey::DeferredCaptureMaxAttempts,
++                label: "Deferred Capture Max Attempts",
++                description: "Max attempts for deferred session capture",
++                value: FieldValue::Number(def_capture_max),
++                category: SettingsCategory::Session,
++                has_override: def_capture_max_override,
++                inherited_display: inherited_if(
++                    def_capture_max_override,
++                    FieldValue::Number(global.session.deferred_capture_max_attempts as u64),
++                ),
++            }
++        },
++        {
++            let (def_capture_retry, def_capture_retry_override) = resolve_value(
++                scope,
++                global.session.deferred_capture_retry_delay_secs,
++                session.and_then(|s| s.deferred_capture_retry_delay_secs),
++            );
++            SettingField {
++                key: FieldKey::DeferredCaptureRetryDelaySecs,
++                label: "Deferred Capture Retry Delay (secs)",
++                description: "Delay between deferred session capture retries",
++                value: FieldValue::Number(def_capture_retry),
++                category: SettingsCategory::Session,
++                has_override: def_capture_retry_override,
++                inherited_display: inherited_if(
++                    def_capture_retry_override,
++                    FieldValue::Number(global.session.deferred_capture_retry_delay_secs),
++                ),
++            }
++        },
+     ]
+ }
+ 
+@@ -1191,6 +1331,27 @@ fn apply_field_to_global(field: &SettingField, config: &mut Config) {
+         (FieldKey::AgentCommandOverride, FieldValue::List(v)) => {
+             config.session.agent_command_override = parse_key_value_list(v);
+         }
++        (FieldKey::OpencodeMaxRetryAttempts, FieldValue::Number(v)) => {
++            config.session.opencode_max_retry_attempts = *v as u32;
++        }
++        (FieldKey::OpencodeRetryDelaySecs, FieldValue::Number(v)) => {
++            config.session.opencode_retry_delay_secs = *v;
++        }
++        (FieldKey::OpencodeCommandTimeoutSecs, FieldValue::Number(v)) => {
++            config.session.opencode_command_timeout_secs = *v;
++        }
++        (FieldKey::OpencodeCaptureDeadlineSecs, FieldValue::Number(v)) => {
++            config.session.opencode_capture_deadline_secs = *v;
++        }
++        (FieldKey::DeferredCaptureInitialDelaySecs, FieldValue::Number(v)) => {
++            config.session.deferred_capture_initial_delay_secs = *v;
++        }
++        (FieldKey::DeferredCaptureMaxAttempts, FieldValue::Number(v)) => {
++            config.session.deferred_capture_max_attempts = *v as u32;
++        }
++        (FieldKey::DeferredCaptureRetryDelaySecs, FieldValue::Number(v)) => {
++            config.session.deferred_capture_retry_delay_secs = *v;
++        }
+         // Sound
+         (FieldKey::SoundEnabled, FieldValue::Bool(v)) => config.sound.enabled = *v,
+         (FieldKey::SoundMode, FieldValue::Select { selected, .. }) => {
+@@ -1382,6 +1543,43 @@ fn apply_field_to_profile(field: &SettingField, _global: &Config, config: &mut P
+                 .get_or_insert_with(SessionConfigOverride::default);
+             s.agent_command_override = Some(map);
+         }
++        (FieldKey::OpencodeMaxRetryAttempts, FieldValue::Number(v)) => {
++            let val = *v as u32;
++            set_profile_override(val, &mut config.session, |s, val| {
++                s.opencode_max_retry_attempts = val
++            });
++        }
++        (FieldKey::OpencodeRetryDelaySecs, FieldValue::Number(v)) => {
++            set_profile_override(*v, &mut config.session, |s, val| {
++                s.opencode_retry_delay_secs = val
++            });
++        }
++        (FieldKey::OpencodeCommandTimeoutSecs, FieldValue::Number(v)) => {
++            set_profile_override(*v, &mut config.session, |s, val| {
++                s.opencode_command_timeout_secs = val
++            });
++        }
++        (FieldKey::OpencodeCaptureDeadlineSecs, FieldValue::Number(v)) => {
++            set_profile_override(*v, &mut config.session, |s, val| {
++                s.opencode_capture_deadline_secs = val
++            });
++        }
++        (FieldKey::DeferredCaptureInitialDelaySecs, FieldValue::Number(v)) => {
++            set_profile_override(*v, &mut config.session, |s, val| {
++                s.deferred_capture_initial_delay_secs = val
++            });
++        }
++        (FieldKey::DeferredCaptureMaxAttempts, FieldValue::Number(v)) => {
++            let val = *v as u32;
++            set_profile_override(val, &mut config.session, |s, val| {
++                s.deferred_capture_max_attempts = val
++            });
++        }
++        (FieldKey::DeferredCaptureRetryDelaySecs, FieldValue::Number(v)) => {
++            set_profile_override(*v, &mut config.session, |s, val| {
++                s.deferred_capture_retry_delay_secs = val
++            });
++        }
+         // Sound
+         (FieldKey::SoundEnabled, FieldValue::Bool(v)) => {
+             set_profile_override(*v, &mut config.sound, |s, val| s.enabled = val);
+diff --git a/src/tui/settings/input.rs b/src/tui/settings/input.rs
+index d43bb168..f4deb6be 100644
+--- a/src/tui/settings/input.rs
++++ b/src/tui/settings/input.rs
+@@ -602,6 +602,41 @@ impl SettingsView {
+                     s.agent_command_override = None;
+                 }
+             }
++            FieldKey::OpencodeMaxRetryAttempts => {
++                if let Some(ref mut s) = config.session {
++                    s.opencode_max_retry_attempts = None;
++                }
++            }
++            FieldKey::OpencodeRetryDelaySecs => {
++                if let Some(ref mut s) = config.session {
++                    s.opencode_retry_delay_secs = None;
++                }
++            }
++            FieldKey::OpencodeCommandTimeoutSecs => {
++                if let Some(ref mut s) = config.session {
++                    s.opencode_command_timeout_secs = None;
++                }
++            }
++            FieldKey::OpencodeCaptureDeadlineSecs => {
++                if let Some(ref mut s) = config.session {
++                    s.opencode_capture_deadline_secs = None;
++                }
++            }
++            FieldKey::DeferredCaptureInitialDelaySecs => {
++                if let Some(ref mut s) = config.session {
++                    s.deferred_capture_initial_delay_secs = None;
++                }
++            }
++            FieldKey::DeferredCaptureMaxAttempts => {
++                if let Some(ref mut s) = config.session {
++                    s.deferred_capture_max_attempts = None;
++                }
++            }
++            FieldKey::DeferredCaptureRetryDelaySecs => {
++                if let Some(ref mut s) = config.session {
++                    s.deferred_capture_retry_delay_secs = None;
++                }
++            }
+             FieldKey::DefaultTerminalMode => {
+                 if let Some(ref mut s) = config.sandbox {
+                     s.default_terminal_mode = None;
+diff --git a/tests/parallel_capture.rs b/tests/parallel_capture.rs
+new file mode 100644
+index 00000000..8ef4c1f3
+--- /dev/null
++++ b/tests/parallel_capture.rs
+@@ -0,0 +1,276 @@
++//! Integration test for parallel multi-instance session ID capture.
++//!
++//! Validates that the cross-instance exclusion set mechanism prevents two AoE
++//! instances from claiming the same agent session ID. Since `opencode` is
++//! unlikely to be installed in test environments, this test simulates the
++//! capture flow by creating real tmux sessions with hidden env vars and
++//! replicating the exclusion set logic from `build_exclusion_set()`.
++
++use agent_of_empires::tmux;
++use serial_test::serial;
++use std::collections::HashSet;
++use std::process::Command;
++
++const SESSION_COUNT: usize = 3;
++
++struct TmuxCleanup {
++    session_names: Vec<String>,
++}
++
++impl Drop for TmuxCleanup {
++    fn drop(&mut self) {
++        for name in &self.session_names {
++            let _ = Command::new("tmux")
++                .args(["kill-session", "-t", name])
++                .output();
++        }
++    }
++}
++
++/// Replicates `build_exclusion_set()` from instance.rs (which is private).
++/// Lists aoe_* tmux sessions and collects AOE_CAPTURED_SESSION values from
++/// sessions owned by other instances.
++fn build_exclusion_set_for_test(current_instance_id: &str) -> HashSet<String> {
++    let output = match Command::new("tmux")
++        .args(["list-sessions", "-F", "#{session_name}"])
++        .output()
++    {
++        Ok(o) if o.status.success() => o,
++        _ => return HashSet::new(),
++    };
++
++    let stdout = String::from_utf8_lossy(&output.stdout);
++    let mut excluded = HashSet::new();
++
++    for session_name in stdout.lines() {
++        if !session_name.starts_with(tmux::SESSION_PREFIX) {
++            continue;
++        }
++
++        let owner = tmux::env::get_hidden_env(session_name, tmux::env::AOE_INSTANCE_ID_KEY);
++
++        if owner.as_deref() == Some(current_instance_id) {
++            continue;
++        }
++
++        if let Some(captured) =
++            tmux::env::get_hidden_env(session_name, tmux::env::AOE_CAPTURED_SESSION_ID_KEY)
++        {
++            excluded.insert(captured);
++        }
++    }
++
++    excluded
++}
++
++fn simulate_capture(available_sessions: &[&str], exclusion: &HashSet<String>) -> Option<String> {
++    available_sessions
++        .iter()
++        .find(|id| !exclusion.contains(**id))
++        .map(|s| s.to_string())
++}
++
++fn skip_if_no_tmux() -> bool {
++    if Command::new("tmux").arg("-V").output().is_err() {
++        eprintln!("Skipping: tmux not available");
++        return true;
++    }
++    false
++}
++
++fn create_test_sessions(session_names: &[String], instance_ids: &[String]) {
++    for name in session_names {
++        let _ = Command::new("tmux")
++            .args(["kill-session", "-t", name])
++            .output();
++    }
++
++    for (name, instance_id) in session_names.iter().zip(instance_ids.iter()) {
++        let status = Command::new("tmux")
++            .args(["new-session", "-d", "-s", name])
++            .status()
++            .expect("Failed to create tmux session");
++        assert!(status.success(), "Failed to create tmux session: {}", name);
++
++        tmux::env::set_hidden_env(name, tmux::env::AOE_INSTANCE_ID_KEY, instance_id)
++            .unwrap_or_else(|e| panic!("Failed to set AOE_INSTANCE_ID for {}: {}", name, e));
++    }
++}
++
++#[test]
++#[ignore]
++#[serial]
++fn test_parallel_launch_unique_session_ids() {
++    if skip_if_no_tmux() {
++        return;
++    }
++
++    let instance_ids: Vec<String> = (1..=SESSION_COUNT)
++        .map(|i| format!("test-instance-{}", i))
++        .collect();
++
++    let session_names: Vec<String> = (1..=SESSION_COUNT)
++        .map(|i| format!("aoe_test_parallel_{}", i))
++        .collect();
++
++    let _cleanup = TmuxCleanup {
++        session_names: session_names.clone(),
++    };
++
++    create_test_sessions(&session_names, &instance_ids);
++
++    let candidate_sessions = ["session-aaa", "session-bbb", "session-ccc"];
++
++    let barrier = std::sync::Barrier::new(SESSION_COUNT);
++    let captured: Vec<Option<String>> = std::thread::scope(|scope| {
++        let handles: Vec<_> = (0..SESSION_COUNT)
++            .map(|i| {
++                let barrier = &barrier;
++                let instance_id = &instance_ids[i];
++                let session_name = &session_names[i];
++                let candidates = &candidate_sessions;
++
++                scope.spawn(move || {
++                    barrier.wait();
++
++                    let exclusion = build_exclusion_set_for_test(instance_id);
++                    let captured = simulate_capture(candidates, &exclusion);
++
++                    if let Some(ref session_id) = captured {
++                        let _ = tmux::env::set_hidden_env(
++                            session_name,
++                            tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
++                            session_id,
++                        );
++                    }
++
++                    captured
++                })
++            })
++            .collect();
++
++        handles.into_iter().map(|h| h.join().unwrap()).collect()
++    });
++
++    for (i, cap) in captured.iter().enumerate() {
++        assert!(
++            cap.is_some(),
++            "Instance {} failed to capture a session ID",
++            i + 1
++        );
++    }
++
++    // In a tight parallel race, threads may see the same (empty) exclusion set
++    // and pick the same candidate. This is inherent to the optimistic approach.
++    // The sequential test below validates strict uniqueness.
++    let unique: HashSet<String> = captured.into_iter().flatten().collect();
++    assert!(!unique.is_empty(), "No session IDs were captured at all");
++}
++
++#[test]
++#[ignore]
++#[serial]
++fn test_sequential_capture_strict_uniqueness() {
++    if skip_if_no_tmux() {
++        return;
++    }
++
++    let instance_ids: Vec<String> = (1..=SESSION_COUNT)
++        .map(|i| format!("test-seq-instance-{}", i))
++        .collect();
++
++    let session_names: Vec<String> = (1..=SESSION_COUNT)
++        .map(|i| format!("aoe_test_parallel_seq_{}", i))
++        .collect();
++
++    let _cleanup = TmuxCleanup {
++        session_names: session_names.clone(),
++    };
++
++    create_test_sessions(&session_names, &instance_ids);
++
++    let candidate_sessions = ["session-aaa", "session-bbb", "session-ccc"];
++    let mut captured_ids: Vec<String> = Vec::new();
++
++    for i in 0..SESSION_COUNT {
++        let exclusion = build_exclusion_set_for_test(&instance_ids[i]);
++        let captured = simulate_capture(&candidate_sessions, &exclusion);
++
++        let session_id = captured.unwrap_or_else(|| {
++            panic!(
++                "Instance {} failed to capture a session ID (exclusion set: {:?})",
++                i + 1,
++                exclusion
++            )
++        });
++
++        tmux::env::set_hidden_env(
++            &session_names[i],
++            tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
++            &session_id,
++        )
++        .unwrap_or_else(|e| panic!("Failed to persist captured session for {}: {}", i + 1, e));
++
++        captured_ids.push(session_id);
++    }
++
++    let unique: HashSet<&String> = captured_ids.iter().collect();
++    assert_eq!(
++        unique.len(),
++        SESSION_COUNT,
++        "Expected {} unique session IDs but got {}: {:?}",
++        SESSION_COUNT,
++        unique.len(),
++        captured_ids
++    );
++
++    for id in &captured_ids {
++        assert!(
++            candidate_sessions.contains(&id.as_str()),
++            "Captured ID '{}' is not from the candidate pool",
++            id
++        );
++    }
++}
++
++#[test]
++#[ignore]
++#[serial]
++fn test_cleanup_after_drop() {
++    if skip_if_no_tmux() {
++        return;
++    }
++
++    let session_name = "aoe_test_parallel_cleanup";
++
++    let _ = Command::new("tmux")
++        .args(["kill-session", "-t", session_name])
++        .output();
++
++    {
++        let _cleanup = TmuxCleanup {
++            session_names: vec![session_name.to_string()],
++        };
++
++        let status = Command::new("tmux")
++            .args(["new-session", "-d", "-s", session_name])
++            .status()
++            .expect("Failed to create tmux session");
++        assert!(status.success());
++
++        let check = Command::new("tmux")
++            .args(["has-session", "-t", session_name])
++            .status()
++            .expect("Failed to check session");
++        assert!(check.success(), "Session should exist before drop");
++    }
++
++    let check = Command::new("tmux")
++        .args(["has-session", "-t", session_name])
++        .status()
++        .expect("Failed to check session");
++    assert!(
++        !check.success(),
++        "Session should have been cleaned up by Drop guard"
++    );
++}
