@@ -5,8 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    # pinned to commit before 5e699c9 which broke nix-hashes CI
-    opencode.url = "github:anomalyco/opencode/e0ca52ed1f77e2ffeaa5a455949c8d7c913b9175";
+    opencode.url = "github:anomalyco/opencode";
     opencode.inputs.nixpkgs.follows = "nixpkgs";
     opencode-nvim = {
       url = "github:NickvanDyke/opencode.nvim";

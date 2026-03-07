@@ -3,11 +3,11 @@
     "agent-deck": {
       "flake": false,
       "locked": {
-        "lastModified": 1772819296,
-        "narHash": "sha256-9PDhVWPHDw0+R8O6azuK5keZ33GQWGZqek7r9mmOtms=",
+        "lastModified": 1772873708,
+        "narHash": "sha256-T3CT+p9AO6haYYG6eDPLqYfHNoXVK88ySlNB4Huhq/s=",
         "owner": "asheshgoplani",
         "repo": "agent-deck",
-        "rev": "c6b8460b521fc407d65946055dabe7f437d08626",
+        "rev": "b26eaf3d51ff728305f9ca08de43f82d487af98e",
         "type": "github"
       },
       "original": {
@@ -25,11 +25,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1772837257,
-        "narHash": "sha256-yI2P2S8gTigHVmjD8/VmIICXDRWb5Z0vrE89ox0CTJs=",
+        "lastModified": 1772852665,
+        "narHash": "sha256-A+WRMBysBiFjAtknvgkDx2kQSpkt0/hIbz+hBHlBLis=",
         "owner": "njbrake",
         "repo": "agent-of-empires",
-        "rev": "7e9f36d5c8774c5e80c25545a11a7d71015bede9",
+        "rev": "a69c7d37ba93379e74c59bb07f7971e2923c003b",
         "type": "github"
       },
       "original": {
@@ -78,11 +78,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1772807318,
-        "narHash": "sha256-Qjw6ILt8cb2HQQpCmWNLMZZ63wEo1KjTQt+1BcQBr7k=",
+        "lastModified": 1772845525,
+        "narHash": "sha256-Dp5Ir2u4jJDGCgeMRviHvEQDe+U37hMxp6RSNOoMMPc=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "daa2c221320809f5514edde74d0ad0193ad54ed8",
+        "rev": "27b93804fbef1544cb07718d3f0a451f4c4cd6c0",
         "type": "github"
       },
       "original": {
@@ -129,17 +129,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1772812562,
-        "narHash": "sha256-Bnq51ZxQlLiAV0f3ccCWndVgxUzN5hwfYlPkVRoZjyg=",
+        "lastModified": 1772869710,
+        "narHash": "sha256-WkFri1RfXFn8GXhd0R78dFe3lj08ssWl5qLhkzTrpUk=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "e0ca52ed1f77e2ffeaa5a455949c8d7c913b9175",
+        "rev": "b7e208b4f1e6641a1cbb1e13f59789c7b7f4c60a",
         "type": "github"
       },
       "original": {
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "e0ca52ed1f77e2ffeaa5a455949c8d7c913b9175",
         "type": "github"
       }
     },
