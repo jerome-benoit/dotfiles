@@ -265,7 +265,7 @@ index f4cf9a4f..ba6816e9 100644
      "default".to_string()
  }
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 0e9c9a66..f3c335b1 100644
+index 0e9c9a66..fb6bf1de 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,9 +1,16 @@
@@ -1401,7 +1401,7 @@ index 0e9c9a66..f3c335b1 100644
      fn apply_tmux_options(&self) {
          let name = tmux::Session::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &self.title);
-@@ -556,11 +1583,80 @@ impl Instance {
+@@ -556,11 +1583,90 @@ impl Instance {
          )
      }
  
@@ -1473,6 +1473,16 @@ index 0e9c9a66..f3c335b1 100644
      }
  
      pub fn restart_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
++        self.restart_with_size_opts(size, false)
++    }
++
++    /// Restart the session, optionally skipping on_launch hooks (e.g. when
++    /// they already ran in the background creation poller).
++    pub fn restart_with_size_opts(
++        &mut self,
++        size: Option<(u16, u16)>,
++        skip_on_launch: bool,
++    ) -> Result<()> {
 +        self.stop_poller();
 +        self.session_id_poller = None;
 +        self.join_deferred_capture();
@@ -1482,7 +1492,12 @@ index 0e9c9a66..f3c335b1 100644
          let session = self.tmux_session()?;
  
          if session.exists() {
-@@ -574,6 +1670,8 @@ impl Instance {
+@@ -570,10 +1676,12 @@ impl Instance {
+         // Small delay to ensure tmux cleanup
+         std::thread::sleep(std::time::Duration::from_millis(100));
+ 
+-        self.start_with_size(size)
++        self.start_with_size_opts(size, skip_on_launch)
      }
  
      pub fn kill(&self) -> Result<()> {
@@ -1491,7 +1506,7 @@ index 0e9c9a66..f3c335b1 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -581,6 +1679,14 @@ impl Instance {
+@@ -581,6 +1689,14 @@ impl Instance {
          Ok(())
      }
  
@@ -1506,7 +1521,7 @@ index 0e9c9a66..f3c335b1 100644
      /// Stop the session: kill the tmux session and stop the Docker container
      /// (if sandboxed). The container is stopped but not removed, so it can be
      /// restarted on re-attach.
-@@ -710,6 +1816,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -710,6 +1826,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -1514,7 +1529,7 @@ index 0e9c9a66..f3c335b1 100644
  
      #[test]
      fn test_new_instance() {
-@@ -1037,18 +2144,292 @@ mod tests {
+@@ -1037,17 +2154,291 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -1533,7 +1548,6 @@ index 0e9c9a66..f3c335b1 100644
          let mut inst = Instance::new("test", "/tmp/test");
 -        inst.tool = "claude".to_string();
 -        inst.command = "claude".to_string();
--        assert!(!inst.has_custom_command());
 +        inst.agent_session_id = Some("session-123".to_string());
 +
 +        let json = serde_json::to_string(&inst).unwrap();
@@ -1809,11 +1823,10 @@ index 0e9c9a66..f3c335b1 100644
 +        let mut inst = Instance::new("test", "/tmp/test");
 +        inst.tool = "claude".to_string();
 +        inst.command = "claude".to_string();
-+        assert!(!inst.has_custom_command());
+         assert!(!inst.has_custom_command());
      }
  
-     #[test]
-@@ -1092,4 +2473,559 @@ mod tests {
+@@ -1092,4 +2483,559 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -2395,10 +2408,10 @@ index 89e32e46..a499a67d 100644
      load_profile_config, merge_configs, resolve_config, save_profile_config,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
-index 00000000..ba0ab163
+index 00000000..0e399eb3
 --- /dev/null
 +++ b/src/session/poller.rs
-@@ -0,0 +1,792 @@
+@@ -0,0 +1,796 @@
 +//! Adaptive polling interval and command channel for session monitoring
 +
 +use std::sync::atomic::{AtomicU32, Ordering};
@@ -2739,6 +2752,7 @@ index 00000000..ba0ab163
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++    use serial_test::serial;
 +
 +    #[test]
 +    fn test_adaptive_interval_initial() {
@@ -2964,6 +2978,7 @@ index 00000000..ba0ab163
 +    }
 +
 +    #[test]
++    #[serial]
 +    fn test_thread_budget_cap() {
 +        let original = ACTIVE_POLLER_COUNT.load(Ordering::SeqCst);
 +        ACTIVE_POLLER_COUNT.store(MAX_POLLER_THREADS, Ordering::SeqCst);
@@ -2990,6 +3005,7 @@ index 00000000..ba0ab163
 +    }
 +
 +    #[test]
++    #[serial]
 +    fn test_poller_is_running_after_start() {
 +        let mut poller = SessionPoller::new("test-session".to_string());
 +        poller.start(
@@ -3008,6 +3024,7 @@ index 00000000..ba0ab163
 +    }
 +
 +    #[test]
++    #[serial]
 +    fn test_poller_cleanup_decrements_counter() {
 +        use std::sync::{Arc, Mutex};
 +
@@ -3661,8 +3678,72 @@ index 223b441a..3976ed0b 100644
      pub fn exists(&self) -> bool {
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
+diff --git a/src/tui/app.rs b/src/tui/app.rs
+index afe9f195..d61672c1 100644
+--- a/src/tui/app.rs
++++ b/src/tui/app.rs
+@@ -382,14 +382,11 @@ impl App {
+         };
+ 
+         let tmux_session = instance.tmux_session()?;
+-
+-        if !tmux_session.exists()
++        let needs_restart = !tmux_session.exists()
+             || tmux_session.is_pane_dead()
+-            || (!instance.expects_shell() && tmux_session.is_pane_running_shell())
+-        {
+-            if tmux_session.exists() {
+-                let _ = tmux_session.kill();
+-            }
++            || (!instance.expects_shell() && tmux_session.is_pane_running_shell());
++
++        if needs_restart {
+             // Show warning (once) if custom instruction is configured for an unsupported agent
+             if instance.is_sandboxed() {
+                 let has_instruction = instance
+@@ -415,7 +412,6 @@ impl App {
+                         );
+                         self.home.pending_attach_after_warning = Some(session_id.to_string());
+ 
+-                        // Persist the "seen" flag so it only shows once
+                         let mut config = config;
+                         config.app_state.has_seen_custom_instruction_warning = true;
+                         save_config(&config)?;
+@@ -425,17 +421,15 @@ impl App {
+                 }
+             }
+ 
+-            // Get terminal size to pass to tmux session creation
+-            // This ensures the session starts at the correct size instead of 80x24 default
+             let size = crate::terminal::get_size();
+-
+-            // Skip on_launch hooks if they already ran in the background creation poller
+             let skip_on_launch = self.home.take_on_launch_hooks_ran(session_id);
+ 
+             self.home
+                 .set_instance_status(session_id, crate::session::Status::Starting);
+-            let mut inst = instance.clone();
+-            if let Err(e) = inst.start_with_size_opts(size, skip_on_launch) {
++            if let Err(e) =
++                self.home
++                    .restart_instance_with_size_opts(session_id, size, skip_on_launch)
++            {
+                 self.home
+                     .set_instance_error(session_id, Some(e.to_string()));
+                 self.home
+@@ -445,6 +439,10 @@ impl App {
+             self.home.set_instance_error(session_id, None);
+         }
+ 
++        let tmux_session = match self.home.get_instance(session_id) {
++            Some(inst) => inst.tmux_session()?,
++            None => return Ok(()),
++        };
+         let attach_result = with_raw_mode_disabled(terminal, || tmux_session.attach())?;
+ 
+         self.needs_redraw = true;
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 29f6ee33..48f2f974 100644
+index 29f6ee33..69b0546d 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -256,6 +256,28 @@ impl HomeView {
@@ -3704,6 +3785,30 @@ index 29f6ee33..48f2f974 100644
              }
          }
  
+@@ -660,6 +685,23 @@ impl HomeView {
+         Ok(())
+     }
+ 
++    /// Restart an instance in-place on the owned map entry, so that new poller/capture
++    /// threads are stored in the long-lived Instance (not a temporary clone whose Drop
++    /// would block the TUI thread). The `instances` vec is not mutated here because
++    /// `reload()` is called after tmux attach returns, which resyncs it from storage.
++    pub fn restart_instance_with_size_opts(
++        &mut self,
++        id: &str,
++        size: Option<(u16, u16)>,
++        skip_on_launch: bool,
++    ) -> anyhow::Result<()> {
++        let inst = self
++            .instance_map
++            .get_mut(id)
++            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))?;
++        inst.restart_with_size_opts(size, skip_on_launch)
++    }
++
+     pub fn select_session_by_id(&mut self, session_id: &str) {
+         for (idx, item) in self.flat_items.iter().enumerate() {
+             if let Item::Session { id, .. } = item {
 diff --git a/src/tui/settings/fields.rs b/src/tui/settings/fields.rs
 index 0b464a0f..b300a107 100644
 --- a/src/tui/settings/fields.rs
