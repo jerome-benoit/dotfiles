@@ -4484,7 +4484,7 @@ index 3cc4b3ef..1b3a5a45 100644
  pub mod status_bar;
  pub(crate) mod status_detection;
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index 223b441a..3976ed0b 100644
+index 3c17d258..c6429c1f 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -28,6 +28,10 @@ impl Session {
@@ -4499,7 +4499,7 @@ index 223b441a..3976ed0b 100644
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index e44d32e6..6b85c5c4 100644
+index 91db1633..6ce477c2 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -1,4 +1,4 @@
@@ -4509,7 +4509,7 @@ index e44d32e6..6b85c5c4 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index afe9f195..2cd3d5fd 100644
+index d6fb8ba1..6d5631f3 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -203,6 +203,10 @@ impl App {
@@ -4523,7 +4523,7 @@ index afe9f195..2cd3d5fd 100644
              // Check for and apply creation results (non-blocking)
              if let Some(session_id) = self.home.apply_creation_results() {
                  // Creation succeeded - attach to the new session
-@@ -232,6 +236,11 @@ impl App {
+@@ -232,6 +236,15 @@ impl App {
              }
          }
  
@@ -4532,10 +4532,14 @@ index afe9f195..2cd3d5fd 100644
 +            tracing::error!("Failed to save on quit: {}", e);
 +        }
 +
-         Ok(())
-     }
- 
-@@ -382,14 +391,11 @@ impl App {
++        if let Err(e) = self.home.save() {
++            tracing::error!("Failed to save on quit: {}", e);
++        }
++
+         if let Err(e) = self.home.save() {
+             tracing::error!("Failed to save on quit: {}", e);
+         }
+@@ -386,14 +399,11 @@ impl App {
          };
  
          let tmux_session = instance.tmux_session()?;
@@ -4554,7 +4558,7 @@ index afe9f195..2cd3d5fd 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -415,7 +421,6 @@ impl App {
+@@ -419,7 +429,6 @@ impl App {
                          );
                          self.home.pending_attach_after_warning = Some(session_id.to_string());
  
@@ -4562,7 +4566,7 @@ index afe9f195..2cd3d5fd 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -425,17 +430,15 @@ impl App {
+@@ -429,17 +438,15 @@ impl App {
                  }
              }
  
@@ -4584,7 +4588,7 @@ index afe9f195..2cd3d5fd 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -445,6 +448,10 @@ impl App {
+@@ -449,6 +456,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4646,65 +4650,104 @@ index ca763f91..0512ccb0 100644
              let inner_width = dialog_width.saturating_sub(6) as usize;
              if inner_width == 0 {
 diff --git a/src/tui/home/input.rs b/src/tui/home/input.rs
-index 7956f502..6d07a9b3 100644
+index 6d07a9b3..630f263a 100644
 --- a/src/tui/home/input.rs
 +++ b/src/tui/home/input.rs
-@@ -742,10 +742,7 @@ impl HomeView {
-     fn toggle_group_collapsed(&mut self, path: &str) {
-         self.group_tree.toggle_collapsed(path);
-         self.flat_items = flatten_tree(&self.group_tree, &self.instances, self.sort_order);
--        if let Err(e) = self
--            .storage
--            .save_with_groups(&self.instances, &self.group_tree)
--        {
-+        if let Err(e) = self.save() {
-             tracing::error!("Failed to save group state: {}", e);
-         }
-     }
+@@ -403,7 +403,7 @@ impl HomeView {
+                 // Toggle container/host terminal mode (only in Terminal view for sandboxed sessions)
+                 if self.view_mode == ViewMode::Terminal {
+                     if let Some(id) = &self.selected_session {
+-                        if let Some(inst) = self.instance_map.get(id) {
++                        if let Some(inst) = self.get_instance(id) {
+                             if inst.is_sandboxed() {
+                                 let id = id.clone();
+                                 self.toggle_terminal_mode(&id);
+@@ -464,7 +464,7 @@ impl HomeView {
+                 let project_path = self
+                     .selected_session
+                     .as_ref()
+-                    .and_then(|id| self.instance_map.get(id))
++                    .and_then(|id| self.get_instance(id))
+                     .map(|inst| inst.project_path.clone());
+                 match SettingsView::new(self.storage.profile(), project_path) {
+                     Ok(view) => self.settings_view = Some(view),
+@@ -487,7 +487,7 @@ impl HomeView {
+                     return None;
+                 };
+ 
+-                let Some(inst) = self.instance_map.get(session_id) else {
++                let Some(inst) = self.get_instance(session_id) else {
+                     self.info_dialog =
+                         Some(InfoDialog::new("Error", "Could not find session data."));
+                     return None;
+@@ -507,7 +507,7 @@ impl HomeView {
+             }
+             KeyCode::Char('x') => {
+                 if let Some(session_id) = &self.selected_session {
+-                    if let Some(inst) = self.instance_map.get(session_id) {
++                    if let Some(inst) = self.get_instance(session_id) {
+                         if inst.status == Status::Stopped || inst.status == Status::Deleting {
+                             return None;
+                         }
+@@ -528,7 +528,7 @@ impl HomeView {
+                     return None;
+                 }
+                 if let Some(session_id) = &self.selected_session {
+-                    if let Some(inst) = self.instance_map.get(session_id) {
++                    if let Some(inst) = self.get_instance(session_id) {
+                         if inst.status == Status::Deleting {
+                             return None;
+                         }
+@@ -580,7 +580,7 @@ impl HomeView {
+             }
+             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                 if let Some(id) = &self.selected_session {
+-                    if let Some(inst) = self.instance_map.get(id) {
++                    if let Some(inst) = self.get_instance(id) {
+                         if inst.status == Status::Deleting {
+                             return None;
+                         }
+@@ -633,7 +633,7 @@ impl HomeView {
+             }
+             KeyCode::Enter => {
+                 if let Some(id) = &self.selected_session {
+-                    if let Some(inst) = self.instance_map.get(id) {
++                    if let Some(inst) = self.get_instance(id) {
+                         if inst.status == Status::Deleting {
+                             return None;
+                         }
+@@ -641,7 +641,7 @@ impl HomeView {
+                     return match self.view_mode {
+                         ViewMode::Agent => Some(Action::AttachSession(id.clone())),
+                         ViewMode::Terminal => {
+-                            let terminal_mode = if let Some(inst) = self.instance_map.get(id) {
++                            let terminal_mode = if let Some(inst) = self.get_instance(id) {
+                                 if inst.is_sandboxed() {
+                                     self.get_terminal_mode(id)
+                                 } else {
+@@ -774,7 +774,7 @@ impl HomeView {
+         for (idx, item) in self.flat_items.iter().enumerate() {
+             let haystack = match item {
+                 Item::Session { id, .. } => {
+-                    if let Some(inst) = self.instance_map.get(id) {
++                    if let Some(inst) = self.get_instance(id) {
+                         format!("{} {}", inst.title, inst.project_path)
+                     } else {
+                         continue;
+@@ -828,7 +828,7 @@ impl HomeView {
+         for (idx, item) in self.flat_items.iter().enumerate() {
+             let haystack = match item {
+                 Item::Session { id, .. } => {
+-                    if let Some(inst) = self.instance_map.get(id) {
++                    if let Some(inst) = self.get_instance(id) {
+                         format!("{} {}", inst.title, inst.project_path)
+                     } else {
+                         continue;
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 29f6ee33..3e2ab300 100644
+index eea33c8a..58b2eec4 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -100,14 +100,12 @@ pub struct HomeView {
-     pub(super) group_tree: GroupTree,
-     pub(super) flat_items: Vec<Item>,
- 
--    // UI state
-     pub(super) cursor: usize,
-     pub(super) selected_session: Option<String>,
-     pub(super) selected_group: Option<String>,
-     pub(super) view_mode: ViewMode,
-     pub(super) sort_order: SortOrder,
- 
--    // Dialogs
-     pub(super) show_help: bool,
-     pub(super) new_dialog: Option<NewSessionDialog>,
-     pub(super) confirm_dialog: Option<ConfirmDialog>,
-@@ -126,23 +124,18 @@ pub struct HomeView {
-     /// Session to stop after the confirmation dialog is accepted
-     pub(super) pending_stop_session: Option<String>,
- 
--    // Search
-     pub(super) search_active: bool,
-     pub(super) search_query: Input,
-     pub(super) search_matches: Vec<usize>,
-     pub(super) search_match_index: usize,
- 
--    // Tool availability
-     pub(super) available_tools: AvailableTools,
- 
--    // Performance: background status polling
-     pub(super) status_poller: StatusPoller,
-     pub(super) pending_status_refresh: bool,
- 
--    // Performance: background deletion
-     pub(super) deletion_poller: DeletionPoller,
- 
--    // Performance: background session creation (for sandbox)
-     pub(super) creation_poller: CreationPoller,
-     /// Set to true if user cancelled while creation was pending
-     pub(super) creation_cancelled: bool,
-@@ -256,6 +249,94 @@ impl HomeView {
+@@ -256,6 +256,94 @@ impl HomeView {
                  .unwrap_or(35),
          };
  
@@ -4799,7 +4842,7 @@ index 29f6ee33..3e2ab300 100644
          view.update_selected();
          Ok(view)
      }
-@@ -269,6 +350,14 @@ impl HomeView {
+@@ -269,6 +357,14 @@ impl HomeView {
                  inst.last_error = prev.last_error.clone();
                  inst.last_error_check = prev.last_error_check;
                  inst.last_start_time = prev.last_start_time;
@@ -4814,7 +4857,7 @@ index 29f6ee33..3e2ab300 100644
              }
          }
  
-@@ -314,30 +403,28 @@ impl HomeView {
+@@ -314,32 +410,31 @@ impl HomeView {
  
          if let Some(updates) = self.status_poller.try_recv_updates() {
              for update in updates {
@@ -4824,6 +4867,14 @@ index 29f6ee33..3e2ab300 100644
 -                        && update.status != Status::Stopped
 -                    {
 -                        let old_status = inst.status;
+-                        inst.status = update.status;
+-                        inst.last_error = update.last_error.clone();
+-                        if old_status != update.status {
+-                            crate::sound::play_for_transition(
+-                                old_status,
+-                                update.status,
+-                                &self.sound_config,
+-                            );
 +                let dominated = |inst: &Instance| {
 +                    inst.status == Status::Deleting
 +                        || inst.status == Status::Stopped
@@ -4831,24 +4882,23 @@ index 29f6ee33..3e2ab300 100644
 +                };
 +
 +                let old_status = self
-+                    .instance_map
-+                    .get(&update.id)
++                    .get_instance(&update.id)
 +                    .filter(|inst| !dominated(inst))
 +                    .map(|inst| inst.status);
 +
 +                if old_status.is_some() {
++                    let new_status = update.status;
++                    let new_error = update.last_error;
 +                    self.mutate_instance(&update.id, |inst| {
-                         inst.status = update.status;
-                         inst.last_error = update.last_error.clone();
--                        if old_status != update.status {
--                            crate::sound::play_for_transition(
--                                old_status,
--                                update.status,
--                                &self.sound_config,
--                            );
--                        }
--                    }
++                        inst.status = new_status;
++                        inst.last_error = new_error;
 +                    });
++
++                    if let Some(old) = old_status {
++                        if old != new_status {
++                            crate::sound::play_for_transition(old, new_status, &self.sound_config);
+                         }
+                     }
                  }
 -                if let Some(inst) = self.instance_map.get_mut(&update.id) {
 -                    if inst.status != Status::Deleting
@@ -4857,23 +4907,12 @@ index 29f6ee33..3e2ab300 100644
 -                    {
 -                        inst.status = update.status;
 -                        inst.last_error = update.last_error;
-+
-+                if let Some(old) = old_status {
-+                    if old != update.status {
-+                        crate::sound::play_for_transition(old, update.status, &self.sound_config);
-                     }
-                 }
+-                    }
+-                }
              }
-@@ -356,32 +443,60 @@ impl HomeView {
-                 self.instance_map.remove(&result.session_id);
-                 self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
- 
--                if let Err(e) = self
--                    .storage
--                    .save_with_groups(&self.instances, &self.group_tree)
--                {
-+                if let Err(e) = self.save() {
-                     tracing::error!("Failed to save after deletion: {}", e);
+             self.pending_status_refresh = false;
+             return true;
+@@ -361,24 +456,55 @@ impl HomeView {
                  }
                  let _ = self.reload();
              } else {
@@ -4882,16 +4921,16 @@ index 29f6ee33..3e2ab300 100644
 -                    .iter_mut()
 -                    .find(|i| i.id == result.session_id)
 -                {
-+                let error = result.error;
-+                self.mutate_instance(&result.session_id, |inst| {
-                     inst.status = Status::Error;
+-                    inst.status = Status::Error;
 -                    inst.last_error = result.error.clone();
 -                }
 -                if let Some(inst) = self.instance_map.get_mut(&result.session_id) {
--                    inst.status = Status::Error;
++                let error = result.error;
++                self.mutate_instance(&result.session_id, |inst| {
+                     inst.status = Status::Error;
 -                    inst.last_error = result.error;
 -                }
-+                    inst.last_error = error.clone();
++                    inst.last_error = error;
 +                });
              }
              return true;
@@ -4940,43 +4979,47 @@ index 29f6ee33..3e2ab300 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      pub fn request_creation(
          &mut self,
-@@ -488,10 +603,7 @@ impl HomeView {
-                         self.group_tree.create_group(&instance.group_path);
-                     }
- 
--                    if let Err(e) = self
--                        .storage
--                        .save_with_groups(&self.instances, &self.group_tree)
--                    {
-+                    if let Err(e) = self.save() {
-                         tracing::error!("Failed to save after creation: {}", e);
-                     }
-                 }
-@@ -620,15 +732,20 @@ impl HomeView {
+@@ -614,13 +740,35 @@ impl HomeView {
          self.profile_picker_dialog = Some(ProfilePickerDialog::new(entries, &current_profile));
      }
  
 -    pub fn set_instance_status(&mut self, id: &str, status: crate::session::Status) {
-+    /// Update an instance in both instance_map and instances vec to keep them in sync.
-+    pub(super) fn mutate_instance(&mut self, id: &str, f: impl Fn(&mut Instance)) {
-         if let Some(inst) = self.instance_map.get_mut(id) {
+-        if let Some(inst) = self.instance_map.get_mut(id) {
 -            inst.status = status;
++    /// Centralized instance mutation: applies `f` once to the `instances` vec
++    /// entry, then clones the result into `instance_map`. This guarantees both
++    /// collections stay in sync even for non-idempotent closures.
++    pub(super) fn mutate_instance(&mut self, id: &str, f: impl FnOnce(&mut Instance)) {
++        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
 +            f(inst);
++            self.instance_map.insert(id.to_string(), inst.clone());
          }
-         if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
--            inst.status = status;
-+            f(inst);
-         }
-     }
- 
-+    pub fn set_instance_status(&mut self, id: &str, status: crate::session::Status) {
-+        self.mutate_instance(id, |inst| inst.status = status);
 +    }
 +
++    /// Like `mutate_instance`, but for fallible operations. Clones the entry,
++    /// applies `f` to the clone, and writes back to both collections only on
++    /// success -- neither collection is modified on error.
++    pub(super) fn try_mutate_instance(
++        &mut self,
++        id: &str,
++        f: impl FnOnce(&mut Instance) -> anyhow::Result<()>,
++    ) -> anyhow::Result<()> {
+         if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
+-            inst.status = status;
++            let mut updated = inst.clone();
++            f(&mut updated)?;
++            *inst = updated.clone();
++            self.instance_map.insert(id.to_string(), updated);
+         }
++        Ok(())
++    }
++
++    pub fn set_instance_status(&mut self, id: &str, status: crate::session::Status) {
++        self.mutate_instance(id, |inst| inst.status = status);
+     }
+ 
      pub fn save(&self) -> anyhow::Result<()> {
-         self.storage
-             .save_with_groups(&self.instances, &self.group_tree)?;
-@@ -636,12 +753,7 @@ impl HomeView {
+@@ -630,12 +778,7 @@ impl HomeView {
      }
  
      pub fn set_instance_error(&mut self, id: &str, error: Option<String>) {
@@ -4986,11 +5029,11 @@ index 29f6ee33..3e2ab300 100644
 -        if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
 -            inst.last_error = error;
 -        }
-+        self.mutate_instance(id, |inst| inst.last_error = error.clone());
++        self.mutate_instance(id, |inst| inst.last_error = error);
      }
  
      pub fn start_terminal_for_instance_with_size(
-@@ -649,15 +761,36 @@ impl HomeView {
+@@ -643,16 +786,25 @@ impl HomeView {
          id: &str,
          size: Option<(u16, u16)>,
      ) -> anyhow::Result<()> {
@@ -4999,27 +5042,12 @@ index 29f6ee33..3e2ab300 100644
 -        }
 -        if let Some(inst) = self.instance_map.get_mut(id) {
 -            inst.start_terminal_with_size(size)?;
-+        // Start via instance_map (authoritative), then sync to vec
-+        let result = self
-+            .instance_map
-+            .get_mut(id)
-+            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))
-+            .and_then(|inst| inst.start_terminal_with_size(size));
-+        if result.is_ok() {
-+            if let Some(map_inst) = self.instance_map.get(id) {
-+                let terminal_info = map_inst.terminal_info.clone();
-+                if let Some(vec_inst) = self.instances.iter_mut().find(|i| i.id == id) {
-+                    vec_inst.terminal_info = terminal_info;
-+                }
-+            }
-+            self.save()?;
-         }
--        self.storage
--            .save_with_groups(&self.instances, &self.group_tree)?;
--        Ok(())
-+        result
-+    }
-+
+-        }
++        self.try_mutate_instance(id, |inst| inst.start_terminal_with_size(size))?;
+         self.save()?;
+         Ok(())
+     }
+ 
 +    /// Restart in-place in instance_map to preserve poller threads; reload() syncs vec later.
 +    pub fn restart_instance_with_size_opts(
 +        &mut self,
@@ -5032,10 +5060,12 @@ index 29f6ee33..3e2ab300 100644
 +            .get_mut(id)
 +            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))?;
 +        inst.restart_with_size_opts(size, skip_on_launch)
-     }
- 
++    }
++
      pub fn select_session_by_id(&mut self, session_id: &str) {
-@@ -710,13 +843,9 @@ impl HomeView {
+         for (idx, item) in self.flat_items.iter().enumerate() {
+             if let Item::Session { id, .. } = item {
+@@ -703,13 +855,6 @@ impl HomeView {
          id: &str,
          size: Option<(u16, u16)>,
      ) -> anyhow::Result<()> {
@@ -5047,27 +5077,14 @@ index 29f6ee33..3e2ab300 100644
 -        }
 -        // Don't save terminal info for container terminals - it's ephemeral
 -        Ok(())
-+        self.instance_map
-+            .get_mut(id)
-+            .ok_or_else(|| anyhow::anyhow!("instance not found: {id}"))
-+            .and_then(|inst| inst.start_container_terminal_with_size(size))
++        self.try_mutate_instance(id, |inst| inst.start_container_terminal_with_size(size))
      }
  }
 diff --git a/src/tui/home/operations.rs b/src/tui/home/operations.rs
-index 4a2fd572..ce36c2e5 100644
+index 0eda09fe..2d794919 100644
 --- a/src/tui/home/operations.rs
 +++ b/src/tui/home/operations.rs
-@@ -59,8 +59,7 @@ impl HomeView {
-             if !instance.group_path.is_empty() {
-                 self.group_tree.create_group(&instance.group_path);
-             }
--            self.storage
--                .save_with_groups(&self.instances, &self.group_tree)?;
-+            self.save()?;
-         }
- 
-         self.reload()?;
-@@ -71,12 +70,7 @@ impl HomeView {
+@@ -70,14 +70,9 @@ impl HomeView {
          if let Some(id) = &self.selected_session {
              let id = id.clone();
  
@@ -5077,21 +5094,14 @@ index 4a2fd572..ce36c2e5 100644
 -            if let Some(inst) = self.instances.iter_mut().find(|i| i.id == id) {
 -                inst.status = Status::Deleting;
 -            }
-+            self.mutate_instance(&id, |inst| inst.status = Status::Deleting);
++            self.set_instance_status(&id, Status::Deleting);
  
-             if let Some(inst) = self.instance_map.get(&id) {
+-            if let Some(inst) = self.instance_map.get(&id) {
++            if let Some(inst) = self.get_instance(&id) {
                  let request = DeletionRequest {
-@@ -104,8 +98,7 @@ impl HomeView {
- 
-             self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
-             self.group_tree.delete_group(&group_path);
--            self.storage
--                .save_with_groups(&self.instances, &self.group_tree)?;
-+            self.save()?;
- 
-             self.reload()?;
-         }
-@@ -129,14 +122,10 @@ impl HomeView {
+                     session_id: id.clone(),
+                     instance: inst.clone(),
+@@ -127,16 +122,12 @@ impl HomeView {
              for session_id in sessions_to_delete {
                  // Clear group_path when marking for deletion so these instances
                  // won't cause the group to be recreated during tree rebuilds
@@ -5106,38 +5116,124 @@ index 4a2fd572..ce36c2e5 100644
 -                }
 +                });
  
-                 if let Some(inst) = self.instance_map.get(&session_id) {
+-                if let Some(inst) = self.instance_map.get(&session_id) {
++                if let Some(inst) = self.get_instance(&session_id) {
                      let delete_worktree = options.delete_worktrees
-@@ -165,8 +154,7 @@ impl HomeView {
+                         && inst
+                             .worktree_info
+@@ -194,8 +185,7 @@ impl HomeView {
  
-             self.group_tree.delete_group(&group_path);
-             self.groups = self.group_tree.get_all_groups();
--            self.storage
--                .save_with_groups(&self.instances, &self.group_tree)?;
-+            self.save()?;
-             self.flat_items = flatten_tree(&self.group_tree, &self.instances, self.sort_order);
-         }
-         Ok(())
-@@ -256,8 +244,7 @@ impl HomeView {
-                     // Remove from current profile
-                     self.instances.retain(|i| i.id != id);
-                     self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
--                    self.storage
--                        .save_with_groups(&self.instances, &self.group_tree)?;
-+                    self.save()?;
+             // Get current values for comparison
+             let (current_title, current_group) = self
+-                .instance_map
+-                .get(&id)
++                .get_instance(&id)
+                 .map(|i| (i.title.clone(), i.group_path.clone()))
+                 .unwrap_or_default();
  
-                     // Add to target profile
-                     let target_storage = Storage::new(target_profile)?;
-@@ -306,8 +293,7 @@ impl HomeView {
-             if !effective_group.is_empty() {
-                 self.group_tree.create_group(&effective_group);
+@@ -235,7 +225,7 @@ impl HomeView {
+                     instance.group_path = effective_group.clone();
+ 
+                     // Handle tmux rename if title changed
+-                    if let Some(orig_inst) = self.instance_map.get(&id) {
++                    if let Some(orig_inst) = self.get_instance(&id) {
+                         if orig_inst.title != effective_title {
+                             let tmux_session = orig_inst.tmux_session()?;
+                             if tmux_session.exists() {
+@@ -282,7 +272,7 @@ impl HomeView {
              }
--            self.storage
--                .save_with_groups(&self.instances, &self.group_tree)?;
-+            self.save()?;
  
-             self.reload()?;
-         }
+             // Handle tmux rename if title changed
+-            if let Some(inst) = self.instance_map.get(&id) {
++            if let Some(inst) = self.get_instance(&id) {
+                 if inst.title != effective_title {
+                     let tmux_session = inst.tmux_session()?;
+                     if tmux_session.exists() {
+diff --git a/src/tui/home/render.rs b/src/tui/home/render.rs
+index 640e2593..51b01bd3 100644
+--- a/src/tui/home/render.rs
++++ b/src/tui/home/render.rs
+@@ -241,7 +241,7 @@ impl HomeView {
+                 (icon, text, style)
+             }
+             Item::Session { id, .. } => {
+-                if let Some(inst) = self.instance_map.get(id) {
++                if let Some(inst) = self.get_instance(id) {
+                     match self.view_mode {
+                         ViewMode::Agent => {
+                             let icon = match inst.status {
+@@ -317,7 +317,7 @@ impl HomeView {
+         ));
+ 
+         if let Item::Session { id, .. } = item {
+-            if let Some(inst) = self.instance_map.get(id) {
++            if let Some(inst) = self.get_instance(id) {
+                 if let Some(wt_info) = &inst.worktree_info {
+                     line_spans.push(Span::styled(
+                         format!("  {}", wt_info.branch),
+@@ -370,7 +370,7 @@ impl HomeView {
+ 
+         if needs_refresh {
+             if let Some(id) = &self.selected_session {
+-                if let Some(inst) = self.instance_map.get(id) {
++                if let Some(inst) = self.get_instance(id) {
+                     self.preview_cache.content = inst
+                         .capture_output_with_size(height as usize, width, height)
+                         .unwrap_or_default();
+@@ -402,7 +402,7 @@ impl HomeView {
+ 
+         if needs_refresh {
+             if let Some(id) = &self.selected_session {
+-                if let Some(inst) = self.instance_map.get(id) {
++                if let Some(inst) = self.get_instance(id) {
+                     self.terminal_preview_cache.content = inst
+                         .terminal_tmux_session()
+                         .and_then(|s| s.capture_pane(height as usize))
+@@ -435,7 +435,7 @@ impl HomeView {
+ 
+         if needs_refresh {
+             if let Some(id) = &self.selected_session {
+-                if let Some(inst) = self.instance_map.get(id) {
++                if let Some(inst) = self.get_instance(id) {
+                     self.container_terminal_preview_cache.content = inst
+                         .container_terminal_tmux_session()
+                         .and_then(|s| s.capture_pane(height as usize))
+@@ -472,7 +472,7 @@ impl HomeView {
+                 self.refresh_preview_cache_if_needed(inner.width, inner.height);
+ 
+                 if let Some(id) = &self.selected_session {
+-                    if let Some(inst) = self.instance_map.get(id) {
++                    if let Some(inst) = self.get_instance(id) {
+                         Preview::render_with_cache(
+                             frame,
+                             inner,
+@@ -494,7 +494,7 @@ impl HomeView {
+ 
+                 if let Some(id) = selected_id {
+                     // Determine which terminal to preview based on mode
+-                    let terminal_mode = if let Some(inst) = self.instance_map.get(&id) {
++                    let terminal_mode = if let Some(inst) = self.get_instance(&id) {
+                         if inst.is_sandboxed() {
+                             self.get_terminal_mode(&id)
+                         } else {
+@@ -521,7 +521,7 @@ impl HomeView {
+                     }
+ 
+                     // Now borrow instance for rendering
+-                    if let Some(inst) = self.instance_map.get(&id) {
++                    if let Some(inst) = self.get_instance(&id) {
+                         let (terminal_running, preview_content) = match terminal_mode {
+                             TerminalMode::Container => {
+                                 let running = inst
+@@ -600,7 +600,7 @@ impl HomeView {
+         // Show c: container/host hint for sandboxed sessions in Terminal view
+         if self.view_mode == ViewMode::Terminal {
+             if let Some(id) = &self.selected_session {
+-                if let Some(inst) = self.instance_map.get(id) {
++                if let Some(inst) = self.get_instance(id) {
+                     if inst.is_sandboxed() {
+                         spans.extend([
+                             Span::styled("│", sep_style),
 diff --git a/src/tui/home/tests.rs b/src/tui/home/tests.rs
 index c6ccfa33..ae3047d5 100644
 --- a/src/tui/home/tests.rs
