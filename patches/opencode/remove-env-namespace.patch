@@ -137,7 +137,7 @@ index 358461921b2..1c203bac6ea 100644
              type: "home",
            },
 diff --git a/packages/opencode/src/cli/cmd/tui/thread.ts b/packages/opencode/src/cli/cmd/tui/thread.ts
-index f778c96a803..1c921a2eb99 100644
+index fea32a2b2b9..6486e8d70d9 100644
 --- a/packages/opencode/src/cli/cmd/tui/thread.ts
 +++ b/packages/opencode/src/cli/cmd/tui/thread.ts
 @@ -11,6 +11,7 @@ import { withNetworkOptions, resolveNetworkOptions } from "@/cli/network"
@@ -230,7 +230,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index c743cd18d1c..7436c548b9e 100644
+index 6b2b16c67be..8ce7f4143bf 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -10,15 +10,15 @@ function falsy(key: string) {
@@ -285,9 +285,9 @@ index c743cd18d1c..7436c548b9e 100644
 +  export const OPENCODE_MODELS_URL = process.env.OPENCODE_MODELS_URL
 +  export const OPENCODE_MODELS_PATH = process.env.OPENCODE_MODELS_PATH
    export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
+   export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
  
-   function number(key: string) {
-@@ -86,7 +86,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+@@ -87,7 +87,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -296,7 +296,7 @@ index c743cd18d1c..7436c548b9e 100644
    },
    enumerable: true,
    configurable: false,
-@@ -97,7 +97,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -98,7 +98,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -305,7 +305,7 @@ index c743cd18d1c..7436c548b9e 100644
    },
    enumerable: true,
    configurable: false,
-@@ -108,7 +108,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -109,7 +109,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {
