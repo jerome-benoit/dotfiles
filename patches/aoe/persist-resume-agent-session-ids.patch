@@ -489,7 +489,7 @@ index d649be8d..0f9e735d 100644
                  .parent()
                  .unwrap_or(std::path::Path::new("."));
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index cc3711c3..eb615989 100644
+index cc3711c3..465a14f6 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,9 +1,16 @@
@@ -585,7 +585,7 @@ index cc3711c3..eb615989 100644
      // Runtime state (not serialized)
      #[serde(skip)]
      pub last_error_check: Option<std::time::Instant>,
-@@ -109,6 +170,895 @@ pub struct Instance {
+@@ -109,6 +170,860 @@ pub struct Instance {
      pub last_start_time: Option<std::time::Instant>,
      #[serde(skip)]
      pub last_error: Option<String>,
@@ -601,41 +601,6 @@ index cc3711c3..eb615989 100644
 +fn generate_claude_session_id() -> String {
 +    Uuid::new_v4().to_string()
 +}
-+
-+// // Claude poll -- disabled, see supports_session_poller().
-+// pub fn claude_poll_fn() -> impl Fn() -> Option<String> + Send + 'static {
-+//     move || {
-+//         let home = dirs::home_dir()?;
-+//         let path = home.join(".claude/debug/latest");
-+//         extract_uuid_from_symlink_target(&path)
-+//     }
-+// }
-+//
-+// fn is_uuid_format(s: &str) -> bool {
-+//     s.len() == 36
-+//         && s.chars().filter(|&c| c == '-').count() == 4
-+//         && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-+// }
-+//
-+// fn extract_uuid_from_symlink_target(symlink_path: &std::path::Path) -> Option<String> {
-+//     let target = std::fs::read_link(symlink_path).ok()?;
-+//     let mut path = target.as_path();
-+//     loop {
-+//         let name = path.file_name()?.to_str()?;
-+//         if is_uuid_format(name) {
-+//             return Some(name.to_string());
-+//         }
-+//         if let Some(stem) = std::path::Path::new(name)
-+//             .file_stem()
-+//             .and_then(|s| s.to_str())
-+//         {
-+//             if stem != name && is_uuid_format(stem) {
-+//                 return Some(stem.to_string());
-+//             }
-+//         }
-+//         path = path.parent()?;
-+//     }
-+// }
 +
 +/// Create a polling closure for OpenCode that re-runs `try_capture_opencode_session_id`.
 +///
@@ -1481,7 +1446,7 @@ index cc3711c3..eb615989 100644
  }
  
  impl Instance {
-@@ -129,9 +1079,13 @@ impl Instance {
+@@ -129,9 +1044,13 @@ impl Instance {
              worktree_info: None,
              sandbox_info: None,
              terminal_info: None,
@@ -1495,7 +1460,7 @@ index cc3711c3..eb615989 100644
          }
      }
  
-@@ -147,6 +1101,98 @@ impl Instance {
+@@ -147,6 +1066,98 @@ impl Instance {
          self.yolo_mode
      }
  
@@ -1594,7 +1559,7 @@ index cc3711c3..eb615989 100644
      fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -237,7 +1283,10 @@ impl Instance {
+@@ -237,7 +1248,10 @@ impl Instance {
          }
  
          let container = self.get_container_for_instance()?;
@@ -1606,7 +1571,7 @@ index cc3711c3..eb615989 100644
  
          let env_args = build_docker_env_args(sandbox);
          let env_part = if env_args.is_empty() {
-@@ -322,181 +1371,347 @@ impl Instance {
+@@ -322,181 +1336,347 @@ impl Instance {
              return Ok(());
          }
  
@@ -2102,7 +2067,7 @@ index cc3711c3..eb615989 100644
      }
  
      fn apply_terminal_tmux_options(&self) {
-@@ -556,24 +1771,115 @@ impl Instance {
+@@ -556,24 +1736,115 @@ impl Instance {
          )
      }
  
@@ -2222,7 +2187,7 @@ index cc3711c3..eb615989 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -710,6 +2016,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -710,6 +1981,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -2230,7 +2195,7 @@ index cc3711c3..eb615989 100644
  
      #[test]
      fn test_new_instance() {
-@@ -1037,6 +2344,307 @@ mod tests {
+@@ -1037,6 +2309,307 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -2538,7 +2503,7 @@ index cc3711c3..eb615989 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1092,4 +2700,587 @@ mod tests {
+@@ -1092,4 +2665,587 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -4853,7 +4818,7 @@ index 842e27ed..e92ba6d7 100644
          for (idx, item) in self.flat_items.iter().enumerate() {
              if let Item::Session { id, .. } = item {
 diff --git a/src/tui/home/operations.rs b/src/tui/home/operations.rs
-index 7c5b9667..5c42ec47 100644
+index 7c5b9667..71a0d9bb 100644
 --- a/src/tui/home/operations.rs
 +++ b/src/tui/home/operations.rs
 @@ -44,7 +44,6 @@ impl HomeView {
@@ -4883,10 +4848,11 @@ index 7c5b9667..5c42ec47 100644
              }
  
              self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
-@@ -264,16 +267,13 @@ impl HomeView {
+@@ -263,17 +266,13 @@ impl HomeView {
+                 }
              }
  
-             // No profile change - update in place
+-            // No profile change - update in place
 -            // Read old title before mutation so we can detect renames
 -            let old_title = self.get_instance(&id).map(|i| i.title.clone());
 -
