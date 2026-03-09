@@ -25,6 +25,7 @@ in
         NH_FLAKE = "$HOME/.nix";
         WORKSPACE = "$HOME/tmp";
         EDITOR = "vi";
+        CARGO_BUILD_BUILD_DIR = "{cargo-cache-home}/build/{workspace-path-hash}";
       };
       shellAliases = {
         hm = lib.mkDefault "nh home switch --impure";
