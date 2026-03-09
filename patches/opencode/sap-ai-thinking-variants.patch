@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 6980be05188..0000e61f9b2 100644
+index 471da03cbce..407c2687825 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
-@@ -655,9 +655,21 @@ export namespace ProviderTransform {
+@@ -657,9 +657,21 @@ export namespace ProviderTransform {
          // https://v5.ai-sdk.dev/providers/ai-sdk-providers/perplexity
          return {}
  
@@ -25,7 +25,7 @@ index 6980be05188..0000e61f9b2 100644
            return {
              high: {
                thinking: {
-@@ -673,7 +685,26 @@ export namespace ProviderTransform {
+@@ -675,7 +687,26 @@ export namespace ProviderTransform {
              },
            }
          }
@@ -54,10 +54,10 @@ index 6980be05188..0000e61f9b2 100644
      return {}
    }
 diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
-index 2329846351c..45661b3b410 100644
+index 512819a6577..b6d3afc2dca 100644
 --- a/packages/opencode/test/provider/transform.test.ts
 +++ b/packages/opencode/test/provider/transform.test.ts
-@@ -2450,4 +2450,145 @@ describe("ProviderTransform.variants", () => {
+@@ -2479,4 +2479,145 @@ describe("ProviderTransform.variants", () => {
        expect(result).toEqual({})
      })
    })

@@ -292,10 +292,10 @@ index 2913ac90fe0..2f445bf49cd 100644
      state,
    }
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index b4836ae047d..4040accd331 100644
+index 09035d272c9..cd19c44ec84 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -1145,7 +1145,7 @@ export namespace Provider {
+@@ -1146,7 +1146,7 @@ export namespace Provider {
  
        let installedPath: string
        if (!model.api.npm.startsWith("file://")) {

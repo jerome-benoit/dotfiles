@@ -137,7 +137,7 @@ index 358461921b2..1c203bac6ea 100644
              type: "home",
            },
 diff --git a/packages/opencode/src/cli/cmd/tui/thread.ts b/packages/opencode/src/cli/cmd/tui/thread.ts
-index fea32a2b2b9..6486e8d70d9 100644
+index 6e787c7afdd..305f02ae8fd 100644
 --- a/packages/opencode/src/cli/cmd/tui/thread.ts
 +++ b/packages/opencode/src/cli/cmd/tui/thread.ts
 @@ -11,6 +11,7 @@ import { withNetworkOptions, resolveNetworkOptions } from "@/cli/network"
@@ -230,7 +230,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index 6b2b16c67be..8ce7f4143bf 100644
+index 7c48e99f47f..6e62bdd0051 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -10,15 +10,15 @@ function falsy(key: string) {
@@ -276,9 +276,9 @@ index 6b2b16c67be..8ce7f4143bf 100644
    export const OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
      copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
    export const OPENCODE_ENABLE_EXA =
-@@ -58,8 +58,8 @@ export namespace Flag {
-   export const OPENCODE_DISABLE_FILETIME_CHECK = truthy("OPENCODE_DISABLE_FILETIME_CHECK")
-   export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
+@@ -60,8 +60,8 @@ export namespace Flag {
+   export const OPENCODE_EXPERIMENTAL_WORKSPACES_TUI =
+     OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_WORKSPACES_TUI")
    export const OPENCODE_EXPERIMENTAL_MARKDOWN = !falsy("OPENCODE_EXPERIMENTAL_MARKDOWN")
 -  export const OPENCODE_MODELS_URL = process.env["OPENCODE_MODELS_URL"]
 -  export const OPENCODE_MODELS_PATH = process.env["OPENCODE_MODELS_PATH"]
@@ -287,7 +287,7 @@ index 6b2b16c67be..8ce7f4143bf 100644
    export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
    export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
  
-@@ -87,7 +87,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+@@ -89,7 +89,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -296,7 +296,7 @@ index 6b2b16c67be..8ce7f4143bf 100644
    },
    enumerable: true,
    configurable: false,
-@@ -98,7 +98,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -100,7 +100,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -305,7 +305,7 @@ index 6b2b16c67be..8ce7f4143bf 100644
    },
    enumerable: true,
    configurable: false,
-@@ -109,7 +109,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -111,7 +111,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {
@@ -359,7 +359,7 @@ index 4fd5f0e67b3..5a3c8264ca8 100644
  import { TuiThreadCommand } from "./cli/cmd/tui/thread"
  import { AcpCommand } from "./cli/cmd/acp"
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index e09fbc97fe3..e90a0ce86a5 100644
+index 405c6728537..1037fafe89d 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
 @@ -370,7 +370,7 @@ export namespace LSPServer {
@@ -425,7 +425,7 @@ index e09fbc97fe3..e90a0ce86a5 100644
        })
        if (!bin) {
          if (!which("dotnet")) {
-@@ -1382,7 +1382,7 @@ export namespace LSPServer {
+@@ -1405,7 +1405,7 @@ export namespace LSPServer {
      extensions: [".lua"],
      async spawn(root) {
        let bin = which("lua-language-server", {
@@ -434,7 +434,7 @@ index e09fbc97fe3..e90a0ce86a5 100644
        })
  
        if (!bin) {
-@@ -1650,7 +1650,7 @@ export namespace LSPServer {
+@@ -1673,7 +1673,7 @@ export namespace LSPServer {
      root: NearestRoot([".terraform.lock.hcl", "terraform.tfstate", "*.tf"]),
      async spawn(root) {
        let bin = which("terraform-ls", {
@@ -443,7 +443,7 @@ index e09fbc97fe3..e90a0ce86a5 100644
        })
  
        if (!bin) {
-@@ -1733,7 +1733,7 @@ export namespace LSPServer {
+@@ -1756,7 +1756,7 @@ export namespace LSPServer {
      root: NearestRoot([".latexmkrc", "latexmkrc", ".texlabroot", "texlabroot"]),
      async spawn(root) {
        let bin = which("texlab", {
@@ -452,7 +452,7 @@ index e09fbc97fe3..e90a0ce86a5 100644
        })
  
        if (!bin) {
-@@ -1932,7 +1932,7 @@ export namespace LSPServer {
+@@ -1955,7 +1955,7 @@ export namespace LSPServer {
      root: NearestRoot(["typst.toml"]),
      async spawn(root) {
        let bin = which("tinymist", {
@@ -462,7 +462,7 @@ index e09fbc97fe3..e90a0ce86a5 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index b4836ae047d..5061a8093a8 100644
+index 09035d272c9..ff11c1ebd1b 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -11,7 +11,7 @@ import { Plugin } from "../plugin"
@@ -603,7 +603,7 @@ index b4836ae047d..5061a8093a8 100644
        })()
  
        const config = await Config.get()
-@@ -508,11 +510,11 @@ export namespace Provider {
+@@ -509,11 +511,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -617,7 +617,7 @@ index b4836ae047d..5061a8093a8 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -531,14 +533,14 @@ export namespace Provider {
+@@ -532,14 +534,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -635,7 +635,7 @@ index b4836ae047d..5061a8093a8 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -913,7 +915,7 @@ export namespace Provider {
+@@ -914,7 +916,7 @@ export namespace Provider {
      }
  
      // load env
@@ -1258,7 +1258,7 @@ index cb64455b4dd..76145acd3c7 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/gitlab-duo.test.ts b/packages/opencode/test/provider/gitlab-duo.test.ts
-index c512a45909d..db9449331b7 100644
+index 86e08a79284..6eb6bb31ff7 100644
 --- a/packages/opencode/test/provider/gitlab-duo.test.ts
 +++ b/packages/opencode/test/provider/gitlab-duo.test.ts
 @@ -4,7 +4,6 @@ import path from "path"
@@ -1325,7 +1325,7 @@ index c512a45909d..db9449331b7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -222,7 +221,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
+@@ -212,7 +211,7 @@ test("GitLab Duo: includes context-1m beta header in aiGatewayHeaders", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1334,7 +1334,16 @@ index c512a45909d..db9449331b7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -247,7 +246,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
+@@ -246,7 +245,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("GITLAB_TOKEN", "test-token")
++      process.env.GITLAB_TOKEN = "test-token"
+     },
+     fn: async () => {
+       const providers = await Provider.list()
+@@ -271,7 +270,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
