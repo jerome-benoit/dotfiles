@@ -35,7 +35,11 @@ in
       pkgs.autoconf
       pkgs.automake
       pkgs.bat
-      pkgs.bruno
+      (pkgs.bruno.override {
+        nodejs_22 = pkgs.nodejs_22.override {
+          nodejs-slim = pkgs.nodejs-slim_22.overrideAttrs { doCheck = false; };
+        };
+      })
       pkgs.chroma
       pkgs.cloudfoundry-cli
       pkgs.cmake
