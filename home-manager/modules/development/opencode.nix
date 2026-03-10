@@ -17,8 +17,6 @@ let
       baseOpencodePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
           (self + "/patches/opencode/relax-bun-version-check.patch")
-          # https://github.com/anomalyco/opencode/pull/14958
-          (self + "/patches/opencode/sap-ai-thinking-variants.patch")
           # https://github.com/anomalyco/opencode/pull/12822
           (self + "/patches/opencode/remove-env-namespace.patch")
           # https://github.com/anomalyco/opencode/pull/10275
