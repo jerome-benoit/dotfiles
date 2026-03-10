@@ -220,12 +220,11 @@ index e3bddcc2263..5e12c29ab98 100644
    }
  }
 diff --git a/packages/opencode/src/bun/registry.ts b/packages/opencode/src/bun/registry.ts
-index a85a6c989c8..6fe89f13a4a 100644
+index 1fc8531442f..7d200e4a51f 100644
 --- a/packages/opencode/src/bun/registry.ts
 +++ b/packages/opencode/src/bun/registry.ts
-@@ -1,41 +1,32 @@
- import { semver } from "bun"
--import { text } from "node:stream/consumers"
+@@ -2,40 +2,32 @@ import semver from "semver"
+ import { text } from "node:stream/consumers"
  import { Log } from "../util/log"
  import { Process } from "../util/process"
 +import { BunProc } from "."
