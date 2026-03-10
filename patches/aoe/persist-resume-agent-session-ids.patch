@@ -1,9 +1,9 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 6bb5fb0d..b8b76754 100644
+index d054776d..cc025890 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -22,6 +22,26 @@ pub enum YoloMode {
-     EnvVar(&'static str, &'static str),
+@@ -24,6 +24,26 @@ pub enum YoloMode {
+     AlwaysYolo,
  }
  
 +/// How an agent resumes an existing session from the CLI.
@@ -29,7 +29,7 @@ index 6bb5fb0d..b8b76754 100644
  /// Configuration for installing status-detection hooks into an agent's settings file.
  pub struct AgentHookConfig {
      /// Path relative to the project/home dir where the agent's settings live
-@@ -56,6 +76,8 @@ pub struct AgentDef {
+@@ -58,6 +78,8 @@ pub struct AgentDef {
      /// hooks into the agent's settings file so status is written to a file instead
      /// of being parsed from tmux pane content.
      pub hook_config: Option<AgentHookConfig>,
@@ -38,7 +38,7 @@ index 6bb5fb0d..b8b76754 100644
  }
  
  pub const AGENTS: &[AgentDef] = &[
-@@ -73,6 +95,10 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -75,6 +97,10 @@ pub const AGENTS: &[AgentDef] = &[
          hook_config: Some(AgentHookConfig {
              settings_rel_path: ".claude/settings.json",
          }),
@@ -49,7 +49,7 @@ index 6bb5fb0d..b8b76754 100644
      },
      AgentDef {
          name: "opencode",
-@@ -86,6 +112,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -88,6 +114,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_opencode_status,
          container_env: &[],
          hook_config: None,
@@ -57,7 +57,7 @@ index 6bb5fb0d..b8b76754 100644
      },
      AgentDef {
          name: "vibe",
-@@ -99,6 +126,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -101,6 +128,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_vibe_status,
          container_env: &[],
          hook_config: None,
@@ -65,7 +65,7 @@ index 6bb5fb0d..b8b76754 100644
      },
      AgentDef {
          name: "codex",
-@@ -114,6 +142,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -116,6 +144,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
          hook_config: None,
@@ -73,7 +73,7 @@ index 6bb5fb0d..b8b76754 100644
      },
      AgentDef {
          name: "gemini",
-@@ -127,6 +156,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -129,6 +158,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_gemini_status,
          container_env: &[],
          hook_config: None,
@@ -81,16 +81,24 @@ index 6bb5fb0d..b8b76754 100644
      },
      AgentDef {
          name: "cursor",
-@@ -142,6 +172,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -144,6 +174,7 @@ pub const AGENTS: &[AgentDef] = &[
          hook_config: Some(AgentHookConfig {
              settings_rel_path: ".cursor/settings.json",
          }),
 +        resume_strategy: ResumeStrategy::Unsupported,
      },
+     AgentDef {
+         name: "pi",
+@@ -158,6 +189,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_pi_status,
+         container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Unsupported,
+     },
  ];
  
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index bef240d3..a6082c9b 100644
+index 375d3312..800d97c5 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
 @@ -177,9 +177,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
@@ -239,18 +247,6 @@ index a7646335..04a00485 100644
      if hooks_obj.is_empty() {
          settings.as_object_mut().unwrap().remove("hooks");
      }
-diff --git a/src/hooks/status_file.rs b/src/hooks/status_file.rs
-index 4eef345b..7417c169 100644
---- a/src/hooks/status_file.rs
-+++ b/src/hooks/status_file.rs
-@@ -25,7 +25,6 @@ pub fn hook_status_dir(instance_id: &str) -> PathBuf {
- pub fn read_hook_status(instance_id: &str) -> Option<Status> {
-     let status_path = hook_status_dir(instance_id).join("status");
- 
--    // Check file age first -- ignore stale files from crashed sessions
-     let metadata = std::fs::symlink_metadata(&status_path).ok()?;
-     let modified = metadata.modified().ok()?;
-     if modified.elapsed().ok()? > STALENESS_THRESHOLD {
 diff --git a/src/main.rs b/src/main.rs
 index 69aef9b2..9176402a 100644
 --- a/src/main.rs
@@ -284,15 +280,24 @@ index 69aef9b2..9176402a 100644
  
      let cli = Cli::parse();
 diff --git a/src/session/builder.rs b/src/session/builder.rs
-index 740c4007..6ec3cc95 100644
+index 04795226..f51aea8a 100644
 --- a/src/session/builder.rs
 +++ b/src/session/builder.rs
-@@ -64,7 +64,10 @@ pub fn build_instance(params: InstanceParams, existing_titles: &[&str]) -> Resul
+@@ -11,7 +11,7 @@ use chrono::Utc;
+ use crate::containers::{self, ContainerRuntimeInterface};
+ use crate::git::GitWorktree;
+ 
+-use super::{civilizations, Instance, SandboxInfo, WorktreeInfo};
++use super::{civilizations, Config, Instance, SandboxInfo, WorktreeInfo};
+ 
+ /// Parameters for creating a new session instance.
+ #[derive(Debug, Clone)]
+@@ -68,7 +68,10 @@ pub fn build_instance(
          }
      }
  
--    let config = Config::load().unwrap_or_default();
-+    let config = Config::load().unwrap_or_else(|e| {
+-    let config = super::profile_config::resolve_config(profile).unwrap_or_default();
++    let config = super::profile_config::resolve_config(profile).unwrap_or_else(|e| {
 +        tracing::warn!("Failed to load config, using defaults: {}", e);
 +        Config::default()
 +    });
@@ -388,10 +393,10 @@ index f4cf9a4f..af2dcd04 100644
      "default".to_string()
  }
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index d649be8d..0f9e735d 100644
+index 1245e403..0b502a6c 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
-@@ -312,7 +312,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
+@@ -323,7 +323,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -399,7 +404,7 @@ index d649be8d..0f9e735d 100644
      if dest.exists() {
          if let Ok(existing_content) = std::fs::read_to_string(dest) {
              if !should_overwrite_credential(&existing_content, trimmed) {
-@@ -393,14 +392,8 @@ pub(crate) fn compute_volume_paths(
+@@ -404,14 +403,8 @@ pub(crate) fn compute_volume_paths(
      project_path: &Path,
      project_path_str: &str,
  ) -> Result<(Vec<VolumeMount>, String)> {
@@ -416,7 +421,7 @@ index d649be8d..0f9e735d 100644
      if project_path.join(".git").exists() {
          if let Ok(main_repo) = GitWorktree::find_main_repo(project_path) {
              // Canonicalize paths for reliable comparison (handles symlinks like /tmp -> /private/tmp)
-@@ -416,8 +409,6 @@ pub(crate) fn compute_volume_paths(
+@@ -427,8 +420,6 @@ pub(crate) fn compute_volume_paths(
              // resolves correctly inside the container.
              if main_repo_canonical != project_canonical {
                  if project_canonical.starts_with(&main_repo_canonical) {
@@ -425,7 +430,7 @@ index d649be8d..0f9e735d 100644
                      let name = main_repo_canonical
                          .file_name()
                          .map(|n| n.to_string_lossy().to_string())
-@@ -442,11 +433,8 @@ pub(crate) fn compute_volume_paths(
+@@ -453,11 +444,8 @@ pub(crate) fn compute_volume_paths(
                          working_dir,
                      ));
                  } else {
@@ -439,7 +444,7 @@ index d649be8d..0f9e735d 100644
                      let common = common_ancestor(&main_repo_canonical, &project_canonical);
                      let repo_rel = main_repo_canonical
                          .strip_prefix(&common)
-@@ -478,7 +466,6 @@ pub(crate) fn compute_volume_paths(
+@@ -489,7 +477,6 @@ pub(crate) fn compute_volume_paths(
          }
      }
  
@@ -447,7 +452,7 @@ index d649be8d..0f9e735d 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -584,9 +571,7 @@ pub(crate) fn build_container_config(
+@@ -595,9 +582,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -458,7 +463,7 @@ index d649be8d..0f9e735d 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -614,8 +599,6 @@ pub(crate) fn build_container_config(
+@@ -625,8 +610,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
@@ -467,7 +472,7 @@ index d649be8d..0f9e735d 100644
          for &(filename, _) in mount.home_seed_files {
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
-@@ -628,8 +611,6 @@ pub(crate) fn build_container_config(
+@@ -639,8 +622,6 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -476,7 +481,7 @@ index d649be8d..0f9e735d 100644
      if let Some(agent) = crate::agents::get_agent(tool) {
          if let Some(hook_cfg) = &agent.hook_config {
              let hook_dir = crate::hooks::hook_status_dir(instance_id);
-@@ -646,10 +627,7 @@ pub(crate) fn build_container_config(
+@@ -657,10 +638,7 @@ pub(crate) fn build_container_config(
                  read_only: false,
              });
  
@@ -489,7 +494,7 @@ index d649be8d..0f9e735d 100644
                  .parent()
                  .unwrap_or(std::path::Path::new("."));
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index cc3711c3..ffb02255 100644
+index 75d0a235..dba9f4e4 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,9 +1,16 @@
@@ -1196,7 +1201,7 @@ index cc3711c3..ffb02255 100644
 +        crate::agents::YoloMode::EnvVar(key, value) if !is_sandboxed => {
 +            *cmd = format!("{}={} {}", key, value, cmd);
 +        }
-+        crate::agents::YoloMode::EnvVar(..) => {}
++        crate::agents::YoloMode::EnvVar(..) | crate::agents::YoloMode::AlwaysYolo => {}
 +    }
 +}
 +
@@ -1571,7 +1576,7 @@ index cc3711c3..ffb02255 100644
  
          let env_args = build_docker_env_args(sandbox);
          let env_part = if env_args.is_empty() {
-@@ -322,181 +1336,347 @@ impl Instance {
+@@ -322,184 +1336,347 @@ impl Instance {
              return Ok(());
          }
  
@@ -1702,7 +1707,8 @@ index cc3711c3..ffb02255 100644
 -                        crate::agents::YoloMode::CliFlag(flag) => {
 -                            format!("{} {}", base_cmd, flag)
 -                        }
--                        crate::agents::YoloMode::EnvVar(..) => base_cmd,
+-                        crate::agents::YoloMode::EnvVar(..)
+-                        | crate::agents::YoloMode::AlwaysYolo => base_cmd,
 +                // Install hooks in the user's home directory settings
 +                if let Some(home) = dirs::home_dir() {
 +                    let settings_path = home.join(hook_cfg.settings_rel_path);
@@ -1817,6 +1823,7 @@ index cc3711c3..ffb02255 100644
 -                                    crate::agents::YoloMode::EnvVar(key, value) => {
 -                                        cmd = format!("{}={} {}", key, value, cmd);
 -                                    }
+-                                    crate::agents::YoloMode::AlwaysYolo => {}
 -                                }
 -                            }
 -                        }
@@ -1836,6 +1843,7 @@ index cc3711c3..ffb02255 100644
 -                            crate::agents::YoloMode::EnvVar(key, value) => {
 -                                cmd = format!("{}={} {}", key, value, cmd);
 -                            }
+-                            crate::agents::YoloMode::AlwaysYolo => {}
 +        self.apply_session_flags(&mut tool_cmd, "sandboxed");
 +        let env_part = format!("{} ", env_args);
 +        Ok(Some(wrap_command_ignore_suspend(
@@ -2067,7 +2075,7 @@ index cc3711c3..ffb02255 100644
      }
  
      fn apply_terminal_tmux_options(&self) {
-@@ -556,24 +1736,115 @@ impl Instance {
+@@ -559,24 +1736,115 @@ impl Instance {
          )
      }
  
@@ -2187,7 +2195,7 @@ index cc3711c3..ffb02255 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -710,6 +1981,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -715,6 +1983,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -2195,7 +2203,7 @@ index cc3711c3..ffb02255 100644
  
      #[test]
      fn test_new_instance() {
-@@ -1037,6 +2309,307 @@ mod tests {
+@@ -1042,6 +2311,307 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -2503,7 +2511,7 @@ index cc3711c3..ffb02255 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1092,4 +2665,514 @@ mod tests {
+@@ -1097,4 +2667,514 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -4368,7 +4376,7 @@ index 00000000..e2c06bfe
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index 3cc4b3ef..1b3a5a45 100644
+index bac75e9b..797b673c 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4719,7 +4727,7 @@ index 842e27ed..8d1f0097 100644
          for (idx, item) in self.flat_items.iter().enumerate() {
              if let Item::Session { id, .. } = item {
 diff --git a/src/tui/home/operations.rs b/src/tui/home/operations.rs
-index 7c5b9667..71a0d9bb 100644
+index b53296ea..fce061ec 100644
 --- a/src/tui/home/operations.rs
 +++ b/src/tui/home/operations.rs
 @@ -44,7 +44,6 @@ impl HomeView {
