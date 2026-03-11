@@ -494,7 +494,7 @@ index 1245e403..0b502a6c 100644
                  .parent()
                  .unwrap_or(std::path::Path::new("."));
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 75d0a235..dba9f4e4 100644
+index 3242584e..fbb9acab 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,9 +1,16 @@
@@ -2195,7 +2195,7 @@ index 75d0a235..dba9f4e4 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -715,6 +1983,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -716,6 +1984,7 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -2203,7 +2203,7 @@ index 75d0a235..dba9f4e4 100644
  
      #[test]
      fn test_new_instance() {
-@@ -1042,6 +2311,307 @@ mod tests {
+@@ -1043,6 +2312,307 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -2511,7 +2511,7 @@ index 75d0a235..dba9f4e4 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1097,4 +2667,514 @@ mod tests {
+@@ -1098,4 +2668,514 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -3027,7 +3027,7 @@ index 75d0a235..dba9f4e4 100644
 +    }
  }
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index 89e32e46..a499a67d 100644
+index 004d614c..31d19cbf 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -7,6 +7,7 @@ mod container_config;
@@ -3038,8 +3038,8 @@ index 89e32e46..a499a67d 100644
  pub mod profile_config;
  pub mod repo_config;
  mod storage;
-@@ -19,6 +20,7 @@ pub use config::{
- };
+@@ -20,6 +21,7 @@ pub use config::{
+ pub(crate) use environment::user_shell;
  pub use environment::validate_env_entry;
  pub use groups::{flatten_tree, Group, GroupTree, Item};
 +pub(crate) use instance::is_valid_session_id;
@@ -4376,7 +4376,7 @@ index 00000000..e2c06bfe
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index bac75e9b..797b673c 100644
+index c6a85237..2c9a7da7 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4495,7 +4495,7 @@ index d6fb8ba1..2cd3d5fd 100644
  
          self.needs_redraw = true;
 diff --git a/src/tui/dialogs/profile_picker.rs b/src/tui/dialogs/profile_picker.rs
-index ca763f91..588f5291 100644
+index 4ff7bb3c..588f5291 100644
 --- a/src/tui/dialogs/profile_picker.rs
 +++ b/src/tui/dialogs/profile_picker.rs
 @@ -9,24 +9,18 @@ use tui_input::Input;
@@ -4535,15 +4535,6 @@ index ca763f91..588f5291 100644
      confirm_selected: bool,
  }
  
-@@ -308,7 +299,7 @@ impl ProfilePickerDialog {
-         let dialog_width: u16 = 40;
-         // inner width = dialog_width - borders(2) - margin(2) = 36
-         let error_lines: u16 = if let Some(err) = &self.error {
--            let inner_width = dialog_width.saturating_sub(6) as usize;
-+            let inner_width = dialog_width.saturating_sub(4) as usize;
-             if inner_width == 0 {
-                 1
-             } else {
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
 index 842e27ed..8d1f0097 100644
 --- a/src/tui/home/mod.rs
@@ -4727,7 +4718,7 @@ index 842e27ed..8d1f0097 100644
          for (idx, item) in self.flat_items.iter().enumerate() {
              if let Item::Session { id, .. } = item {
 diff --git a/src/tui/home/operations.rs b/src/tui/home/operations.rs
-index b53296ea..fce061ec 100644
+index 903b1f0d..3ce5284d 100644
 --- a/src/tui/home/operations.rs
 +++ b/src/tui/home/operations.rs
 @@ -44,7 +44,6 @@ impl HomeView {
@@ -4757,25 +4748,36 @@ index b53296ea..fce061ec 100644
              }
  
              self.group_tree = GroupTree::new_with_groups(&self.instances, &self.groups);
-@@ -263,17 +266,13 @@ impl HomeView {
+@@ -263,21 +266,16 @@ impl HomeView {
                  }
              }
  
 -            // No profile change - update in place
--            // Read old title before mutation so we can detect renames
+             // Rename tmux session BEFORE mutating the instance, so we can
+             // look up the session by its current (old) name.
 -            let old_title = self.get_instance(&id).map(|i| i.title.clone());
--
-             self.mutate_instance(&id, |inst| {
-                 inst.title = effective_title.clone();
-                 inst.group_path = effective_group.clone();
-             });
- 
-             // Handle tmux rename if title changed
--            if old_title.is_some_and(|t| t != effective_title) {
+-            if let Some(ref old_t) = old_title {
+-                if *old_t != effective_title {
+-                    let old_tmux_session = crate::tmux::Session::new(&id, old_t)?;
+-                    if old_tmux_session.exists() {
+-                        let new_tmux_name =
+-                            crate::tmux::Session::generate_name(&id, &effective_title);
+-                        if let Err(e) = old_tmux_session.rename(&new_tmux_name) {
+-                            tracing::warn!("Failed to rename tmux session: {}", e);
+-                        } else {
+-                            crate::tmux::refresh_session_cache();
+-                        }
 +            if current_title != effective_title {
-                 if let Some(inst) = self.get_instance(&id) {
-                     let tmux_session = inst.tmux_session()?;
-                     if tmux_session.exists() {
++                let old_tmux_session = crate::tmux::Session::new(&id, &current_title)?;
++                if old_tmux_session.exists() {
++                    let new_tmux_name = crate::tmux::Session::generate_name(&id, &effective_title);
++                    if let Err(e) = old_tmux_session.rename(&new_tmux_name) {
++                        tracing::warn!("Failed to rename tmux session: {}", e);
++                    } else {
++                        crate::tmux::refresh_session_cache();
+                     }
+                 }
+             }
 diff --git a/src/tui/settings/fields.rs b/src/tui/settings/fields.rs
 index 0b464a0f..b300a107 100644
 --- a/src/tui/settings/fields.rs
