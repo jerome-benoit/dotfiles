@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/bun/index.ts b/packages/opencode/src/bun/index.ts
-index e3bddcc2263..5e12c29ab98 100644
+index e3bddcc2263..448fcaa219b 100644
 --- a/packages/opencode/src/bun/index.ts
 +++ b/packages/opencode/src/bun/index.ts
 @@ -4,7 +4,6 @@ import { Log } from "../util/log"
@@ -10,7 +10,7 @@ index e3bddcc2263..5e12c29ab98 100644
  import { Lock } from "../util/lock"
  import { PackageRegistry } from "./registry"
  import { proxied } from "@/util/proxied"
-@@ -13,31 +12,23 @@ import { Process } from "../util/process"
+@@ -13,31 +12,24 @@ import { Process } from "../util/process"
  export namespace BunProc {
    const log = Log.create({ service: "bun" })
  
@@ -44,8 +44,9 @@ index e3bddcc2263..5e12c29ab98 100644
 +  }
 +
 +  export async function run(cmd: string[], options?: Process.RunOptions) {
-+    log.info("running", { cmd: [which(), ...cmd], ...options })
-+    const result = await Process.run([which(), ...cmd], {
++    const bin = which()
++    log.info("running", { cmd: [bin, ...cmd], ...options })
++    const result = await Process.run([bin, ...cmd], {
 +      cwd: options?.cwd,
 +      env: { ...process.env, ...options?.env, BUN_BE_BUN: "1" },
 +      nothrow: true,
@@ -58,7 +59,7 @@ index e3bddcc2263..5e12c29ab98 100644
      }
      return result
    }
-@@ -54,78 +45,99 @@ export namespace BunProc {
+@@ -54,78 +46,99 @@ export namespace BunProc {
      }),
    )
  
