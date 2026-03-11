@@ -694,10 +694,10 @@ index 440a9cccedb..29214615e6a 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index 80394fbff50..4c700abb897 100644
+index 90727cf8a08..f471defcf32 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
-@@ -177,8 +177,8 @@ test("merges multiple config files with correct precedence", async () => {
+@@ -178,8 +178,8 @@ test("merges multiple config files with correct precedence", async () => {
  })
  
  test("handles environment variable substitution", async () => {
@@ -708,7 +708,7 @@ index 80394fbff50..4c700abb897 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -198,16 +198,16 @@ test("handles environment variable substitution", async () => {
+@@ -199,16 +199,16 @@ test("handles environment variable substitution", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -729,7 +729,7 @@ index 80394fbff50..4c700abb897 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -236,9 +236,9 @@ test("preserves env variables when adding $schema to config", async () => {
+@@ -237,9 +237,9 @@ test("preserves env variables when adding $schema to config", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -741,7 +741,7 @@ index 80394fbff50..4c700abb897 100644
      }
    }
  })
-@@ -1782,8 +1782,8 @@ describe("deduplicatePlugins", () => {
+@@ -1783,8 +1783,8 @@ describe("deduplicatePlugins", () => {
  
  describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
    test("skips project config files when flag is set", async () => {
@@ -752,7 +752,7 @@ index 80394fbff50..4c700abb897 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1810,16 +1810,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1811,16 +1811,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -773,7 +773,7 @@ index 80394fbff50..4c700abb897 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1841,16 +1841,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1842,16 +1842,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -794,7 +794,7 @@ index 80394fbff50..4c700abb897 100644
  
      try {
        await using tmp = await tmpdir()
-@@ -1865,21 +1865,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1866,21 +1866,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -822,7 +822,7 @@ index 80394fbff50..4c700abb897 100644
  
        await using tmp = await tmpdir({
          init: async (dir) => {
-@@ -1910,21 +1910,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1911,21 +1911,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -850,7 +850,7 @@ index 80394fbff50..4c700abb897 100644
  
      try {
        await using configDirTmp = await tmpdir({
-@@ -1953,8 +1953,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1954,8 +1954,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
          },
        })
  
@@ -861,7 +861,7 @@ index 80394fbff50..4c700abb897 100644
  
        await Instance.provide({
          directory: projectTmp.path,
-@@ -1966,14 +1966,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1967,14 +1967,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -880,7 +880,7 @@ index 80394fbff50..4c700abb897 100644
        }
      }
    })
-@@ -1981,10 +1981,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1982,10 +1982,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
  
  describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
    test("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
@@ -895,7 +895,7 @@ index 80394fbff50..4c700abb897 100644
        $schema: "https://opencode.ai/config.json",
        username: "{env:TEST_CONFIG_VAR}",
      })
-@@ -2000,26 +2000,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2001,26 +2001,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -928,7 +928,7 @@ index 80394fbff50..4c700abb897 100644
              $schema: "https://opencode.ai/config.json",
              username: "{file:./api_key.txt}",
            })
-@@ -2034,9 +2034,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2035,9 +2035,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
