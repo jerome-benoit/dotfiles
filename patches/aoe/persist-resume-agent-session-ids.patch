@@ -4396,7 +4396,7 @@ index c6a85237..2c9a7da7 100644
  pub mod status_bar;
  pub(crate) mod status_detection;
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index a3f6560b..15fc20b1 100644
+index d784e222..9430dd77 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -28,6 +28,10 @@ impl Session {
@@ -4411,7 +4411,7 @@ index a3f6560b..15fc20b1 100644
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index c5375bbe..e9f36bce 100644
+index 88fd1d9e..22f3b335 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -1,4 +1,4 @@
