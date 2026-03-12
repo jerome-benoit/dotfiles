@@ -21,8 +21,6 @@ let
           (self + "/patches/opencode/remove-env-namespace.patch")
           # https://github.com/anomalyco/opencode/pull/10275
           (self + "/patches/opencode/bun-track-provider-packages.patch")
-          # https://github.com/anomalyco/opencode/pull/17026
-          (self + "/patches/opencode/plugin-server-url-no-throw.patch")
         ];
       })
     else
