@@ -132,7 +132,7 @@ index 6d32c63c001..43e1b50ae45 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 2b8aa9e0301..23804464b70 100644
+index 27ba4e18671..20a4fd65f95 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -12,7 +12,6 @@ import { lazy } from "../util/lazy"
@@ -143,7 +143,7 @@ index 2b8aa9e0301..23804464b70 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -184,7 +183,6 @@ export namespace Config {
+@@ -186,7 +185,6 @@ export namespace Config {
          ])
          if (token) {
            process.env["OPENCODE_CONSOLE_TOKEN"] = token
@@ -186,7 +186,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index 30929bd9268..f32418f3eb3 100644
+index f1688a1b40a..143ff361322 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -10,15 +10,15 @@ function falsy(key: string) {
@@ -242,8 +242,8 @@ index 30929bd9268..f32418f3eb3 100644
 +  export const OPENCODE_MODELS_PATH = process.env.OPENCODE_MODELS_PATH
    export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
    export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
- 
-@@ -88,7 +88,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+   export const OPENCODE_STRICT_CONFIG_DEPS = truthy("OPENCODE_STRICT_CONFIG_DEPS")
+@@ -89,7 +89,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -252,7 +252,7 @@ index 30929bd9268..f32418f3eb3 100644
    },
    enumerable: true,
    configurable: false,
-@@ -99,7 +99,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -100,7 +100,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -261,7 +261,7 @@ index 30929bd9268..f32418f3eb3 100644
    },
    enumerable: true,
    configurable: false,
-@@ -110,7 +110,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -111,7 +111,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {
@@ -603,10 +603,10 @@ index 440a9cccedb..29214615e6a 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index 90727cf8a08..f471defcf32 100644
+index baf209d8607..ca18381be9b 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
-@@ -178,8 +178,8 @@ test("merges multiple config files with correct precedence", async () => {
+@@ -179,8 +179,8 @@ test("merges multiple config files with correct precedence", async () => {
  })
  
  test("handles environment variable substitution", async () => {
@@ -617,7 +617,7 @@ index 90727cf8a08..f471defcf32 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -199,16 +199,16 @@ test("handles environment variable substitution", async () => {
+@@ -200,16 +200,16 @@ test("handles environment variable substitution", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -638,7 +638,7 @@ index 90727cf8a08..f471defcf32 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -237,9 +237,9 @@ test("preserves env variables when adding $schema to config", async () => {
+@@ -238,9 +238,9 @@ test("preserves env variables when adding $schema to config", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -650,7 +650,7 @@ index 90727cf8a08..f471defcf32 100644
      }
    }
  })
-@@ -1783,8 +1783,8 @@ describe("deduplicatePlugins", () => {
+@@ -1817,8 +1817,8 @@ describe("deduplicatePlugins", () => {
  
  describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
    test("skips project config files when flag is set", async () => {
@@ -661,7 +661,7 @@ index 90727cf8a08..f471defcf32 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1811,16 +1811,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1845,16 +1845,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -682,7 +682,7 @@ index 90727cf8a08..f471defcf32 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1842,16 +1842,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1876,16 +1876,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -703,7 +703,7 @@ index 90727cf8a08..f471defcf32 100644
  
      try {
        await using tmp = await tmpdir()
-@@ -1866,21 +1866,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1900,21 +1900,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -731,7 +731,7 @@ index 90727cf8a08..f471defcf32 100644
  
        await using tmp = await tmpdir({
          init: async (dir) => {
-@@ -1911,21 +1911,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1945,21 +1945,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -759,7 +759,7 @@ index 90727cf8a08..f471defcf32 100644
  
      try {
        await using configDirTmp = await tmpdir({
-@@ -1954,8 +1954,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1988,8 +1988,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
          },
        })
  
@@ -770,7 +770,7 @@ index 90727cf8a08..f471defcf32 100644
  
        await Instance.provide({
          directory: projectTmp.path,
-@@ -1967,14 +1967,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2001,14 +2001,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -789,7 +789,7 @@ index 90727cf8a08..f471defcf32 100644
        }
      }
    })
-@@ -1982,10 +1982,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2016,10 +2016,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
  
  describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
    test("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
@@ -804,7 +804,7 @@ index 90727cf8a08..f471defcf32 100644
        $schema: "https://opencode.ai/config.json",
        username: "{env:TEST_CONFIG_VAR}",
      })
-@@ -2001,26 +2001,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2035,26 +2035,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -837,7 +837,7 @@ index 90727cf8a08..f471defcf32 100644
              $schema: "https://opencode.ai/config.json",
              username: "{file:./api_key.txt}",
            })
-@@ -2035,9 +2035,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2069,9 +2069,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
