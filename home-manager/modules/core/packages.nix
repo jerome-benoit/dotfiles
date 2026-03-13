@@ -48,6 +48,8 @@ in
       pkgs.firefox
       pkgs.gnused
       pkgs.go
+      pkgs.go-task
+      pkgs.golangci-lint
       pkgs.gopls
       pkgs.google-chrome
       pkgs.grc
