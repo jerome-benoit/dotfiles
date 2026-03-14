@@ -1163,14 +1163,14 @@ index 04795226..f51aea8a 100644
          .canonicalize()
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 00000000..f5151b8e
+index 00000000..59bea1ba
 --- /dev/null
 +++ b/src/session/capture.rs
-@@ -0,0 +1,1711 @@
+@@ -0,0 +1,1742 @@
 +//! Session ID capture logic for all supported agent types.
 +
 +use std::collections::HashSet;
-+use std::path::PathBuf;
++use std::path::{Path, PathBuf};
 +use std::process::Stdio;
 +use std::sync::mpsc;
 +use std::time::Duration;
@@ -1256,11 +1256,8 @@ index 00000000..f5151b8e
 +        .collect()
 +}
 +
-+/// Capture Claude Code session ID from the most recently active project directory.
-+///
-+/// Claude stores conversation files as `{uuid}.jsonl` under
-+/// `~/.claude/projects/{encoded-path}/`. This function finds the most recently
-+/// modified UUID-named file, filtering out files owned by other AoE instances.
++/// Capture Claude Code session ID from the most recently active project directory,
++/// falling back to `~/.claude.json` if the dir scan result is stale.
 +///
 +/// Used as a fallback when hooks don't fire (e.g. after `/clear` or `/new`).
 +pub(crate) fn capture_claude_session_id(
@@ -1269,14 +1266,37 @@ index 00000000..f5151b8e
 +) -> Result<String> {
 +    let claude_home = resolve_agent_home(Some("CLAUDE_CONFIG_DIR"), ".claude")?;
 +    let canonical = canonicalize_or_raw(project_path);
-+    let dir_name = encode_claude_project_path(&canonical.to_string_lossy());
++
++    // Source 1: most recently modified .jsonl in the project dir
++    if let Some((id, modified)) = scan_claude_project_dir(&claude_home, &canonical, exclusion)? {
++        let age = modified.elapsed().unwrap_or(Duration::from_secs(u64::MAX));
++        if age <= Duration::from_secs(5 * 60) {
++            return Ok(id);
++        }
++    }
++
++    // Source 2: lastSessionId from ~/.claude.json
++    if let Some(id) = read_claude_json_session_id(&canonical) {
++        if Uuid::parse_str(&id).is_ok() && !exclusion.contains(&id) {
++            return Ok(id);
++        }
++    }
++
++    anyhow::bail!("No active Claude session found for {}", project_path)
++}
++
++/// Scan `~/.claude/projects/{encoded-path}/` for the most recently modified
++/// UUID-named `.jsonl` file not owned by another AoE instance.
++fn scan_claude_project_dir(
++    claude_home: &Path,
++    project_path: &Path,
++    exclusion: &HashSet<String>,
++) -> Result<Option<(String, std::time::SystemTime)>> {
++    let dir_name = encode_claude_project_path(&project_path.to_string_lossy());
 +    let project_dir = claude_home.join("projects").join(&dir_name);
 +
 +    if !project_dir.is_dir() {
-+        anyhow::bail!(
-+            "Claude projects directory not found: {}",
-+            project_dir.display()
-+        );
++        return Ok(None);
 +    }
 +
 +    let mut best: Option<(String, std::time::SystemTime)> = None;
@@ -1290,12 +1310,9 @@ index 00000000..f5151b8e
 +            Some(s) => s,
 +            None => continue,
 +        };
-+
-+        // Skip non-UUID files (e.g. agent-*.jsonl for subagents)
 +        if Uuid::parse_str(stem).is_err() {
 +            continue;
 +        }
-+
 +        if exclusion.contains(stem) {
 +            continue;
 +        }
@@ -1310,17 +1327,28 @@ index 00000000..f5151b8e
 +        }
 +    }
 +
-+    let (session_id, modified) =
-+        best.ok_or_else(|| anyhow::anyhow!("No Claude session files found"))?;
++    Ok(best)
++}
 +
-+    // Only accept sessions modified within the last 5 minutes to avoid adopting
-+    // stale files from previous sessions.
-+    let age = modified.elapsed().unwrap_or(Duration::from_secs(u64::MAX));
-+    if age > Duration::from_secs(5 * 60) {
-+        anyhow::bail!("Most recent Claude session file is stale ({age:?} old)");
++/// Read `lastSessionId` from `~/.claude.json` for a given project path.
++fn read_claude_json_session_id(project_path: &Path) -> Option<String> {
++    let claude_json = dirs::home_dir()?.join(".claude.json");
++    let content = std::fs::read_to_string(&claude_json).ok()?;
++    let content = content.trim();
++    if content.is_empty() {
++        return None;
 +    }
++    let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
 +
-+    Ok(session_id)
++    let path_str = project_path.to_string_lossy();
++    parsed
++        .get("projects")?
++        .get(path_str.as_ref())?
++        .get("lastSessionId")?
++        .as_str()
++        .map(|s| s.trim())
++        .filter(|s| !s.is_empty())
++        .map(String::from)
 +}
 +
 +/// Polling closure for Claude Code session tracking.
@@ -1736,7 +1764,7 @@ index 00000000..f5151b8e
 +) -> Result<String> {
 +    use sha2::{Digest, Sha256};
 +
-+    let gemini_home = resolve_agent_home(None, ".gemini")?;
++    let gemini_home = resolve_agent_home(Some("GEMINI_CLI_HOME"), ".gemini")?;
 +    let tmp_dir = gemini_home.join("tmp");
 +
 +    if !tmp_dir.exists() {
@@ -2849,8 +2877,11 @@ index 00000000..f5151b8e
 +        let result = capture_claude_session_id("/tmp/myproject", &HashSet::new());
 +        assert!(result.is_err(), "Stale session file should be rejected");
 +        assert!(
-+            result.unwrap_err().to_string().contains("stale"),
-+            "Error should mention staleness"
++            result
++                .unwrap_err()
++                .to_string()
++                .contains("No active Claude session"),
++            "Error should indicate no active session"
 +        );
 +
 +        match old_val {
