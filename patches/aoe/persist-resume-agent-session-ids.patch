@@ -1,78 +1,3 @@
-diff --git a/Cargo.lock b/Cargo.lock
-index 9c65a560..7576b10b 100644
---- a/Cargo.lock
-+++ b/Cargo.lock
-@@ -15,6 +15,7 @@ dependencies = [
-  "crossterm",
-  "dirs",
-  "enum_dispatch",
-+ "filetime",
-  "fs2",
-  "git2",
-  "nix 0.31.1",
-@@ -583,6 +584,17 @@ dependencies = [
-  "winapi",
- ]
- 
-+[[package]]
-+name = "filetime"
-+version = "0.2.27"
-+source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "f98844151eee8917efc50bd9e8318cb963ae8b297431495d3f758616ea5c57db"
-+dependencies = [
-+ "cfg-if",
-+ "libc",
-+ "libredox",
-+]
-+
- [[package]]
- name = "find-msvc-tools"
- version = "0.1.9"
-@@ -1199,6 +1211,7 @@ checksum = "3d0b95e02c851351f877147b7deea7b1afb1df71b63aa5f8270716e0c5720616"
- dependencies = [
-  "bitflags 2.11.0",
-  "libc",
-+ "redox_syscall 0.7.3",
- ]
- 
- [[package]]
-@@ -1451,7 +1464,7 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
- dependencies = [
-  "cfg-if",
-  "libc",
-- "redox_syscall",
-+ "redox_syscall 0.5.18",
-  "smallvec",
-  "windows-link",
- ]
-@@ -1691,6 +1704,15 @@ dependencies = [
-  "bitflags 2.11.0",
- ]
- 
-+[[package]]
-+name = "redox_syscall"
-+version = "0.7.3"
-+source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "6ce70a74e890531977d37e532c34d45e9055d2409ed08ddba14529471ed0be16"
-+dependencies = [
-+ "bitflags 2.11.0",
-+]
-+
- [[package]]
- name = "redox_users"
- version = "0.5.2"
-diff --git a/Cargo.toml b/Cargo.toml
-index 22bc4050..fe5c07e1 100644
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -93,6 +93,7 @@ sha2 = "0.10"
- fs2 = "0.4"
- 
- [dev-dependencies]
-+filetime = "0.2"
- tempfile = "3.14"
- serial_test = "3.2"
- cargo-husky = { version = "1", default-features = false, features = ["precommit-hook", "run-cargo-fmt", "run-cargo-clippy"] }
 diff --git a/src/agents.rs b/src/agents.rs
 index 5e7521e6..ebf2f74c 100644
 --- a/src/agents.rs
@@ -1238,10 +1163,10 @@ index 04795226..f51aea8a 100644
          .canonicalize()
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 00000000..903b879b
+index 00000000..f5151b8e
 --- /dev/null
 +++ b/src/session/capture.rs
-@@ -0,0 +1,1702 @@
+@@ -0,0 +1,1711 @@
 +//! Session ID capture logic for all supported agent types.
 +
 +use std::collections::HashSet;
@@ -2829,7 +2754,11 @@ index 00000000..903b879b
 +        std::fs::write(&old_file, "old data\n").unwrap();
 +        // Set old file's mtime to 10 minutes ago
 +        let ten_min_ago = std::time::SystemTime::now() - Duration::from_secs(600);
-+        filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(ten_min_ago))
++        std::fs::File::options()
++            .write(true)
++            .open(&old_file)
++            .unwrap()
++            .set_times(std::fs::FileTimes::new().set_modified(ten_min_ago))
 +            .unwrap();
 +        std::fs::write(&new_file, "new data\n").unwrap();
 +
@@ -2907,7 +2836,12 @@ index 00000000..903b879b
 +
 +        // Set mtime to 10 minutes ago (beyond 5-minute threshold)
 +        let stale_time = std::time::SystemTime::now() - Duration::from_secs(600);
-+        filetime::set_file_mtime(&file, filetime::FileTime::from_system_time(stale_time)).unwrap();
++        std::fs::File::options()
++            .write(true)
++            .open(&file)
++            .unwrap()
++            .set_times(std::fs::FileTimes::new().set_modified(stale_time))
++            .unwrap();
 +
 +        let old_val = std::env::var("CLAUDE_CONFIG_DIR").ok();
 +        std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
