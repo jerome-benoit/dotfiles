@@ -464,7 +464,7 @@ index be6a1e5a..347965b9 100644
 +    Ok(())
 +}
 diff --git a/src/hooks/mod.rs b/src/hooks/mod.rs
-index a7646335..1d630335 100644
+index a7646335..943a508f 100644
 --- a/src/hooks/mod.rs
 +++ b/src/hooks/mod.rs
 @@ -1,8 +1,10 @@
@@ -482,7 +482,7 @@ index a7646335..1d630335 100644
  
  mod status_file;
  
-@@ -11,52 +13,65 @@ use std::path::Path;
+@@ -11,52 +13,57 @@ use std::path::Path;
  use anyhow::Result;
  use serde_json::Value;
  
@@ -497,26 +497,18 @@ index a7646335..1d630335 100644
 -/// Marker substring used to identify AoE-managed hooks in settings.json.
 -/// Any hook command containing this string is considered ours.
 -const AOE_HOOK_MARKER: &str = "aoe-hooks";
-+/// Marker substrings that identify AoE-managed hooks in settings.json.
-+/// Any hook command containing ANY of these strings is considered ours.
-+/// The first entry is the legacy shell one-liner marker (path-based).
-+/// The second entry matches the binary hook-handler command format.
-+const AOE_HOOK_MARKERS: &[&str] = &["aoe-hooks", "hook-handler"];
++/// Matches legacy shell one-liners (containing "aoe-hooks" path) and the
++/// current binary format (command ending with "hook-handler" subcommand).
++fn is_aoe_hook_command(cmd: &str) -> bool {
++    cmd.contains("aoe-hooks") || cmd.ends_with("hook-handler")
++}
 +
 +/// Resolve the absolute canonicalized path to the running `aoe` binary.
-+///
-+/// Uses `std::env::current_exe()` to get the binary path and `std::fs::canonicalize()`
-+/// to resolve symlinks and relative components. Returns `None` if resolution fails.
 +pub(crate) fn resolve_aoe_binary_path() -> Option<String> {
 +    std::env::current_exe()
 +        .ok()
 +        .and_then(|path| std::fs::canonicalize(&path).ok())
 +        .and_then(|path| path.to_str().map(|s| s.to_string()))
-+}
-+
-+/// Check if a command string is an AoE-managed hook.
-+fn is_aoe_hook_command(cmd: &str) -> bool {
-+    AOE_HOOK_MARKERS.iter().any(|marker| cmd.contains(marker))
 +}
  
 -/// Build the shell command for a hook that writes a status value.
@@ -576,7 +568,7 @@ index a7646335..1d630335 100644
      }
  
      Value::Object(hooks_obj)
-@@ -72,7 +87,7 @@ fn remove_aoe_entries(matchers: &mut Vec<Value>) {
+@@ -72,7 +79,7 @@ fn remove_aoe_entries(matchers: &mut Vec<Value>) {
          !hooks_arr.iter().all(|hook| {
              hook.get("command")
                  .and_then(|c| c.as_str())
@@ -585,7 +577,7 @@ index a7646335..1d630335 100644
          })
      });
  }
-@@ -83,7 +98,7 @@ fn remove_aoe_entries(matchers: &mut Vec<Value>) {
+@@ -83,7 +90,7 @@ fn remove_aoe_entries(matchers: &mut Vec<Value>) {
  /// any user-defined hooks. Existing AoE hooks are replaced (idempotent).
  ///
  /// If the file doesn't exist, it will be created with just the hooks.
@@ -594,7 +586,7 @@ index a7646335..1d630335 100644
      let mut settings: Value = if settings_path.exists() {
          let content = std::fs::read_to_string(settings_path)?;
          serde_json::from_str(&content).unwrap_or_else(|e| {
-@@ -94,20 +109,24 @@ pub fn install_hooks(settings_path: &Path) -> Result<()> {
+@@ -94,20 +101,24 @@ pub fn install_hooks(settings_path: &Path) -> Result<()> {
          serde_json::json!({})
      };
  
@@ -625,7 +617,7 @@ index a7646335..1d630335 100644
          if let Some(existing) = settings_hooks.get_mut(event_name) {
              if let Some(arr) = existing.as_array_mut() {
                  // Remove old AoE entries, then append new ones
-@@ -121,7 +140,6 @@ pub fn install_hooks(settings_path: &Path) -> Result<()> {
+@@ -121,7 +132,6 @@ pub fn install_hooks(settings_path: &Path) -> Result<()> {
          }
      }
  
@@ -633,7 +625,7 @@ index a7646335..1d630335 100644
      if let Some(parent) = settings_path.parent() {
          std::fs::create_dir_all(parent)?;
      }
-@@ -174,7 +192,6 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
+@@ -174,7 +184,6 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -641,7 +633,7 @@ index a7646335..1d630335 100644
      let empty_events: Vec<String> = hooks_obj
          .iter()
          .filter(|(_, v)| v.as_array().is_some_and(|a| a.is_empty()))
-@@ -184,9 +201,10 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
+@@ -184,9 +193,10 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
          hooks_obj.remove(&key);
      }
  
@@ -654,7 +646,7 @@ index a7646335..1d630335 100644
      }
  
      let formatted = serde_json::to_string_pretty(&settings)?;
-@@ -232,12 +250,21 @@ mod tests {
+@@ -232,12 +242,21 @@ mod tests {
      use super::*;
      use tempfile::TempDir;
  
@@ -677,7 +669,7 @@ index a7646335..1d630335 100644
  
          let content: Value =
              serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -247,6 +274,8 @@ mod tests {
+@@ -247,6 +266,8 @@ mod tests {
          assert!(hooks.contains_key("UserPromptSubmit"));
          assert!(hooks.contains_key("Stop"));
          assert!(hooks.contains_key("Notification"));
@@ -686,7 +678,7 @@ index a7646335..1d630335 100644
      }
  
      #[test]
-@@ -271,7 +300,7 @@ mod tests {
+@@ -271,7 +292,7 @@ mod tests {
          )
          .unwrap();
  
@@ -695,7 +687,7 @@ index a7646335..1d630335 100644
  
          let content: Value =
              serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -287,7 +316,7 @@ mod tests {
+@@ -287,7 +308,7 @@ mod tests {
          // AoE hook added
          let aoe_hook = &pre_tool[1];
          let cmd = aoe_hook["hooks"][0]["command"].as_str().unwrap();
@@ -704,7 +696,7 @@ index a7646335..1d630335 100644
      }
  
      #[test]
-@@ -295,8 +324,8 @@ mod tests {
+@@ -295,8 +316,8 @@ mod tests {
          let tmp = TempDir::new().unwrap();
          let settings_path = tmp.path().join("settings.json");
  
@@ -715,7 +707,7 @@ index a7646335..1d630335 100644
  
          let content: Value =
              serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -322,7 +351,7 @@ mod tests {
+@@ -322,7 +343,7 @@ mod tests {
          )
          .unwrap();
  
@@ -724,7 +716,7 @@ index a7646335..1d630335 100644
  
          let content: Value =
              serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -332,37 +361,35 @@ mod tests {
+@@ -332,37 +353,35 @@ mod tests {
  
      #[test]
      fn test_hook_command_format() {
@@ -782,7 +774,7 @@ index a7646335..1d630335 100644
          let notification = hooks["Notification"].as_array().unwrap();
          assert_eq!(notification.len(), 1);
          let matcher = notification[0]["matcher"].as_str().unwrap();
-@@ -372,17 +399,20 @@ mod tests {
+@@ -372,17 +391,20 @@ mod tests {
      }
  
      #[test]
@@ -808,7 +800,7 @@ index a7646335..1d630335 100644
          for (_, matchers) in hooks.as_object().unwrap() {
              for matcher in matchers.as_array().unwrap() {
                  for hook in matcher["hooks"].as_array().unwrap() {
-@@ -402,7 +432,7 @@ mod tests {
+@@ -402,7 +424,7 @@ mod tests {
          let settings_path = tmp.path().join("settings.json");
  
          // Install hooks first
@@ -817,7 +809,7 @@ index a7646335..1d630335 100644
  
          // Verify they're there
          let content: Value =
-@@ -446,7 +476,7 @@ mod tests {
+@@ -446,7 +468,7 @@ mod tests {
          )
          .unwrap();
  
@@ -826,7 +818,7 @@ index a7646335..1d630335 100644
          let modified = uninstall_hooks(&settings_path).unwrap();
          assert!(modified);
  
-@@ -509,4 +539,163 @@ mod tests {
+@@ -509,4 +531,163 @@ mod tests {
          assert_eq!(matchers.len(), 1);
          assert_eq!(matchers[0]["matcher"], "Bash");
      }
@@ -5987,7 +5979,7 @@ index 0b19eeed..6b51e108 100644
  
          self.needs_redraw = true;
 diff --git a/src/tui/dialogs/hooks_install.rs b/src/tui/dialogs/hooks_install.rs
-index 6daac470..75fc4b3a 100644
+index 6daac470..b3747c84 100644
 --- a/src/tui/dialogs/hooks_install.rs
 +++ b/src/tui/dialogs/hooks_install.rs
 @@ -22,15 +22,16 @@ impl HooksInstallDialog {
@@ -6022,7 +6014,18 @@ index 6daac470..75fc4b3a 100644
          }
  
          lines.push(Line::from(""));
-@@ -276,6 +277,8 @@ mod tests {
+@@ -103,7 +104,9 @@ impl HooksInstallDialog {
+             "Each hook runs:",
+             Style::default().bold(),
+         )));
+-        lines.push(Line::from("  printf {status} > /tmp/aoe-hooks/$ID/status"));
++        lines.push(Line::from(
++            "  aoe hook-handler (reads event JSON from stdin)",
++        ));
+ 
+         lines.push(Line::from(""));
+         lines.push(Line::from(
+@@ -276,6 +279,8 @@ mod tests {
          assert!(text.contains("PreToolUse"));
          assert!(text.contains("Stop"));
          assert!(text.contains("Notification"));

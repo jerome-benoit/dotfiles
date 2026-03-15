@@ -398,7 +398,7 @@ index 8f93213ea10..5ff2990188a 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 92b001a6f69..5e4eea59a64 100644
+index 349073197d7..64d869fcfd8 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -11,7 +11,6 @@ import { Plugin } from "../plugin"
