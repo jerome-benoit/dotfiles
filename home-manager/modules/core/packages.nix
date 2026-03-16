@@ -21,6 +21,7 @@ in
       pkgs.nixfmt
       pkgs.ollama
       pkgs.volta
+      pkgs.whisper-cpp
     ]
     ++ lib.optionals pkgs.stdenv.isLinux (
       [ ]
