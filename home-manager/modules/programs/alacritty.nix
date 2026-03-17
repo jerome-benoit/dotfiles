@@ -10,17 +10,27 @@ let
   theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = config.modules.core.constants.fontFamily;
+  isDarwin = pkgs.stdenv.isDarwin;
+  isLinux = pkgs.stdenv.isLinux;
+
+  mod = if isDarwin then "Command" else "Control";
+  modShift = if isDarwin then "Command|Shift" else "Control|Shift";
+  urlOpener = if isDarwin then "open" else "xdg-open";
 
   bellCommand =
-    if pkgs.stdenv.isDarwin then
+    if isDarwin then
       {
-        program = "osascript";
+        program = "${pkgs.terminal-notifier}/bin/terminal-notifier";
         args = [
-          "-e"
-          ''display notification "Bell" with title "Alacritty"''
+          "-title"
+          "Alacritty"
+          "-message"
+          "Bell"
+          "-sender"
+          "org.alacritty"
         ];
       }
-    else if pkgs.stdenv.isLinux then
+    else if isLinux then
       {
         program = "notify-send";
         args = [
@@ -39,7 +49,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.alacritty = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.alacritty else mkSystemPackage "alacritty" { };
+      package = if isDarwin then pkgs.alacritty else mkSystemPackage "alacritty" { };
       settings = {
         general = {
           import = [
@@ -123,75 +133,70 @@ in
             {
               regex = "(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file:|git://|ssh:|ftp://)[^\\u0000-\\u0020\\u007F-\\u009F<>\"{}|\\\\^⟨⟩`]+";
               hyperlinks = true;
-              command = if pkgs.stdenv.isDarwin then "open" else "xdg-open";
+              command = urlOpener;
               post_processing = true;
               mouse = {
                 enabled = true;
-                mods = if pkgs.stdenv.isDarwin then "Command" else "Control";
+                mods = mod;
               };
               binding = {
                 key = "U";
-                mods = if pkgs.stdenv.isDarwin then "Command|Shift" else "Control|Shift";
+                mods = modShift;
               };
             }
           ];
         };
 
         keyboard = {
-          bindings =
-            let
-              mod = if pkgs.stdenv.isDarwin then "Command" else "Control";
-              modShift = if pkgs.stdenv.isDarwin then "Command|Shift" else "Control|Shift";
-            in
-            [
-              {
-                key = "V";
-                mods = modShift;
-                action = "Paste";
-              }
-              {
-                key = "C";
-                mods = modShift;
-                action = "Copy";
-              }
-              {
-                key = "Key0";
-                mods = mod;
-                action = "ResetFontSize";
-              }
-              {
-                key = "Equals";
-                mods = mod;
-                action = "IncreaseFontSize";
-              }
-              {
-                key = "Plus";
-                mods = mod;
-                action = "IncreaseFontSize";
-              }
-              {
-                key = "Minus";
-                mods = mod;
-                action = "DecreaseFontSize";
-              }
-              {
-                key = "N";
-                mods = modShift;
-                action = "CreateNewWindow";
-              }
-              {
-                key = "Space";
-                mods = modShift;
-                action = "ToggleViMode";
-              }
-            ]
-            ++ lib.optionals pkgs.stdenv.isLinux [
-              {
-                key = "Insert";
-                mods = "Shift";
-                action = "PasteSelection";
-              }
-            ];
+          bindings = [
+            {
+              key = "V";
+              mods = modShift;
+              action = "Paste";
+            }
+            {
+              key = "C";
+              mods = modShift;
+              action = "Copy";
+            }
+            {
+              key = "Key0";
+              mods = mod;
+              action = "ResetFontSize";
+            }
+            {
+              key = "Equals";
+              mods = mod;
+              action = "IncreaseFontSize";
+            }
+            {
+              key = "Plus";
+              mods = mod;
+              action = "IncreaseFontSize";
+            }
+            {
+              key = "Minus";
+              mods = mod;
+              action = "DecreaseFontSize";
+            }
+            {
+              key = "N";
+              mods = modShift;
+              action = "CreateNewWindow";
+            }
+            {
+              key = "Space";
+              mods = modShift;
+              action = "ToggleViMode";
+            }
+          ]
+          ++ lib.optionals isLinux [
+            {
+              key = "Insert";
+              mods = "Shift";
+              action = "PasteSelection";
+            }
+          ];
         };
       };
     };
