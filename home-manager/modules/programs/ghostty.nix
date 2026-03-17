@@ -70,6 +70,9 @@ in
 
         # Updates
         auto-update = "off";
+
+        # Bell
+        bell-features = "system";
       }
       // lib.optionalAttrs isDarwin {
         theme = theme.altName or theme.name;
