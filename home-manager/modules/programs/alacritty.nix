@@ -10,6 +10,26 @@ let
   theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = config.modules.core.constants.fontFamily;
+
+  bellCommand =
+    if pkgs.stdenv.isDarwin then
+      {
+        program = "osascript";
+        args = [
+          "-e"
+          ''display notification "Bell" with title "Alacritty"''
+        ];
+      }
+    else if pkgs.stdenv.isLinux then
+      {
+        program = "notify-send";
+        args = [
+          "Alacritty"
+          "Bell"
+        ];
+      }
+    else
+      null;
 in
 {
   options.modules.programs.alacritty = {
@@ -94,14 +114,8 @@ in
           duration = 125;
           color = theme.colors.brightBlack;
         }
-        // lib.optionalAttrs pkgs.stdenv.isLinux {
-          command = {
-            program = "notify-send";
-            args = [
-              "Alacritty"
-              "Bell"
-            ];
-          };
+        // lib.optionalAttrs (bellCommand != null) {
+          command = bellCommand;
         };
 
         hints = {
