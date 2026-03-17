@@ -1089,38 +1089,10 @@ index 36accee4..60d28cd7 100644
 +    }
  }
 diff --git a/src/main.rs b/src/main.rs
-index 69aef9b2..8bc34635 100644
+index 96f89903..59cce674 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -10,9 +10,24 @@ use clap_complete::generate;
- #[tokio::main]
- async fn main() -> Result<()> {
-     if std::env::var("AGENT_OF_EMPIRES_DEBUG").is_ok() {
--        tracing_subscriber::fmt()
--            .with_env_filter("agent_of_empires=debug")
--            .init();
-+        // Log to file to avoid corrupting the TUI on stderr.
-+        let log_path = agent_of_empires::session::get_app_dir().map(|d| d.join("debug.log"));
-+        let log_file = log_path
-+            .as_ref()
-+            .ok()
-+            .and_then(|p| std::fs::File::create(p).ok());
-+        if let Some(file) = log_file {
-+            tracing_subscriber::fmt()
-+                .with_env_filter("agent_of_empires=debug")
-+                .with_writer(std::sync::Mutex::new(file))
-+                .with_ansi(false)
-+                .init();
-+            tracing::info!("Debug logging to {}", log_path.unwrap().display());
-+        } else {
-+            tracing_subscriber::fmt()
-+                .with_env_filter("agent_of_empires=debug")
-+                .init();
-+        }
-     }
- 
-     let cli = Cli::parse();
-@@ -33,6 +48,7 @@ async fn main() -> Result<()> {
+@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
          }
          Some(Commands::Sounds { command }) => return cli::sounds::run(command).await,
          Some(Commands::Uninstall(args)) => return cli::uninstall::run(args).await,
@@ -1128,31 +1100,6 @@ index 69aef9b2..8bc34635 100644
          _ => {}
      }
  
-diff --git a/src/session/builder.rs b/src/session/builder.rs
-index 04795226..f51aea8a 100644
---- a/src/session/builder.rs
-+++ b/src/session/builder.rs
-@@ -11,7 +11,7 @@ use chrono::Utc;
- use crate::containers::{self, ContainerRuntimeInterface};
- use crate::git::GitWorktree;
- 
--use super::{civilizations, Instance, SandboxInfo, WorktreeInfo};
-+use super::{civilizations, Config, Instance, SandboxInfo, WorktreeInfo};
- 
- /// Parameters for creating a new session instance.
- #[derive(Debug, Clone)]
-@@ -68,7 +68,10 @@ pub fn build_instance(
-         }
-     }
- 
--    let config = super::profile_config::resolve_config(profile).unwrap_or_default();
-+    let config = super::profile_config::resolve_config(profile).unwrap_or_else(|e| {
-+        tracing::warn!("Failed to load config, using defaults: {}", e);
-+        Config::default()
-+    });
- 
-     let mut final_path = PathBuf::from(&params.path)
-         .canonicalize()
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
 index 00000000..59bea1ba
@@ -5896,10 +5843,10 @@ index 88fd1d9e..22f3b335 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 0b19eeed..6b51e108 100644
+index 2617e4f1..ef9819f3 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -207,6 +207,10 @@ impl App {
+@@ -211,6 +211,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -5910,7 +5857,7 @@ index 0b19eeed..6b51e108 100644
              // Check for and apply creation results (non-blocking)
              if let Some(session_id) = self.home.apply_creation_results() {
                  // Creation succeeded - attach to the new session
-@@ -236,6 +240,7 @@ impl App {
+@@ -240,6 +244,7 @@ impl App {
              }
          }
  
@@ -5918,7 +5865,7 @@ index 0b19eeed..6b51e108 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -385,14 +390,11 @@ impl App {
+@@ -389,14 +394,11 @@ impl App {
          };
  
          let tmux_session = instance.tmux_session()?;
@@ -5937,7 +5884,7 @@ index 0b19eeed..6b51e108 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -418,7 +420,6 @@ impl App {
+@@ -422,7 +424,6 @@ impl App {
                          );
                          self.home.pending_attach_after_warning = Some(session_id.to_string());
  
@@ -5945,7 +5892,7 @@ index 0b19eeed..6b51e108 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -428,17 +429,15 @@ impl App {
+@@ -432,17 +433,15 @@ impl App {
                  }
              }
  
@@ -5967,7 +5914,7 @@ index 0b19eeed..6b51e108 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -448,6 +447,10 @@ impl App {
+@@ -452,6 +451,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  

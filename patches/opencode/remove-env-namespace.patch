@@ -119,7 +119,7 @@ index 85e13d31339..af650f38a18 100644
          return async (text: string) => {
            const proc = Process.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
 diff --git a/packages/opencode/src/cli/cmd/tui/util/editor.ts b/packages/opencode/src/cli/cmd/tui/util/editor.ts
-index 6d32c63c001..43e1b50ae45 100644
+index 9eaae99fce7..5587c0cb81b 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/editor.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/editor.ts
 @@ -8,7 +8,7 @@ import { Process } from "@/util/process"
@@ -132,7 +132,7 @@ index 6d32c63c001..43e1b50ae45 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 27ba4e18671..20a4fd65f95 100644
+index 47afdfd7d0f..72081b3d7d8 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -12,7 +12,6 @@ import { lazy } from "../util/lazy"
@@ -398,7 +398,7 @@ index 8f93213ea10..5ff2990188a 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 349073197d7..64d869fcfd8 100644
+index 2537f894933..b9ed999b6cd 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -11,7 +11,6 @@ import { Plugin } from "../plugin"
@@ -418,7 +418,7 @@ index 349073197d7..64d869fcfd8 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -211,7 +210,7 @@ export namespace Provider {
+@@ -201,7 +200,7 @@ export namespace Provider {
        const resource = iife(() => {
          const name = provider.options?.resourceName
          if (typeof name === "string" && name.trim() !== "") return name
@@ -427,7 +427,7 @@ index 349073197d7..64d869fcfd8 100644
        })
  
        return {
-@@ -233,7 +232,7 @@ export namespace Provider {
+@@ -223,7 +222,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -436,7 +436,7 @@ index 349073197d7..64d869fcfd8 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -257,18 +256,16 @@ export namespace Provider {
+@@ -247,18 +246,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -458,7 +458,7 @@ index 349073197d7..64d869fcfd8 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -279,7 +276,7 @@ export namespace Provider {
+@@ -269,7 +266,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -467,7 +467,7 @@ index 349073197d7..64d869fcfd8 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -422,15 +419,15 @@ export namespace Provider {
+@@ -412,15 +409,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -489,7 +489,7 @@ index 349073197d7..64d869fcfd8 100644
            "us-central1",
        )
  
-@@ -467,8 +464,8 @@ export namespace Provider {
+@@ -457,8 +454,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -500,7 +500,7 @@ index 349073197d7..64d869fcfd8 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -485,8 +482,6 @@ export namespace Provider {
+@@ -475,8 +472,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -509,7 +509,7 @@ index 349073197d7..64d869fcfd8 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -519,13 +514,13 @@ export namespace Provider {
+@@ -509,13 +504,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -525,7 +525,7 @@ index 349073197d7..64d869fcfd8 100644
        })()
  
        const config = await Config.get()
-@@ -562,11 +557,11 @@ export namespace Provider {
+@@ -552,11 +547,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -539,7 +539,7 @@ index 349073197d7..64d869fcfd8 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -589,14 +584,14 @@ export namespace Provider {
+@@ -579,14 +574,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -557,7 +557,7 @@ index 349073197d7..64d869fcfd8 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -974,7 +969,7 @@ export namespace Provider {
+@@ -950,7 +945,7 @@ export namespace Provider {
      }
  
      // load env
@@ -566,7 +566,7 @@ index 349073197d7..64d869fcfd8 100644
      for (const [id, provider] of Object.entries(database)) {
        const providerID = ProviderID.make(id)
        if (disabled.has(providerID)) continue
-@@ -1166,7 +1161,7 @@ export namespace Provider {
+@@ -1112,7 +1107,7 @@ export namespace Provider {
          }
  
          url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -942,7 +942,7 @@ index e10700e80ff..c366bab0704 100644
      expect(Ide.alreadyInstalled()).toBe(false)
    })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 1ebd273d266..f5f0be25f58 100644
+index e253183d8d0..5f621502e39 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -4,7 +4,7 @@ import os from "os"
@@ -954,7 +954,7 @@ index 1ebd273d266..f5f0be25f58 100644
  
  // Set XDG env vars FIRST, before any src/ imports
  const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
-@@ -29,21 +29,21 @@ afterAll(async () => {
+@@ -29,22 +29,22 @@ afterAll(async () => {
    await rm(30)
  })
  
@@ -979,11 +979,13 @@ index 1ebd273d266..f5f0be25f58 100644
  // Set test managed config directory to isolate tests from system managed settings
  const testManagedConfigDir = path.join(dir, "managed")
 -process.env["OPENCODE_TEST_MANAGED_CONFIG_DIR"] = testManagedConfigDir
+-process.env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
 +process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = testManagedConfigDir
++process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "true"
  
  // Write the cache version file to prevent global/index.ts from clearing the cache
  const cacheDir = path.join(dir, "cache", "opencode")
-@@ -51,27 +51,27 @@ await fs.mkdir(cacheDir, { recursive: true })
+@@ -52,27 +52,27 @@ await fs.mkdir(cacheDir, { recursive: true })
  await fs.writeFile(path.join(cacheDir, "version"), "14")
  
  // Clear provider and server auth env vars to ensure clean test state
@@ -1032,7 +1034,7 @@ index 1ebd273d266..f5f0be25f58 100644
  
  // Now safe to import from src/
  const { Log } = await import("../src/util/log")
-@@ -81,3 +81,27 @@ Log.init({
+@@ -82,3 +82,27 @@ Log.init({
    dev: true,
    level: "DEBUG",
  })
