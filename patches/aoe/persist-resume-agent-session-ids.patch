@@ -1,8 +1,8 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 5e7521e6..ebf2f74c 100644
+index 4ac77135..cdf5e5f2 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -24,11 +24,45 @@ pub enum YoloMode {
+@@ -24,6 +24,26 @@ pub enum YoloMode {
      AlwaysYolo,
  }
  
@@ -26,30 +26,28 @@ index 5e7521e6..ebf2f74c 100644
 +    Unsupported,
 +}
 +
-+/// A single hook event that AoE registers in an agent's settings file.
-+pub struct HookEvent {
-+    /// Event name as the agent expects it (e.g. `"PreToolUse"` for Claude Code).
-+    pub name: &'static str,
-+    /// Optional matcher pattern (e.g. `"permission_prompt|elicitation_dialog"`).
-+    pub matcher: Option<&'static str>,
-+    /// AoE status to write when this event fires (`"running"`, `"idle"`, `"waiting"`).
+ /// A single hook event that AoE registers in an agent's settings file.
+ pub struct HookEvent {
+     /// Event name as the agent expects it (e.g. `"PreToolUse"` for Claude Code).
+@@ -31,6 +51,8 @@ pub struct HookEvent {
+     /// Optional matcher pattern (e.g. `"permission_prompt|elicitation_dialog"`).
+     pub matcher: Option<&'static str>,
+     /// AoE status to write when this event fires (`"running"`, `"idle"`, `"waiting"`).
 +    /// `None` for lifecycle-only events (e.g. `SessionStart`/`SessionEnd`) that
-+    /// manage the session_id sidecar without changing the activity status.
-+    pub status: Option<&'static str>,
-+}
-+
- /// Configuration for installing status-detection hooks into an agent's settings file.
- pub struct AgentHookConfig {
--    /// Path relative to the project/home dir where the agent's settings live
-+    /// Path relative to the home dir where the agent's settings live
-     /// (e.g. `.claude/settings.json`).
-     pub settings_rel_path: &'static str,
-+    /// Hook events to register (status transitions and session lifecycle).
-+    pub events: &'static [HookEvent],
++    /// are declared for future use but skipped by shell one-liner hooks.
+     pub status: Option<&'static str>,
  }
  
- /// Everything we know about a single agent CLI.
-@@ -58,8 +92,44 @@ pub struct AgentDef {
+@@ -39,7 +61,7 @@ pub struct AgentHookConfig {
+     /// Path relative to the home dir where the agent's settings live
+     /// (e.g. `.claude/settings.json`).
+     pub settings_rel_path: &'static str,
+-    /// Hook events to register (status transitions).
++    /// Hook events to register (status transitions and session lifecycle).
+     pub events: &'static [HookEvent],
+ }
+ 
+@@ -70,6 +92,8 @@ pub struct AgentDef {
      /// hooks into the agent's settings file so status is written to a file instead
      /// of being parsed from tmux pane content.
      pub hook_config: Option<AgentHookConfig>,
@@ -57,28 +55,11 @@ index 5e7521e6..ebf2f74c 100644
 +    pub resume_strategy: ResumeStrategy,
  }
  
-+/// Hook events shared by Claude Code and Cursor CLI.
-+const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
-+    HookEvent {
-+        name: "PreToolUse",
-+        matcher: None,
-+        status: Some("running"),
-+    },
-+    HookEvent {
-+        name: "UserPromptSubmit",
-+        matcher: None,
-+        status: Some("running"),
-+    },
-+    HookEvent {
-+        name: "Stop",
-+        matcher: None,
-+        status: Some("idle"),
-+    },
-+    HookEvent {
-+        name: "Notification",
-+        matcher: Some("permission_prompt|elicitation_dialog"),
-+        status: Some("waiting"),
-+    },
+ /// Hook events shared by Claude Code and Cursor CLI.
+@@ -94,6 +118,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
+         matcher: Some("permission_prompt|elicitation_dialog"),
+         status: Some("waiting"),
+     },
 +    HookEvent {
 +        name: "SessionStart",
 +        matcher: None,
@@ -89,16 +70,12 @@ index 5e7521e6..ebf2f74c 100644
 +        matcher: None,
 +        status: None,
 +    },
-+];
-+
+ ];
+ 
  pub const AGENTS: &[AgentDef] = &[
-     AgentDef {
-         name: "claude",
-@@ -74,7 +144,12 @@ pub const AGENTS: &[AgentDef] = &[
-         container_env: &[("CLAUDE_CONFIG_DIR", "/root/.claude")],
-         hook_config: Some(AgentHookConfig {
+@@ -112,6 +146,10 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".claude/settings.json",
-+            events: CLAUDE_CURSOR_HOOK_EVENTS,
+             events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
 +        resume_strategy: ResumeStrategy::FlagPair {
 +            existing: "--resume",
@@ -107,7 +84,7 @@ index 5e7521e6..ebf2f74c 100644
      },
      AgentDef {
          name: "opencode",
-@@ -88,6 +163,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -125,6 +163,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_opencode_status,
          container_env: &[],
          hook_config: None,
@@ -115,7 +92,7 @@ index 5e7521e6..ebf2f74c 100644
      },
      AgentDef {
          name: "vibe",
-@@ -101,6 +177,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -138,6 +177,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_vibe_status,
          container_env: &[],
          hook_config: None,
@@ -123,7 +100,7 @@ index 5e7521e6..ebf2f74c 100644
      },
      AgentDef {
          name: "codex",
-@@ -116,6 +193,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -153,6 +193,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
          hook_config: None,
@@ -131,34 +108,10 @@ index 5e7521e6..ebf2f74c 100644
      },
      AgentDef {
          name: "gemini",
-@@ -128,7 +206,42 @@ pub const AGENTS: &[AgentDef] = &[
-         supports_host_launch: true,
-         detect_status: status_detection::detect_gemini_status,
-         container_env: &[],
--        hook_config: None,
-+        hook_config: Some(AgentHookConfig {
-+            settings_rel_path: ".gemini/settings.json",
-+            events: &[
-+                HookEvent {
-+                    name: "BeforeTool",
-+                    matcher: None,
-+                    status: Some("running"),
-+                },
-+                HookEvent {
-+                    name: "BeforeAgent",
-+                    matcher: None,
-+                    status: Some("running"),
-+                },
-+                HookEvent {
-+                    name: "AfterAgent",
-+                    matcher: None,
-+                    status: Some("idle"),
-+                },
-+                HookEvent {
-+                    name: "Notification",
-+                    matcher: Some("ToolPermission"),
-+                    status: Some("waiting"),
-+                },
+@@ -188,8 +229,19 @@ pub const AGENTS: &[AgentDef] = &[
+                     matcher: Some("ToolPermission"),
+                     status: Some("waiting"),
+                 },
 +                HookEvent {
 +                    name: "SessionStart",
 +                    matcher: None,
@@ -169,23 +122,21 @@ index 5e7521e6..ebf2f74c 100644
 +                    matcher: None,
 +                    status: None,
 +                },
-+            ],
-+        }),
+             ],
+         }),
 +        resume_strategy: ResumeStrategy::Flag("--resume"),
      },
      AgentDef {
          name: "cursor",
-@@ -143,7 +256,9 @@ pub const AGENTS: &[AgentDef] = &[
-         container_env: &[("CURSOR_CONFIG_DIR", "/root/.cursor")],
-         hook_config: Some(AgentHookConfig {
+@@ -206,6 +258,7 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".cursor/settings.json",
-+            events: CLAUDE_CURSOR_HOOK_EVENTS,
+             events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
 +        resume_strategy: ResumeStrategy::Unsupported,
      },
      AgentDef {
          name: "copilot",
-@@ -157,6 +272,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -219,6 +272,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_copilot_status,
          container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
          hook_config: None,
@@ -193,7 +144,7 @@ index 5e7521e6..ebf2f74c 100644
      },
      AgentDef {
          name: "pi",
-@@ -171,6 +287,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -233,6 +287,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
@@ -217,172 +168,6 @@ index 375d3312..800d97c5 100644
          if cmd.trim().contains(' ') {
              instance.command = cmd.clone();
          }
-diff --git a/src/cli/definition.rs b/src/cli/definition.rs
-index 4af0e09d..14239f4c 100644
---- a/src/cli/definition.rs
-+++ b/src/cli/definition.rs
-@@ -94,6 +94,10 @@ pub enum Commands {
-         command: SoundsCommands,
-     },
- 
-+    /// Handle agent hook events (reads JSON from stdin)
-+    #[command(hide = true)]
-+    HookHandler,
-+
-     /// Uninstall Agent of Empires
-     Uninstall(UninstallArgs),
- 
-diff --git a/src/cli/hook_handler.rs b/src/cli/hook_handler.rs
-new file mode 100644
-index 00000000..7e813a17
---- /dev/null
-+++ b/src/cli/hook_handler.rs
-@@ -0,0 +1,133 @@
-+//! Hook handler for agent hook events.
-+//!
-+//! This command is called by agents (e.g. Claude Code, Gemini CLI) for every hook event.
-+//! It reads the event JSON from stdin, extracts the session_id and status,
-+//! and writes them to sidecar files in /tmp/aoe-hooks/{instance_id}/.
-+//!
-+//! PERFORMANCE CRITICAL: This runs on every agent tool call. No Storage,
-+//! no migrations, no profile resolution. Just stdin -> parse -> write files.
-+
-+use std::io::Read;
-+use std::path::Path;
-+
-+use anyhow::Result;
-+
-+use crate::hooks::hook_status_dir;
-+use crate::session::capture::validated_session_id;
-+
-+fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
-+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-+    let result = std::fs::write(&tmp, contents).and_then(|()| std::fs::rename(&tmp, path));
-+    if result.is_err() {
-+        let _ = std::fs::remove_file(&tmp);
-+    }
-+    result
-+}
-+
-+/// Look up the registered hook event across all agents.
-+/// Returns `Some(Some(status))` for status-changing events,
-+/// `Some(None)` for lifecycle-only events, and `None` for unknown events.
-+fn find_event(event: &str) -> Option<Option<&'static str>> {
-+    crate::agents::AGENTS
-+        .iter()
-+        .filter_map(|a| a.hook_config.as_ref())
-+        .flat_map(|cfg| cfg.events.iter())
-+        .find(|e| e.name == event)
-+        .map(|e| e.status)
-+}
-+
-+pub fn run() -> Result<()> {
-+    let instance_id = match std::env::var("AOE_INSTANCE_ID") {
-+        Ok(id) if !id.is_empty() => id,
-+        _ => return Ok(()),
-+    };
-+
-+    let mut input = String::new();
-+    std::io::stdin().read_to_string(&mut input).unwrap_or(0);
-+
-+    // serde_json::Value (not a strict struct) because Claude Code payloads evolve
-+    let payload: serde_json::Value = match serde_json::from_str(&input) {
-+        Ok(v) => v,
-+        Err(_) => return Ok(()),
-+    };
-+
-+    let event = payload
-+        .get("hook_event_name")
-+        .and_then(|v| v.as_str())
-+        .unwrap_or("");
-+
-+    let session_id = payload.get("session_id").and_then(|v| v.as_str());
-+
-+    let maybe_status = match find_event(event) {
-+        Some(s) => s,
-+        None => {
-+            tracing::debug!("Ignoring unrecognised hook event: {:?}", event);
-+            return Ok(());
-+        }
-+    };
-+
-+    let dir = hook_status_dir(&instance_id);
-+    if std::fs::create_dir_all(&dir).is_err() {
-+        return Ok(());
-+    }
-+
-+    if let Some(status) = maybe_status {
-+        let _ = atomic_write(&dir.join("status"), status);
-+    }
-+
-+    if let Some(sid) = session_id {
-+        let sid = sid.trim().to_string();
-+        if !sid.is_empty() {
-+            if let Some(valid_sid) = validated_session_id(sid) {
-+                let _ = atomic_write(&dir.join("session_id"), &valid_sid);
-+            }
-+        }
-+    }
-+
-+    if event == "SessionEnd" {
-+        let _ = std::fs::remove_file(dir.join("session_id"));
-+    }
-+
-+    // CRITICAL: No stdout. Claude Code injects SessionStart hook stdout into its context window.
-+    Ok(())
-+}
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+
-+    #[test]
-+    fn test_status_events_running() {
-+        assert_eq!(find_event("PreToolUse"), Some(Some("running")));
-+        assert_eq!(find_event("UserPromptSubmit"), Some(Some("running")));
-+    }
-+
-+    #[test]
-+    fn test_status_events_idle() {
-+        assert_eq!(find_event("Stop"), Some(Some("idle")));
-+    }
-+
-+    #[test]
-+    fn test_status_events_waiting() {
-+        assert_eq!(find_event("Notification"), Some(Some("waiting")));
-+    }
-+
-+    #[test]
-+    fn test_lifecycle_events_no_status() {
-+        assert_eq!(find_event("SessionStart"), Some(None));
-+        assert_eq!(find_event("SessionEnd"), Some(None));
-+    }
-+
-+    #[test]
-+    fn test_gemini_status_events() {
-+        assert_eq!(find_event("BeforeTool"), Some(Some("running")));
-+        assert_eq!(find_event("BeforeAgent"), Some(Some("running")));
-+        assert_eq!(find_event("AfterAgent"), Some(Some("idle")));
-+    }
-+
-+    #[test]
-+    fn test_unknown_event() {
-+        assert_eq!(find_event("SomeNewEvent"), None);
-+        assert_eq!(find_event(""), None);
-+    }
-+}
-diff --git a/src/cli/mod.rs b/src/cli/mod.rs
-index a51b289b..115e7b0d 100644
---- a/src/cli/mod.rs
-+++ b/src/cli/mod.rs
-@@ -3,6 +3,7 @@
- pub mod add;
- pub mod definition;
- pub mod group;
-+pub mod hook_handler;
- pub mod init;
- pub mod list;
- pub mod profile;
 diff --git a/src/cli/session.rs b/src/cli/session.rs
 index be6a1e5a..347965b9 100644
 --- a/src/cli/session.rs
@@ -464,642 +249,19 @@ index be6a1e5a..347965b9 100644
 +    Ok(())
 +}
 diff --git a/src/hooks/mod.rs b/src/hooks/mod.rs
-index a7646335..943a508f 100644
+index 1eaa20f4..0b6e8e32 100644
 --- a/src/hooks/mod.rs
 +++ b/src/hooks/mod.rs
-@@ -1,8 +1,10 @@
--//! Claude Code hooks management for status detection.
-+//! Agent hook management for status detection.
- //!
--//! AoE installs hooks into Claude Code's `settings.json` that write session
--//! status (`running`/`waiting`/`idle`) to a file. This provides reliable
--//! status detection without parsing tmux pane content.
-+//! AoE installs hooks into an agent's settings file that write session
-+//! status (`running`/`waiting`/`idle`) to a sidecar file. This provides
-+//! reliable status detection without parsing tmux pane content.
-+//!
-+//! Hook events are agent-specific and defined in `AgentHookConfig::events`.
- 
- mod status_file;
- 
-@@ -11,52 +13,57 @@ use std::path::Path;
- use anyhow::Result;
- use serde_json::Value;
- 
--pub use status_file::{cleanup_hook_status_dir, hook_status_dir, read_hook_status};
-+pub use status_file::{
-+    cleanup_hook_status_dir, hook_status_dir, read_hook_session_id, read_hook_status,
-+};
- 
- /// Base directory for all AoE hook status files.
- pub(crate) const HOOK_STATUS_BASE: &str = "/tmp/aoe-hooks";
- 
--/// Marker substring used to identify AoE-managed hooks in settings.json.
--/// Any hook command containing this string is considered ours.
--const AOE_HOOK_MARKER: &str = "aoe-hooks";
-+/// Matches legacy shell one-liners (containing "aoe-hooks" path) and the
-+/// current binary format (command ending with "hook-handler" subcommand).
-+fn is_aoe_hook_command(cmd: &str) -> bool {
-+    cmd.contains("aoe-hooks") || cmd.ends_with("hook-handler")
-+}
-+
-+/// Resolve the absolute canonicalized path to the running `aoe` binary.
-+pub(crate) fn resolve_aoe_binary_path() -> Option<String> {
-+    std::env::current_exe()
-+        .ok()
-+        .and_then(|path| std::fs::canonicalize(&path).ok())
-+        .and_then(|path| path.to_str().map(|s| s.to_string()))
-+}
- 
--/// Build the shell command for a hook that writes a status value.
--fn hook_command(status: &str) -> String {
--    format!(
--        "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf {} > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'",
--        status
--    )
-+/// Build the command string that invokes the `aoe hook-handler` binary.
-+///
-+/// Resolves the absolute path to the running binary so hooks work regardless
-+/// of `$PATH`. Falls back to bare `"aoe"` if resolution fails.
-+fn aoe_hook_command() -> String {
-+    let binary = resolve_aoe_binary_path().unwrap_or_else(|| "aoe".to_string());
-+    format!("{binary} hook-handler")
- }
- 
--/// Build the complete AoE hooks JSON structure.
--fn build_aoe_hooks() -> Value {
--    // Event -> (status, matcher)
--    // "idle" = Claude finished, at prompt. "waiting" = needs user action (approval, question).
--    let events: &[(&str, &str, Option<&str>)] = &[
--        ("PreToolUse", "running", None),
--        ("UserPromptSubmit", "running", None),
--        ("Stop", "idle", None),
--        (
--            "Notification",
--            "waiting",
--            Some("permission_prompt|elicitation_dialog"),
--        ),
--    ];
-+/// Build the AoE hooks JSON structure from agent-defined events.
-+fn build_aoe_hooks(events: &[crate::agents::HookEvent]) -> Value {
-+    let command = aoe_hook_command();
- 
-     let mut hooks_obj = serde_json::Map::new();
--    for &(event, status, matcher) in events {
-+    for event in events {
-         let mut entry = serde_json::Map::new();
--        if let Some(m) = matcher {
-+        if let Some(m) = event.matcher {
-             entry.insert("matcher".to_string(), Value::String(m.to_string()));
-         }
-         entry.insert(
-             "hooks".to_string(),
-             Value::Array(vec![serde_json::json!({
-                 "type": "command",
--                "command": hook_command(status)
-+                "command": command
-             })]),
-         );
--        hooks_obj.insert(event.to_string(), Value::Array(vec![Value::Object(entry)]));
-+        hooks_obj.insert(
-+            event.name.to_string(),
-+            Value::Array(vec![Value::Object(entry)]),
-+        );
-     }
- 
-     Value::Object(hooks_obj)
-@@ -72,7 +79,7 @@ fn remove_aoe_entries(matchers: &mut Vec<Value>) {
-         !hooks_arr.iter().all(|hook| {
-             hook.get("command")
-                 .and_then(|c| c.as_str())
--                .is_some_and(|cmd| cmd.contains(AOE_HOOK_MARKER))
-+                .is_some_and(is_aoe_hook_command)
-         })
-     });
- }
-@@ -83,7 +90,7 @@ fn remove_aoe_entries(matchers: &mut Vec<Value>) {
- /// any user-defined hooks. Existing AoE hooks are replaced (idempotent).
- ///
- /// If the file doesn't exist, it will be created with just the hooks.
--pub fn install_hooks(settings_path: &Path) -> Result<()> {
-+pub fn install_hooks(settings_path: &Path, events: &[crate::agents::HookEvent]) -> Result<()> {
-     let mut settings: Value = if settings_path.exists() {
-         let content = std::fs::read_to_string(settings_path)?;
-         serde_json::from_str(&content).unwrap_or_else(|e| {
-@@ -94,20 +101,24 @@ pub fn install_hooks(settings_path: &Path) -> Result<()> {
-         serde_json::json!({})
-     };
- 
--    let aoe_hooks = build_aoe_hooks();
-+    let aoe_hooks = build_aoe_hooks(events);
- 
--    // Ensure settings.hooks exists as an object
-     if !settings.get("hooks").is_some_and(|h| h.is_object()) {
-         settings
-             .as_object_mut()
--            .unwrap()
-+            .ok_or_else(|| anyhow::anyhow!("Settings file root is not a JSON object"))?
-             .insert("hooks".to_string(), serde_json::json!({}));
-     }
- 
--    let settings_hooks = settings.get_mut("hooks").unwrap().as_object_mut().unwrap();
-+    let settings_hooks = settings
-+        .get_mut("hooks")
-+        .and_then(|h| h.as_object_mut())
-+        .ok_or_else(|| anyhow::anyhow!("hooks key is not a JSON object"))?;
- 
--    // Merge each event
--    for (event_name, aoe_matchers) in aoe_hooks.as_object().unwrap() {
-+    let aoe_hooks_obj = aoe_hooks
-+        .as_object()
-+        .ok_or_else(|| anyhow::anyhow!("Internal error: built hooks is not a JSON object"))?;
-+    for (event_name, aoe_matchers) in aoe_hooks_obj {
-         if let Some(existing) = settings_hooks.get_mut(event_name) {
-             if let Some(arr) = existing.as_array_mut() {
-                 // Remove old AoE entries, then append new ones
-@@ -121,7 +132,6 @@ pub fn install_hooks(settings_path: &Path) -> Result<()> {
-         }
-     }
- 
--    // Write back, creating parent dirs if needed
-     if let Some(parent) = settings_path.parent() {
-         std::fs::create_dir_all(parent)?;
-     }
-@@ -174,7 +184,6 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
-         return Ok(false);
-     }
- 
--    // Remove empty event arrays
-     let empty_events: Vec<String> = hooks_obj
-         .iter()
-         .filter(|(_, v)| v.as_array().is_some_and(|a| a.is_empty()))
-@@ -184,9 +193,10 @@ pub fn uninstall_hooks(settings_path: &Path) -> Result<bool> {
-         hooks_obj.remove(&key);
-     }
- 
--    // Remove empty hooks object
-     if hooks_obj.is_empty() {
--        settings.as_object_mut().unwrap().remove("hooks");
-+        if let Some(obj) = settings.as_object_mut() {
-+            obj.remove("hooks");
-+        }
-     }
- 
-     let formatted = serde_json::to_string_pretty(&settings)?;
-@@ -232,12 +242,21 @@ mod tests {
-     use super::*;
-     use tempfile::TempDir;
- 
-+    fn claude_events() -> &'static [crate::agents::HookEvent] {
-+        crate::agents::get_agent("claude")
-+            .unwrap()
-+            .hook_config
-+            .as_ref()
-+            .unwrap()
-+            .events
-+    }
-+
-     #[test]
-     fn test_install_hooks_creates_new_file() {
-         let tmp = TempDir::new().unwrap();
-         let settings_path = tmp.path().join(".claude").join("settings.json");
- 
--        install_hooks(&settings_path).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
- 
-         let content: Value =
-             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -247,6 +266,8 @@ mod tests {
+@@ -261,6 +261,9 @@ mod tests {
          assert!(hooks.contains_key("UserPromptSubmit"));
          assert!(hooks.contains_key("Stop"));
          assert!(hooks.contains_key("Notification"));
-+        assert!(hooks.contains_key("SessionStart"));
-+        assert!(hooks.contains_key("SessionEnd"));
++        // SessionStart/SessionEnd have status: None, so they are skipped by shell one-liners
++        assert!(!hooks.contains_key("SessionStart"));
++        assert!(!hooks.contains_key("SessionEnd"));
      }
  
      #[test]
-@@ -271,7 +292,7 @@ mod tests {
-         )
-         .unwrap();
- 
--        install_hooks(&settings_path).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
- 
-         let content: Value =
-             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -287,7 +308,7 @@ mod tests {
-         // AoE hook added
-         let aoe_hook = &pre_tool[1];
-         let cmd = aoe_hook["hooks"][0]["command"].as_str().unwrap();
--        assert!(cmd.contains(AOE_HOOK_MARKER));
-+        assert!(is_aoe_hook_command(cmd));
-     }
- 
-     #[test]
-@@ -295,8 +316,8 @@ mod tests {
-         let tmp = TempDir::new().unwrap();
-         let settings_path = tmp.path().join("settings.json");
- 
--        install_hooks(&settings_path).unwrap();
--        install_hooks(&settings_path).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
- 
-         let content: Value =
-             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -322,7 +343,7 @@ mod tests {
-         )
-         .unwrap();
- 
--        install_hooks(&settings_path).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
- 
-         let content: Value =
-             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-@@ -332,37 +353,35 @@ mod tests {
- 
-     #[test]
-     fn test_hook_command_format() {
--        let cmd = hook_command("running");
--        assert!(cmd.contains("aoe-hooks"));
--        assert!(cmd.contains("AOE_INSTANCE_ID"));
--        assert!(cmd.contains("running"));
-+        let cmd = aoe_hook_command();
-+        assert!(
-+            cmd.contains("hook-handler"),
-+            "Command should reference hook-handler: {}",
-+            cmd
-+        );
-+        assert!(
-+            cmd.ends_with("hook-handler"),
-+            "Command should end with hook-handler: {}",
-+            cmd
-+        );
-     }
- 
-     #[test]
--    fn test_hook_command_exits_cleanly_without_aoe_instance_id() {
--        let cmd = hook_command("idle");
--        // Run the hook command without AOE_INSTANCE_ID set; it should exit 0
--        let output = std::process::Command::new("sh")
--            .arg("-c")
--            .arg(
--                cmd.strip_prefix("sh -c '")
--                    .unwrap()
--                    .strip_suffix('\'')
--                    .unwrap(),
--            )
--            .env_remove("AOE_INSTANCE_ID")
--            .output()
--            .unwrap();
-+    fn test_hook_command_uses_absolute_path_or_fallback() {
-+        let cmd = aoe_hook_command();
-+        let binary_part = cmd.strip_suffix(" hook-handler").unwrap();
-+        let is_absolute = std::path::Path::new(binary_part).is_absolute();
-+        let is_fallback = binary_part == "aoe";
-         assert!(
--            output.status.success(),
--            "Hook should exit 0 when AOE_INSTANCE_ID is unset, got: {:?}",
--            output.status
-+            is_absolute || is_fallback,
-+            "Binary path should be absolute or fallback 'aoe', got: {}",
-+            binary_part
-         );
-     }
- 
-     #[test]
-     fn test_notification_hook_has_matcher() {
--        let hooks = build_aoe_hooks();
-+        let hooks = build_aoe_hooks(claude_events());
-         let notification = hooks["Notification"].as_array().unwrap();
-         assert_eq!(notification.len(), 1);
-         let matcher = notification[0]["matcher"].as_str().unwrap();
-@@ -372,17 +391,20 @@ mod tests {
-     }
- 
-     #[test]
--    fn test_stop_hook_writes_idle() {
--        let hooks = build_aoe_hooks();
-+    fn test_stop_hook_uses_binary_handler() {
-+        let hooks = build_aoe_hooks(claude_events());
-         let stop = hooks["Stop"].as_array().unwrap();
-         let cmd = stop[0]["hooks"][0]["command"].as_str().unwrap();
--        assert!(cmd.contains("idle"));
--        assert!(!cmd.contains("waiting"));
-+        assert!(
-+            cmd.contains("hook-handler"),
-+            "Stop hook should use binary handler: {}",
-+            cmd
-+        );
-     }
- 
-     #[test]
-     fn test_hooks_are_synchronous() {
--        let hooks = build_aoe_hooks();
-+        let hooks = build_aoe_hooks(claude_events());
-         for (_, matchers) in hooks.as_object().unwrap() {
-             for matcher in matchers.as_array().unwrap() {
-                 for hook in matcher["hooks"].as_array().unwrap() {
-@@ -402,7 +424,7 @@ mod tests {
-         let settings_path = tmp.path().join("settings.json");
- 
-         // Install hooks first
--        install_hooks(&settings_path).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
- 
-         // Verify they're there
-         let content: Value =
-@@ -446,7 +468,7 @@ mod tests {
-         )
-         .unwrap();
- 
--        install_hooks(&settings_path).unwrap();
-+        install_hooks(&settings_path, claude_events()).unwrap();
-         let modified = uninstall_hooks(&settings_path).unwrap();
-         assert!(modified);
- 
-@@ -509,4 +531,163 @@ mod tests {
-         assert_eq!(matchers.len(), 1);
-         assert_eq!(matchers[0]["matcher"], "Bash");
-     }
-+
-+    #[test]
-+    fn test_install_replaces_old_format_hooks() {
-+        let tmp = TempDir::new().unwrap();
-+        let settings_path = tmp.path().join("settings.json");
-+
-+        let old_hooks = serde_json::json!({
-+            "hooks": {
-+                "PreToolUse": [{
-+                    "hooks": [{
-+                        "type": "command",
-+                        "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf running > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'"
-+                    }]
-+                }]
-+            }
-+        });
-+        std::fs::write(
-+            &settings_path,
-+            serde_json::to_string_pretty(&old_hooks).unwrap(),
-+        )
-+        .unwrap();
-+
-+        install_hooks(&settings_path, claude_events()).unwrap();
-+
-+        let content: Value =
-+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-+        let pre_tool = &content["hooks"]["PreToolUse"];
-+        let all_cmds: Vec<String> = pre_tool
-+            .as_array()
-+            .unwrap()
-+            .iter()
-+            .flat_map(|m| m["hooks"].as_array().unwrap())
-+            .filter_map(|h| h["command"].as_str().map(|s| s.to_string()))
-+            .collect();
-+        assert_eq!(
-+            all_cmds.len(),
-+            1,
-+            "Expected exactly 1 hook after reinstall, got: {:?}",
-+            all_cmds
-+        );
-+    }
-+
-+    #[test]
-+    fn test_remove_new_format_hooks() {
-+        let tmp = TempDir::new().unwrap();
-+        let settings_path = tmp.path().join("settings.json");
-+
-+        let new_hooks = serde_json::json!({
-+            "hooks": {
-+                "PreToolUse": [{
-+                    "hooks": [{
-+                        "type": "command",
-+                        "command": "/usr/local/bin/aoe hook-handler"
-+                    }]
-+                }]
-+            }
-+        });
-+        std::fs::write(
-+            &settings_path,
-+            serde_json::to_string_pretty(&new_hooks).unwrap(),
-+        )
-+        .unwrap();
-+
-+        uninstall_hooks(&settings_path).unwrap();
-+
-+        let content: Value =
-+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-+        let hooks_obj = content.get("hooks").and_then(|h| h.as_object());
-+        let pre_tool = hooks_obj.and_then(|o| o.get("PreToolUse"));
-+        assert!(
-+            pre_tool
-+                .map(|v| v.as_array().map(|a| a.is_empty()).unwrap_or(true))
-+                .unwrap_or(true),
-+            "New-format hook was not removed by uninstall"
-+        );
-+    }
-+
-+    #[test]
-+    fn test_remove_mixed_format_hooks() {
-+        let tmp = TempDir::new().unwrap();
-+        let settings_path = tmp.path().join("settings.json");
-+
-+        let mixed_hooks = serde_json::json!({
-+            "hooks": {
-+                "PreToolUse": [
-+                    {
-+                        "hooks": [{
-+                            "type": "command",
-+                            "command": "sh -c 'mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf running > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'"
-+                        }]
-+                    },
-+                    {
-+                        "hooks": [{
-+                            "type": "command",
-+                            "command": "/usr/local/bin/aoe hook-handler"
-+                        }]
-+                    },
-+                    {
-+                        "hooks": [{
-+                            "type": "command",
-+                            "command": "echo user_hook"
-+                        }]
-+                    }
-+                ]
-+            }
-+        });
-+        std::fs::write(
-+            &settings_path,
-+            serde_json::to_string_pretty(&mixed_hooks).unwrap(),
-+        )
-+        .unwrap();
-+
-+        uninstall_hooks(&settings_path).unwrap();
-+
-+        let content: Value =
-+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-+        let pre_tool = &content["hooks"]["PreToolUse"];
-+        let cmds: Vec<String> = pre_tool
-+            .as_array()
-+            .unwrap_or(&vec![])
-+            .iter()
-+            .flat_map(|m| {
-+                m["hooks"]
-+                    .as_array()
-+                    .unwrap_or(&vec![])
-+                    .iter()
-+                    .cloned()
-+                    .collect::<Vec<_>>()
-+            })
-+            .filter_map(|h| h["command"].as_str().map(|s| s.to_string()))
-+            .collect();
-+        assert_eq!(
-+            cmds,
-+            vec!["echo user_hook"],
-+            "Expected only user hook to remain, got: {:?}",
-+            cmds
-+        );
-+    }
-+
-+    #[test]
-+    fn test_resolve_aoe_binary_path() {
-+        let path = resolve_aoe_binary_path();
-+
-+        assert!(path.is_some(), "resolve_aoe_binary_path should return Some");
-+
-+        let path_str = path.unwrap();
-+
-+        assert!(
-+            std::path::Path::new(&path_str).is_absolute(),
-+            "Path should be absolute: {}",
-+            path_str
-+        );
-+
-+        assert!(
-+            std::path::Path::new(&path_str).exists(),
-+            "Binary path should exist: {}",
-+            path_str
-+        );
-+    }
- }
-diff --git a/src/hooks/status_file.rs b/src/hooks/status_file.rs
-index 36accee4..60d28cd7 100644
---- a/src/hooks/status_file.rs
-+++ b/src/hooks/status_file.rs
-@@ -1,6 +1,6 @@
--//! Status file I/O for Claude Code hooks-based status detection.
-+//! Status file I/O for hooks-based agent status detection.
- //!
--//! Claude Code hooks write `running`, `waiting`, or `idle` to a well-known
-+//! Agent hooks write `running`, `waiting`, or `idle` to a well-known
- //! file path so AoE can detect agent status without parsing tmux pane content.
- 
- use std::path::PathBuf;
-@@ -34,6 +34,20 @@ pub fn read_hook_status(instance_id: &str) -> Option<Status> {
-     }
- }
- 
-+/// Read the hook-written session_id sidecar file for the given instance.
-+///
-+/// Returns `None` if the file doesn't exist or contains an invalid session ID.
-+/// The file is written by `aoe hook-handler` from the Claude Code hook payload.
-+pub fn read_hook_session_id(instance_id: &str) -> Option<String> {
-+    let session_id_path = hook_status_dir(instance_id).join("session_id");
-+    let content = std::fs::read_to_string(&session_id_path).ok()?;
-+    let trimmed = content.trim().to_string();
-+    if trimmed.is_empty() {
-+        return None;
-+    }
-+    crate::session::capture::validated_session_id(trimmed)
-+}
-+
- /// Remove the hook status directory for a given instance (cleanup on stop/delete).
- pub fn cleanup_hook_status_dir(instance_id: &str) {
-     let dir = hook_status_dir(instance_id);
-@@ -59,6 +73,15 @@ mod tests {
-         dir
-     }
- 
-+    fn setup_session_id_file(instance_id: &str, content: &str) -> PathBuf {
-+        let dir = hook_status_dir(instance_id);
-+        fs::create_dir_all(&dir).unwrap();
-+        let path = dir.join("session_id");
-+        let mut f = fs::File::create(&path).unwrap();
-+        f.write_all(content.as_bytes()).unwrap();
-+        dir
-+    }
-+
-     #[test]
-     fn test_read_running_status() {
-         let id = "test_read_running";
-@@ -134,4 +157,55 @@ mod tests {
-         let dir = hook_status_dir("abc123");
-         assert_eq!(dir, PathBuf::from("/tmp/aoe-hooks/abc123"));
-     }
-+
-+    #[test]
-+    fn test_read_valid_session_id() {
-+        let id = "test_read_valid_session_id";
-+        let dir = setup_session_id_file(id, "test-session-id-123");
-+        let result = read_hook_session_id(id);
-+        assert!(result.is_some(), "Expected Some for valid session ID");
-+        fs::remove_dir_all(dir).ok();
-+    }
-+
-+    #[test]
-+    fn test_read_missing_session_id_file() {
-+        let result = read_hook_session_id("nonexistent_session_id_instance");
-+        assert_eq!(result, None);
-+    }
-+
-+    #[test]
-+    fn test_read_empty_session_id_file() {
-+        let id = "test_read_empty_session_id";
-+        let dir = setup_session_id_file(id, "");
-+        assert_eq!(read_hook_session_id(id), None);
-+        fs::remove_dir_all(dir).ok();
-+    }
-+
-+    #[test]
-+    fn test_read_whitespace_session_id_file() {
-+        let id = "test_read_whitespace_session_id";
-+        let dir = setup_session_id_file(id, "   \n  ");
-+        assert_eq!(read_hook_session_id(id), None);
-+        fs::remove_dir_all(dir).ok();
-+    }
-+
-+    #[test]
-+    fn test_read_session_id_with_newline() {
-+        let id = "test_read_session_id_newline";
-+        let dir = setup_session_id_file(id, "test-session-id-456\n");
-+        let result = read_hook_session_id(id);
-+        assert!(
-+            result.is_some(),
-+            "Expected Some for session ID with newline"
-+        );
-+        fs::remove_dir_all(dir).ok();
-+    }
-+
-+    #[test]
-+    fn test_read_invalid_session_id() {
-+        let id = "test_read_invalid_session_id";
-+        let dir = setup_session_id_file(id, "invalid@session#id");
-+        assert_eq!(read_hook_session_id(id), None);
-+        fs::remove_dir_all(dir).ok();
-+    }
- }
-diff --git a/src/main.rs b/src/main.rs
-index 96f89903..59cce674 100644
---- a/src/main.rs
-+++ b/src/main.rs
-@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
-         }
-         Some(Commands::Sounds { command }) => return cli::sounds::run(command).await,
-         Some(Commands::Uninstall(args)) => return cli::uninstall::run(args).await,
-+        Some(Commands::HookHandler) => return cli::hook_handler::run(),
-         _ => {}
-     }
- 
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
 index 00000000..59bea1ba
@@ -2944,7 +2106,7 @@ index aca98e95..ae873ac5 100644
      "default".to_string()
  }
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index fd2adc4c..3a1de732 100644
+index 1d54f601..f4880205 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
 @@ -334,7 +334,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
@@ -3023,56 +2185,8 @@ index fd2adc4c..3a1de732 100644
          for &(filename, _) in mount.home_seed_files {
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
-@@ -650,8 +633,6 @@ pub(crate) fn build_container_config(
-         }
-     }
- 
--    // Mount the hook status directory so the host can read status files
--    // written by hooks running inside the container.
-     if let Some(agent) = crate::agents::get_agent(tool) {
-         if let Some(hook_cfg) = &agent.hook_config {
-             let hook_dir = crate::hooks::hook_status_dir(instance_id);
-@@ -668,10 +649,25 @@ pub(crate) fn build_container_config(
-                 read_only: false,
-             });
- 
--            // Install hooks into the sandbox settings.json
--            // The sandbox dir for the agent config is already prepared above.
--            // We write hooks into it so the containerized agent picks them up.
--            let home = dirs::home_dir().unwrap_or_default();
-+            // Install hooks into sandbox settings.json for the containerized agent.
-+            //
-+            // NOTE: Sandboxed sessions have limited hook support. The hooks are installed
-+            // with absolute paths to the host's `aoe` binary (e.g., "/usr/local/bin/aoe hook-handler").
-+            // These paths do not exist inside the Docker container, so hook commands will fail
-+            // silently when fired by Claude Code inside the container.
-+            //
-+            // This is acceptable because:
-+            // 1. Hooks are fire-and-forget; Claude Code doesn't block on failures
-+            // 2. The hook status directory (/tmp/aoe-hooks/{instance_id}/) IS mounted into the
-+            //    container, so if hooks worked, they would write to the correct shared location
-+            // 3. Host-side hooks (from the user's non-sandboxed settings.json) still fire when
-+            //    the user interacts with Claude Code on the host, providing status updates
-+            // 4. Sandboxed sessions are isolated by design; full hook support is not a requirement
-+            //
-+            // If full hook support in containers is needed in the future, consider:
-+            // - Installing the `aoe` binary inside the container image
-+            // - Using shell one-liners as a fallback for sandboxed sessions
-+            // - Implementing a container-aware hook mechanism
-             let config_dir_name = std::path::Path::new(hook_cfg.settings_rel_path)
-                 .parent()
-                 .unwrap_or(std::path::Path::new("."));
-@@ -680,7 +676,7 @@ pub(crate) fn build_container_config(
-                 if mount.host_rel == config_dir_name.to_string_lossy() {
-                     let sandbox_dir = home.join(mount.host_rel).join(SANDBOX_SUBDIR);
-                     let settings_file = sandbox_dir.join("settings.json");
--                    if let Err(e) = crate::hooks::install_hooks(&settings_file) {
-+                    if let Err(e) = crate::hooks::install_hooks(&settings_file, hook_cfg.events) {
-                         tracing::warn!("Failed to install hooks in sandbox settings: {}", e);
-                     }
-                     break;
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 5cb4e83d..04c42bac 100644
+index 45c702ed..435052c7 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,8 @@
@@ -3131,7 +2245,7 @@ index 5cb4e83d..04c42bac 100644
      /// Runtime-only: which profile this instance was loaded from. Not persisted to disk.
      #[serde(default, skip_serializing)]
      pub source_profile: String,
-@@ -113,6 +141,161 @@ pub struct Instance {
+@@ -113,6 +141,163 @@ pub struct Instance {
      pub last_start_time: Option<std::time::Instant>,
      #[serde(skip)]
      pub last_error: Option<String>,
@@ -3139,6 +2253,8 @@ index 5cb4e83d..04c42bac 100644
 +    pub session_id_poller: Option<Arc<Mutex<SessionPoller>>>,
 +    #[serde(skip)]
 +    pub(crate) deferred_capture_handle: Option<Arc<Mutex<Option<std::thread::JoinHandle<()>>>>>,
++    #[serde(skip)]
++    pub(crate) deferred_capture_shutdown: Option<Arc<std::sync::atomic::AtomicBool>>,
 +    #[serde(skip)]
 +    pub(crate) capture_gate: Option<Arc<CaptureGate>>,
 +}
@@ -3293,7 +2409,7 @@ index 5cb4e83d..04c42bac 100644
  }
  
  impl Instance {
-@@ -133,10 +316,14 @@ impl Instance {
+@@ -133,10 +318,15 @@ impl Instance {
              worktree_info: None,
              sandbox_info: None,
              terminal_info: None,
@@ -3304,11 +2420,12 @@ index 5cb4e83d..04c42bac 100644
              last_error: None,
 +            session_id_poller: None,
 +            deferred_capture_handle: None,
++            deferred_capture_shutdown: None,
 +            capture_gate: None,
          }
      }
  
-@@ -152,6 +339,96 @@ impl Instance {
+@@ -152,6 +342,96 @@ impl Instance {
          self.yolo_mode
      }
  
@@ -3405,7 +2522,7 @@ index 5cb4e83d..04c42bac 100644
      fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -242,7 +519,10 @@ impl Instance {
+@@ -242,7 +522,10 @@ impl Instance {
          }
  
          let container = self.get_container_for_instance()?;
@@ -3417,7 +2534,7 @@ index 5cb4e83d..04c42bac 100644
  
          let env_args = build_docker_env_args(sandbox);
          let env_part = if env_args.is_empty() {
-@@ -327,36 +607,61 @@ impl Instance {
+@@ -327,36 +610,61 @@ impl Instance {
              return Ok(());
          }
  
@@ -3505,14 +2622,7 @@ index 5cb4e83d..04c42bac 100644
          if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
              if self.is_sandboxed() {
                  // For sandboxed sessions, hooks are installed via build_container_config
-@@ -364,147 +669,292 @@ impl Instance {
-                 // Install hooks in the user's home directory settings
-                 if let Some(home) = dirs::home_dir() {
-                     let settings_path = home.join(hook_cfg.settings_rel_path);
--                    if let Err(e) = crate::hooks::install_hooks(&settings_path) {
-+                    if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events) {
-                         tracing::warn!("Failed to install agent hooks: {}", e);
-                     }
+@@ -370,141 +678,320 @@ impl Instance {
                  }
              }
          }
@@ -3804,11 +2914,25 @@ index 5cb4e83d..04c42bac 100644
 +        if let Some(ref sid) = self.agent_session_id {
 +            persist_session_to_storage(profile, &self.id, sid);
 +        }
++    }
++}
++
++/// Sleep for `duration` in 200ms increments, returning `true` if shutdown was requested.
++fn sleep_check_shutdown(flag: &std::sync::atomic::AtomicBool, duration: Duration) -> bool {
++    let step = Duration::from_millis(200);
++    let mut remaining = duration;
++    while remaining > Duration::ZERO {
++        if flag.load(std::sync::atomic::Ordering::Relaxed) {
++            return true;
++        }
++        let sleep_time = remaining.min(step);
++        std::thread::sleep(sleep_time);
++        remaining = remaining.saturating_sub(sleep_time);
      }
- 
--    fn apply_tmux_options(&self) {
--        let name = tmux::Session::generate_name(&self.id, &self.title);
--        self.apply_session_tmux_options(&name, &self.title);
++    flag.load(std::sync::atomic::Ordering::Relaxed)
++}
++
++impl Instance {
 +    /// Spawn a background thread to capture the session ID after the agent starts.
 +    ///
 +    /// Some agents (OpenCode, Codex, Gemini, Vibe) create their own sessions on
@@ -3822,6 +2946,9 @@ index 5cb4e83d..04c42bac 100644
 +        if !self.supports_deferred_capture() {
 +            return;
 +        }
++
++        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
++        let shutdown_flag = Arc::clone(&shutdown);
 +
 +        let gate = Arc::new(CaptureGate::new());
 +        let gate_for_thread = Arc::clone(&gate);
@@ -3845,11 +2972,20 @@ index 5cb4e83d..04c42bac 100644
 +            .name(format!("deferred-capture-{}", instance_id))
 +            .spawn(move || {
 +                let timing = session_timing();
-+                std::thread::sleep(Duration::from_secs(
-+                    timing.deferred_capture_initial_delay_secs,
-+                ));
++                if sleep_check_shutdown(
++                    &shutdown_flag,
++                    Duration::from_secs(timing.deferred_capture_initial_delay_secs),
++                ) {
++                    gate_for_thread.complete(None);
++                    return;
++                }
 +
 +                for attempt in 1..=timing.deferred_capture_max_attempts {
++                    if shutdown_flag.load(std::sync::atomic::Ordering::Relaxed) {
++                        gate_for_thread.complete(None);
++                        return;
++                    }
++
 +                    let exclusion = build_exclusion_set(&instance_id);
 +
 +                    let captured = if is_sandboxed {
@@ -3883,12 +3019,19 @@ index 5cb4e83d..04c42bac 100644
 +                            timing.deferred_capture_max_attempts,
 +                            instance_id
 +                        );
-+                        std::thread::sleep(Duration::from_secs(
-+                            timing.deferred_capture_retry_delay_secs,
-+                        ));
++                        if sleep_check_shutdown(
++                            &shutdown_flag,
++                            Duration::from_secs(timing.deferred_capture_retry_delay_secs),
++                        ) {
++                            gate_for_thread.complete(None);
++                            return;
++                        }
 +                    }
 +                }
-+
+ 
+-    fn apply_tmux_options(&self) {
+-        let name = tmux::Session::generate_name(&self.id, &self.title);
+-        self.apply_session_tmux_options(&name, &self.title);
 +                tracing::debug!(
 +                    "Deferred capture exhausted all {} attempts for {}",
 +                    timing.deferred_capture_max_attempts,
@@ -3898,6 +3041,7 @@ index 5cb4e83d..04c42bac 100644
 +            }) {
 +            Ok(handle) => {
 +                self.deferred_capture_handle = Some(Arc::new(Mutex::new(Some(handle))));
++                self.deferred_capture_shutdown = Some(shutdown);
 +            }
 +            Err(e) => {
 +                tracing::error!(
@@ -3913,7 +3057,7 @@ index 5cb4e83d..04c42bac 100644
      }
  
      fn apply_terminal_tmux_options(&self) {
-@@ -555,33 +1005,146 @@ impl Instance {
+@@ -555,33 +1042,152 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -4028,6 +3172,9 @@ index 5cb4e83d..04c42bac 100644
 +    ) -> Result<()> {
 +        self.stop_poller();
 +        self.session_id_poller = None;
++        if let Some(ref flag) = self.deferred_capture_shutdown {
++            flag.store(true, std::sync::atomic::Ordering::Relaxed);
++        }
 +        if let Some(ref handle_arc) = self.deferred_capture_handle {
 +            if let Ok(mut handle_opt) = handle_arc.lock() {
 +                if let Some(handle) = handle_opt.take() {
@@ -4036,6 +3183,7 @@ index 5cb4e83d..04c42bac 100644
 +            }
 +        }
 +        self.deferred_capture_handle = None;
++        self.deferred_capture_shutdown = None;
 +        self.capture_gate = None;
 +
          let session = self.tmux_session()?;
@@ -4054,7 +3202,9 @@ index 5cb4e83d..04c42bac 100644
  
      pub fn kill(&self) -> Result<()> {
 +        self.stop_poller();
-+        // Join deferred capture thread if still running
++        if let Some(ref flag) = self.deferred_capture_shutdown {
++            flag.store(true, std::sync::atomic::Ordering::Relaxed);
++        }
 +        if let Some(ref handle_arc) = self.deferred_capture_handle {
 +            if let Ok(mut handle_opt) = handle_arc.lock() {
 +                if let Some(handle) = handle_opt.take() {
@@ -4065,7 +3215,7 @@ index 5cb4e83d..04c42bac 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1048,6 +1611,274 @@ mod tests {
+@@ -1048,6 +1654,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -4340,7 +3490,7 @@ index 5cb4e83d..04c42bac 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1103,4 +1934,39 @@ mod tests {
+@@ -1103,4 +1977,39 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -5926,42 +5076,10 @@ index 2617e4f1..ef9819f3 100644
  
          self.needs_redraw = true;
 diff --git a/src/tui/dialogs/hooks_install.rs b/src/tui/dialogs/hooks_install.rs
-index 6daac470..b3747c84 100644
+index 67f86b70..b3747c84 100644
 --- a/src/tui/dialogs/hooks_install.rs
 +++ b/src/tui/dialogs/hooks_install.rs
-@@ -22,15 +22,16 @@ impl HooksInstallDialog {
-         if let Some(agent) = crate::agents::get_agent(tool_name) {
-             if let Some(hook_cfg) = &agent.hook_config {
-                 settings_paths.push(format!("~/{}", hook_cfg.settings_rel_path));
-+                for event in hook_cfg.events {
-+                    let label = match event.status {
-+                        Some(s) => format!("writes \"{}\"", s),
-+                        None => "session lifecycle".to_string(),
-+                    };
-+                    hook_commands.push((event.name.to_string(), label));
-+                }
-             }
-         }
- 
--        // Show the hook events and what they do
--        hook_commands.push(("PreToolUse".to_string(), "running".to_string()));
--        hook_commands.push(("UserPromptSubmit".to_string(), "running".to_string()));
--        hook_commands.push(("Stop".to_string(), "idle".to_string()));
--        hook_commands.push(("Notification".to_string(), "waiting".to_string()));
--
-         Self {
-             settings_paths,
-             hook_commands,
-@@ -95,7 +96,7 @@ impl HooksInstallDialog {
-             Style::default().bold(),
-         )));
-         for (event, status) in &self.hook_commands {
--            lines.push(Line::from(format!("  {} -> writes \"{}\"", event, status)));
-+            lines.push(Line::from(format!("  {} -> {}", event, status)));
-         }
- 
-         lines.push(Line::from(""));
-@@ -103,7 +104,9 @@ impl HooksInstallDialog {
+@@ -104,7 +104,9 @@ impl HooksInstallDialog {
              "Each hook runs:",
              Style::default().bold(),
          )));
@@ -5972,7 +5090,7 @@ index 6daac470..b3747c84 100644
  
          lines.push(Line::from(""));
          lines.push(Line::from(
-@@ -276,6 +279,8 @@ mod tests {
+@@ -277,6 +279,8 @@ mod tests {
          assert!(text.contains("PreToolUse"));
          assert!(text.contains("Stop"));
          assert!(text.contains("Notification"));
@@ -6023,10 +5141,10 @@ index 4ff7bb3c..588f5291 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index a7bf717d..b339ba3f 100644
+index 20215d67..caf3b74b 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -287,6 +287,94 @@ impl HomeView {
+@@ -286,6 +286,94 @@ impl HomeView {
                  .unwrap_or(35),
          };
  
@@ -6121,12 +5239,13 @@ index a7bf717d..b339ba3f 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -317,6 +405,16 @@ impl HomeView {
+@@ -316,6 +404,17 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
 +                    inst.session_id_poller = prev.session_id_poller.clone();
 +                    inst.deferred_capture_handle = prev.deferred_capture_handle.clone();
++                    inst.deferred_capture_shutdown = prev.deferred_capture_shutdown.clone();
 +                    inst.capture_gate = prev.capture_gate.clone();
 +                    // Use in-memory session_id if present; fallback to disk.
 +                    // In-memory state takes priority over disk: the poller or
@@ -6138,7 +5257,7 @@ index a7bf717d..b339ba3f 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -430,6 +528,65 @@ impl HomeView {
+@@ -429,6 +528,50 @@ impl HomeView {
          false
      }
  
@@ -6171,21 +5290,6 @@ index a7bf717d..b339ba3f 100644
 +                    continue;
 +                }
 +            }
-+
-+            // Hook sidecar file (hook-handler writes session_id here)
-+            if crate::agents::get_agent(&inst.tool).is_some_and(|a| a.hook_config.is_some()) {
-+                if let Some(hook_session_id) = crate::hooks::read_hook_session_id(&inst.id) {
-+                    if inst.agent_session_id.as_deref() != Some(hook_session_id.as_str()) {
-+                        tracing::info!(
-+                            instance_id = %inst.id,
-+                            session_id = %hook_session_id,
-+                            "Updating session_id from hook sidecar"
-+                        );
-+                        updates.push((inst.id.clone(), hook_session_id));
-+                        continue;
-+                    }
-+                }
-+            }
 +        }
 +
 +        if !updates.is_empty() {
@@ -6204,7 +5308,7 @@ index a7bf717d..b339ba3f 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      pub fn request_creation(
          &mut self,
-@@ -855,6 +1012,15 @@ impl HomeView {
+@@ -854,6 +997,15 @@ impl HomeView {
          Ok(())
      }
  
