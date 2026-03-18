@@ -1,7 +1,7 @@
 diff --git a/packages/script/src/index.ts b/packages/script/src/index.ts
 --- a/packages/script/src/index.ts
 +++ b/packages/script/src/index.ts
-@@ -10,7 +10,8 @@ if (!expectedBunVersion) {
+@@ -11,7 +11,8 @@ if (!expectedBunVersion) {
  }
  
  // relax version requirement
