@@ -97,6 +97,7 @@ in
         cask "jordanbaird-ice"
         cask "shuttle"
         brew "hai"
+        brew "mole"
         brew "steipete/tap/peekaboo"
       '';
     };
