@@ -26,7 +26,7 @@ let
           "Alacritty"
           "-message"
           "Bell"
-          "-sender"
+          "-activate"
           "org.alacritty"
         ];
       }
