@@ -71,7 +71,7 @@ in
     lazygit.enable = profileModules.development.lazygit;
     opencode = {
       enable = bunSupported && profileModules.development.opencode.enable;
-      enableDesktop = pkgs.stdenv.isDarwin && profileModules.development.opencode.enableDesktop;
+      enableDesktop = profileModules.development.opencode.enableDesktop;
     };
     openspec.enable = profileModules.development.openspec;
   };
