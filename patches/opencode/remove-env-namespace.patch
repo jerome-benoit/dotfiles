@@ -271,7 +271,7 @@ index 43b3de37bf6..bfc44bbd3dc 100644
    enumerable: true,
    configurable: false,
 diff --git a/packages/opencode/src/ide/index.ts b/packages/opencode/src/ide/index.ts
-index 0837b2aa5ff..7b580b1b7e6 100644
+index ce4128b906d..cc03e455d0a 100644
 --- a/packages/opencode/src/ide/index.ts
 +++ b/packages/opencode/src/ide/index.ts
 @@ -35,8 +35,8 @@ export namespace Ide {
@@ -295,10 +295,10 @@ index 0837b2aa5ff..7b580b1b7e6 100644
  
    export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index 8f93213ea10..5ff2990188a 100644
+index 123e8aea860..07721c36284 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
-@@ -377,7 +377,7 @@ export namespace LSPServer {
+@@ -373,7 +373,7 @@ export namespace LSPServer {
      extensions: [".go"],
      async spawn(root) {
        let bin = which("gopls", {
@@ -307,7 +307,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
        if (!bin) {
          if (!which("go")) return
-@@ -414,7 +414,7 @@ export namespace LSPServer {
+@@ -410,7 +410,7 @@ export namespace LSPServer {
      extensions: [".rb", ".rake", ".gemspec", ".ru"],
      async spawn(root) {
        let bin = which("rubocop", {
@@ -316,7 +316,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
        if (!bin) {
          const ruby = which("ruby")
-@@ -469,7 +469,7 @@ export namespace LSPServer {
+@@ -465,7 +465,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -325,7 +325,7 @@ index 8f93213ea10..5ff2990188a 100644
          (p): p is string => p !== undefined,
        )
        for (const venvPath of potentialVenvPaths) {
-@@ -538,7 +538,7 @@ export namespace LSPServer {
+@@ -534,7 +534,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -334,7 +334,7 @@ index 8f93213ea10..5ff2990188a 100644
          (p): p is string => p !== undefined,
        )
        for (const venvPath of potentialVenvPaths) {
-@@ -635,7 +635,7 @@ export namespace LSPServer {
+@@ -631,7 +631,7 @@ export namespace LSPServer {
      root: NearestRoot(["build.zig"]),
      async spawn(root) {
        let bin = which("zls", {
@@ -343,7 +343,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
  
        if (!bin) {
-@@ -747,7 +747,7 @@ export namespace LSPServer {
+@@ -743,7 +743,7 @@ export namespace LSPServer {
      extensions: [".cs"],
      async spawn(root) {
        let bin = which("csharp-ls", {
@@ -352,7 +352,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
        if (!bin) {
          if (!which("dotnet")) {
-@@ -786,7 +786,7 @@ export namespace LSPServer {
+@@ -782,7 +782,7 @@ export namespace LSPServer {
      extensions: [".fs", ".fsi", ".fsx", ".fsscript"],
      async spawn(root) {
        let bin = which("fsautocomplete", {
@@ -361,7 +361,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
        if (!bin) {
          if (!which("dotnet")) {
-@@ -1418,7 +1418,7 @@ export namespace LSPServer {
+@@ -1414,7 +1414,7 @@ export namespace LSPServer {
      extensions: [".lua"],
      async spawn(root) {
        let bin = which("lua-language-server", {
@@ -370,7 +370,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
  
        if (!bin) {
-@@ -1689,7 +1689,7 @@ export namespace LSPServer {
+@@ -1685,7 +1685,7 @@ export namespace LSPServer {
      root: NearestRoot([".terraform.lock.hcl", "terraform.tfstate", "*.tf"]),
      async spawn(root) {
        let bin = which("terraform-ls", {
@@ -379,7 +379,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
  
        if (!bin) {
-@@ -1772,7 +1772,7 @@ export namespace LSPServer {
+@@ -1768,7 +1768,7 @@ export namespace LSPServer {
      root: NearestRoot([".latexmkrc", "latexmkrc", ".texlabroot", "texlabroot"]),
      async spawn(root) {
        let bin = which("texlab", {
@@ -388,7 +388,7 @@ index 8f93213ea10..5ff2990188a 100644
        })
  
        if (!bin) {
-@@ -1971,7 +1971,7 @@ export namespace LSPServer {
+@@ -1967,7 +1967,7 @@ export namespace LSPServer {
      root: NearestRoot(["typst.toml"]),
      async spawn(root) {
        let bin = which("tinymist", {
@@ -398,7 +398,7 @@ index 8f93213ea10..5ff2990188a 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 2537f894933..b9ed999b6cd 100644
+index 0255cf9bf1a..7ea43f5edf4 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -11,7 +11,6 @@ import { Plugin } from "../plugin"
@@ -409,7 +409,7 @@ index 2537f894933..b9ed999b6cd 100644
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -158,7 +157,7 @@ export namespace Provider {
+@@ -157,7 +156,7 @@ export namespace Provider {
      },
      async opencode(input) {
        const hasKey = await (async () => {
@@ -418,7 +418,7 @@ index 2537f894933..b9ed999b6cd 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -201,7 +200,7 @@ export namespace Provider {
+@@ -200,7 +199,7 @@ export namespace Provider {
        const resource = iife(() => {
          const name = provider.options?.resourceName
          if (typeof name === "string" && name.trim() !== "") return name
@@ -427,7 +427,7 @@ index 2537f894933..b9ed999b6cd 100644
        })
  
        return {
-@@ -223,7 +222,7 @@ export namespace Provider {
+@@ -222,7 +221,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -436,7 +436,7 @@ index 2537f894933..b9ed999b6cd 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -247,18 +246,16 @@ export namespace Provider {
+@@ -246,18 +245,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -458,7 +458,7 @@ index 2537f894933..b9ed999b6cd 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -269,7 +266,7 @@ export namespace Provider {
+@@ -268,7 +265,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -467,7 +467,7 @@ index 2537f894933..b9ed999b6cd 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -412,15 +409,15 @@ export namespace Provider {
+@@ -411,15 +408,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -489,7 +489,7 @@ index 2537f894933..b9ed999b6cd 100644
            "us-central1",
        )
  
-@@ -457,8 +454,8 @@ export namespace Provider {
+@@ -456,8 +453,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -500,7 +500,7 @@ index 2537f894933..b9ed999b6cd 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -475,8 +472,6 @@ export namespace Provider {
+@@ -474,8 +471,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -509,7 +509,7 @@ index 2537f894933..b9ed999b6cd 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -509,13 +504,13 @@ export namespace Provider {
+@@ -508,13 +503,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -525,7 +525,7 @@ index 2537f894933..b9ed999b6cd 100644
        })()
  
        const config = await Config.get()
-@@ -552,11 +547,11 @@ export namespace Provider {
+@@ -551,11 +546,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -539,7 +539,7 @@ index 2537f894933..b9ed999b6cd 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -579,14 +574,14 @@ export namespace Provider {
+@@ -578,14 +573,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -557,7 +557,7 @@ index 2537f894933..b9ed999b6cd 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -950,7 +945,7 @@ export namespace Provider {
+@@ -949,7 +944,7 @@ export namespace Provider {
      }
  
      // load env
@@ -566,7 +566,7 @@ index 2537f894933..b9ed999b6cd 100644
      for (const [id, provider] of Object.entries(database)) {
        const providerID = ProviderID.make(id)
        if (disabled.has(providerID)) continue
-@@ -1112,7 +1107,7 @@ export namespace Provider {
+@@ -1111,7 +1106,7 @@ export namespace Provider {
          }
  
          url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -1063,10 +1063,10 @@ index e253183d8d0..5f621502e39 100644
 +  }
 +})
 diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
-index cb64455b4dd..76145acd3c7 100644
+index 3358e923000..2cbda3041f5 100644
 --- a/packages/opencode/test/provider/amazon-bedrock.test.ts
 +++ b/packages/opencode/test/provider/amazon-bedrock.test.ts
-@@ -5,7 +5,6 @@ import { unlink } from "fs/promises"
+@@ -6,7 +6,6 @@ import { ProviderID } from "../../src/provider/schema"
  import { tmpdir } from "../fixture/fixture"
  import { Instance } from "../../src/project/instance"
  import { Provider } from "../../src/provider/provider"
@@ -1074,7 +1074,7 @@ index cb64455b4dd..76145acd3c7 100644
  import { Global } from "../../src/global"
  import { Filesystem } from "../../src/util/filesystem"
  
-@@ -30,8 +29,8 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
+@@ -31,8 +30,8 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1085,7 +1085,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -55,8 +54,8 @@ test("Bedrock: falls back to AWS_REGION env var when no config region", async ()
+@@ -56,8 +55,8 @@ test("Bedrock: falls back to AWS_REGION env var when no config region", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1096,7 +1096,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -110,9 +109,9 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
+@@ -111,9 +110,9 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
      await Instance.provide({
        directory: tmp.path,
        init: async () => {
@@ -1109,7 +1109,7 @@ index cb64455b4dd..76145acd3c7 100644
        },
        fn: async () => {
          const providers = await Provider.list()
-@@ -156,8 +155,8 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async
+@@ -157,8 +156,8 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1120,7 +1120,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -188,7 +187,7 @@ test("Bedrock: includes custom endpoint in options when specified", async () =>
+@@ -189,7 +188,7 @@ test("Bedrock: includes custom endpoint in options when specified", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1129,7 +1129,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -221,10 +220,10 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async ()
+@@ -222,10 +221,10 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1144,7 +1144,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -264,7 +263,7 @@ test("Bedrock: model with us. prefix should not be double-prefixed", async () =>
+@@ -265,7 +264,7 @@ test("Bedrock: model with us. prefix should not be double-prefixed", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1153,7 +1153,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -301,7 +300,7 @@ test("Bedrock: model with global. prefix should not be prefixed", async () => {
+@@ -302,7 +301,7 @@ test("Bedrock: model with global. prefix should not be prefixed", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1162,7 +1162,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -337,7 +336,7 @@ test("Bedrock: model with eu. prefix should not be double-prefixed", async () =>
+@@ -338,7 +337,7 @@ test("Bedrock: model with eu. prefix should not be double-prefixed", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1171,7 +1171,7 @@ index cb64455b4dd..76145acd3c7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -373,7 +372,7 @@ test("Bedrock: model without prefix in US region should get us. prefix added", a
+@@ -374,7 +373,7 @@ test("Bedrock: model without prefix in US region should get us. prefix added", a
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1181,10 +1181,10 @@ index cb64455b4dd..76145acd3c7 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/gitlab-duo.test.ts b/packages/opencode/test/provider/gitlab-duo.test.ts
-index 86e08a79284..6eb6bb31ff7 100644
+index f30e3297de2..e421d5f13b5 100644
 --- a/packages/opencode/test/provider/gitlab-duo.test.ts
 +++ b/packages/opencode/test/provider/gitlab-duo.test.ts
-@@ -4,7 +4,6 @@ import path from "path"
+@@ -5,7 +5,6 @@ import { ProviderID } from "../../src/provider/schema"
  import { tmpdir } from "../fixture/fixture"
  import { Instance } from "../../src/project/instance"
  import { Provider } from "../../src/provider/provider"
@@ -1192,7 +1192,7 @@ index 86e08a79284..6eb6bb31ff7 100644
  import { Global } from "../../src/global"
  
  test("GitLab Duo: loads provider with API key from environment", async () => {
-@@ -21,7 +20,7 @@ test("GitLab Duo: loads provider with API key from environment", async () => {
+@@ -22,7 +21,7 @@ test("GitLab Duo: loads provider with API key from environment", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1201,7 +1201,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -52,8 +51,8 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
+@@ -53,8 +52,8 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1212,7 +1212,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -91,7 +90,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
+@@ -92,7 +91,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1221,7 +1221,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -126,7 +125,7 @@ test("GitLab Duo: loads with Personal Access Token from auth.json", async () =>
+@@ -127,7 +126,7 @@ test("GitLab Duo: loads with Personal Access Token from auth.json", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1230,7 +1230,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -158,7 +157,7 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
+@@ -159,7 +158,7 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1239,7 +1239,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -189,7 +188,7 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
+@@ -190,7 +189,7 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1248,7 +1248,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -212,7 +211,7 @@ test("GitLab Duo: includes context-1m beta header in aiGatewayHeaders", async ()
+@@ -213,7 +212,7 @@ test("GitLab Duo: includes context-1m beta header in aiGatewayHeaders", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1257,7 +1257,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -246,7 +245,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
+@@ -249,7 +248,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1266,7 +1266,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -271,7 +270,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
+@@ -274,7 +273,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1276,7 +1276,7 @@ index 86e08a79284..6eb6bb31ff7 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index b14d2752240..22958143bfd 100644
+index 72ba9dba5a5..2efd9f3358c 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
 @@ -5,7 +5,6 @@ import { tmpdir } from "../fixture/fixture"
