@@ -2186,7 +2186,7 @@ index bf06fc77..f0d262f8 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index d16e88ad..cb765856 100644
+index 5d68e88e..c426cac5 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,8 @@
@@ -3216,7 +3216,7 @@ index d16e88ad..cb765856 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1103,6 +1709,274 @@ mod tests {
+@@ -1106,6 +1712,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3491,7 +3491,7 @@ index d16e88ad..cb765856 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1158,4 +2032,39 @@ mod tests {
+@@ -1161,4 +2035,39 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -4969,7 +4969,7 @@ index c6a85237..2c9a7da7 100644
  pub mod status_bar;
  pub(crate) mod status_detection;
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index d784e222..9430dd77 100644
+index a233204a..45ec0b75 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -28,6 +28,10 @@ impl Session {

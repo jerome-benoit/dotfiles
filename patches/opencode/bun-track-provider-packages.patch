@@ -212,12 +212,12 @@ index e43e20e6c5a..c3a03bd09c2 100644
      if (!latestVersion) {
        log.warn("Failed to resolve latest version, using cached", { pkg, cachedVersion })
 diff --git a/packages/opencode/src/global/index.ts b/packages/opencode/src/global/index.ts
-index 2913ac90fe0..2f445bf49cd 100644
+index 869019e2ce7..32ec45fcbe5 100644
 --- a/packages/opencode/src/global/index.ts
 +++ b/packages/opencode/src/global/index.ts
 @@ -20,7 +20,10 @@ export namespace Global {
      data,
-     bin: path.join(data, "bin"),
+     bin: path.join(cache, "bin"),
      log: path.join(data, "log"),
 -    cache,
 +    // Allow override via OPENCODE_TEST_CACHE for test isolation
@@ -228,10 +228,10 @@ index 2913ac90fe0..2f445bf49cd 100644
      state,
    }
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 0255cf9bf1a..4288d5ed6b6 100644
+index 9c9c8e83438..314b9d73f1e 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -1189,7 +1189,7 @@ export namespace Provider {
+@@ -1196,7 +1196,7 @@ export namespace Provider {
  
        let installedPath: string
        if (!model.api.npm.startsWith("file://")) {

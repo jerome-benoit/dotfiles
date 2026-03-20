@@ -398,7 +398,7 @@ index 123e8aea860..07721c36284 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 0255cf9bf1a..7ea43f5edf4 100644
+index 9c9c8e83438..cee2a6bd6e1 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -11,7 +11,6 @@ import { Plugin } from "../plugin"
@@ -409,7 +409,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -157,7 +156,7 @@ export namespace Provider {
+@@ -155,7 +154,7 @@ export namespace Provider {
      },
      async opencode(input) {
        const hasKey = await (async () => {
@@ -418,7 +418,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -200,7 +199,7 @@ export namespace Provider {
+@@ -207,7 +206,7 @@ export namespace Provider {
        const resource = iife(() => {
          const name = provider.options?.resourceName
          if (typeof name === "string" && name.trim() !== "") return name
@@ -427,7 +427,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
        })
  
        return {
-@@ -222,7 +221,7 @@ export namespace Provider {
+@@ -229,7 +228,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -436,7 +436,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -246,18 +245,16 @@ export namespace Provider {
+@@ -253,18 +252,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -458,7 +458,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -268,7 +265,7 @@ export namespace Provider {
+@@ -275,7 +272,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -467,7 +467,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -411,15 +408,15 @@ export namespace Provider {
+@@ -418,15 +415,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -489,7 +489,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
            "us-central1",
        )
  
-@@ -456,8 +453,8 @@ export namespace Provider {
+@@ -463,8 +460,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -500,7 +500,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -474,8 +471,6 @@ export namespace Provider {
+@@ -481,8 +478,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -509,7 +509,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -508,13 +503,13 @@ export namespace Provider {
+@@ -515,13 +510,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -525,7 +525,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
        })()
  
        const config = await Config.get()
-@@ -551,11 +546,11 @@ export namespace Provider {
+@@ -558,11 +553,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -539,7 +539,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -578,14 +573,14 @@ export namespace Provider {
+@@ -585,14 +580,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -557,7 +557,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -949,7 +944,7 @@ export namespace Provider {
+@@ -956,7 +951,7 @@ export namespace Provider {
      }
  
      // load env
@@ -566,7 +566,7 @@ index 0255cf9bf1a..7ea43f5edf4 100644
      for (const [id, provider] of Object.entries(database)) {
        const providerID = ProviderID.make(id)
        if (disabled.has(providerID)) continue
-@@ -1111,7 +1106,7 @@ export namespace Provider {
+@@ -1118,7 +1113,7 @@ export namespace Provider {
          }
  
          url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
