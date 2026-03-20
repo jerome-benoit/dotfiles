@@ -398,7 +398,7 @@ index 123e8aea860..07721c36284 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 9c9c8e83438..cee2a6bd6e1 100644
+index 6ab45d028b9..615b60b01b9 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -11,7 +11,6 @@ import { Plugin } from "../plugin"
@@ -409,7 +409,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -155,7 +154,7 @@ export namespace Provider {
+@@ -162,7 +161,7 @@ export namespace Provider {
      },
      async opencode(input) {
        const hasKey = await (async () => {
@@ -418,7 +418,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -207,7 +206,7 @@ export namespace Provider {
+@@ -214,7 +213,7 @@ export namespace Provider {
        const resource = iife(() => {
          const name = provider.options?.resourceName
          if (typeof name === "string" && name.trim() !== "") return name
@@ -427,7 +427,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
        })
  
        return {
-@@ -229,7 +228,7 @@ export namespace Provider {
+@@ -236,7 +235,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -436,7 +436,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -253,18 +252,16 @@ export namespace Provider {
+@@ -260,18 +259,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -458,7 +458,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -275,7 +272,7 @@ export namespace Provider {
+@@ -282,7 +279,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -467,7 +467,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -418,15 +415,15 @@ export namespace Provider {
+@@ -425,15 +422,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -489,7 +489,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
            "us-central1",
        )
  
-@@ -463,8 +460,8 @@ export namespace Provider {
+@@ -470,8 +467,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -500,7 +500,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -481,8 +478,6 @@ export namespace Provider {
+@@ -488,8 +485,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -509,7 +509,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -515,13 +510,13 @@ export namespace Provider {
+@@ -522,13 +517,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -525,7 +525,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
        })()
  
        const config = await Config.get()
-@@ -558,11 +553,11 @@ export namespace Provider {
+@@ -642,11 +637,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -539,7 +539,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -585,14 +580,14 @@ export namespace Provider {
+@@ -669,14 +664,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -557,7 +557,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -956,7 +951,7 @@ export namespace Provider {
+@@ -1043,7 +1038,7 @@ export namespace Provider {
      }
  
      // load env
@@ -566,7 +566,7 @@ index 9c9c8e83438..cee2a6bd6e1 100644
      for (const [id, provider] of Object.entries(database)) {
        const providerID = ProviderID.make(id)
        if (disabled.has(providerID)) continue
-@@ -1118,7 +1113,7 @@ export namespace Provider {
+@@ -1218,7 +1213,7 @@ export namespace Provider {
          }
  
          url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -1181,18 +1181,18 @@ index 3358e923000..2cbda3041f5 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/gitlab-duo.test.ts b/packages/opencode/test/provider/gitlab-duo.test.ts
-index f30e3297de2..e421d5f13b5 100644
+index 15c797022d6..701d7179f7c 100644
 --- a/packages/opencode/test/provider/gitlab-duo.test.ts
 +++ b/packages/opencode/test/provider/gitlab-duo.test.ts
-@@ -5,7 +5,6 @@ import { ProviderID } from "../../src/provider/schema"
+@@ -5,7 +5,6 @@ import { ProviderID, ModelID } from "../../src/provider/schema"
  import { tmpdir } from "../fixture/fixture"
  import { Instance } from "../../src/project/instance"
  import { Provider } from "../../src/provider/provider"
 -import { Env } from "../../src/env"
  import { Global } from "../../src/global"
+ import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
  
- test("GitLab Duo: loads provider with API key from environment", async () => {
-@@ -22,7 +21,7 @@ test("GitLab Duo: loads provider with API key from environment", async () => {
+@@ -23,7 +22,7 @@ test("GitLab Duo: loads provider with API key from environment", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1201,7 +1201,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -53,8 +52,8 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
+@@ -54,8 +53,8 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1212,7 +1212,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -92,7 +91,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
+@@ -93,7 +92,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1221,7 +1221,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -127,7 +126,7 @@ test("GitLab Duo: loads with Personal Access Token from auth.json", async () =>
+@@ -128,7 +127,7 @@ test("GitLab Duo: loads with Personal Access Token from auth.json", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1230,7 +1230,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -159,7 +158,7 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
+@@ -160,7 +159,7 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1239,7 +1239,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -190,7 +189,7 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
+@@ -191,7 +190,7 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1248,7 +1248,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -213,7 +212,7 @@ test("GitLab Duo: includes context-1m beta header in aiGatewayHeaders", async ()
+@@ -214,7 +213,7 @@ test("GitLab Duo: includes context-1m beta header in aiGatewayHeaders", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1257,7 +1257,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -249,7 +248,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
+@@ -250,7 +249,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1266,7 +1266,7 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -274,7 +273,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
+@@ -275,7 +274,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1275,6 +1275,42 @@ index f30e3297de2..e421d5f13b5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
+@@ -299,7 +298,7 @@ describe("GitLab Duo: workflow model routing", () => {
+     await Instance.provide({
+       directory: tmp.path,
+       init: async () => {
+-        Env.set("GITLAB_TOKEN", "test-token")
++        process.env.GITLAB_TOKEN = "test-token"
+       },
+       fn: async () => {
+         const providers = await Provider.list()
+@@ -347,7 +346,7 @@ describe("GitLab Duo: workflow model routing", () => {
+     await Instance.provide({
+       directory: tmp.path,
+       init: async () => {
+-        Env.set("GITLAB_TOKEN", "test-token")
++        process.env.GITLAB_TOKEN = "test-token"
+       },
+       fn: async () => {
+         const providers = await Provider.list()
+@@ -370,7 +369,7 @@ describe("GitLab Duo: workflow model routing", () => {
+     await Instance.provide({
+       directory: tmp.path,
+       init: async () => {
+-        Env.set("GITLAB_TOKEN", "test-token")
++        process.env.GITLAB_TOKEN = "test-token"
+       },
+       fn: async () => {
+         const providers = await Provider.list()
+@@ -394,7 +393,7 @@ describe("GitLab Duo: static models", () => {
+     await Instance.provide({
+       directory: tmp.path,
+       init: async () => {
+-        Env.set("GITLAB_TOKEN", "test-token")
++        process.env.GITLAB_TOKEN = "test-token"
+       },
+       fn: async () => {
+         const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
 index 72ba9dba5a5..2efd9f3358c 100644
 --- a/packages/opencode/test/provider/provider.test.ts
