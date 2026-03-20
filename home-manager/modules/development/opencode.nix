@@ -22,6 +22,9 @@ let
           # https://github.com/anomalyco/opencode/pull/10275
           (self + "/patches/opencode/bun-track-provider-packages.patch")
         ];
+        # Workaround for https://github.com/anomalyco/opencode/issues/18447
+        buildInputs =
+          (oldAttrs.buildInputs or [ ]) ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
       })
     else
       null;
