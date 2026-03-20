@@ -2106,10 +2106,10 @@ index 774c17ac..627af167 100644
      "default".to_string()
  }
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index bf06fc77..f0d262f8 100644
+index b7ba9dc8..16f576e8 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
-@@ -334,7 +334,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
+@@ -345,7 +345,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -2117,7 +2117,7 @@ index bf06fc77..f0d262f8 100644
      if dest.exists() {
          if let Ok(existing_content) = std::fs::read_to_string(dest) {
              if !should_overwrite_credential(&existing_content, trimmed) {
-@@ -415,14 +414,8 @@ pub(crate) fn compute_volume_paths(
+@@ -426,14 +425,8 @@ pub(crate) fn compute_volume_paths(
      project_path: &Path,
      project_path_str: &str,
  ) -> Result<(Vec<VolumeMount>, String)> {
@@ -2134,7 +2134,7 @@ index bf06fc77..f0d262f8 100644
      if project_path.join(".git").exists() {
          if let Ok(main_repo) = GitWorktree::find_main_repo(project_path) {
              // Canonicalize paths for reliable comparison (handles symlinks like /tmp -> /private/tmp)
-@@ -438,8 +431,6 @@ pub(crate) fn compute_volume_paths(
+@@ -449,8 +442,6 @@ pub(crate) fn compute_volume_paths(
              // resolves correctly inside the container.
              if main_repo_canonical != project_canonical {
                  if project_canonical.starts_with(&main_repo_canonical) {
@@ -2143,7 +2143,7 @@ index bf06fc77..f0d262f8 100644
                      let name = main_repo_canonical
                          .file_name()
                          .map(|n| n.to_string_lossy().to_string())
-@@ -464,11 +455,8 @@ pub(crate) fn compute_volume_paths(
+@@ -475,11 +466,8 @@ pub(crate) fn compute_volume_paths(
                          working_dir,
                      ));
                  } else {
@@ -2157,7 +2157,7 @@ index bf06fc77..f0d262f8 100644
                      let common = common_ancestor(&main_repo_canonical, &project_canonical);
                      let repo_rel = main_repo_canonical
                          .strip_prefix(&common)
-@@ -500,7 +488,6 @@ pub(crate) fn compute_volume_paths(
+@@ -511,7 +499,6 @@ pub(crate) fn compute_volume_paths(
          }
      }
  
@@ -3558,10 +3558,10 @@ index 9c5ec239..c31ccd0e 100644
      ContainerRuntimeName, DefaultTerminalMode, SandboxConfig, SessionConfig, ThemeConfig,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
-index 00000000..63a1c5d9
+index 00000000..68987ca9
 --- /dev/null
 +++ b/src/session/poller.rs
-@@ -0,0 +1,877 @@
+@@ -0,0 +1,882 @@
 +//! Adaptive polling interval and command channel for session monitoring
 +
 +use std::sync::atomic::{AtomicU32, Ordering};
@@ -3777,11 +3777,16 @@ index 00000000..63a1c5d9
 +/// # Cleanup
 +///
 +/// Cleanup is performed explicitly via `stop()` rather than `Drop` because
-+/// the poller thread holds a clone of the command sender. Dropping the
-+/// `SessionPoller` without `stop()` causes the thread to exit on the next
-+/// `recv_timeout` when it detects channel disconnection, which may take up
-+/// to `max_interval` seconds. Callers (Instance::kill, Instance::restart)
-+/// call `stop()` explicitly for immediate shutdown.
++/// `Drop` alone cannot guarantee prompt shutdown. The poller thread holds
++/// the `cmd_rx` receiver; when `SessionPoller` drops, the corresponding
++/// `cmd_tx` sender is dropped too and `recv_timeout` returns `Disconnected`
++/// immediately -- so in the common case the thread exits promptly.
++///
++/// However, if the thread is blocked on `CaptureGate::wait` (up to
++/// `CAPTURE_GATE_TIMEOUT`), the channel disconnection is not checked until
++/// that wait completes. `stop()` sends an explicit `PollCommand::Stop` and
++/// joins the thread, providing a deterministic shutdown path for callers
++/// like `Instance::kill` and `Instance::restart`.
 +pub struct SessionPoller {
 +    session_name: String,
 +    cmd_tx: mpsc::Sender<PollCommand>,
@@ -4501,10 +4506,10 @@ index e79b1c70..1d7376e5 100644
  /// Apply tmux config overrides to a target config.
 diff --git a/src/tmux/env.rs b/src/tmux/env.rs
 new file mode 100644
-index 00000000..76c97a2f
+index 00000000..5a312b3c
 --- /dev/null
 +++ b/src/tmux/env.rs
-@@ -0,0 +1,452 @@
+@@ -0,0 +1,458 @@
 +//! Hidden environment variable helpers for tmux sessions
 +//!
 +//! This module provides utilities to get and set hidden environment variables
@@ -4564,6 +4569,12 @@ index 00000000..76c97a2f
 +                    return Some(entry.value.clone());
 +                }
 +            }
++        }
++    }
++
++    if let Ok(mut cache) = ENV_CACHE.write() {
++        if let Some(entries) = &mut cache.entries {
++            entries.remove(&cache_key);
 +        }
 +    }
 +
