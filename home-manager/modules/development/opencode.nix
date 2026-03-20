@@ -23,8 +23,12 @@ let
           (self + "/patches/opencode/bun-track-provider-packages.patch")
         ];
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
-        buildInputs =
-          (oldAttrs.buildInputs or [ ]) ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
+        postFixup =
+          (oldAttrs.postFixup or "")
+          + lib.optionalString pkgs.stdenv.isLinux ''
+            wrapProgram $out/bin/opencode \
+              --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+          '';
       })
     else
       null;
