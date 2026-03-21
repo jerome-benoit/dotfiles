@@ -1,0 +1,39 @@
+diff --git a/packages/app/src/components/dialog-connect-provider.tsx b/packages/app/src/components/dialog-connect-provider.tsx
+index e4fe9e7c4..0d8e0ac4d 100644
+--- a/packages/app/src/components/dialog-connect-provider.tsx
++++ b/packages/app/src/components/dialog-connect-provider.tsx
+@@ -383,7 +383,7 @@ export function DialogConnectProvider(props: { provider: string }) {
+       setFormStore("error", undefined)
+       await globalSDK.client.auth.set({
+         providerID: props.provider,
+-        auth: {
++        body: {
+           type: "api",
+           key: apiKey,
+         },
+diff --git a/packages/app/src/components/dialog-custom-provider.tsx b/packages/app/src/components/dialog-custom-provider.tsx
+index 4d220a0b1..528c31b3f 100644
+--- a/packages/app/src/components/dialog-custom-provider.tsx
++++ b/packages/app/src/components/dialog-custom-provider.tsx
+@@ -131,7 +131,7 @@ export function DialogCustomProvider(props: Props) {
+     const auth = result.key
+       ? globalSDK.client.auth.set({
+           providerID: result.providerID,
+-          auth: {
++          body: {
+             type: "api",
+             key: result.key,
+           },
+diff --git a/packages/opencode/src/cli/cmd/tui/component/dialog-provider.tsx b/packages/opencode/src/cli/cmd/tui/component/dialog-provider.tsx
+index 635ed71f5..6d350c18e 100644
+--- a/packages/opencode/src/cli/cmd/tui/component/dialog-provider.tsx
++++ b/packages/opencode/src/cli/cmd/tui/component/dialog-provider.tsx
+@@ -265,7 +265,7 @@ function ApiMethod(props: ApiMethodProps) {
+         if (!value) return
+         await sdk.client.auth.set({
+           providerID: props.providerID,
+-          auth: {
++          body: {
+             type: "api",
+             key: value,
+           },
