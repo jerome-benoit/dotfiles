@@ -4399,7 +4399,7 @@ index c6a85237..2c9a7da7 100644
  pub mod status_bar;
  pub(crate) mod status_detection;
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index 88ffc6d2..8e662ed9 100644
+index 0e962a8d..4160efcc 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -31,6 +31,10 @@ impl Session {
@@ -4572,10 +4572,10 @@ index 4ff7bb3c..588f5291 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index e328f95c..7ba408fa 100644
+index 1f469776..af207689 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -286,6 +286,65 @@ impl HomeView {
+@@ -291,6 +291,65 @@ impl HomeView {
                  .unwrap_or(35),
          };
  
@@ -4641,7 +4641,7 @@ index e328f95c..7ba408fa 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -316,6 +375,14 @@ impl HomeView {
+@@ -321,6 +380,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4656,7 +4656,7 @@ index e328f95c..7ba408fa 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -429,6 +496,43 @@ impl HomeView {
+@@ -434,6 +501,43 @@ impl HomeView {
          false
      }
  
@@ -4700,7 +4700,7 @@ index e328f95c..7ba408fa 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      pub fn request_creation(
          &mut self,
-@@ -854,6 +958,15 @@ impl HomeView {
+@@ -860,6 +964,15 @@ impl HomeView {
          Ok(())
      }
  
