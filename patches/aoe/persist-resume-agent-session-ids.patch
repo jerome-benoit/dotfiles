@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 4ac77135..cdf5e5f2 100644
+index eaf212d5..b19202d2 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -56,11 +56,10 @@ index 4ac77135..cdf5e5f2 100644
  }
  
  /// Hook events shared by Claude Code and Cursor CLI.
-@@ -94,6 +118,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
-         matcher: Some("permission_prompt|elicitation_dialog"),
+@@ -95,6 +119,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
          status: Some("waiting"),
      },
-+    HookEvent {
+     HookEvent {
 +        name: "SessionStart",
 +        matcher: None,
 +        status: None,
@@ -70,10 +69,11 @@ index 4ac77135..cdf5e5f2 100644
 +        matcher: None,
 +        status: None,
 +    },
- ];
- 
- pub const AGENTS: &[AgentDef] = &[
-@@ -112,6 +146,10 @@ pub const AGENTS: &[AgentDef] = &[
++    HookEvent {    
+         name: "ElicitationResult",
+         matcher: None,
+         status: Some("running"),
+@@ -117,6 +151,10 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".claude/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
@@ -84,7 +84,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "opencode",
-@@ -125,6 +163,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -130,6 +168,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_opencode_status,
          container_env: &[],
          hook_config: None,
@@ -92,7 +92,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "vibe",
-@@ -138,6 +177,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -143,6 +182,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_vibe_status,
          container_env: &[],
          hook_config: None,
@@ -100,7 +100,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "codex",
-@@ -153,6 +193,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -158,6 +198,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
          hook_config: None,
@@ -108,7 +108,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "gemini",
-@@ -188,8 +229,19 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -193,8 +234,19 @@ pub const AGENTS: &[AgentDef] = &[
                      matcher: Some("ToolPermission"),
                      status: Some("waiting"),
                  },
@@ -128,7 +128,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "cursor",
-@@ -206,6 +258,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -211,6 +263,7 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".cursor/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
@@ -136,7 +136,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "copilot",
-@@ -219,6 +272,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -224,6 +277,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_copilot_status,
          container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
          hook_config: None,
@@ -144,7 +144,7 @@ index 4ac77135..cdf5e5f2 100644
      },
      AgentDef {
          name: "pi",
-@@ -233,6 +287,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -238,6 +292,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
@@ -249,7 +249,7 @@ index be6a1e5a..347965b9 100644
 +    Ok(())
 +}
 diff --git a/src/hooks/mod.rs b/src/hooks/mod.rs
-index 1eaa20f4..0b6e8e32 100644
+index 1fde45ab..de78ce44 100644
 --- a/src/hooks/mod.rs
 +++ b/src/hooks/mod.rs
 @@ -261,6 +261,9 @@ mod tests {
@@ -259,9 +259,9 @@ index 1eaa20f4..0b6e8e32 100644
 +        // SessionStart/SessionEnd have status: None, so they are skipped by shell one-liners
 +        assert!(!hooks.contains_key("SessionStart"));
 +        assert!(!hooks.contains_key("SessionEnd"));
+         assert!(hooks.contains_key("ElicitationResult"));
      }
  
-     #[test]
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
 index 00000000..554dfde9
