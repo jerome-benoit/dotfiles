@@ -36,11 +36,12 @@ in
       pkgs.autoconf
       pkgs.automake
       pkgs.bat
-      (pkgs.bruno.override {
-        nodejs_22 = pkgs.nodejs_22.override {
-          nodejs-slim = pkgs.nodejs-slim_22.overrideAttrs { doCheck = false; };
-        };
-      })
+      # TODO: re-enable when nodejs-22.22.1 builds on aarch64-darwin
+      # (pkgs.bruno.override {
+      #   nodejs_22 = pkgs.nodejs_22.override {
+      #     nodejs-slim = pkgs.nodejs-slim_22.overrideAttrs { doCheck = false; };
+      #   };
+      # })
       pkgs.chroma
       pkgs.cloudfoundry-cli
       pkgs.cmake
