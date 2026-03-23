@@ -39,6 +39,7 @@ in
     config = {
       allowUnfree = true;
       permittedInsecurePackages = lib.optionals pkgs.stdenv.isDarwin [
+        "electron-38.8.4"
         "olm-3.2.16"
       ];
     };
