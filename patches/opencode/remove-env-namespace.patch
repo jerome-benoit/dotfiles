@@ -186,10 +186,10 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index 05f04c85ce7..c3c5c306873 100644
+index 0c55187b9dc..a9f2f8ca06a 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
-@@ -12,15 +12,15 @@ function falsy(key: string) {
+@@ -12,16 +12,16 @@ function falsy(key: string) {
  
  export namespace Flag {
    export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
@@ -202,6 +202,7 @@ index 05f04c85ce7..c3c5c306873 100644
 -  export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
 +  export const OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT
    export const OPENCODE_DISABLE_AUTOUPDATE = truthy("OPENCODE_DISABLE_AUTOUPDATE")
+   export const OPENCODE_ALWAYS_NOTIFY_UPDATE = truthy("OPENCODE_ALWAYS_NOTIFY_UPDATE")
    export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
    export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
 -  export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]
@@ -209,7 +210,7 @@ index 05f04c85ce7..c3c5c306873 100644
    export const OPENCODE_DISABLE_DEFAULT_PLUGINS = truthy("OPENCODE_DISABLE_DEFAULT_PLUGINS")
    export const OPENCODE_DISABLE_LSP_DOWNLOAD = truthy("OPENCODE_DISABLE_LSP_DOWNLOAD")
    export const OPENCODE_ENABLE_EXPERIMENTAL_MODELS = truthy("OPENCODE_ENABLE_EXPERIMENTAL_MODELS")
-@@ -34,10 +34,10 @@ export namespace Flag {
+@@ -35,10 +35,10 @@ export namespace Flag {
    export const OPENCODE_DISABLE_EXTERNAL_SKILLS =
      OPENCODE_DISABLE_CLAUDE_CODE_SKILLS || truthy("OPENCODE_DISABLE_EXTERNAL_SKILLS")
    export declare const OPENCODE_DISABLE_PROJECT_CONFIG: boolean
@@ -223,7 +224,7 @@ index 05f04c85ce7..c3c5c306873 100644
    export const OPENCODE_ENABLE_QUESTION_TOOL = truthy("OPENCODE_ENABLE_QUESTION_TOOL")
  
    // Experimental
-@@ -51,7 +51,7 @@ export namespace Flag {
+@@ -52,7 +52,7 @@ export namespace Flag {
    export const OPENCODE_EXPERIMENTAL_ICON_DISCOVERY =
      OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY")
  
@@ -232,7 +233,7 @@ index 05f04c85ce7..c3c5c306873 100644
    export const OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
      copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
    export const OPENCODE_ENABLE_EXA =
-@@ -67,9 +67,9 @@ export namespace Flag {
+@@ -68,9 +68,9 @@ export namespace Flag {
    export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
    export const OPENCODE_EXPERIMENTAL_WORKSPACES = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_WORKSPACES")
    export const OPENCODE_EXPERIMENTAL_MARKDOWN = !falsy("OPENCODE_EXPERIMENTAL_MARKDOWN")
@@ -245,7 +246,7 @@ index 05f04c85ce7..c3c5c306873 100644
    export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
    export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
    export const OPENCODE_STRICT_CONFIG_DEPS = truthy("OPENCODE_STRICT_CONFIG_DEPS")
-@@ -98,7 +98,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+@@ -99,7 +99,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -254,7 +255,7 @@ index 05f04c85ce7..c3c5c306873 100644
    },
    enumerable: true,
    configurable: false,
-@@ -109,7 +109,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -110,7 +110,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -263,7 +264,7 @@ index 05f04c85ce7..c3c5c306873 100644
    },
    enumerable: true,
    configurable: false,
-@@ -120,7 +120,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -121,7 +121,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {

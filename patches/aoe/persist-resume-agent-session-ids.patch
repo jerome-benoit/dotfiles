@@ -4424,7 +4424,7 @@ index d4a50233..5327dddf 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 2617e4f1..ef9819f3 100644
+index eacb09d1..661af04c 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -211,6 +211,10 @@ impl App {
@@ -4507,7 +4507,7 @@ index 2617e4f1..ef9819f3 100644
  
          self.needs_redraw = true;
 diff --git a/src/tui/dialogs/hooks_install.rs b/src/tui/dialogs/hooks_install.rs
-index 67f86b70..25e1b2a7 100644
+index 5eff08a8..49befa1a 100644
 --- a/src/tui/dialogs/hooks_install.rs
 +++ b/src/tui/dialogs/hooks_install.rs
 @@ -104,7 +104,9 @@ impl HooksInstallDialog {
@@ -4521,7 +4521,7 @@ index 67f86b70..25e1b2a7 100644
  
          lines.push(Line::from(""));
          lines.push(Line::from(
-@@ -277,6 +279,8 @@ mod tests {
+@@ -278,6 +280,8 @@ mod tests {
          assert!(text.contains("PreToolUse"));
          assert!(text.contains("Stop"));
          assert!(text.contains("Notification"));
@@ -4531,7 +4531,7 @@ index 67f86b70..25e1b2a7 100644
  
      #[test]
 diff --git a/src/tui/dialogs/profile_picker.rs b/src/tui/dialogs/profile_picker.rs
-index 4ff7bb3c..588f5291 100644
+index a1ce7c0f..ab6715b7 100644
 --- a/src/tui/dialogs/profile_picker.rs
 +++ b/src/tui/dialogs/profile_picker.rs
 @@ -9,24 +9,18 @@ use tui_input::Input;
