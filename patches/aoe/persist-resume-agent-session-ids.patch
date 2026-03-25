@@ -1892,7 +1892,7 @@ index b7ba9dc8..16f576e8 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 0b381023..df65a4e3 100644
+index 9fa9df10..181082a8 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
