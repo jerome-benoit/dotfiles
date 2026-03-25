@@ -4424,7 +4424,7 @@ index d4a50233..5327dddf 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index eacb09d1..661af04c 100644
+index dfca6629..3c98bba6 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -211,6 +211,10 @@ impl App {
@@ -4446,7 +4446,7 @@ index eacb09d1..661af04c 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -389,14 +394,11 @@ impl App {
+@@ -393,14 +398,11 @@ impl App {
          };
  
          let tmux_session = instance.tmux_session()?;
@@ -4465,7 +4465,7 @@ index eacb09d1..661af04c 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -422,7 +424,6 @@ impl App {
+@@ -426,7 +428,6 @@ impl App {
                          );
                          self.home.pending_attach_after_warning = Some(session_id.to_string());
  
@@ -4473,7 +4473,7 @@ index eacb09d1..661af04c 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -432,17 +433,15 @@ impl App {
+@@ -436,17 +437,15 @@ impl App {
                  }
              }
  
@@ -4495,7 +4495,7 @@ index eacb09d1..661af04c 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -452,6 +451,10 @@ impl App {
+@@ -456,6 +455,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4572,7 +4572,7 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 4bc52c69..e67da302 100644
+index cce6d43c..a2ea72d0 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -298,6 +298,65 @@ impl HomeView {
@@ -4700,7 +4700,7 @@ index 4bc52c69..e67da302 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      pub fn request_creation(
          &mut self,
-@@ -867,6 +971,15 @@ impl HomeView {
+@@ -868,6 +972,15 @@ impl HomeView {
          Ok(())
      }
  
