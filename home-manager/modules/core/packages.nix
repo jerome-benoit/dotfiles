@@ -89,6 +89,7 @@ in
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
       text = ''
         tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
+        tap "soloterm/tap"
         tap "steipete/tap"
         cask "docker-desktop"
         cask "ferdium"
@@ -98,6 +99,7 @@ in
         cask "shuttle"
         brew "hai"
         brew "mole"
+        brew "soloterm/tap/tnotify"
         brew "steipete/tap/peekaboo"
       '';
     };

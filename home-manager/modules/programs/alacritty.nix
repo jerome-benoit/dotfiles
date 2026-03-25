@@ -20,14 +20,11 @@ let
   bellCommand =
     if isDarwin then
       {
-        program = "${pkgs.terminal-notifier}/bin/terminal-notifier";
+        program = "/opt/homebrew/bin/tnotify";
         args = [
-          "-title"
+          "-t"
           "Alacritty"
-          "-message"
           "Bell"
-          "-activate"
-          "org.alacritty"
         ];
       }
     else if isLinux then
