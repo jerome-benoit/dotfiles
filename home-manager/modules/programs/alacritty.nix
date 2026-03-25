@@ -20,7 +20,7 @@ let
   bellCommand =
     if isDarwin then
       {
-        program = "/opt/homebrew/bin/tnotify";
+        program = "tnotify";
         args = [
           "-t"
           "Alacritty"
