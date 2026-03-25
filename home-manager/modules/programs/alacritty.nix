@@ -20,10 +20,11 @@ let
   bellCommand =
     if isDarwin then
       {
-        program = "tnotify";
+        program = "grrr";
         args = [
-          "-t"
+          "--title"
           "Alacritty"
+          "--reactivate"
           "Bell"
         ];
       }
