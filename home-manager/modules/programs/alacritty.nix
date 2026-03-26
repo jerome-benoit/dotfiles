@@ -24,7 +24,8 @@ let
         args = [
           "--title"
           "Alacritty"
-          "--reactivate"
+          "--execute"
+          "open -a Alacritty"
           "Bell"
         ];
       }
