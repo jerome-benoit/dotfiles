@@ -104,7 +104,7 @@ in
       '';
     };
     home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (
-      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      lib.hm.dag.entryAfter [ "linkGeneration" ] ''
         _brew=""
         if [[ -f /opt/homebrew/bin/brew ]]; then
           _brew=/opt/homebrew/bin/brew
