@@ -33,6 +33,10 @@ let
       {
         program = "notify-send";
         args = [
+          "-a"
+          "Alacritty"
+          "-i"
+          "alacritty"
           "Alacritty"
           "Bell"
         ];
