@@ -20,7 +20,7 @@ let
   bellCommand =
     if isDarwin then
       {
-        program = "grrr";
+        program = "/opt/homebrew/bin/grrr";
         args = [
           "--title"
           "Alacritty"
