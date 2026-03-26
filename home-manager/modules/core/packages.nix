@@ -97,7 +97,7 @@ in
         cask "gpg-suite@nightly"
         cask "jordanbaird-ice"
         cask "shuttle"
-        brew "moltenbits/tap/growlrrr"
+        cask "growlrrr"
         brew "hai"
         brew "mole"
         brew "steipete/tap/peekaboo"
