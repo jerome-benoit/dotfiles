@@ -23,6 +23,7 @@ in
         "flakes"
       ];
       warn-dirty = false;
+      download-buffer-size = 268435456; # 256MB
     };
 
     nix.gc = {
