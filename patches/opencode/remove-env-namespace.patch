@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index e8f3e6a11e1..69a4f82c85f 100644
+index 6353ca79adf..b9165799fd7 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -453,7 +453,7 @@ export const GithubRunCommand = cmd({
@@ -186,7 +186,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index 0c55187b9dc..a9f2f8ca06a 100644
+index b35f84c8e26..89c96be9721 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -12,16 +12,16 @@ function falsy(key: string) {
@@ -233,20 +233,21 @@ index 0c55187b9dc..a9f2f8ca06a 100644
    export const OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
      copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
    export const OPENCODE_ENABLE_EXA =
-@@ -68,9 +68,9 @@ export namespace Flag {
+@@ -68,10 +68,10 @@ export namespace Flag {
    export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
    export const OPENCODE_EXPERIMENTAL_WORKSPACES = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_WORKSPACES")
    export const OPENCODE_EXPERIMENTAL_MARKDOWN = !falsy("OPENCODE_EXPERIMENTAL_MARKDOWN")
 -  export const OPENCODE_MODELS_URL = process.env["OPENCODE_MODELS_URL"]
 -  export const OPENCODE_MODELS_PATH = process.env["OPENCODE_MODELS_PATH"]
--  export const OPENCODE_DB = process.env["OPENCODE_DB"]
 +  export const OPENCODE_MODELS_URL = process.env.OPENCODE_MODELS_URL
 +  export const OPENCODE_MODELS_PATH = process.env.OPENCODE_MODELS_PATH
+   export const OPENCODE_DISABLE_EMBEDDED_WEB_UI = truthy("OPENCODE_DISABLE_EMBEDDED_WEB_UI")
+-  export const OPENCODE_DB = process.env["OPENCODE_DB"]
 +  export const OPENCODE_DB = process.env.OPENCODE_DB
    export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
    export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
    export const OPENCODE_STRICT_CONFIG_DEPS = truthy("OPENCODE_STRICT_CONFIG_DEPS")
-@@ -99,7 +99,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+@@ -100,7 +100,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -255,7 +256,7 @@ index 0c55187b9dc..a9f2f8ca06a 100644
    },
    enumerable: true,
    configurable: false,
-@@ -110,7 +110,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -111,7 +111,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -264,7 +265,7 @@ index 0c55187b9dc..a9f2f8ca06a 100644
    },
    enumerable: true,
    configurable: false,
-@@ -121,7 +121,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -122,7 +122,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {
