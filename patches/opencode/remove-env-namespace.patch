@@ -82,10 +82,10 @@ index 6353ca79adf..b9165799fd7 100644
            .map((m) => m.trim().toLowerCase())
            .filter(Boolean)
 diff --git a/packages/opencode/src/cli/cmd/tui/context/route.tsx b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-index e96cd2c3a4a..07ca7e9870b 100644
+index 939c2d5dc8a..825820ecba8 100644
 --- a/packages/opencode/src/cli/cmd/tui/context/route.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-@@ -20,8 +20,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
+@@ -26,8 +26,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
    name: "Route",
    init: () => {
      const [store, setStore] = createStore<Route>(
@@ -132,7 +132,7 @@ index 9eaae99fce7..5587c0cb81b 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 41fa4a1ca63..117204eddad 100644
+index 3cbb3416233..0943af06038 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -11,7 +11,6 @@ import fsNode from "fs/promises"
@@ -143,7 +143,7 @@ index 41fa4a1ca63..117204eddad 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1360,7 +1359,6 @@ export namespace Config {
+@@ -1403,7 +1402,6 @@ export namespace Config {
                const token = Option.getOrUndefined(tokenOpt)
                if (token) {
                  process.env["OPENCODE_CONSOLE_TOKEN"] = token
@@ -186,10 +186,10 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index b35f84c8e26..89c96be9721 100644
+index 27190f2eb24..424ae11c749 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
-@@ -12,16 +12,16 @@ function falsy(key: string) {
+@@ -12,19 +12,19 @@ function falsy(key: string) {
  
  export namespace Flag {
    export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
@@ -197,20 +197,23 @@ index b35f84c8e26..89c96be9721 100644
 -  export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
 +  export const OPENCODE_GIT_BASH_PATH = process.env.OPENCODE_GIT_BASH_PATH
 +  export const OPENCODE_CONFIG = process.env.OPENCODE_CONFIG
+   export declare const OPENCODE_PURE: boolean
    export declare const OPENCODE_TUI_CONFIG: string | undefined
    export declare const OPENCODE_CONFIG_DIR: string | undefined
+   export declare const OPENCODE_PLUGIN_META_FILE: string | undefined
 -  export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
 +  export const OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT
    export const OPENCODE_DISABLE_AUTOUPDATE = truthy("OPENCODE_DISABLE_AUTOUPDATE")
    export const OPENCODE_ALWAYS_NOTIFY_UPDATE = truthy("OPENCODE_ALWAYS_NOTIFY_UPDATE")
    export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
    export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
+   export const OPENCODE_SHOW_TTFD = truthy("OPENCODE_SHOW_TTFD")
 -  export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]
 +  export const OPENCODE_PERMISSION = process.env.OPENCODE_PERMISSION
    export const OPENCODE_DISABLE_DEFAULT_PLUGINS = truthy("OPENCODE_DISABLE_DEFAULT_PLUGINS")
    export const OPENCODE_DISABLE_LSP_DOWNLOAD = truthy("OPENCODE_DISABLE_LSP_DOWNLOAD")
    export const OPENCODE_ENABLE_EXPERIMENTAL_MODELS = truthy("OPENCODE_ENABLE_EXPERIMENTAL_MODELS")
-@@ -35,10 +35,10 @@ export namespace Flag {
+@@ -38,10 +38,10 @@ export namespace Flag {
    export const OPENCODE_DISABLE_EXTERNAL_SKILLS =
      OPENCODE_DISABLE_CLAUDE_CODE_SKILLS || truthy("OPENCODE_DISABLE_EXTERNAL_SKILLS")
    export declare const OPENCODE_DISABLE_PROJECT_CONFIG: boolean
@@ -224,7 +227,7 @@ index b35f84c8e26..89c96be9721 100644
    export const OPENCODE_ENABLE_QUESTION_TOOL = truthy("OPENCODE_ENABLE_QUESTION_TOOL")
  
    // Experimental
-@@ -52,7 +52,7 @@ export namespace Flag {
+@@ -55,7 +55,7 @@ export namespace Flag {
    export const OPENCODE_EXPERIMENTAL_ICON_DISCOVERY =
      OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY")
  
@@ -233,7 +236,7 @@ index b35f84c8e26..89c96be9721 100644
    export const OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
      copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
    export const OPENCODE_ENABLE_EXA =
-@@ -68,10 +68,10 @@ export namespace Flag {
+@@ -71,10 +71,10 @@ export namespace Flag {
    export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
    export const OPENCODE_EXPERIMENTAL_WORKSPACES = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_WORKSPACES")
    export const OPENCODE_EXPERIMENTAL_MARKDOWN = !falsy("OPENCODE_EXPERIMENTAL_MARKDOWN")
@@ -247,7 +250,7 @@ index b35f84c8e26..89c96be9721 100644
    export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
    export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
    export const OPENCODE_STRICT_CONFIG_DEPS = truthy("OPENCODE_STRICT_CONFIG_DEPS")
-@@ -100,7 +100,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+@@ -103,7 +103,7 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
  // because tests and external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
    get() {
@@ -256,7 +259,7 @@ index b35f84c8e26..89c96be9721 100644
    },
    enumerable: true,
    configurable: false,
-@@ -111,7 +111,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+@@ -114,7 +114,7 @@ Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
  // because external tooling may set this env var at runtime
  Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
    get() {
@@ -265,7 +268,16 @@ index b35f84c8e26..89c96be9721 100644
    },
    enumerable: true,
    configurable: false,
-@@ -122,7 +122,7 @@ Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+@@ -136,7 +136,7 @@ Object.defineProperty(Flag, "OPENCODE_PURE", {
+ // because tests and external tooling may set this env var at runtime
+ Object.defineProperty(Flag, "OPENCODE_PLUGIN_META_FILE", {
+   get() {
+-    return process.env["OPENCODE_PLUGIN_META_FILE"]
++    return process.env.OPENCODE_PLUGIN_META_FILE
+   },
+   enumerable: true,
+   configurable: false,
+@@ -147,7 +147,7 @@ Object.defineProperty(Flag, "OPENCODE_PLUGIN_META_FILE", {
  // because some commands override the client at runtime
  Object.defineProperty(Flag, "OPENCODE_CLIENT", {
    get() {
@@ -402,18 +414,18 @@ index 123e8aea860..07721c36284 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 6ab45d028b9..615b60b01b9 100644
+index 7fb3166284b..3b9038e8412 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -11,7 +11,6 @@ import { Plugin } from "../plugin"
- import { NamedError } from "@opencode-ai/util/error"
+@@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
+ import { type LanguageModelV3 } from "@ai-sdk/provider"
  import { ModelsDev } from "./models"
  import { Auth } from "../auth"
 -import { Env } from "../env"
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -162,7 +161,7 @@ export namespace Provider {
+@@ -166,7 +165,7 @@ export namespace Provider {
      },
      async opencode(input) {
        const hasKey = await (async () => {
@@ -422,7 +434,7 @@ index 6ab45d028b9..615b60b01b9 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -214,7 +213,7 @@ export namespace Provider {
+@@ -218,7 +217,7 @@ export namespace Provider {
        const resource = iife(() => {
          const name = provider.options?.resourceName
          if (typeof name === "string" && name.trim() !== "") return name
@@ -431,7 +443,7 @@ index 6ab45d028b9..615b60b01b9 100644
        })
  
        return {
-@@ -236,7 +235,7 @@ export namespace Provider {
+@@ -240,7 +239,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -440,7 +452,7 @@ index 6ab45d028b9..615b60b01b9 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -260,18 +259,16 @@ export namespace Provider {
+@@ -264,18 +263,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -462,7 +474,7 @@ index 6ab45d028b9..615b60b01b9 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -282,7 +279,7 @@ export namespace Provider {
+@@ -286,7 +283,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -471,7 +483,7 @@ index 6ab45d028b9..615b60b01b9 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -425,15 +422,15 @@ export namespace Provider {
+@@ -429,15 +426,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -493,7 +505,7 @@ index 6ab45d028b9..615b60b01b9 100644
            "us-central1",
        )
  
-@@ -470,8 +467,8 @@ export namespace Provider {
+@@ -474,8 +471,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -504,7 +516,7 @@ index 6ab45d028b9..615b60b01b9 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -488,8 +485,6 @@ export namespace Provider {
+@@ -492,8 +489,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -513,7 +525,7 @@ index 6ab45d028b9..615b60b01b9 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -522,13 +517,13 @@ export namespace Provider {
+@@ -526,13 +521,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -529,7 +541,7 @@ index 6ab45d028b9..615b60b01b9 100644
        })()
  
        const config = await Config.get()
-@@ -642,11 +637,11 @@ export namespace Provider {
+@@ -663,11 +658,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -543,7 +555,7 @@ index 6ab45d028b9..615b60b01b9 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -669,14 +664,14 @@ export namespace Provider {
+@@ -690,14 +685,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -561,7 +573,7 @@ index 6ab45d028b9..615b60b01b9 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -1043,7 +1038,7 @@ export namespace Provider {
+@@ -1064,7 +1059,7 @@ export namespace Provider {
      }
  
      // load env
@@ -570,7 +582,7 @@ index 6ab45d028b9..615b60b01b9 100644
      for (const [id, provider] of Object.entries(database)) {
        const providerID = ProviderID.make(id)
        if (disabled.has(providerID)) continue
-@@ -1218,7 +1213,7 @@ export namespace Provider {
+@@ -1239,7 +1234,7 @@ export namespace Provider {
          }
  
          url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -592,11 +604,13 @@ index 2a11094f807..b5cd5dd4cc1 100644
  
    export async function init() {
      if (disabled) return
-diff --git a/packages/opencode/src/util/proxied.ts b/packages/opencode/src/util/proxied.ts
-index 440a9cccedb..29214615e6a 100644
---- a/packages/opencode/src/util/proxied.ts
-+++ b/packages/opencode/src/util/proxied.ts
-@@ -1,3 +1,8 @@
+diff --git a/packages/opencode/src/util/network.ts b/packages/opencode/src/util/network.ts
+index 69e5d17588a..8ed608162a2 100644
+--- a/packages/opencode/src/util/network.ts
++++ b/packages/opencode/src/util/network.ts
+@@ -5,5 +5,10 @@ export function online() {
+ }
+ 
  export function proxied() {
 -  return !!(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.https_proxy)
 +  return !!(
@@ -607,10 +621,10 @@ index 440a9cccedb..29214615e6a 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index 33f700ebf22..c566ddf488d 100644
+index ea0a5452000..07baae40268 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
-@@ -197,8 +197,8 @@ test("merges multiple config files with correct precedence", async () => {
+@@ -198,8 +198,8 @@ test("merges multiple config files with correct precedence", async () => {
  })
  
  test("handles environment variable substitution", async () => {
@@ -621,7 +635,7 @@ index 33f700ebf22..c566ddf488d 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -218,16 +218,16 @@ test("handles environment variable substitution", async () => {
+@@ -219,16 +219,16 @@ test("handles environment variable substitution", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -642,7 +656,7 @@ index 33f700ebf22..c566ddf488d 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -256,9 +256,9 @@ test("preserves env variables when adding $schema to config", async () => {
+@@ -257,9 +257,9 @@ test("preserves env variables when adding $schema to config", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -654,7 +668,7 @@ index 33f700ebf22..c566ddf488d 100644
      }
    }
  })
-@@ -1800,8 +1800,8 @@ describe("deduplicatePlugins", () => {
+@@ -1926,8 +1926,8 @@ describe("deduplicatePlugins", () => {
  
  describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
    test("skips project config files when flag is set", async () => {
@@ -665,7 +679,7 @@ index 33f700ebf22..c566ddf488d 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1828,16 +1828,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1954,16 +1954,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -686,7 +700,7 @@ index 33f700ebf22..c566ddf488d 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1859,16 +1859,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1985,16 +1985,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -707,7 +721,7 @@ index 33f700ebf22..c566ddf488d 100644
  
      try {
        await using tmp = await tmpdir()
-@@ -1883,21 +1883,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2009,21 +2009,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -735,7 +749,7 @@ index 33f700ebf22..c566ddf488d 100644
  
        await using tmp = await tmpdir({
          init: async (dir) => {
-@@ -1928,21 +1928,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2054,21 +2054,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -763,7 +777,7 @@ index 33f700ebf22..c566ddf488d 100644
  
      try {
        await using configDirTmp = await tmpdir({
-@@ -1971,8 +1971,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2097,8 +2097,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
          },
        })
  
@@ -774,7 +788,7 @@ index 33f700ebf22..c566ddf488d 100644
  
        await Instance.provide({
          directory: projectTmp.path,
-@@ -1984,14 +1984,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2110,14 +2110,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -793,7 +807,7 @@ index 33f700ebf22..c566ddf488d 100644
        }
      }
    })
-@@ -1999,10 +1999,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2125,10 +2125,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
  
  describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
    test("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
@@ -808,7 +822,7 @@ index 33f700ebf22..c566ddf488d 100644
        $schema: "https://opencode.ai/config.json",
        username: "{env:TEST_CONFIG_VAR}",
      })
-@@ -2018,26 +2018,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2144,26 +2144,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -841,7 +855,7 @@ index 33f700ebf22..c566ddf488d 100644
              $schema: "https://opencode.ai/config.json",
              username: "{file:./api_key.txt}",
            })
-@@ -2052,9 +2052,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2178,9 +2178,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -1185,137 +1199,6 @@ index 3358e923000..2cbda3041f5 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-diff --git a/packages/opencode/test/provider/gitlab-duo.test.ts b/packages/opencode/test/provider/gitlab-duo.test.ts
-index 15c797022d6..701d7179f7c 100644
---- a/packages/opencode/test/provider/gitlab-duo.test.ts
-+++ b/packages/opencode/test/provider/gitlab-duo.test.ts
-@@ -5,7 +5,6 @@ import { ProviderID, ModelID } from "../../src/provider/schema"
- import { tmpdir } from "../fixture/fixture"
- import { Instance } from "../../src/project/instance"
- import { Provider } from "../../src/provider/provider"
--import { Env } from "../../src/env"
- import { Global } from "../../src/global"
- import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
- 
-@@ -23,7 +22,7 @@ test("GitLab Duo: loads provider with API key from environment", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "test-gitlab-token")
-+      process.env.GITLAB_TOKEN = "test-gitlab-token"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -54,8 +53,8 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "test-token")
--      Env.set("GITLAB_INSTANCE_URL", "https://gitlab.example.com")
-+      process.env.GITLAB_TOKEN = "test-token"
-+      process.env.GITLAB_INSTANCE_URL = "https://gitlab.example.com"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -93,7 +92,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "")
-+      process.env.GITLAB_TOKEN = ""
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -128,7 +127,7 @@ test("GitLab Duo: loads with Personal Access Token from auth.json", async () =>
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "")
-+      process.env.GITLAB_TOKEN = ""
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -160,7 +159,7 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_INSTANCE_URL", "https://gitlab.company.internal")
-+      process.env.GITLAB_INSTANCE_URL = "https://gitlab.company.internal"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -191,7 +190,7 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "env-token")
-+      process.env.GITLAB_TOKEN = "env-token"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -214,7 +213,7 @@ test("GitLab Duo: includes context-1m beta header in aiGatewayHeaders", async ()
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "test-token")
-+      process.env.GITLAB_TOKEN = "test-token"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -250,7 +249,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "test-token")
-+      process.env.GITLAB_TOKEN = "test-token"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -275,7 +274,7 @@ test("GitLab Duo: has multiple agentic chat models available", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("GITLAB_TOKEN", "test-token")
-+      process.env.GITLAB_TOKEN = "test-token"
-     },
-     fn: async () => {
-       const providers = await Provider.list()
-@@ -299,7 +298,7 @@ describe("GitLab Duo: workflow model routing", () => {
-     await Instance.provide({
-       directory: tmp.path,
-       init: async () => {
--        Env.set("GITLAB_TOKEN", "test-token")
-+        process.env.GITLAB_TOKEN = "test-token"
-       },
-       fn: async () => {
-         const providers = await Provider.list()
-@@ -347,7 +346,7 @@ describe("GitLab Duo: workflow model routing", () => {
-     await Instance.provide({
-       directory: tmp.path,
-       init: async () => {
--        Env.set("GITLAB_TOKEN", "test-token")
-+        process.env.GITLAB_TOKEN = "test-token"
-       },
-       fn: async () => {
-         const providers = await Provider.list()
-@@ -370,7 +369,7 @@ describe("GitLab Duo: workflow model routing", () => {
-     await Instance.provide({
-       directory: tmp.path,
-       init: async () => {
--        Env.set("GITLAB_TOKEN", "test-token")
-+        process.env.GITLAB_TOKEN = "test-token"
-       },
-       fn: async () => {
-         const providers = await Provider.list()
-@@ -394,7 +393,7 @@ describe("GitLab Duo: static models", () => {
-     await Instance.provide({
-       directory: tmp.path,
-       init: async () => {
--        Env.set("GITLAB_TOKEN", "test-token")
-+        process.env.GITLAB_TOKEN = "test-token"
-       },
-       fn: async () => {
-         const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
 index 72ba9dba5a5..2efd9f3358c 100644
 --- a/packages/opencode/test/provider/provider.test.ts

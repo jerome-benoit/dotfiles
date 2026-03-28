@@ -1,8 +1,15 @@
 diff --git a/packages/opencode/src/bun/index.ts b/packages/opencode/src/bun/index.ts
-index d6c45382592..39f5ebb0065 100644
+index dbdf5a2bc42..b4e8ba37030 100644
 --- a/packages/opencode/src/bun/index.ts
 +++ b/packages/opencode/src/bun/index.ts
-@@ -12,6 +12,13 @@ import { Process } from "../util/process"
+@@ -6,12 +6,19 @@ import { Filesystem } from "../util/filesystem"
+ import { NamedError } from "@opencode-ai/util/error"
+ import { Lock } from "../util/lock"
+ import { PackageRegistry } from "./registry"
+-import { online, proxied } from "@/util/network"
++import { proxied } from "@/util/network"
+ import { Process } from "../util/process"
+ 
  export namespace BunProc {
    const log = Log.create({ service: "bun" })
  
@@ -16,7 +23,7 @@ index d6c45382592..39f5ebb0065 100644
    export async function run(cmd: string[], options?: Process.RunOptions) {
      const full = [which(), ...cmd]
      log.info("running", {
-@@ -50,78 +57,99 @@ export namespace BunProc {
+@@ -50,79 +57,99 @@ export namespace BunProc {
      }),
    )
  
@@ -82,12 +89,13 @@ index d6c45382592..39f5ebb0065 100644
 -
 -    if (!modExists || !cachedVersion) {
 -      // continue to install
--    } else if (version !== "latest" && cachedVersion === version) {
--      return mod
 -    } else if (version === "latest") {
--      const isOutdated = await PackageRegistry.isOutdated(pkg, cachedVersion, Global.Path.cache)
--      if (!isOutdated) return mod
+-      if (!online()) return mod
+-      const stale = await PackageRegistry.isOutdated(pkg, cachedVersion, Global.Path.cache)
+-      if (!stale) return mod
 -      log.info("Cached version is outdated, proceeding with install", { pkg, cachedVersion })
+-    } else if (cachedVersion === version) {
+-      return mod
 +    if (version !== "latest") {
 +      if (cached === version && modExists) {
 +        await finalize(provider, pkg, oldPkg)
@@ -178,14 +186,15 @@ index d6c45382592..39f5ebb0065 100644
    }
  }
 diff --git a/packages/opencode/src/bun/registry.ts b/packages/opencode/src/bun/registry.ts
-index e43e20e6c5a..c3a03bd09c2 100644
+index dead5e74d7c..daab5e8d0ee 100644
 --- a/packages/opencode/src/bun/registry.ts
 +++ b/packages/opencode/src/bun/registry.ts
-@@ -1,16 +1,13 @@
+@@ -1,22 +1,19 @@
  import semver from "semver"
  import { Log } from "../util/log"
  import { Process } from "../util/process"
 +import { BunProc } from "."
+ import { online } from "@/util/network"
  
  export namespace PackageRegistry {
    const log = Log.create({ service: "bun" })
@@ -195,12 +204,17 @@ index e43e20e6c5a..c3a03bd09c2 100644
 -  }
 -
    export async function info(pkg: string, field: string, cwd?: string): Promise<string | null> {
+     if (!online()) {
+       log.debug("offline, skipping bun info", { pkg, field })
+       return null
+     }
+ 
 -    const { code, stdout, stderr } = await Process.run([which(), "info", pkg, field], {
 +    const { code, stdout, stderr } = await Process.run([BunProc.which(), "info", pkg, field], {
        cwd,
        env: {
          ...process.env,
-@@ -29,7 +26,9 @@ export namespace PackageRegistry {
+@@ -35,7 +32,9 @@ export namespace PackageRegistry {
      return value
    }
  
@@ -228,10 +242,10 @@ index 869019e2ce7..32ec45fcbe5 100644
      state,
    }
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 6ab45d028b9..32199dace26 100644
+index 7fb3166284b..f413cd534fb 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -1296,7 +1296,7 @@ export namespace Provider {
+@@ -1326,7 +1326,7 @@ export namespace Provider {
  
        let installedPath: string
        if (!model.api.npm.startsWith("file://")) {

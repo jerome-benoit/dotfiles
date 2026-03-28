@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index eaf212d5..38a6890c 100644
+index 68d70c77..33e21706 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -147,6 +147,14 @@ index eaf212d5..38a6890c 100644
 @@ -238,6 +292,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Unsupported,
+     },
+     AgentDef {
+         name: "droid",
+@@ -251,6 +306,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_droid_status,
+         container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
      },
@@ -1812,10 +1820,10 @@ index 00000000..4b9eb19e
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index b7ba9dc8..16f576e8 100644
+index 2afa2e63..e6ef80d2 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
-@@ -345,7 +345,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
+@@ -356,7 +356,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -1823,7 +1831,7 @@ index b7ba9dc8..16f576e8 100644
      if dest.exists() {
          if let Ok(existing_content) = std::fs::read_to_string(dest) {
              if !should_overwrite_credential(&existing_content, trimmed) {
-@@ -426,14 +425,8 @@ pub(crate) fn compute_volume_paths(
+@@ -437,14 +436,8 @@ pub(crate) fn compute_volume_paths(
      project_path: &Path,
      project_path_str: &str,
  ) -> Result<(Vec<VolumeMount>, String)> {
@@ -1840,7 +1848,7 @@ index b7ba9dc8..16f576e8 100644
      if project_path.join(".git").exists() {
          if let Ok(main_repo) = GitWorktree::find_main_repo(project_path) {
              // Canonicalize paths for reliable comparison (handles symlinks like /tmp -> /private/tmp)
-@@ -449,8 +442,6 @@ pub(crate) fn compute_volume_paths(
+@@ -460,8 +453,6 @@ pub(crate) fn compute_volume_paths(
              // resolves correctly inside the container.
              if main_repo_canonical != project_canonical {
                  if project_canonical.starts_with(&main_repo_canonical) {
@@ -1849,7 +1857,7 @@ index b7ba9dc8..16f576e8 100644
                      let name = main_repo_canonical
                          .file_name()
                          .map(|n| n.to_string_lossy().to_string())
-@@ -475,11 +466,8 @@ pub(crate) fn compute_volume_paths(
+@@ -486,11 +477,8 @@ pub(crate) fn compute_volume_paths(
                          working_dir,
                      ));
                  } else {
@@ -1863,7 +1871,7 @@ index b7ba9dc8..16f576e8 100644
                      let common = common_ancestor(&main_repo_canonical, &project_canonical);
                      let repo_rel = main_repo_canonical
                          .strip_prefix(&common)
-@@ -511,7 +499,6 @@ pub(crate) fn compute_volume_paths(
+@@ -522,7 +510,6 @@ pub(crate) fn compute_volume_paths(
          }
      }
  
@@ -1871,7 +1879,7 @@ index b7ba9dc8..16f576e8 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -678,9 +665,7 @@ pub(crate) fn build_container_config(
+@@ -689,9 +676,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -1882,7 +1890,7 @@ index b7ba9dc8..16f576e8 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -708,8 +693,6 @@ pub(crate) fn build_container_config(
+@@ -719,8 +704,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
@@ -1892,7 +1900,7 @@ index b7ba9dc8..16f576e8 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 9fa9df10..181082a8 100644
+index 5ca9f8ea..26238d20 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2207,7 +2215,7 @@ index 9fa9df10..181082a8 100644
  
          let env_args = build_docker_env_args(sandbox);
          let env_part = if env_args.is_empty() {
-@@ -358,36 +608,61 @@ impl Instance {
+@@ -358,192 +608,268 @@ impl Instance {
              return Ok(());
          }
  
@@ -2291,11 +2299,36 @@ index 9fa9df10..181082a8 100644
 +    ///
 +    /// For sandboxed sessions hooks are installed via `build_container_config`,
 +    /// so this only acts on host sessions by writing to the user's home directory.
++    /// Respects the `agent_status_hooks` config setting.
 +    fn install_agent_status_hooks(&self, agent: Option<&'static crate::agents::AgentDef>) {
-         if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
-             if self.is_sandboxed() {
-                 // For sandboxed sessions, hooks are installed via build_container_config
-@@ -401,143 +676,193 @@ impl Instance {
+         let hooks_enabled = crate::session::config::Config::load()
+             .map(|c| c.session.agent_status_hooks)
+             .unwrap_or(true);
+-        if hooks_enabled {
+-            if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
+-                if self.is_sandboxed() {
+-                    // For sandboxed sessions, hooks are installed via build_container_config
+-                } else {
+-                    // Install hooks in the user's home directory settings
+-                    if let Some(home) = dirs::home_dir() {
+-                        let settings_path = home.join(hook_cfg.settings_rel_path);
+-                        if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events)
+-                        {
+-                            tracing::warn!("Failed to install agent hooks: {}", e);
+-                        }
++        if !hooks_enabled {
++            return;
++        }
++        if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
++            if self.is_sandboxed() {
++                // For sandboxed sessions, hooks are installed via build_container_config
++            } else {
++                // Install hooks in the user's home directory settings
++                if let Some(home) = dirs::home_dir() {
++                    let settings_path = home.join(hook_cfg.settings_rel_path);
++                    if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events) {
++                        tracing::warn!("Failed to install agent hooks: {}", e);
+                     }
                  }
              }
          }
@@ -2602,7 +2635,7 @@ index 9fa9df10..181082a8 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -586,9 +911,13 @@ impl Instance {
+@@ -592,9 +918,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2617,7 +2650,7 @@ index 9fa9df10..181082a8 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -596,24 +925,110 @@ impl Instance {
+@@ -602,24 +932,111 @@ impl Instance {
          )
      }
  
@@ -2689,8 +2722,9 @@ index 9fa9df10..181082a8 100644
 +
 +    fn stop_poller(&self) {
 +        if let Some(ref poller_arc) = self.session_id_poller {
-+            if let Ok(mut poller) = poller_arc.lock() {
-+                poller.stop();
++            match poller_arc.lock() {
++                Ok(mut poller) => poller.stop(),
++                Err(e) => e.into_inner().stop(),
 +            }
 +        }
 +    }
@@ -2732,7 +2766,7 @@ index 9fa9df10..181082a8 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1111,6 +1526,274 @@ mod tests {
+@@ -1117,6 +1534,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3007,7 +3041,7 @@ index 9fa9df10..181082a8 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1166,4 +1849,39 @@ mod tests {
+@@ -1172,4 +1857,39 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -3048,7 +3082,7 @@ index 9fa9df10..181082a8 100644
 +    }
  }
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index 9c5ec239..c31ccd0e 100644
+index 271170e2..e6c2f894 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -1,17 +1,20 @@
@@ -3058,7 +3092,7 @@ index 9c5ec239..c31ccd0e 100644
 +pub(crate) mod capture;
  pub mod civilizations;
  pub mod config;
- mod container_config;
+ pub(crate) mod container_config;
  mod environment;
  mod groups;
  mod instance;
@@ -3074,10 +3108,10 @@ index 9c5ec239..c31ccd0e 100644
      ContainerRuntimeName, DefaultTerminalMode, SandboxConfig, SessionConfig, ThemeConfig,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
-index 00000000..d9c2b158
+index 00000000..937d3841
 --- /dev/null
 +++ b/src/session/poller.rs
-@@ -0,0 +1,845 @@
+@@ -0,0 +1,847 @@
 +//! Adaptive polling interval and command channel for session monitoring
 +
 +use std::sync::atomic::{AtomicU32, Ordering};
@@ -3463,7 +3497,9 @@ index 00000000..d9c2b158
 +    pub fn stop(&mut self) {
 +        let _ = self.cmd_tx.send(PollCommand::Stop);
 +        if let Some(handle) = self.handle.take() {
-+            let _ = handle.join();
++            if let Err(e) = handle.join() {
++                tracing::warn!("Poller thread panicked: {:?}", e);
++            }
 +        }
 +    }
 +
@@ -4414,7 +4450,7 @@ index 7fd138a0..0375bbfa 100644
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index d4a50233..5327dddf 100644
+index 3e6c0a4a..16e32290 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -1,4 +1,4 @@
@@ -4424,10 +4460,10 @@ index d4a50233..5327dddf 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 4833b9e9..9d61c090 100644
+index 2833a871..dd56f89c 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -211,6 +211,10 @@ impl App {
+@@ -242,6 +242,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4438,7 +4474,7 @@ index 4833b9e9..9d61c090 100644
              // Check for and apply creation results (non-blocking)
              if let Some(session_id) = self.home.apply_creation_results() {
                  // Creation succeeded - attach to the new session
-@@ -240,6 +244,7 @@ impl App {
+@@ -271,6 +275,7 @@ impl App {
              }
          }
  
@@ -4446,7 +4482,7 @@ index 4833b9e9..9d61c090 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -406,10 +411,8 @@ impl App {
+@@ -437,10 +442,8 @@ impl App {
          } else {
              !instance.expects_shell() && tmux_session.is_pane_running_shell()
          };
@@ -4458,7 +4494,7 @@ index 4833b9e9..9d61c090 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -425,17 +428,16 @@ impl App {
+@@ -456,17 +459,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4483,7 +4519,7 @@ index 4833b9e9..9d61c090 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -445,17 +447,15 @@ impl App {
+@@ -476,17 +478,15 @@ impl App {
                  }
              }
  
@@ -4505,7 +4541,7 @@ index 4833b9e9..9d61c090 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -465,6 +465,10 @@ impl App {
+@@ -496,6 +496,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
