@@ -17,19 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.direnv = {
       enable = true;
-      # See https://github.com/NixOS/nixpkgs/pull/502769
-      package =
-        if pkgs.stdenv.isDarwin then
-          pkgs.direnv.overrideAttrs (old: {
-            env = (old.env or { }) // {
-              CGO_ENABLED = 0;
-            };
-            postPatch = (old.postPatch or "") + ''
-              substituteInPlace GNUmakefile --replace-fail " -linkmode=external" ""
-            '';
-          })
-        else
-          mkSystemPackage "direnv" { };
+      package = if pkgs.stdenv.isDarwin then pkgs.direnv else mkSystemPackage "direnv" { };
       nix-direnv.enable = true;
       enableZshIntegration = false;
     };
