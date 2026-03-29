@@ -36,11 +36,7 @@ in
       pkgs.autoconf
       pkgs.automake
       pkgs.bat
-      (pkgs.bruno.override {
-        nodejs_22 = pkgs.nodejs_22.override {
-          nodejs-slim = pkgs.nodejs-slim_22.overrideAttrs { doCheck = false; };
-        };
-      })
+      pkgs.bruno
       pkgs.chroma
       pkgs.cloudfoundry-cli
       pkgs.cmake
@@ -80,9 +76,7 @@ in
       pkgs.uv
       pkgs.vscode
       pkgs.yq
-      (pkgs.zed-editor.overrideAttrs (oldAttrs: {
-        doCheck = false;
-      }))
+      pkgs.zed-editor
       pkgs.zoom-us
     ];
 
