@@ -22,10 +22,6 @@ let
           # https://github.com/anomalyco/opencode/pull/10275
           (self + "/patches/opencode/bun-track-provider-packages.patch")
         ];
-        # Workaround for https://github.com/anomalyco/opencode/issues/19307
-        buildPhase = builtins.replaceStrings [ "--skip-install" ] [ "--skip-install --skip-embed-web-ui" ] (
-          oldAttrs.buildPhase or ""
-        );
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =
           (oldAttrs.postFixup or "")
