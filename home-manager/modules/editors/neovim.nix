@@ -493,9 +493,9 @@ in
 
       extraPackages = [
         # LSP Servers
-        pkgs.nodePackages.bash-language-server
+        pkgs.bash-language-server
         pkgs.pyright
-        pkgs.nodePackages.typescript-language-server
+        pkgs.typescript-language-server
         pkgs.gopls
         pkgs.rust-analyzer
         pkgs.nixd
@@ -503,7 +503,7 @@ in
 
         # Formatters
         pkgs.stylua
-        pkgs.nodePackages.prettier
+        pkgs.prettier
         pkgs.nixfmt
         pkgs.ruff
 
