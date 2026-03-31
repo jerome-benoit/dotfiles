@@ -4460,10 +4460,10 @@ index 3e6c0a4a..16e32290 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 2833a871..dd56f89c 100644
+index 0a119cc6..1b6b74ef 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -242,6 +242,10 @@ impl App {
+@@ -254,6 +254,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4474,7 +4474,7 @@ index 2833a871..dd56f89c 100644
              // Check for and apply creation results (non-blocking)
              if let Some(session_id) = self.home.apply_creation_results() {
                  // Creation succeeded - attach to the new session
-@@ -271,6 +275,7 @@ impl App {
+@@ -283,6 +287,7 @@ impl App {
              }
          }
  
@@ -4482,7 +4482,7 @@ index 2833a871..dd56f89c 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -437,10 +442,8 @@ impl App {
+@@ -449,10 +454,8 @@ impl App {
          } else {
              !instance.expects_shell() && tmux_session.is_pane_running_shell()
          };
@@ -4494,7 +4494,7 @@ index 2833a871..dd56f89c 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -456,17 +459,16 @@ impl App {
+@@ -468,17 +471,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4519,7 +4519,7 @@ index 2833a871..dd56f89c 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -476,17 +478,15 @@ impl App {
+@@ -488,17 +490,15 @@ impl App {
                  }
              }
  
@@ -4541,7 +4541,7 @@ index 2833a871..dd56f89c 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -496,6 +496,10 @@ impl App {
+@@ -508,6 +508,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  

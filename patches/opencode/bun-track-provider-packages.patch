@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/bun/index.ts b/packages/opencode/src/bun/index.ts
-index dbdf5a2bc42..b4e8ba37030 100644
+index dbdf5a2bc421..b4e8ba370304 100644
 --- a/packages/opencode/src/bun/index.ts
 +++ b/packages/opencode/src/bun/index.ts
 @@ -6,12 +6,19 @@ import { Filesystem } from "../util/filesystem"
@@ -186,7 +186,7 @@ index dbdf5a2bc42..b4e8ba37030 100644
    }
  }
 diff --git a/packages/opencode/src/bun/registry.ts b/packages/opencode/src/bun/registry.ts
-index dead5e74d7c..daab5e8d0ee 100644
+index dead5e74d7c0..daab5e8d0eea 100644
 --- a/packages/opencode/src/bun/registry.ts
 +++ b/packages/opencode/src/bun/registry.ts
 @@ -1,22 +1,19 @@
@@ -226,7 +226,7 @@ index dead5e74d7c..daab5e8d0ee 100644
      if (!latestVersion) {
        log.warn("Failed to resolve latest version, using cached", { pkg, cachedVersion })
 diff --git a/packages/opencode/src/global/index.ts b/packages/opencode/src/global/index.ts
-index 869019e2ce7..32ec45fcbe5 100644
+index 869019e2ce74..32ec45fcbe5b 100644
 --- a/packages/opencode/src/global/index.ts
 +++ b/packages/opencode/src/global/index.ts
 @@ -20,7 +20,10 @@ export namespace Global {
@@ -242,20 +242,20 @@ index 869019e2ce7..32ec45fcbe5 100644
      state,
    }
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 7fb3166284b..f413cd534fb 100644
+index c6784f450244..a20663832dab 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -1326,7 +1326,7 @@ export namespace Provider {
+@@ -1364,7 +1364,7 @@ export namespace Provider {
  
-       let installedPath: string
-       if (!model.api.npm.startsWith("file://")) {
--        installedPath = await BunProc.install(model.api.npm, "latest")
-+        installedPath = await BunProc.install(model.api.npm, "latest", model.providerID)
-       } else {
-         log.info("loading local provider", { pkg: model.api.npm })
-         installedPath = model.api.npm
+           let installedPath: string
+           if (!model.api.npm.startsWith("file://")) {
+-            installedPath = await BunProc.install(model.api.npm, "latest")
++            installedPath = await BunProc.install(model.api.npm, "latest", model.providerID)
+           } else {
+             log.info("loading local provider", { pkg: model.api.npm })
+             installedPath = model.api.npm
 diff --git a/packages/opencode/test/bun.test.ts b/packages/opencode/test/bun.test.ts
-index d607ae47820..ed14d4cb447 100644
+index d607ae47820f..ed14d4cb4475 100644
 --- a/packages/opencode/test/bun.test.ts
 +++ b/packages/opencode/test/bun.test.ts
 @@ -1,53 +1,402 @@
