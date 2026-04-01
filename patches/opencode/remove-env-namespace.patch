@@ -132,7 +132,7 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index ad804c892f2f..41f63793d41a 100644
+index f86d8d32af60..1f4df46db631 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -10,7 +10,6 @@ import fsNode from "fs/promises"
@@ -143,7 +143,7 @@ index ad804c892f2f..41f63793d41a 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1387,7 +1386,6 @@ export namespace Config {
+@@ -1390,7 +1389,6 @@ export namespace Config {
                const token = Option.getOrUndefined(tokenOpt)
                if (token) {
                  process.env["OPENCODE_CONSOLE_TOKEN"] = token
@@ -414,7 +414,7 @@ index 123e8aea8601..07721c362845 100644
  
        if (!bin) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index c6784f450244..56a267ecad42 100644
+index b2f7d848d0f0..5747b58f49bb 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -573,15 +573,6 @@ index c6784f450244..56a267ecad42 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -967,7 +962,7 @@ export namespace Provider {
-       const config = yield* Config.Service
-       const auth = yield* Auth.Service
- 
--      const cache = yield* InstanceState.make<State>(() =>
-+      const cache = yield* InstanceState.make<State>( () =>
-         Effect.gen(function* () {
-           using _ = log.time("state")
-           const cfg = yield* config.get()
 @@ -1103,7 +1098,7 @@ export namespace Provider {
            }
  
@@ -630,7 +621,7 @@ index 69e5d17588ac..8ed608162a2e 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index d06bdf12a6c5..b5d35b9aa0f0 100644
+index ef71ca8cf683..980fb931365a 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
 @@ -198,8 +198,8 @@ test("merges multiple config files with correct precedence", async () => {
@@ -677,7 +668,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
      }
    }
  })
-@@ -1956,8 +1956,8 @@ describe("deduplicatePlugins", () => {
+@@ -1957,8 +1957,8 @@ describe("deduplicatePlugins", () => {
  
  describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
    test("skips project config files when flag is set", async () => {
@@ -688,7 +679,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -1984,16 +1984,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -1985,16 +1985,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -709,7 +700,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -2015,16 +2015,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2016,16 +2016,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -730,7 +721,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
  
      try {
        await using tmp = await tmpdir()
-@@ -2039,21 +2039,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2040,21 +2040,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -758,7 +749,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
  
        await using tmp = await tmpdir({
          init: async (dir) => {
-@@ -2084,21 +2084,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2085,21 +2085,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -786,7 +777,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
  
      try {
        await using configDirTmp = await tmpdir({
-@@ -2127,8 +2127,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2128,8 +2128,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
          },
        })
  
@@ -797,7 +788,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
  
        await Instance.provide({
          directory: projectTmp.path,
-@@ -2140,14 +2140,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2141,14 +2141,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -816,7 +807,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
        }
      }
    })
-@@ -2155,10 +2155,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2156,10 +2156,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
  
  describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
    test("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
@@ -831,7 +822,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
        $schema: "https://opencode.ai/config.json",
        username: "{env:TEST_CONFIG_VAR}",
      })
-@@ -2174,26 +2174,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2175,26 +2175,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -864,7 +855,7 @@ index d06bdf12a6c5..b5d35b9aa0f0 100644
              $schema: "https://opencode.ai/config.json",
              username: "{file:./api_key.txt}",
            })
-@@ -2208,9 +2208,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2209,9 +2209,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -969,7 +960,7 @@ index e10700e80ffe..c366bab07044 100644
      expect(Ide.alreadyInstalled()).toBe(false)
    })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 0ddc797faf7f..b2552469d166 100644
+index 0ddc797faf7f..503e54e775c5 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -4,7 +4,7 @@ import os from "os"
@@ -1012,7 +1003,7 @@ index 0ddc797faf7f..b2552469d166 100644
  
  // Write the cache version file to prevent global/index.ts from clearing the cache
  const cacheDir = path.join(dir, "cache", "opencode")
-@@ -52,27 +52,27 @@ await fs.mkdir(cacheDir, { recursive: true })
+@@ -52,30 +52,30 @@ await fs.mkdir(cacheDir, { recursive: true })
  await fs.writeFile(path.join(cacheDir, "version"), "14")
  
  // Clear provider and server auth env vars to ensure clean test state
@@ -1060,8 +1051,12 @@ index 0ddc797faf7f..b2552469d166 100644
 +delete process.env.OPENCODE_SERVER_USERNAME
  
  // Use in-memory sqlite
- process.env["OPENCODE_DB"] = ":memory:"
-@@ -88,3 +88,28 @@ Log.init({
+-process.env["OPENCODE_DB"] = ":memory:"
++process.env.OPENCODE_DB = ":memory:"
+ 
+ // Now safe to import from src/
+ const { Log } = await import("../src/util/log")
+@@ -88,3 +88,27 @@ Log.init({
  })
  
  initProjectors()
@@ -1089,7 +1084,6 @@ index 0ddc797faf7f..b2552469d166 100644
 +    }
 +  }
 +})
-+
 diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
 index 3358e9230000..2cbda3041f54 100644
 --- a/packages/opencode/test/provider/amazon-bedrock.test.ts

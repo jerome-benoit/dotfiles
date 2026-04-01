@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/bun/index.ts b/packages/opencode/src/bun/index.ts
-index dbdf5a2bc421..b4e8ba370304 100644
+index 589414a0256c..702c931f3fb8 100644
 --- a/packages/opencode/src/bun/index.ts
 +++ b/packages/opencode/src/bun/index.ts
 @@ -6,12 +6,19 @@ import { Filesystem } from "../util/filesystem"
@@ -23,11 +23,11 @@ index dbdf5a2bc421..b4e8ba370304 100644
    export async function run(cmd: string[], options?: Process.RunOptions) {
      const full = [which(), ...cmd]
      log.info("running", {
-@@ -50,79 +57,99 @@ export namespace BunProc {
+@@ -50,80 +57,106 @@ export namespace BunProc {
      }),
    )
  
--  export async function install(pkg: string, version = "latest") {
+-  export async function install(pkg: string, version = "latest", opts?: { ignoreScripts?: boolean }) {
 -    // Use lock to ensure only one install at a time
 +  async function readPackageJson(): Promise<PackageJson> {
 +    const pkgjsonPath = path.join(Global.Path.cache, "package.json")
@@ -63,13 +63,19 @@ index dbdf5a2bc421..b4e8ba370304 100644
 +  }
 +
 +  async function finalize(provider: string | undefined, pkg: string, oldPkg: string | undefined) {
-+    if (provider) await track(provider, pkg)
-+    if (oldPkg && oldPkg !== pkg) await cleanup(provider!, oldPkg)
++    if (!provider) return
++    await track(provider, pkg)
++    if (oldPkg && oldPkg !== pkg) await cleanup(provider, oldPkg)
 +  }
 +
-+  export async function install(pkg: string, version = "latest", provider?: string) {
++  export async function install(
++    pkg: string,
++    version = "latest",
++    opts?: { provider?: string; ignoreScripts?: boolean },
++  ) {
      using _ = await Lock.write("bun-install")
  
++    const provider = opts?.provider
      const mod = path.join(Global.Path.cache, "node_modules", pkg)
 -    const pkgjsonPath = path.join(Global.Path.cache, "package.json")
 -    const parsed = await Filesystem.readJson<{ dependencies: Record<string, string> }>(pkgjsonPath).catch(async () => {
@@ -115,6 +121,7 @@ index dbdf5a2bc421..b4e8ba370304 100644
 -      "add",
 -      "--force",
 -      "--exact",
+-      ...(opts?.ignoreScripts ? ["--ignore-scripts"] : []),
 -      // TODO: get rid of this case (see: https://github.com/oven-sh/bun/issues/19936)
 -      ...(proxied() || process.env.CI ? ["--no-cache"] : []),
 -      "--cwd",
@@ -146,6 +153,7 @@ index dbdf5a2bc421..b4e8ba370304 100644
 +        "add",
 +        "--force",
 +        "--exact",
++        ...(opts?.ignoreScripts ? ["--ignore-scripts"] : []),
 +        // TODO: get rid of this case (see: https://github.com/oven-sh/bun/issues/19936)
 +        ...(proxied() || process.env.CI ? ["--no-cache"] : []),
 +        "--cwd",
@@ -181,7 +189,7 @@ index dbdf5a2bc421..b4e8ba370304 100644
  
 -    parsed.dependencies[pkg] = resolvedVersion
 -    await Filesystem.writeJson(pkgjsonPath, parsed)
-+    if (oldPkg && oldPkg !== pkg) await cleanup(provider!, oldPkg)
++    if (provider && oldPkg && oldPkg !== pkg) await cleanup(provider, oldPkg)
      return mod
    }
  }
@@ -242,7 +250,7 @@ index 869019e2ce74..32ec45fcbe5b 100644
      state,
    }
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index c6784f450244..a20663832dab 100644
+index b2f7d848d0f0..3c44a2dd02ca 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -1364,7 +1364,7 @@ export namespace Provider {
@@ -250,20 +258,24 @@ index c6784f450244..a20663832dab 100644
            let installedPath: string
            if (!model.api.npm.startsWith("file://")) {
 -            installedPath = await BunProc.install(model.api.npm, "latest")
-+            installedPath = await BunProc.install(model.api.npm, "latest", model.providerID)
++            installedPath = await BunProc.install(model.api.npm, "latest", { provider: model.providerID })
            } else {
              log.info("loading local provider", { pkg: model.api.npm })
              installedPath = model.api.npm
 diff --git a/packages/opencode/test/bun.test.ts b/packages/opencode/test/bun.test.ts
-index d607ae47820f..ed14d4cb4475 100644
+index db3fa2a28cc9..f5635cc9ca11 100644
 --- a/packages/opencode/test/bun.test.ts
 +++ b/packages/opencode/test/bun.test.ts
-@@ -1,53 +1,402 @@
- import { describe, expect, test } from "bun:test"
+@@ -1,58 +1,409 @@
+ import { describe, expect, spyOn, test } from "bun:test"
 -import fs from "fs/promises"
 +import * as fs from "fs/promises"
  import path from "path"
 +import { tmpdir } from "./fixture/fixture"
+ import { BunProc } from "../src/bun"
+ import { PackageRegistry } from "../src/bun/registry"
+ import { Global } from "../src/global"
+ import { Process } from "../src/util/process"
  
 -describe("BunProc registry configuration", () => {
 -  test("should not contain hardcoded registry parameters", async () => {
@@ -302,32 +314,58 @@ index d607ae47820f..ed14d4cb4475 100644
 +
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({ dependencies: { zod: "3.23.0" } }))
 +
-+    await expect(BunProc.install("@nonexistent-pkg-xyz/does-not-exist", "1.0.0", "test")).rejects.toThrow()
-+
++    await expect(
++      BunProc.install("@nonexistent-pkg-xyz/does-not-exist", "1.0.0", { provider: "test" }),
++    ).rejects.toThrow()
+ 
+-    // Verify that it uses Bun's default resolution
+-    expect(content).toContain("Bun's default registry resolution")
+-    expect(content).toContain("Bun will use them automatically")
+-    expect(content).toContain("No need to pass --registry flag")
 +    const pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    expect(pkg.dependencies?.zod).toBe("3.23.0")
 +    expect(pkg.dependencies?.["@nonexistent-pkg-xyz/does-not-exist"]).toBeUndefined()
 +    expect(pkg.opencode?.providers?.test).toBeUndefined()
 +
 +    delete process.env.OPENCODE_TEST_CACHE
-+  })
+   })
 +})
-+
+ 
+-  test("should have correct command structure without registry", async () => {
+-    // Read the bun/index.ts file
+-    const bunIndexPath = path.join(__dirname, "../src/bun/index.ts")
+-    const content = await fs.readFile(bunIndexPath, "utf-8")
 +describe("BunProc.install - version=latest", () => {
 +  test("installs and tracks provider", async () => {
 +    await using tmp = await tmpdir()
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
-+
-+    const mod = await BunProc.install("zod", "latest", "anthropic")
-+
+ 
+-    // Extract the install function
+-    const installFunctionMatch = content.match(/export async function install[\s\S]*?^  }/m)
+-    expect(installFunctionMatch).toBeTruthy()
++    const mod = await BunProc.install("zod", "latest", { provider: "anthropic" })
+ 
+-    if (installFunctionMatch) {
+-      const installFunction = installFunctionMatch[0]
 +    expect(mod).toContain(path.join("node_modules", "zod"))
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
-+
+ 
+-      // Verify expected arguments are present
+-      expect(installFunction).toContain('"add"')
+-      expect(installFunction).toContain('"--force"')
+-      expect(installFunction).toContain('"--exact"')
+-      expect(installFunction).toContain('"--cwd"')
+-      expect(installFunction).toContain("Global.Path.cache")
+-      expect(installFunction).toContain('pkg + "@" + version')
 +    const pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    expect(pkg.opencode?.providers?.anthropic).toBe("zod")
 +    expect(SEMVER_REGEX.test(pkg.dependencies?.zod)).toBe(true)
-+
+ 
+-      // Verify no registry argument is added
+-      expect(installFunction).not.toContain('"--registry"')
+-      expect(installFunction).not.toContain('args.push("--registry')
+-    }
 +    delete process.env.OPENCODE_TEST_CACHE
 +  })
 +
@@ -336,13 +374,13 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
 +
 +    const pkgAfterFirst = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    const versionAfterFirst = pkgAfterFirst.dependencies?.zod
 +
-+    await BunProc.install("zod", "latest", "anthropic")
-+    await BunProc.install("zod", "latest", "openai")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
++    await BunProc.install("zod", "latest", { provider: "openai" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -359,14 +397,14 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
 +
 +    const pkgAfterFirst = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    const versionAfterFirst = pkgAfterFirst.dependencies?.zod
 +
 +    await fs.rm(path.join(tmp.path, "node_modules"), { recursive: true, force: true })
 +
-+    await BunProc.install("zod", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -385,7 +423,7 @@ index d607ae47820f..ed14d4cb4475 100644
 +    await Bun.write(path.join(tmp.path, "node_modules", "zod", "package.json"), JSON.stringify({ version: "3.20.0" }))
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({ dependencies: { zod: "3.20.0" } }))
 +
-+    await BunProc.install("zod", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
 +
 +    const pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    expect(SEMVER_REGEX.test(pkg.dependencies?.zod)).toBe(true)
@@ -403,7 +441,7 @@ index d607ae47820f..ed14d4cb4475 100644
 +    await Bun.write(path.join(tmp.path, "node_modules", "zod", "package.json"), JSON.stringify({ version: "3.22.0" }))
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({}))
 +
-+    await BunProc.install("zod", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -421,7 +459,7 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "3.23.0", "anthropic")
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -437,9 +475,9 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "3.23.0", "anthropic")
-+    await BunProc.install("zod", "3.23.0", "anthropic")
-+    await BunProc.install("zod", "3.23.0", "openai")
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
++    await BunProc.install("zod", "3.23.0", { provider: "openai" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -456,8 +494,8 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "3.23.0", "anthropic")
-+    await BunProc.install("zod", "3.24.0", "anthropic")
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
++    await BunProc.install("zod", "3.24.0", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -473,10 +511,10 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "3.23.0", "anthropic")
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
 +    await fs.rm(path.join(tmp.path, "node_modules"), { recursive: true, force: true })
 +
-+    await BunProc.install("zod", "3.23.0", "anthropic")
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -491,12 +529,8 @@ index d607ae47820f..ed14d4cb4475 100644
 +    await fs.mkdir(path.join(tmp.path, "node_modules", "zod"), { recursive: true })
 +    await Bun.write(path.join(tmp.path, "node_modules", "zod", "package.json"), JSON.stringify({ version: "3.22.0" }))
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({}))
- 
--    // Verify that it uses Bun's default resolution
--    expect(content).toContain("Bun's default registry resolution")
--    expect(content).toContain("Bun will use them automatically")
--    expect(content).toContain("No need to pass --registry flag")
-+    await BunProc.install("zod", "3.23.0", "anthropic")
++
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -505,12 +539,8 @@ index d607ae47820f..ed14d4cb4475 100644
 +    expect(pkg.opencode?.providers?.anthropic).toBe("zod")
 +
 +    delete process.env.OPENCODE_TEST_CACHE
-   })
- 
--  test("should have correct command structure without registry", async () => {
--    // Read the bun/index.ts file
--    const bunIndexPath = path.join(__dirname, "../src/bun/index.ts")
--    const content = await fs.readFile(bunIndexPath, "utf-8")
++  })
++
 +  test("reinstalls when cached differs and node_modules missing", async () => {
 +    await using tmp = await tmpdir()
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
@@ -518,7 +548,7 @@ index d607ae47820f..ed14d4cb4475 100644
 +
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({ dependencies: { zod: "3.22.0" } }))
 +
-+    await BunProc.install("zod", "3.23.0", "anthropic")
++    await BunProc.install("zod", "3.23.0", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +    const pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
@@ -548,8 +578,8 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "latest", "anthropic")
-+    await BunProc.install("superstruct", "latest", "openai")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
++    await BunProc.install("superstruct", "latest", { provider: "openai" })
 +
 +    const pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    expect(pkg.opencode?.providers?.anthropic).toBe("zod")
@@ -564,14 +594,14 @@ index d607ae47820f..ed14d4cb4475 100644
 +    const { BunProc } = await import("../src/bun")
 +
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({ dependencies: {} }))
-+    await BunProc.install("zod", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
 +
 +    let pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    expect(pkg.opencode?.providers?.anthropic).toBe("zod")
 +
 +    await fs.rm(path.join(tmp.path, "node_modules"), { recursive: true, force: true })
 +    await Bun.write(path.join(tmp.path, "package.json"), JSON.stringify({ opencode: {} }))
-+    await BunProc.install("superstruct", "latest", "openai")
++    await BunProc.install("superstruct", "latest", { provider: "openai" })
 +
 +    pkg = await Bun.file(path.join(tmp.path, "package.json")).json()
 +    expect(pkg.opencode?.providers?.openai).toBe("superstruct")
@@ -585,15 +615,10 @@ index d607ae47820f..ed14d4cb4475 100644
 +    await using tmp = await tmpdir()
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
- 
--    // Extract the install function
--    const installFunctionMatch = content.match(/export async function install[\s\S]*?^  }/m)
--    expect(installFunctionMatch).toBeTruthy()
-+    await BunProc.install("zod", "latest", "anthropic")
-+    await BunProc.install("superstruct", "latest", "anthropic")
- 
--    if (installFunctionMatch) {
--      const installFunction = installFunctionMatch[0]
++
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
++    await BunProc.install("superstruct", "latest", { provider: "anthropic" })
++
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(false)
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "superstruct", "package.json")).exists()).toBe(true)
 +
@@ -609,9 +634,9 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "latest", "provider-a")
-+    await BunProc.install("superstruct", "latest", "provider-b")
-+    await BunProc.install("superstruct", "latest", "provider-a")
++    await BunProc.install("zod", "latest", { provider: "provider-a" })
++    await BunProc.install("superstruct", "latest", { provider: "provider-b" })
++    await BunProc.install("superstruct", "latest", { provider: "provider-a" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(false)
 +
@@ -627,9 +652,9 @@ index d607ae47820f..ed14d4cb4475 100644
 +    process.env.OPENCODE_TEST_CACHE = tmp.path
 +    const { BunProc } = await import("../src/bun")
 +
-+    await BunProc.install("zod", "latest", "anthropic")
-+    await BunProc.install("zod", "latest", "openai")
-+    await BunProc.install("superstruct", "latest", "anthropic")
++    await BunProc.install("zod", "latest", { provider: "anthropic" })
++    await BunProc.install("zod", "latest", { provider: "openai" })
++    await BunProc.install("superstruct", "latest", { provider: "anthropic" })
 +
 +    expect(await Bun.file(path.join(tmp.path, "node_modules", "zod", "package.json")).exists()).toBe(true)
 +
@@ -679,22 +704,12 @@ index d607ae47820f..ed14d4cb4475 100644
 +    const result = await PackageRegistry.isOutdated("zod", ">=3.0.0")
 +    expect(result).toBe(false)
 +  })
- 
--      // Verify expected arguments are present
--      expect(installFunction).toContain('"add"')
--      expect(installFunction).toContain('"--force"')
--      expect(installFunction).toContain('"--exact"')
--      expect(installFunction).toContain('"--cwd"')
--      expect(installFunction).toContain("Global.Path.cache")
--      expect(installFunction).toContain('pkg + "@" + version')
++
 +  test("returns true when range not satisfied by latest", async () => {
 +    const { PackageRegistry } = await import("../src/bun/registry")
- 
--      // Verify no registry argument is added
--      expect(installFunction).not.toContain('"--registry"')
--      expect(installFunction).not.toContain('args.push("--registry')
--    }
++
 +    const result = await PackageRegistry.isOutdated("zod", "^0.0.1")
 +    expect(result).toBe(true)
    })
  })
+ 

@@ -161,7 +161,7 @@ index 68d70c77..33e21706 100644
  ];
  
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index 0fd3d910..17761f67 100644
+index 9c77903a..40a9b5e7 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
 @@ -209,9 +209,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
@@ -1820,7 +1820,7 @@ index 00000000..4b9eb19e
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 2afa2e63..e6ef80d2 100644
+index 616ffaf8..e4b2843b 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
 @@ -356,7 +356,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
@@ -1900,7 +1900,7 @@ index 2afa2e63..e6ef80d2 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 5ca9f8ea..26238d20 100644
+index 148d19d3..7275d50b 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2213,9 +2213,9 @@ index 5ca9f8ea..26238d20 100644
 +            .as_ref()
 +            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
  
-         let env_args = build_docker_env_args(sandbox);
+         let env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
          let env_part = if env_args.is_empty() {
-@@ -358,192 +608,268 @@ impl Instance {
+@@ -358,193 +608,268 @@ impl Instance {
              return Ok(());
          }
  
@@ -2403,7 +2403,8 @@ index 5ca9f8ea..26238d20 100644
              }
 +        }
  
--            let mut env_args = build_docker_env_args(sandbox);
+-            let mut env_args =
+-                build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
 -            // Pass AOE_INSTANCE_ID into the container
 -            env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
 -            let env_part = format!("{} ", env_args);
@@ -2447,7 +2448,7 @@ index 5ca9f8ea..26238d20 100644
 -            } else {
 -                String::new()
 -            };
-+        let mut env_args = build_docker_env_args(sandbox);
++        let mut env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
 +        // Pass AOE_INSTANCE_ID into the container
 +        env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
  
@@ -2635,7 +2636,7 @@ index 5ca9f8ea..26238d20 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -592,9 +918,13 @@ impl Instance {
+@@ -593,9 +918,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2650,7 +2651,7 @@ index 5ca9f8ea..26238d20 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -602,24 +932,111 @@ impl Instance {
+@@ -603,24 +932,111 @@ impl Instance {
          )
      }
  
@@ -2766,7 +2767,7 @@ index 5ca9f8ea..26238d20 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1117,6 +1534,274 @@ mod tests {
+@@ -1118,6 +1534,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3041,7 +3042,7 @@ index 5ca9f8ea..26238d20 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1172,4 +1857,39 @@ mod tests {
+@@ -1173,4 +1857,39 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
