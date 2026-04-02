@@ -19,8 +19,6 @@ let
           (self + "/patches/opencode/relax-bun-version-check.patch")
           # https://github.com/anomalyco/opencode/pull/12822
           (self + "/patches/opencode/remove-env-namespace.patch")
-          # https://github.com/anomalyco/opencode/pull/10275
-          (self + "/patches/opencode/bun-track-provider-packages.patch")
         ];
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =
