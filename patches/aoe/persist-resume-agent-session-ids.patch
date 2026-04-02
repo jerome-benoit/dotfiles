@@ -161,7 +161,7 @@ index 76ea70f3..f602097f 100644
  ];
  
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index 9c77903a..40a9b5e7 100644
+index 13e4957a..0b26cbfa 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
 @@ -209,9 +209,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
