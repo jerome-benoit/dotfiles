@@ -132,10 +132,10 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 3cae1af4bdb2..89467392e94b 100644
+index 850bcc28bcd9..b4d89cbc2a46 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
-@@ -10,7 +10,6 @@ import fsNode from "fs/promises"
+@@ -11,7 +11,6 @@ import fsNode from "fs/promises"
  import { NamedError } from "@opencode-ai/util/error"
  import { Flag } from "../flag/flag"
  import { Auth } from "../auth"
@@ -143,7 +143,7 @@ index 3cae1af4bdb2..89467392e94b 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1327,7 +1326,6 @@ export namespace Config {
+@@ -1381,7 +1380,6 @@ export namespace Config {
                const token = Option.getOrUndefined(tokenOpt)
                if (token) {
                  process.env["OPENCODE_CONSOLE_TOKEN"] = token
@@ -333,7 +333,7 @@ index aa9bc884a83a..4c74e4c32fac 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 441f84b907cc..68b766e8cd39 100644
+index 81479dcd75c2..84919dc913d3 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -344,7 +344,16 @@ index 441f84b907cc..68b766e8cd39 100644
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -171,7 +170,7 @@ export namespace Provider {
+@@ -115,7 +114,7 @@ export namespace Provider {
+   }
+ 
+   function e2eURL() {
+-    const url = Env.get("OPENCODE_E2E_LLM_URL")
++    const url = process.env.OPENCODE_E2E_LLM_URL
+     if (typeof url !== "string" || url === "") return
+     return url
+   }
+@@ -177,7 +176,7 @@ export namespace Provider {
      },
      async opencode(input) {
        const hasKey = await (async () => {
@@ -353,7 +362,7 @@ index 441f84b907cc..68b766e8cd39 100644
          if (input.env.some((item) => env[item])) return true
          if (await Auth.get(input.id)) return true
          const config = await Config.get()
-@@ -223,7 +222,7 @@ export namespace Provider {
+@@ -229,7 +228,7 @@ export namespace Provider {
        const resource = iife(() => {
          const name = provider.options?.resourceName
          if (typeof name === "string" && name.trim() !== "") return name
@@ -362,7 +371,7 @@ index 441f84b907cc..68b766e8cd39 100644
        })
  
        return {
-@@ -245,7 +244,7 @@ export namespace Provider {
+@@ -251,7 +250,7 @@ export namespace Provider {
        }
      },
      "azure-cognitive-services": async () => {
@@ -371,7 +380,7 @@ index 441f84b907cc..68b766e8cd39 100644
        return {
          autoload: false,
          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -269,18 +268,16 @@ export namespace Provider {
+@@ -275,18 +274,16 @@ export namespace Provider {
  
        // Region precedence: 1) config file, 2) env var, 3) default
        const configRegion = providerConfig?.options?.region
@@ -393,7 +402,7 @@ index 441f84b907cc..68b766e8cd39 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -291,7 +288,7 @@ export namespace Provider {
+@@ -297,7 +294,7 @@ export namespace Provider {
          return undefined
        })
  
@@ -402,7 +411,7 @@ index 441f84b907cc..68b766e8cd39 100644
  
        const containerCreds = Boolean(
          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -434,15 +431,15 @@ export namespace Provider {
+@@ -440,15 +437,15 @@ export namespace Provider {
      "google-vertex": async (provider) => {
        const project =
          provider.options?.project ??
@@ -424,7 +433,7 @@ index 441f84b907cc..68b766e8cd39 100644
            "us-central1",
        )
  
-@@ -479,8 +476,8 @@ export namespace Provider {
+@@ -485,8 +482,8 @@ export namespace Provider {
        }
      },
      "google-vertex-anthropic": async () => {
@@ -435,7 +444,7 @@ index 441f84b907cc..68b766e8cd39 100644
        const autoload = Boolean(project)
        if (!autoload) return { autoload: false }
        return {
-@@ -497,8 +494,6 @@ export namespace Provider {
+@@ -503,8 +500,6 @@ export namespace Provider {
      },
      "sap-ai-core": async () => {
        const auth = await Auth.get("sap-ai-core")
@@ -444,7 +453,7 @@ index 441f84b907cc..68b766e8cd39 100644
        const envServiceKey = iife(() => {
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -531,13 +526,13 @@ export namespace Provider {
+@@ -537,13 +532,13 @@ export namespace Provider {
        }
      },
      gitlab: async (input) => {
@@ -460,7 +469,7 @@ index 441f84b907cc..68b766e8cd39 100644
        })()
  
        const config = await Config.get()
-@@ -668,11 +663,11 @@ export namespace Provider {
+@@ -674,11 +669,11 @@ export namespace Provider {
        }
      },
      "cloudflare-workers-ai": async (input) => {
@@ -474,7 +483,7 @@ index 441f84b907cc..68b766e8cd39 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -698,14 +693,14 @@ export namespace Provider {
+@@ -704,14 +699,14 @@ export namespace Provider {
        }
      },
      "cloudflare-ai-gateway": async (input) => {
@@ -492,7 +501,7 @@ index 441f84b907cc..68b766e8cd39 100644
          if (envToken) return envToken
          const auth = await Auth.get(input.id)
          if (auth?.type === "api") return auth.key
-@@ -1112,7 +1107,7 @@ export namespace Provider {
+@@ -1118,7 +1113,7 @@ export namespace Provider {
            }
  
            // load env
@@ -501,7 +510,7 @@ index 441f84b907cc..68b766e8cd39 100644
            for (const [id, provider] of Object.entries(database)) {
              const providerID = ProviderID.make(id)
              if (disabled.has(providerID)) continue
-@@ -1316,7 +1311,7 @@ export namespace Provider {
+@@ -1322,7 +1317,7 @@ export namespace Provider {
              }
  
              url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -523,6 +532,27 @@ index 2a11094f8074..b5cd5dd4cc15 100644
  
    export async function init() {
      if (disabled) return
+diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
+index 2620405144ac..fdebb3a14dd7 100644
+--- a/packages/opencode/src/tool/registry.ts
++++ b/packages/opencode/src/tool/registry.ts
+@@ -32,7 +32,6 @@ import { pathToFileURL } from "url"
+ import { Effect, Layer, ServiceMap } from "effect"
+ import { InstanceState } from "@/effect/instance-state"
+ import { makeRuntime } from "@/effect/run-service"
+-import { Env } from "../env"
+ 
+ export namespace ToolRegistry {
+   const log = Log.create({ service: "tool.registry" })
+@@ -167,7 +166,7 @@ export namespace ToolRegistry {
+           }
+ 
+           const usePatch =
+-            !!Env.get("OPENCODE_E2E_LLM_URL") ||
++            !!process.env.OPENCODE_E2E_LLM_URL ||
+             (model.modelID.includes("gpt-") && !model.modelID.includes("oss") && !model.modelID.includes("gpt-4"))
+           if (tool.id === "apply_patch") return usePatch
+           if (tool.id === "edit" || tool.id === "write") return !usePatch
 diff --git a/packages/opencode/src/util/network.ts b/packages/opencode/src/util/network.ts
 index 69e5d17588ac..8ed608162a2e 100644
 --- a/packages/opencode/src/util/network.ts
@@ -540,7 +570,7 @@ index 69e5d17588ac..8ed608162a2e 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index be2a6b11be51..5f8b66cf9cfb 100644
+index 9c631360b620..c82895ca8dfb 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
 @@ -203,8 +203,8 @@ test("jsonc overrides json in the same directory", async () => {
