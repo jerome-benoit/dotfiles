@@ -132,7 +132,7 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index b41e5d71c25e..a2f49d3a4794 100644
+index 3cae1af4bdb2..89467392e94b 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -10,7 +10,6 @@ import fsNode from "fs/promises"
@@ -143,7 +143,7 @@ index b41e5d71c25e..a2f49d3a4794 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1376,7 +1375,6 @@ export namespace Config {
+@@ -1327,7 +1326,6 @@ export namespace Config {
                const token = Option.getOrUndefined(tokenOpt)
                if (token) {
                  process.env["OPENCODE_CONSOLE_TOKEN"] = token
@@ -333,7 +333,7 @@ index aa9bc884a83a..4c74e4c32fac 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index c1b5e61d19d3..e677d7e10f0a 100644
+index 441f84b907cc..68b766e8cd39 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
