@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 68d70c77..33e21706 100644
+index 76ea70f3..f602097f 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -47,7 +47,7 @@ index 68d70c77..33e21706 100644
      pub events: &'static [HookEvent],
  }
  
-@@ -70,6 +92,8 @@ pub struct AgentDef {
+@@ -68,6 +90,8 @@ pub struct AgentDef {
      /// hooks into the agent's settings file so status is written to a file instead
      /// of being parsed from tmux pane content.
      pub hook_config: Option<AgentHookConfig>,
@@ -56,7 +56,7 @@ index 68d70c77..33e21706 100644
  }
  
  /// Hook events shared by Claude Code and Cursor CLI.
-@@ -94,6 +118,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
+@@ -92,6 +116,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
          matcher: Some("permission_prompt|elicitation_dialog"),
          status: Some("waiting"),
      },
@@ -73,7 +73,7 @@ index 68d70c77..33e21706 100644
      HookEvent {
          name: "ElicitationResult",
          matcher: None,
-@@ -117,6 +151,10 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -114,6 +148,10 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".claude/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
@@ -84,7 +84,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "opencode",
-@@ -130,6 +168,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -126,6 +164,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_opencode_status,
          container_env: &[],
          hook_config: None,
@@ -92,7 +92,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "vibe",
-@@ -143,6 +182,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -138,6 +177,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_vibe_status,
          container_env: &[],
          hook_config: None,
@@ -100,7 +100,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "codex",
-@@ -158,6 +198,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -152,6 +192,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
          hook_config: None,
@@ -108,7 +108,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "gemini",
-@@ -193,8 +234,19 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -186,8 +227,19 @@ pub const AGENTS: &[AgentDef] = &[
                      matcher: Some("ToolPermission"),
                      status: Some("waiting"),
                  },
@@ -128,7 +128,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "cursor",
-@@ -211,6 +263,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -203,6 +255,7 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".cursor/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
@@ -136,7 +136,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "copilot",
-@@ -224,6 +277,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -215,6 +268,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_copilot_status,
          container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
          hook_config: None,
@@ -144,7 +144,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "pi",
-@@ -238,6 +292,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -228,6 +282,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
@@ -152,7 +152,7 @@ index 68d70c77..33e21706 100644
      },
      AgentDef {
          name: "droid",
-@@ -251,6 +306,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -240,6 +295,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_droid_status,
          container_env: &[],
          hook_config: None,
@@ -1820,10 +1820,10 @@ index 00000000..4b9eb19e
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 616ffaf8..e4b2843b 100644
+index 7453c271..e56872d8 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
-@@ -356,7 +356,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
+@@ -440,7 +440,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -1831,7 +1831,7 @@ index 616ffaf8..e4b2843b 100644
      if dest.exists() {
          if let Ok(existing_content) = std::fs::read_to_string(dest) {
              if !should_overwrite_credential(&existing_content, trimmed) {
-@@ -437,14 +436,8 @@ pub(crate) fn compute_volume_paths(
+@@ -531,14 +530,8 @@ pub(crate) fn compute_volume_paths(
      project_path: &Path,
      project_path_str: &str,
  ) -> Result<(Vec<VolumeMount>, String)> {
@@ -1848,7 +1848,7 @@ index 616ffaf8..e4b2843b 100644
      if project_path.join(".git").exists() {
          if let Ok(main_repo) = GitWorktree::find_main_repo(project_path) {
              // Canonicalize paths for reliable comparison (handles symlinks like /tmp -> /private/tmp)
-@@ -460,8 +453,6 @@ pub(crate) fn compute_volume_paths(
+@@ -554,8 +547,6 @@ pub(crate) fn compute_volume_paths(
              // resolves correctly inside the container.
              if main_repo_canonical != project_canonical {
                  if project_canonical.starts_with(&main_repo_canonical) {
@@ -1857,7 +1857,7 @@ index 616ffaf8..e4b2843b 100644
                      let name = main_repo_canonical
                          .file_name()
                          .map(|n| n.to_string_lossy().to_string())
-@@ -486,11 +477,8 @@ pub(crate) fn compute_volume_paths(
+@@ -580,11 +571,8 @@ pub(crate) fn compute_volume_paths(
                          working_dir,
                      ));
                  } else {
@@ -1871,7 +1871,7 @@ index 616ffaf8..e4b2843b 100644
                      let common = common_ancestor(&main_repo_canonical, &project_canonical);
                      let repo_rel = main_repo_canonical
                          .strip_prefix(&common)
-@@ -522,7 +510,6 @@ pub(crate) fn compute_volume_paths(
+@@ -616,7 +604,6 @@ pub(crate) fn compute_volume_paths(
          }
      }
  
@@ -1879,7 +1879,7 @@ index 616ffaf8..e4b2843b 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -689,9 +676,7 @@ pub(crate) fn build_container_config(
+@@ -783,9 +770,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -1890,7 +1890,7 @@ index 616ffaf8..e4b2843b 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -719,8 +704,6 @@ pub(crate) fn build_container_config(
+@@ -813,8 +798,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
@@ -1900,7 +1900,7 @@ index 616ffaf8..e4b2843b 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 148d19d3..7275d50b 100644
+index a5cc5fa9..406c57b5 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2200,10 +2200,10 @@ index 148d19d3..7275d50b 100644
 +        append_resume_flags(&self.tool, session_id.as_deref(), is_existing, cmd, context);
 +    }
 +
-     fn has_custom_command(&self) -> bool {
+     pub fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -269,7 +516,10 @@ impl Instance {
+@@ -276,7 +523,10 @@ impl Instance {
          }
  
          let container = self.get_container_for_instance()?;
@@ -2215,7 +2215,7 @@ index 148d19d3..7275d50b 100644
  
          let env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
          let env_part = if env_args.is_empty() {
-@@ -358,193 +608,268 @@ impl Instance {
+@@ -365,191 +615,266 @@ impl Instance {
              return Ok(());
          }
  
@@ -2453,43 +2453,28 @@ index 148d19d3..7275d50b 100644
 +        env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
  
 -            if self.command.is_empty() {
--                crate::agents::get_agent(&self.tool)
--                    .filter(|a| a.supports_host_launch)
--                    .map(|a| {
--                        let mut cmd = a.binary.to_string();
--                        if !self.extra_args.is_empty() {
--                            cmd = format!("{} {}", cmd, self.extra_args);
--                        }
--                        if self.is_yolo_mode() {
--                            if let Some(ref yolo) = a.yolo {
--                                match yolo {
--                                    crate::agents::YoloMode::CliFlag(flag) => {
--                                        cmd = format!("{} {}", cmd, flag);
--                                    }
--                                    crate::agents::YoloMode::EnvVar(key, value) => {
--                                        cmd = format_env_var_prefix(key, value, &cmd);
--                                    }
--                                    crate::agents::YoloMode::AlwaysYolo => {}
+-                crate::agents::get_agent(&self.tool).map(|a| {
+-                    let mut cmd = a.binary.to_string();
+-                    if !self.extra_args.is_empty() {
+-                        cmd = format!("{} {}", cmd, self.extra_args);
+-                    }
+-                    if self.is_yolo_mode() {
+-                        if let Some(ref yolo) = a.yolo {
+-                            match yolo {
+-                                crate::agents::YoloMode::CliFlag(flag) => {
+-                                    cmd = format!("{} {}", cmd, flag);
 -                                }
+-                                crate::agents::YoloMode::EnvVar(key, value) => {
+-                                    cmd = format_env_var_prefix(key, value, &cmd);
+-                                }
+-                                crate::agents::YoloMode::AlwaysYolo => {}
 -                            }
 -                        }
--                        wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
--                    })
+-                    }
+-                    wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
+-                })
 -            } else {
 -                let mut cmd = self.command.clone();
--                if !self.extra_args.is_empty() {
--                    cmd = format!("{} {}", cmd, self.extra_args);
--                }
--                if self.is_yolo_mode() {
--                    if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
--                        match yolo {
--                            crate::agents::YoloMode::CliFlag(flag) => {
--                                cmd = format!("{} {}", cmd, flag);
--                            }
--                            crate::agents::YoloMode::EnvVar(key, value) => {
--                                cmd = format_env_var_prefix(key, value, &cmd);
--                            }
--                            crate::agents::YoloMode::AlwaysYolo => {}
 +        self.apply_session_flags(&mut tool_cmd, "sandboxed");
 +        let env_part = format!("{} ", env_args);
 +        Ok(Some(wrap_command_ignore_suspend(
@@ -2524,36 +2509,44 @@ index 148d19d3..7275d50b 100644
 +        };
 +
 +        if self.command.is_empty() {
-+            crate::agents::get_agent(&self.tool)
-+                .filter(|a| a.supports_host_launch)
-+                .map(|a| {
-+                    let mut cmd = a.binary.to_string();
-+                    if !self.extra_args.is_empty() {
-+                        cmd = format!("{} {}", cmd, self.extra_args);
-+                    }
-+                    if self.is_yolo_mode() {
-+                        if let Some(ref yolo) = a.yolo {
-+                            apply_yolo_mode(&mut cmd, yolo, false);
-                         }
++            crate::agents::get_agent(&self.tool).map(|a| {
++                let mut cmd = a.binary.to_string();
+                 if !self.extra_args.is_empty() {
+                     cmd = format!("{} {}", cmd, self.extra_args);
+                 }
+                 if self.is_yolo_mode() {
+-                    if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
+-                        match yolo {
+-                            crate::agents::YoloMode::CliFlag(flag) => {
+-                                cmd = format!("{} {}", cmd, flag);
+-                            }
+-                            crate::agents::YoloMode::EnvVar(key, value) => {
+-                                cmd = format_env_var_prefix(key, value, &cmd);
+-                            }
+-                            crate::agents::YoloMode::AlwaysYolo => {}
+-                        }
++                    if let Some(ref yolo) = a.yolo {
++                        apply_yolo_mode(&mut cmd, yolo, false);
                      }
-+                    self.apply_session_flags(&mut cmd, "host agent");
-+                    wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
-+                })
-+        } else {
-+            let mut cmd = self.command.clone();
-+            if !self.extra_args.is_empty() {
-+                cmd = format!("{} {}", cmd, self.extra_args);
-+            }
-+            if self.is_yolo_mode() {
-+                if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
-+                    apply_yolo_mode(&mut cmd, yolo, false);
                  }
 -                Some(wrap_command_ignore_suspend(&format!(
 -                    "{}{}",
 -                    env_prefix, cmd
 -                )))
++                self.apply_session_flags(&mut cmd, "host agent");
++                wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
++            })
++        } else {
++            let mut cmd = self.command.clone();
++            if !self.extra_args.is_empty() {
++                cmd = format!("{} {}", cmd, self.extra_args);
              }
 -        };
++            if self.is_yolo_mode() {
++                if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
++                    apply_yolo_mode(&mut cmd, yolo, false);
++                }
++            }
 +            self.apply_session_flags(&mut cmd, "host custom");
 +            Some(wrap_command_ignore_suspend(&format!(
 +                "{}{}",
@@ -2636,7 +2629,7 @@ index 148d19d3..7275d50b 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -593,9 +918,13 @@ impl Instance {
+@@ -598,9 +923,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2651,7 +2644,7 @@ index 148d19d3..7275d50b 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -603,24 +932,111 @@ impl Instance {
+@@ -608,24 +937,111 @@ impl Instance {
          )
      }
  
@@ -2767,7 +2760,7 @@ index 148d19d3..7275d50b 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1118,6 +1534,274 @@ mod tests {
+@@ -1128,6 +1544,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3042,7 +3035,7 @@ index 148d19d3..7275d50b 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1173,4 +1857,39 @@ mod tests {
+@@ -1192,4 +1876,39 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -3083,10 +3076,10 @@ index 148d19d3..7275d50b 100644
 +    }
  }
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index 271170e2..e6c2f894 100644
+index 4589f7ca..76dd0b53 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
-@@ -1,17 +1,20 @@
+@@ -1,18 +1,21 @@
  //! Session management module
  
  pub mod builder;
@@ -3100,6 +3093,7 @@ index 271170e2..e6c2f894 100644
 +pub mod poller;
  pub mod profile_config;
  pub mod repo_config;
+ pub(crate) mod serde_helpers;
  mod storage;
  
  pub use crate::sound::{SoundConfig, SoundConfigOverride};
@@ -4461,7 +4455,7 @@ index 3e6c0a4a..16e32290 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 0a119cc6..1b6b74ef 100644
+index eefd72db..14146b5b 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -254,6 +254,10 @@ impl App {
@@ -4483,7 +4477,7 @@ index 0a119cc6..1b6b74ef 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -449,10 +454,8 @@ impl App {
+@@ -455,10 +460,8 @@ impl App {
          } else {
              !instance.expects_shell() && tmux_session.is_pane_running_shell()
          };
@@ -4495,7 +4489,7 @@ index 0a119cc6..1b6b74ef 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -468,17 +471,16 @@ impl App {
+@@ -474,17 +477,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4520,7 +4514,7 @@ index 0a119cc6..1b6b74ef 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -488,17 +490,15 @@ impl App {
+@@ -494,17 +496,15 @@ impl App {
                  }
              }
  
@@ -4542,7 +4536,7 @@ index 0a119cc6..1b6b74ef 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -508,6 +508,10 @@ impl App {
+@@ -514,6 +514,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
