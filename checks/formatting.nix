@@ -5,8 +5,10 @@
 }:
 
 let
+  findNixFiles = "${pkgs.findutils}/bin/find . -name '*.nix' -type f -not -path './result/*'";
+
   findAndFormatScript = checkMode: ''
-    (${pkgs.git}/bin/git ls-files '*.nix' 2>/dev/null || ${pkgs.findutils}/bin/find . -name '*.nix' -type f) | while IFS= read -r file; do
+    ${findNixFiles} | while IFS= read -r file; do
       ${
         if checkMode then
           ''
@@ -28,10 +30,11 @@ let
       formatterName ? "nix-fmt",
     }:
     {
-      check = pkgs.runCommand checkName { nativeBuildInputs = [ formatter ]; } ''
+      check = pkgs.runCommandLocal checkName { nativeBuildInputs = [ formatter ]; } ''
+        set -o pipefail
         cd ${self}
         ${findAndFormatScript true}
-        echo "OK" > $out
+        touch $out
       '';
 
       formatter = pkgs.writeShellScriptBin formatterName ''

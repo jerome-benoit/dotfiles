@@ -90,6 +90,7 @@
               pkgs
               ;
           };
+          checkSymlinks = import ./checks/symlinks.nix { inherit pkgs; };
           homeConfigChecks =
             if arch == "x86_64-linux" then
               {
@@ -102,8 +103,15 @@
               }
             else
               { };
+          symlinkChecks = nixpkgs.lib.mapAttrs' (
+            key: activationPkg:
+            let
+              configName = nixpkgs.lib.removePrefix "home-" key;
+            in
+            nixpkgs.lib.nameValuePair "symlinks-${configName}" (checkSymlinks configName activationPkg)
+          ) homeConfigChecks;
         in
-        baseChecks // homeConfigChecks
+        baseChecks // homeConfigChecks // symlinkChecks
       );
     };
 }
