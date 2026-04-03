@@ -24,7 +24,7 @@ let
         postFixup =
           (oldAttrs.postFixup or "")
           + lib.optionalString pkgs.stdenv.isLinux ''
-            wrapProgram $out/bin/opencode \
+            wrapProgram "$out/bin/opencode" \
               --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
           '';
       })

@@ -20,12 +20,30 @@
       type = lib.types.attrsOf (
         lib.types.submodule {
           options = {
-            family = lib.mkOption { type = lib.types.str; };
-            name = lib.mkOption { type = lib.types.str; };
-            altName = lib.mkOption { type = lib.types.str; };
-            fileName = lib.mkOption { type = lib.types.str; };
-            colors = lib.mkOption { type = lib.types.attrsOf lib.types.str; };
-            style = lib.mkOption { type = lib.types.str; };
+            family = lib.mkOption {
+              type = lib.types.str;
+              description = "Theme family (e.g. tokyonight, catppuccin)";
+            };
+            name = lib.mkOption {
+              type = lib.types.str;
+              description = "Display name of the theme variant";
+            };
+            altName = lib.mkOption {
+              type = lib.types.str;
+              description = "Alternative name used by some programs";
+            };
+            fileName = lib.mkOption {
+              type = lib.types.str;
+              description = "Theme file name without extension";
+            };
+            colors = lib.mkOption {
+              type = lib.types.attrsOf lib.types.str;
+              description = "Named color palette (bg, fg, accent, etc.)";
+            };
+            style = lib.mkOption {
+              type = lib.types.str;
+              description = "Light or dark style variant";
+            };
           };
         }
       );

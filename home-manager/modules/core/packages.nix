@@ -23,15 +23,16 @@ in
       pkgs.volta
       pkgs.whisper-cpp
     ]
-    ++ lib.optionals pkgs.stdenv.isLinux (
-      [ ]
-      ++
-        lib.optionals (config.modules.core.profile.name == config.modules.core.constants.profiles.server)
-          [
-            pkgs.delta
-            pkgs.grc
-          ]
-    )
+    ++
+      lib.optionals
+        (
+          pkgs.stdenv.isLinux
+          && config.modules.core.profile.name == config.modules.core.constants.profiles.server
+        )
+        [
+          pkgs.delta
+          pkgs.grc
+        ]
     ++ lib.optionals pkgs.stdenv.isDarwin [
       pkgs.autoconf
       pkgs.automake

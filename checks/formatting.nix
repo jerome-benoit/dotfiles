@@ -6,8 +6,7 @@
 
 let
   findAndFormatScript = checkMode: ''
-    files=$(${pkgs.git}/bin/git ls-files '*.nix' 2>/dev/null || find . -name '*.nix' -type f)
-    for file in $files; do
+    (${pkgs.git}/bin/git ls-files '*.nix' 2>/dev/null || ${pkgs.findutils}/bin/find . -name '*.nix' -type f) | while IFS= read -r file; do
       ${
         if checkMode then
           ''
