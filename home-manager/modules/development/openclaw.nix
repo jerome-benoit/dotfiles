@@ -136,21 +136,32 @@ in
 
     # Inject $include into the Nix-generated config (typed schema doesn't support it)
     # and seed openclaw.local.json for mutable local overrides
-    home.activation.openclawLocalConfig = lib.hm.dag.entryAfter [ "openclawConfigFiles" ] ''
-      LOCAL="${homeDir}/.openclaw/openclaw.local.json"
-      if [[ ! -f "$LOCAL" ]]; then
-        run mkdir -p "${homeDir}/.openclaw"
-        run cat > "$LOCAL" << 'EOF'
-      {}
-      EOF
-      fi
+    home.activation.openclawLocalConfig =
+      let
+        jq = lib.getExe pkgs.jq;
+        injectInclude = pkgs.writeShellScript "openclaw-inject-include" ''
+          set -e
+          config="$1"
+          store_path="$(readlink "$config")"
+          ${jq} '. + {"$include": ["./openclaw.local.json"]}' "$store_path" > "$config.tmp"
+          mv "$config.tmp" "$config"
+        '';
+        seedLocal = pkgs.writeShellScript "openclaw-seed-local" ''
+          set -e
+          mkdir -p "$(dirname "$1")"
+          printf '{}\n' > "$1"
+        '';
+      in
+      lib.hm.dag.entryAfter [ "openclawConfigFiles" ] ''
+        LOCAL="${homeDir}/.openclaw/openclaw.local.json"
+        if [[ ! -f "$LOCAL" ]]; then
+          run ${seedLocal} "$LOCAL"
+        fi
 
-      CONFIG="${homeDir}/.openclaw/openclaw.json"
-      if [ -L "$CONFIG" ]; then
-        STORE_PATH="$(readlink "$CONFIG")"
-        run ${lib.getExe pkgs.jq} '. + {"$include": ["./openclaw.local.json"]}' "$STORE_PATH" > "$CONFIG.tmp"
-        run mv "$CONFIG.tmp" "$CONFIG"
-      fi
-    '';
+        CONFIG="${homeDir}/.openclaw/openclaw.json"
+        if [ -L "$CONFIG" ]; then
+          run ${injectInclude} "$CONFIG"
+        fi
+      '';
   };
 }
