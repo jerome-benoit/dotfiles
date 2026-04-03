@@ -161,6 +161,8 @@ in
         CONFIG="${homeDir}/.openclaw/openclaw.json"
         if [ -L "$CONFIG" ]; then
           run ${injectInclude} "$CONFIG"
+        elif [ -f "$CONFIG" ]; then
+          warnEcho "openclaw: $CONFIG is not a symlink — skipping \$include injection"
         fi
       '';
   };

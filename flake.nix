@@ -22,6 +22,7 @@
     nix-openclaw.url = "github:openclaw/nix-openclaw";
     nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
     nix-openclaw.inputs.home-manager.follows = "home-manager";
+    nix-openclaw.inputs.nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
