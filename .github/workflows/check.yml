@@ -41,8 +41,10 @@ jobs:
         include:
           - os: ubuntu-latest
             system: x86_64-linux
+            extra_nix_conf: "build-dir = /nix/build"
           - os: macos-latest
             system: aarch64-darwin
+            extra_nix_conf: ""
 
     runs-on: ${{ matrix.os }}
     name: Check (${{ matrix.system }})
