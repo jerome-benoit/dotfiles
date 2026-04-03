@@ -7,6 +7,7 @@
     ./gh.nix
     ./git.nix
     ./lazygit.nix
+    ./openclaw.nix
     ./opencode.nix
     ./openspec.nix
   ];

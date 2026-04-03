@@ -84,7 +84,6 @@ in
       text = ''
         tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
         tap "moltenbits/tap"
-        tap "steipete/tap"
         cask "docker-desktop"
         cask "ferdium"
         cask "ghostty"
@@ -94,7 +93,6 @@ in
         cask "moltenbits/tap/growlrrr"
         brew "hai"
         brew "mole"
-        brew "steipete/tap/peekaboo"
       '';
     };
     home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (

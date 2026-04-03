@@ -19,6 +19,8 @@
     };
     openspec.url = "github:Fission-AI/OpenSpec";
     openspec.inputs.nixpkgs.follows = "nixpkgs";
+    nix-openclaw.url = "github:openclaw/nix-openclaw";
+    nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -31,6 +33,7 @@
       agent-of-empires,
       agent-deck,
       openspec,
+      nix-openclaw,
     }@inputs:
     let
       constants = import ./constants.nix;
@@ -53,7 +56,10 @@
               self
               ;
           };
-          modules = [ ./home-manager/home.nix ];
+          modules = [
+            inputs.nix-openclaw.homeManagerModules.openclaw
+            ./home-manager/home.nix
+          ];
         };
     in
     {

@@ -35,6 +35,7 @@ in
 
   nixpkgs = {
     overlays = [
+      inputs.nix-openclaw.overlays.default
     ];
     config = {
       allowUnfree = true;
@@ -75,6 +76,7 @@ in
       enableDesktop = profileModules.development.opencode.enableDesktop;
     };
     openspec.enable = profileModules.development.openspec;
+    openclaw.enable = profileModules.development.openclaw;
   };
 
   modules.programs = {
