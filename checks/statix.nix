@@ -1,6 +1,6 @@
 { self, pkgs }:
 
-pkgs.runCommand "check-statix" { nativeBuildInputs = [ pkgs.statix ]; } ''
-  cd ${self} && statix check .
-  echo "OK" > $out
+pkgs.runCommandLocal "check-statix" { nativeBuildInputs = [ pkgs.statix ]; } ''
+  statix check --config ${self}/statix.toml ${self}
+  touch $out
 ''
