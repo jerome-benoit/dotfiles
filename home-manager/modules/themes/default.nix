@@ -26,11 +26,11 @@
             };
             name = lib.mkOption {
               type = lib.types.str;
-              description = "Display name of the theme variant";
+              description = "Theme identifier in kebab-case (e.g. tokyo-night-storm)";
             };
             altName = lib.mkOption {
               type = lib.types.str;
-              description = "Alternative name used by some programs";
+              description = "Human-readable display name (e.g. TokyoNight Storm)";
             };
             fileName = lib.mkOption {
               type = lib.types.str;
@@ -42,7 +42,7 @@
             };
             style = lib.mkOption {
               type = lib.types.str;
-              description = "Light or dark style variant";
+              description = "Theme variant within its family (e.g. storm, latte)";
             };
           };
         }
