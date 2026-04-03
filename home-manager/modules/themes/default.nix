@@ -34,12 +34,9 @@ let
     };
   };
 
-  mkTheme =
-    key: data:
-    { ... }:
-    {
-      config.modules.themes.registry.${key} = data;
-    };
+  mkTheme = key: data: _: {
+    config.modules.themes.registry.${key} = data;
+  };
 in
 {
   imports = [
