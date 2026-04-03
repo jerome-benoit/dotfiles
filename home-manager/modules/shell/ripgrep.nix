@@ -18,7 +18,10 @@ in
     programs.ripgrep = {
       enable = true;
       package =
-        if pkgs.stdenv.isDarwin then pkgs.ripgrep else mkSystemPackage "ripgrep" { mainProgram = "rg"; };
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          pkgs.ripgrep
+        else
+          mkSystemPackage "ripgrep" { mainProgram = "rg"; };
     };
   };
 }

@@ -10,8 +10,8 @@ let
   theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = config.modules.core.constants.fontFamily;
-  isDarwin = pkgs.stdenv.isDarwin;
-  isLinux = pkgs.stdenv.isLinux;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 
   mod = if isDarwin then "Command" else "Control";
   modShift = if isDarwin then "Command|Shift" else "Control|Shift";

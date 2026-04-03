@@ -19,7 +19,10 @@ in
     programs.zellij = {
       enable = true;
       package =
-        if pkgs.stdenv.isDarwin then pkgs.zellij else mkSystemPackage "zellij" { version = "0.43.1"; };
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          pkgs.zellij
+        else
+          mkSystemPackage "zellij" { version = "0.43.1"; };
       enableZshIntegration = false;
 
       settings = {

@@ -10,7 +10,7 @@ let
   theme = config.modules.themes.current;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = config.modules.core.constants.fontFamily;
-  isDarwin = pkgs.stdenv.isDarwin;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 in
 {
   options.modules.programs.ghostty = {

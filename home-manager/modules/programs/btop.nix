@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.btop = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.btop else mkSystemPackage "btop" { };
+      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.btop else mkSystemPackage "btop" { };
     };
   };
 }

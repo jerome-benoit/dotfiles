@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.direnv = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.direnv else mkSystemPackage "direnv" { };
+      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.direnv else mkSystemPackage "direnv" { };
       nix-direnv.enable = true;
       enableZshIntegration = false;
     };

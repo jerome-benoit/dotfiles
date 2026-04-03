@@ -64,7 +64,7 @@ in
         ++ lib.optional profileModules.shell.fzf "fzf"
         ++ lib.optional profileModules.shell.zoxide "zoxide"
         ++ lib.optional profileModules.programs.tmux "tmux"
-        ++ lib.optional pkgs.stdenv.isLinux "systemd"
+        ++ lib.optional pkgs.stdenv.hostPlatform.isLinux "systemd"
         ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [
           "dnf"
           "firewalld"
@@ -74,7 +74,7 @@ in
           "ufw"
         ]
         ++ lib.optional (distroId == distroIds.debian) "debian"
-        ++ lib.optionals pkgs.stdenv.isDarwin [
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           "macos"
           "iterm2"
           "brew"
@@ -83,7 +83,7 @@ in
         ];
       };
       initContent = ''
-        ${lib.optionalString pkgs.stdenv.isDarwin ''
+        ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
 
@@ -122,11 +122,11 @@ in
 
         if [[ -z "$SSH_CONNECTION" ]] && command -v code >/dev/null 2>&1; then
           ${
-            if pkgs.stdenv.isDarwin then
+            if pkgs.stdenv.hostPlatform.isDarwin then
               ''
                 export EDITOR="code --wait"
               ''
-            else if pkgs.stdenv.isLinux then
+            else if pkgs.stdenv.hostPlatform.isLinux then
               ''
                 if [[ -n "$DISPLAY" || -n "$WAYLAND_DISPLAY" ]]; then
                   export EDITOR="code --wait"

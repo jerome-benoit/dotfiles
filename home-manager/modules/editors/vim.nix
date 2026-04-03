@@ -114,7 +114,7 @@ in
 
   config = lib.mkIf cfg.enable {
     # On Linux, we use the system vim, so we just generate the .vimrc
-    home.file.".vimrc" = lib.mkIf pkgs.stdenv.isLinux {
+    home.file.".vimrc" = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
       text = ''
         set nocompatible
         ${lib.concatMapStringsSep "\n" (p: "set rtp^=${p}") vimPlugins}
@@ -124,7 +124,7 @@ in
     };
 
     # On Darwin, we use Home Manager's vim module
-    programs.vim = lib.mkIf pkgs.stdenv.isDarwin {
+    programs.vim = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       enable = true;
       plugins = vimPlugins;
       extraConfig = vimSettings;

@@ -64,7 +64,7 @@ in
 
     programs.tmux = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.tmux else mkSystemPackage "tmux" { };
+      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.tmux else mkSystemPackage "tmux" { };
       keyMode = "vi";
       terminal = "tmux-256color";
       mouse = true;

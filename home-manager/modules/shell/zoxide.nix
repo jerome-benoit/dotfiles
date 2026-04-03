@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.zoxide = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.zoxide else mkSystemPackage "zoxide" { };
+      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.zoxide else mkSystemPackage "zoxide" { };
       enableZshIntegration = false;
     };
   };

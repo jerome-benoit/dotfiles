@@ -23,13 +23,14 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = if pkgs.stdenv.isDarwin then [ pkgs.glow ] else [ (mkSystemPackage "glow" { }) ];
+    home.packages =
+      if pkgs.stdenv.hostPlatform.isDarwin then [ pkgs.glow ] else [ (mkSystemPackage "glow" { }) ];
 
-    home.file = lib.mkIf pkgs.stdenv.isDarwin {
+    home.file = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       "Library/Preferences/glow/glow.yml".source = glowConfig;
     };
 
-    xdg.configFile = lib.mkIf pkgs.stdenv.isLinux {
+    xdg.configFile = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
       "glow/glow.yml".source = glowConfig;
     };
   };

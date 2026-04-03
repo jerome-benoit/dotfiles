@@ -23,7 +23,7 @@ let
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =
           (oldAttrs.postFixup or "")
-          + lib.optionalString pkgs.stdenv.isLinux ''
+          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
             wrapProgram "$out/bin/opencode" \
               --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
           '';

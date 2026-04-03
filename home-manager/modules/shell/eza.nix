@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.eza = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.eza else mkSystemPackage "eza" { };
+      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.eza else mkSystemPackage "eza" { };
       enableZshIntegration = false;
       git = true;
       icons = "auto";

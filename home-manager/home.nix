@@ -23,9 +23,9 @@ let
   profileModules = config.modules.core.profile.modules;
 in
 {
-  targets.genericLinux.enable = pkgs.stdenv.isLinux;
+  targets.genericLinux.enable = pkgs.stdenv.hostPlatform.isLinux;
 
-  systemd.user.startServices = if pkgs.stdenv.isLinux then "sd-switch" else "true";
+  systemd.user.startServices = if pkgs.stdenv.hostPlatform.isLinux then "sd-switch" else "true";
 
   fonts.fontconfig.enable = true;
 
@@ -38,7 +38,7 @@ in
     ];
     config = {
       allowUnfree = true;
-      permittedInsecurePackages = lib.optionals pkgs.stdenv.isDarwin [
+      permittedInsecurePackages = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
         "electron-38.8.4"
         "olm-3.2.16"
       ];
@@ -101,7 +101,8 @@ in
 
   home = {
     inherit username;
-    homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
+    homeDirectory =
+      if pkgs.stdenv.hostPlatform.isDarwin then "/Users/${username}" else "/home/${username}";
     stateVersion = "25.11";
     enableNixpkgsReleaseCheck = false;
   };
