@@ -149,7 +149,6 @@ in
       if [ -L "$CONFIG" ]; then
         STORE_PATH="$(readlink "$CONFIG")"
         run ${lib.getExe pkgs.jq} '. + {"$include": ["./openclaw.local.json"]}' "$STORE_PATH" > "$CONFIG.tmp"
-        run rm "$CONFIG"
         run mv "$CONFIG.tmp" "$CONFIG"
       fi
     '';
