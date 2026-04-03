@@ -51,12 +51,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        uses: wimpysworld/nothing-but-nix@v10
+        with:
+          witness-carnage: true
+          nix-permission-edict: true
+
       - name: Install Nix
         uses: nixbuild/nix-quick-install-action@v34
         with:
           nix_conf: |
             keep-outputs = true
             keep-env-derivations = true
+            build-dir = /nix/build
 
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7
