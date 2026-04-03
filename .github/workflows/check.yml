@@ -66,7 +66,7 @@ jobs:
           nix_conf: |
             keep-outputs = true
             keep-env-derivations = true
-            ${{ runner.os == 'Linux' && 'build-dir = /nix/build' || '' }}
+            ${{ matrix.extra_nix_conf }}
 
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7
