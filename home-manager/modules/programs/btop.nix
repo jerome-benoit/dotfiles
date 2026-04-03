@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.btop;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
 in
 {
   options.modules.programs.btop = {
@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.btop = {
       enable = true;
-      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.btop else mkSystemPackage "btop" { };
+      package = mkPlatformPackage "btop" { };
     };
   };
 }

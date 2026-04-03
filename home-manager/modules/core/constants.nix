@@ -107,27 +107,70 @@ in
     deltaConfig = lib.mkOption {
       type = lib.types.submodule {
         options = {
-          navigate = lib.mkOption { type = lib.types.bool; };
-          line-numbers = lib.mkOption { type = lib.types.bool; };
-          side-by-side = lib.mkOption { type = lib.types.bool; };
-          hyperlinks = lib.mkOption { type = lib.types.bool; };
-          hyperlinks-file-link-format = lib.mkOption { type = lib.types.str; };
-          dark = lib.mkOption { type = lib.types.bool; };
-          syntax-theme = lib.mkOption { type = lib.types.str; };
+          navigate = lib.mkOption {
+            type = lib.types.bool;
+            description = "Navigate mode for jumping between diff sections";
+          };
+          line-numbers = lib.mkOption {
+            type = lib.types.bool;
+            description = "Line number display in diff output";
+          };
+          side-by-side = lib.mkOption {
+            type = lib.types.bool;
+            description = "Side-by-side diff layout";
+          };
+          hyperlinks = lib.mkOption {
+            type = lib.types.bool;
+            description = "OSC 8 hyperlinks in diff output";
+          };
+          hyperlinks-file-link-format = lib.mkOption {
+            type = lib.types.str;
+            description = "Format string for file hyperlinks (e.g. file://{path}#{line})";
+          };
+          dark = lib.mkOption {
+            type = lib.types.bool;
+            description = "Dark background mode";
+          };
+          syntax-theme = lib.mkOption {
+            type = lib.types.str;
+            description = "Syntax highlighting theme name";
+          };
           true-color = lib.mkOption {
             type = lib.types.enum [
               "always"
               "never"
               "auto"
             ];
+            description = "24-bit (true color) ANSI output mode";
           };
-          max-line-length = lib.mkOption { type = lib.types.ints.unsigned; };
-          features = lib.mkOption { type = lib.types.str; };
-          whitespace-error-style = lib.mkOption { type = lib.types.str; };
-          file-style = lib.mkOption { type = lib.types.str; };
-          file-decoration-style = lib.mkOption { type = lib.types.str; };
-          hunk-header-style = lib.mkOption { type = lib.types.str; };
-          hunk-header-decoration-style = lib.mkOption { type = lib.types.str; };
+          max-line-length = lib.mkOption {
+            type = lib.types.ints.unsigned;
+            description = "Maximum line length before wrapping (0 = no limit)";
+          };
+          features = lib.mkOption {
+            type = lib.types.str;
+            description = "Delta feature name to enable";
+          };
+          whitespace-error-style = lib.mkOption {
+            type = lib.types.str;
+            description = "Whitespace error style";
+          };
+          file-style = lib.mkOption {
+            type = lib.types.str;
+            description = "File header style";
+          };
+          file-decoration-style = lib.mkOption {
+            type = lib.types.str;
+            description = "File header decoration style";
+          };
+          hunk-header-style = lib.mkOption {
+            type = lib.types.str;
+            description = "Hunk header style";
+          };
+          hunk-header-decoration-style = lib.mkOption {
+            type = lib.types.str;
+            description = "Hunk header decoration style";
+          };
         };
       };
       default = {

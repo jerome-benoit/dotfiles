@@ -8,7 +8,7 @@
 let
   cfg = config.modules.programs.alacritty;
   theme = config.modules.themes.current;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
   fontFamily = config.modules.core.constants.fontFamily;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
@@ -17,10 +17,18 @@ let
   modShift = if isDarwin then "Command|Shift" else "Control|Shift";
   urlOpener = if isDarwin then "open" else "xdg-open";
 
+  grrrBin =
+    if builtins.pathExists /opt/homebrew/bin/grrr then
+      "/opt/homebrew/bin/grrr"
+    else if builtins.pathExists /usr/local/bin/grrr then
+      "/usr/local/bin/grrr"
+    else
+      null;
+
   bellCommand =
-    if isDarwin then
+    if isDarwin && grrrBin != null then
       {
-        program = "/opt/homebrew/bin/grrr";
+        program = grrrBin;
         args = [
           "--title"
           "Alacritty"
@@ -52,7 +60,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.alacritty = {
       enable = true;
-      package = if isDarwin then pkgs.alacritty else mkSystemPackage "alacritty" { };
+      package = mkPlatformPackage "alacritty" { };
       settings = {
         general = {
           import = [

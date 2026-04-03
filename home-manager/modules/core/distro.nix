@@ -42,7 +42,7 @@ in
         lib.types.either distroIdsEnumType (lib.types.enum [ constants.systems.darwin.name ])
       );
       default = distroId;
-      description = "The OS distribution ID";
+      description = "OS distribution ID";
       readOnly = true;
     };
 

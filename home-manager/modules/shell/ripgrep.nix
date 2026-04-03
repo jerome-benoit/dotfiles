@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.shell.ripgrep;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
 in
 {
   options.modules.shell.ripgrep = {
@@ -17,11 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.ripgrep = {
       enable = true;
-      package =
-        if pkgs.stdenv.hostPlatform.isDarwin then
-          pkgs.ripgrep
-        else
-          mkSystemPackage "ripgrep" { mainProgram = "rg"; };
+      package = mkPlatformPackage "ripgrep" { mainProgram = "rg"; };
     };
   };
 }

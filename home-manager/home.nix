@@ -25,7 +25,7 @@ in
 {
   targets.genericLinux.enable = pkgs.stdenv.hostPlatform.isLinux;
 
-  systemd.user.startServices = if pkgs.stdenv.hostPlatform.isLinux then "sd-switch" else "true";
+  systemd.user.startServices = lib.mkIf pkgs.stdenv.hostPlatform.isLinux "sd-switch";
 
   fonts.fontconfig.enable = true;
 

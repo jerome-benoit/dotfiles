@@ -117,7 +117,7 @@ in
     name = lib.mkOption {
       type = lib.types.enum (builtins.attrValues constants.profiles);
       default = constants.profiles.desktop;
-      description = "Profile name.";
+      description = "Profile name";
     };
 
     modules = lib.mkOption {
@@ -125,6 +125,7 @@ in
         options = {
           shell = lib.mkOption {
             type = lib.types.attrsOf lib.types.bool;
+            description = "Shell module enable flags";
           };
           development = lib.mkOption {
             type = lib.types.attrsOf (
@@ -134,17 +135,21 @@ in
                   options = {
                     enable = lib.mkOption {
                       type = lib.types.bool;
+                      description = "Whether to enable this development module";
                     };
                     enableDesktop = lib.mkOption {
                       type = lib.types.bool;
+                      description = "Whether to enable the desktop variant";
                     };
                   };
                 })
               ]
             );
+            description = "Development module enable flags (bool or { enable, enableDesktop })";
           };
           programs = lib.mkOption {
             type = lib.types.attrsOf lib.types.bool;
+            description = "Program module enable flags";
           };
           editors = lib.mkOption {
             type = lib.types.attrsOf (
@@ -154,14 +159,17 @@ in
                   options = {
                     enable = lib.mkOption {
                       type = lib.types.bool;
+                      description = "Whether to enable this editor module";
                     };
                     plugins = lib.mkOption {
                       type = lib.types.attrsOf lib.types.bool;
+                      description = "Plugin enable flags for this editor";
                     };
                   };
                 })
               ]
             );
+            description = "Editor module enable flags (bool or { enable, plugins })";
           };
         };
       };

@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.shell.fd;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
 in
 {
   options.modules.shell.fd = {
@@ -17,7 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.fd = {
       enable = true;
-      package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.fd else mkSystemPackage "fd" { };
+      package = mkPlatformPackage "fd" { };
     };
   };
 }

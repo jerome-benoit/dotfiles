@@ -53,7 +53,7 @@ in
     enableDesktop = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "OpenCode Desktop package";
+      description = "OpenCode Desktop integration";
     };
 
     opencodePackage = lib.mkOption {
