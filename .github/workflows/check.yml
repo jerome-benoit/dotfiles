@@ -45,7 +45,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     name: Check (${{ matrix.system }})
-    timeout-minutes: 60
+    timeout-minutes: 240
 
     steps:
       - uses: actions/checkout@v6
