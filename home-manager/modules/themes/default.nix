@@ -22,11 +22,11 @@
           options = {
             family = lib.mkOption {
               type = lib.types.str;
-              description = "Theme family (e.g. tokyonight, catppuccin)";
+              description = "Theme family identifier (e.g. tokyonight, catppuccin)";
             };
             name = lib.mkOption {
               type = lib.types.str;
-              description = "Theme identifier in kebab-case (e.g. tokyo-night-storm)";
+              description = "Theme slug in kebab-case (e.g. tokyo-night-storm)";
             };
             altName = lib.mkOption {
               type = lib.types.str;
@@ -34,15 +34,15 @@
             };
             fileName = lib.mkOption {
               type = lib.types.str;
-              description = "Theme file name without extension";
+              description = "Theme file name without extension (e.g. tokyo_night_storm)";
             };
             colors = lib.mkOption {
               type = lib.types.attrsOf lib.types.str;
-              description = "Named color palette (bg, fg, accent, etc.)";
+              description = "Hex color palette keyed by role (e.g. bg, fg, blue)";
             };
             style = lib.mkOption {
               type = lib.types.str;
-              description = "Theme variant within its family (e.g. storm, latte)";
+              description = "Variant within the family (e.g. storm, latte, mocha)";
             };
           };
         }
