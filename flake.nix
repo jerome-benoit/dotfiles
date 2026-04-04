@@ -23,6 +23,8 @@
     };
     openspec.url = "github:Fission-AI/OpenSpec";
     openspec.inputs.nixpkgs.follows = "nixpkgs";
+    nix-steipete-tools.url = "github:openclaw/nix-steipete-tools";
+    nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -36,6 +38,7 @@
       agent-deck,
       agtx,
       openspec,
+      nix-steipete-tools,
     }@inputs:
     let
       constants = import ./constants.nix;

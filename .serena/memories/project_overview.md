@@ -22,6 +22,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `agent-of-empires` | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake) |
 | `agent-deck`       | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)  |
 | `openspec`         | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs        |
+| `nix-steipete-tools` | `github:openclaw/nix-steipete-tools`      | Steipete tool binaries, follows nixpkgs |
 
 ## Supported Platforms
 

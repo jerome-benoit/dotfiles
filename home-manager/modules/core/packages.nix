@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 let
@@ -79,13 +80,30 @@ in
       pkgs.yq
       pkgs.zed-editor
       pkgs.zoom-us
-    ];
+    ]
+    ++ (
+      let
+        steipeteTools = inputs.nix-steipete-tools.packages.${pkgs.system};
+      in
+      lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+        steipeteTools.peekaboo
+        steipeteTools.poltergeist
+        steipeteTools.imsg
+        steipeteTools.camsnap
+        steipeteTools.sag
+      ]
+      ++ [
+        steipeteTools.summarize
+        steipeteTools.gogcli
+        steipeteTools.goplaces
+        steipeteTools.sonoscli
+      ]
+    );
 
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       text = ''
         tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
         tap "moltenbits/tap"
-        tap "steipete/tap"
         cask "docker-desktop"
         cask "ferdium"
         cask "ghostty"
@@ -95,7 +113,6 @@ in
         cask "moltenbits/tap/growlrrr"
         brew "hai"
         brew "mole"
-        brew "steipete/tap/peekaboo"
       '';
     };
     home.activation.brewBundle = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
