@@ -44,6 +44,7 @@ in
       pkgs.cmake
       pkgs.coreutils
       pkgs.delta
+      pkgs.ffmpeg
       pkgs.firefox
       pkgs.gnused
       pkgs.go
