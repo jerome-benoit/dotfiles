@@ -36,6 +36,19 @@ in
   nixpkgs = {
     overlays = [
       inputs.nix-openclaw.overlays.default
+      # https://github.com/openclaw/nix-openclaw/issues/80
+      (final: prev: {
+        openclaw-gateway = prev.openclaw-gateway.overrideAttrs (old: {
+          postPatch = (old.postPatch or "") + ''
+            if [ -f scripts/stage-bundled-plugin-runtime-deps.mjs ]; then
+              substituteInPlace scripts/stage-bundled-plugin-runtime-deps.mjs \
+                --replace-fail \
+                  'const result = spawnSync(npmRunner.command, npmRunner.args,' \
+                  'console.warn(`[nix] skipping npm install for ''${pluginId} — deps must be in workspace node_modules`); return; const result = spawnSync(npmRunner.command, npmRunner.args,'
+            fi
+          '';
+        });
+      })
     ];
     config = {
       allowUnfree = true;
