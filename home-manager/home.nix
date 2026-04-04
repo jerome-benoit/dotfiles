@@ -41,10 +41,9 @@ in
         openclaw-gateway = prev.openclaw-gateway.overrideAttrs (old: {
           postPatch = (old.postPatch or "") + ''
             if [ -f scripts/stage-bundled-plugin-runtime-deps.mjs ]; then
-              substituteInPlace scripts/stage-bundled-plugin-runtime-deps.mjs \
-                --replace-fail \
-                  'const result = spawnSync(npmRunner.command, npmRunner.args,' \
-                  'console.warn(`[nix] skipping npm install for ''${pluginId} — deps must be in workspace node_modules`); return; const result = spawnSync(npmRunner.command, npmRunner.args,'
+              sed -i '/const result = spawnSync(npmRunner\.command/i\
+              console.warn(`[nix] skipping npm install for ''${pluginId}`); return;' \
+                scripts/stage-bundled-plugin-runtime-deps.mjs
             fi
           '';
         });
