@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 let
@@ -79,7 +80,25 @@ in
       pkgs.yq
       pkgs.zed-editor
       pkgs.zoom-us
-    ];
+    ]
+    ++ (
+      let
+        steipeteTools = inputs.nix-steipete-tools.packages.${pkgs.system};
+      in
+      lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+        steipeteTools.peekaboo
+        steipeteTools.poltergeist
+        steipeteTools.imsg
+        steipeteTools.camsnap
+        steipeteTools.sag
+      ]
+      ++ [
+        steipeteTools.summarize
+        steipeteTools.gogcli
+        steipeteTools.goplaces
+        steipeteTools.sonoscli
+      ]
+    );
 
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       text = ''

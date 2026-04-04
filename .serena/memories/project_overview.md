@@ -23,7 +23,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `agent-deck`         | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)                                      |
 | `openspec`           | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                            |
 | `nix-openclaw`       | `github:openclaw/nix-openclaw`              | OpenClaw AI gateway, follows nixpkgs + home-manager + nix-steipete-tools |
-| `nix-steipete-tools` | `github:openclaw/nix-steipete-tools`        | Steipete tool plugins for OpenClaw, follows nixpkgs                      |
+| `nix-steipete-tools` | `github:openclaw/nix-steipete-tools`        | Steipete tool binaries, follows nixpkgs                                  |
 
 ## Supported Platforms
 
