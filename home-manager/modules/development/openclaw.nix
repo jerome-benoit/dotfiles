@@ -21,12 +21,13 @@ in
       stateDir = "${homeDir}/.openclaw";
       workspaceDir = "${homeDir}/.openclaw/workspace";
       installApp = isDarwin;
+      exposePluginPackages = false;
 
       bundledPlugins = {
         summarize.enable = true;
         sag.enable = true;
         camsnap.enable = true;
-        gogcli.enable = false;
+        gogcli.enable = true;
         goplaces.enable = true;
         sonoscli.enable = true;
         peekaboo.enable = isDarwin;
