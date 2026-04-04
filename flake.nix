@@ -17,6 +17,10 @@
       url = "github:asheshgoplani/agent-deck";
       flake = false;
     };
+    agtx = {
+      url = "github:fynnfluegge/agtx";
+      flake = false;
+    };
     openspec.url = "github:Fission-AI/OpenSpec";
     openspec.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -30,6 +34,7 @@
       opencode-nvim,
       agent-of-empires,
       agent-deck,
+      agtx,
       openspec,
     }@inputs:
     let

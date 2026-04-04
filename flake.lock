@@ -38,6 +38,22 @@
         "type": "github"
       }
     },
+    "agtx": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775283535,
+        "narHash": "sha256-aDGE/ya46xKuyfMydG3kodU0D0esqXJTbIp4xiSdqQw=",
+        "owner": "fynnfluegge",
+        "repo": "agtx",
+        "rev": "6cafcc4f64dce37ca99c4a6f93e9f2083e69c408",
+        "type": "github"
+      },
+      "original": {
+        "owner": "fynnfluegge",
+        "repo": "agtx",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1771796463,
@@ -182,6 +198,7 @@
       "inputs": {
         "agent-deck": "agent-deck",
         "agent-of-empires": "agent-of-empires",
+        "agtx": "agtx",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
         "opencode": "opencode",

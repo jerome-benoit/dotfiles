@@ -21,6 +21,7 @@ let
 
     development = {
       agentDeck = true;
+      agtx = true;
       aoe = true;
       bun = true;
       claudeCode = true;
@@ -70,6 +71,7 @@ let
 
     development = {
       agentDeck = false;
+      agtx = false;
       aoe = false;
       bun = false;
       claudeCode = false;
