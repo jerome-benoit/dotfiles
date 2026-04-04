@@ -9,7 +9,7 @@
 let
   cfg = config.modules.development.agtx;
 
-  agtxPackage = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
+  agtxPackage = pkgs.rustPlatform.buildRustPackage {
     pname = "agtx";
     version = "unstable-${inputs.agtx.shortRev}";
     src = inputs.agtx;
@@ -40,7 +40,7 @@ let
       mainProgram = "agtx";
       platforms = lib.platforms.unix;
     };
-  });
+  };
 in
 {
   options.modules.development.agtx = {
