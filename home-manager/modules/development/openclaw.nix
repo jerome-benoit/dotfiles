@@ -26,7 +26,7 @@ in
         summarize.enable = true;
         sag.enable = true;
         camsnap.enable = true;
-        gogcli.enable = true;
+        gogcli.enable = false;
         goplaces.enable = true;
         sonoscli.enable = true;
         peekaboo.enable = isDarwin;
