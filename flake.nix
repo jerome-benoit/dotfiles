@@ -38,6 +38,7 @@
       agent-deck,
       openspec,
       nix-openclaw,
+      nix-steipete-tools,
     }@inputs:
     let
       constants = import ./constants.nix;
