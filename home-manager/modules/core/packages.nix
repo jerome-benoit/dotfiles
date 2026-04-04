@@ -88,7 +88,10 @@ in
       in
       lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
         steipeteTools.peekaboo
-        steipeteTools.poltergeist
+        # https://github.com/openclaw/nix-steipete-tools/issues/11
+        (steipeteTools.poltergeist.overrideAttrs (_: {
+          propagatedBuildInputs = [ ];
+        }))
         steipeteTools.imsg
         steipeteTools.camsnap
         steipeteTools.sag
