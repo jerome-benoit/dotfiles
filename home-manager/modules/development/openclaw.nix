@@ -55,10 +55,18 @@ in
           };
         };
 
-        secrets.providers.filemain = {
-          source = "file";
-          path = "~/.openclaw/secrets/openclaw-secrets.json";
-          mode = "json";
+        secrets = {
+          providers.filemain = {
+            source = "file";
+            path = "~/.openclaw/secrets/openclaw-secrets.json";
+            mode = "json";
+          };
+          defaults.file = "filemain";
+        };
+
+        auth.profiles."github-copilot:github" = {
+          provider = "github-copilot";
+          mode = "token";
         };
 
         channels.telegram = {
@@ -78,6 +86,7 @@ in
         agents.defaults = {
           model = {
             primary = "github-copilot/gpt-5.4";
+            fallbacks = [ "github-copilot/claude-opus-4.6" ];
           };
           models = {
             "github-copilot/gpt-5.4".alias = "GPT";

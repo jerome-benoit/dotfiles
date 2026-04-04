@@ -22,6 +22,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `agent-of-empires` | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake) |
 | `agent-deck`       | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)  |
 | `openspec`         | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs        |
+| `nix-openclaw`     | `github:openclaw/nix-openclaw`              | OpenClaw AI gateway, follows nixpkgs + home-manager |
 
 ## Supported Platforms
 
@@ -87,7 +88,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── ripgrep.nix      # Fast grep replacement
 │       │   ├── zoxide.nix       # Smart cd command
 │       │   └── zsh.nix          # Shell config with oh-my-zsh
-│       ├── development/         # Dev tools (11 files)
+│       ├── development/         # Dev tools (12 files)
 │       │   ├── agent-deck.nix   # AI agent command center TUI
 │       │   ├── aoe.nix          # Agent of Empires session manager
 │       │   ├── bun.nix          # JavaScript runtime
@@ -95,6 +96,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── gh.nix           # GitHub CLI + extensions
 │       │   ├── git.nix          # Git config with delta, mergiraf, GPG signing
 │       │   ├── lazygit.nix      # Git TUI with conventional commits
+│       │   ├── openclaw.nix     # OpenClaw AI gateway
 │       │   ├── opencode.nix     # OpenCode AI assistant
 │       │   ├── opencode-hashes.nix # OpenCode package hashes
 │       │   └── openspec.nix     # OpenSpec CLI
