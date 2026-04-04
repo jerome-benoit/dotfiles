@@ -31,7 +31,8 @@ in
         sonoscli.enable = true;
         peekaboo.enable = isDarwin;
         poltergeist.enable = isDarwin;
-        bird.enable = isDarwin;
+        # https://github.com/openclaw/nix-steipete-tools/issues/6
+        bird.enable = false;
         imsg.enable = isDarwin;
       };
 
