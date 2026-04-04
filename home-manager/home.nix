@@ -37,7 +37,7 @@ in
     overlays = [
       inputs.nix-openclaw.overlays.default
       # https://github.com/openclaw/nix-openclaw/issues/80
-      (final: prev: {
+      (_final: prev: {
         openclaw-gateway = prev.openclaw-gateway.overrideAttrs (old: {
           postPatch = (old.postPatch or "") + ''
             if [ -f scripts/stage-bundled-plugin-runtime-deps.mjs ]; then
