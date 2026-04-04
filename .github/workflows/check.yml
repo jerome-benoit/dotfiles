@@ -53,12 +53,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Free disk space
+      - name: Free disk space (Linux)
         if: runner.os == 'Linux'
         uses: wimpysworld/nothing-but-nix@v10
         with:
+          hatchet-protocol: rampage
           witness-carnage: true
           nix-permission-edict: true
+
+      - name: Free disk space (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          sudo rm -rf /Applications/Xcode*.app
+          sudo rm -rf /Library/Developer
+          sudo rm -rf /Library/Android
+          sudo rm -rf ~/Library/Developer/CoreSimulator
+          sudo rm -rf /usr/local/share/dotnet
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromedriver*
+          sudo rm -rf /usr/local/share/edge_driver
+          sudo rm -rf /Applications/Google\ Chrome*.app
+          sudo rm -rf /Applications/Firefox.app
 
       - name: Install Nix
         uses: nixbuild/nix-quick-install-action@v34
