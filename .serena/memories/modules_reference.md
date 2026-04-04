@@ -219,9 +219,9 @@ Agent of Empires session manager:
 OpenClaw AI gateway:
 
 - Uses `programs.openclaw` HM module from `nix-openclaw` flake input
-- Bundled plugins: summarize, sag, camsnap, gogcli, goplaces, sonoscli + macOS-only: peekaboo, poltergeist, bird, imsg
+- Bundled plugins: summarize, sag, camsnap, gogcli, goplaces, sonoscli + macOS-only: peekaboo, poltergeist, imsg (bird disabled — upstream repo deleted, nix-steipete-tools#6)
 - Service: launchd on macOS, systemd on Linux
-- Config: gateway (local/loopback), Telegram channel, agent defaults, exec security allowlist
+- Config: gateway (local/loopback), Telegram channel, agent defaults (model fallbacks, auth profiles, secrets defaults), exec security allowlist
 - Activation: injects `$include` for local overrides, seeds `openclaw.local.json`
 
 ### openspec.nix
