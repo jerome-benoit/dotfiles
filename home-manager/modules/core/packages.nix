@@ -95,9 +95,9 @@ in
         steipeteTools.imsg
         steipeteTools.camsnap
         steipeteTools.sag
+        steipeteTools.summarize
       ]
       ++ [
-        steipeteTools.summarize
         steipeteTools.gogcli
         steipeteTools.goplaces
         steipeteTools.sonoscli
