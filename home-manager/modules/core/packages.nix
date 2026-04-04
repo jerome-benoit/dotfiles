@@ -108,7 +108,6 @@ in
           else
             steipeteTools.summarize
         )
-        steipeteTools.gogcli
         steipeteTools.goplaces
         steipeteTools.sonoscli
       ]
