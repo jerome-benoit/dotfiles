@@ -173,6 +173,8 @@ in
           run ${injectInclude} "$CONFIG"
         elif [ -f "$CONFIG" ]; then
           warnEcho "openclaw: $CONFIG is not a symlink — skipping \$include injection"
+        else
+          warnEcho "openclaw: $CONFIG not found — openclawConfigFiles may not have run"
         fi
       '';
   };
