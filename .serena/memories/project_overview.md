@@ -13,16 +13,16 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 ## Flake Inputs
 
-| Input              | Source                                      | Description                          |
-| ------------------ | ------------------------------------------- | ------------------------------------ |
-| `nixpkgs`          | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)              |
-| `home-manager`     | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs        |
-| `opencode`         | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop             |
-| `opencode-nvim`    | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)            |
-| `agent-of-empires` | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake) |
-| `agent-deck`       | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)  |
-| `openspec`         | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs        |
-| `nix-steipete-tools` | `github:openclaw/nix-steipete-tools`      | Steipete tool binaries, follows nixpkgs |
+| Input                | Source                                      | Description                             |
+| -------------------- | ------------------------------------------- | --------------------------------------- |
+| `nixpkgs`            | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)                 |
+| `home-manager`       | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs           |
+| `opencode`           | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop                |
+| `opencode-nvim`      | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)               |
+| `agent-of-empires`   | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake)    |
+| `agent-deck`         | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)     |
+| `openspec`           | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs           |
+| `nix-steipete-tools` | `github:openclaw/nix-steipete-tools`        | Steipete tool binaries, follows nixpkgs |
 
 ## Supported Platforms
 
