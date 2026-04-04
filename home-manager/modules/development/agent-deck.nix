@@ -123,7 +123,7 @@ let
     [tmux]
   '';
 
-  agentDeckPackage = pkgs.buildGoModule {
+  agentDeckPackage = pkgs.buildGoModule (finalAttrs: {
     pname = "agent-deck";
     version = "unstable-${inputs.agent-deck.shortRev}";
     src = inputs.agent-deck;
@@ -134,12 +134,12 @@ let
     ldflags = [
       "-s"
       "-w"
-      "-X main.Version=unstable-${inputs.agent-deck.shortRev}"
+      "-X main.Version=${finalAttrs.version}"
     ];
 
     doCheck = false;
 
-    meta = with lib; {
+    meta = {
       description = "Terminal session manager for AI coding agents";
       longDescription = ''
         Agent Deck is a command center for AI coding agents. One terminal,
@@ -150,12 +150,11 @@ let
         git worktrees, conductor orchestration, and notification bar.
       '';
       homepage = "https://github.com/asheshgoplani/agent-deck";
-      license = licenses.mit;
-      maintainers = [ ];
-      platforms = platforms.unix;
+      license = lib.licenses.mit;
+      platforms = lib.platforms.unix;
       mainProgram = "agent-deck";
     };
-  };
+  });
 in
 {
   options.modules.development.agent-deck = {
