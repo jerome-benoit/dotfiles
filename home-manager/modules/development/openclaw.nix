@@ -8,7 +8,7 @@
 let
   cfg = config.modules.development.openclaw;
   homeDir = config.home.homeDirectory;
-  isDarwin = pkgs.stdenv.isDarwin;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 in
 {
   options.modules.development.openclaw = {

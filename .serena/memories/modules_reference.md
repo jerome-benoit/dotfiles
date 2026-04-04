@@ -52,7 +52,7 @@ Common packages for all platforms:
 - **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta, whisper-cpp
 - **Linux server**: delta, grc (only on server profile)
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
-- **Homebrew**: .Brewfile with taps (hAIperspace/hai, moltenbits, steipete) and packages (docker-desktop, ferdium, ghostty, gpg-suite@nightly, jordanbaird-ice, shuttle, growlrrr, hai, mole, peekaboo)
+- **Homebrew**: .Brewfile with taps (hAIperspace/hai, moltenbits) and packages (docker-desktop, ferdium, ghostty, gpg-suite@nightly, jordanbaird-ice, shuttle, growlrrr, hai, mole)
 
 ### profile.nix
 
