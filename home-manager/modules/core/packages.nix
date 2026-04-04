@@ -95,9 +95,19 @@ in
         steipeteTools.imsg
         steipeteTools.camsnap
         steipeteTools.sag
-        steipeteTools.summarize
       ]
       ++ [
+        # https://github.com/openclaw/nix-steipete-tools/issues/9
+        (
+          if pkgs.stdenv.hostPlatform.isLinux then
+            steipeteTools.summarize.overrideAttrs (old: {
+              env = old.env // {
+                npm_config_nodedir = "${pkgs.nodejs_22}";
+              };
+            })
+          else
+            steipeteTools.summarize
+        )
         steipeteTools.gogcli
         steipeteTools.goplaces
         steipeteTools.sonoscli
