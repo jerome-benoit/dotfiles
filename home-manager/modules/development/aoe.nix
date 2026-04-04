@@ -50,6 +50,7 @@ in
         "tokyo-night-storm"
         "catppuccin-latte"
         "dracula"
+        "empire"
       ];
       default = "tokyo-night-storm";
       description = "TUI theme";

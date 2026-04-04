@@ -18,6 +18,8 @@ This validates:
 
 - [ ] All .nix files are properly formatted
 - [ ] No broken symlinks in build output
+- [ ] statix lint passes (configured via statix.toml)
+- [ ] deadnix passes (no dead code)
 - [ ] All home configurations build successfully (fraggle, almalinux, I339261)
 
 ### 3. Test Changes Locally
@@ -99,84 +101,34 @@ hm  # Apply changes with home-manager
 
 ## Adding New Themes
 
-1. **Create theme file**:
+Add a new `mkTheme` call in `home-manager/modules/themes/default.nix`:
 
-   ```
-   home-manager/modules/themes/<theme-name>.nix
-   ```
+```nix
+(mkTheme "myThemeKey" {
+  family = "mytheme";
+  name = "my-theme";
+  altName = "My Theme";
+  fileName = "my_theme";
+  style = "dark";
+  colors = {
+    bg = "#..."; fg = "#...";
+    black = "#..."; red = "#..."; green = "#..."; yellow = "#...";
+    blue = "#..."; magenta = "#..."; cyan = "#..."; white = "#...";
+    brightBlack = "#..."; brightRed = "#..."; brightGreen = "#..."; brightYellow = "#...";
+    brightBlue = "#..."; brightMagenta = "#..."; brightCyan = "#..."; brightWhite = "#...";
+  };
+})
+```
 
-2. **Define theme structure**:
-
-   ```nix
-   { lib, ... }:
-   {
-     config.modules.themes.<themeCamelCase> = {
-       name = "<theme-name>";
-       altName = "<Theme Display Name>";
-       fileName = "<theme_file_name>";
-       colors = {
-         bg = "#...";
-         fg = "#...";
-         # ... full palette
-       };
-     };
-   }
-   ```
-
-3. **Add import** to `themes/default.nix`
-
-4. **Reference in programs**:
-   ```nix
-   theme = config.modules.themes.<themeCamelCase>;
-   # Use theme.colors.blue, theme.name, etc.
-   ```
+Then set `config.modules.themes.active = "myThemeKey"` to use it.
 
 ## Platform-Specific Changes
 
-### Adding Linux-only Packages
-
-```nix
-home.packages = with pkgs; [
-  # common packages
-] ++ lib.optionals pkgs.stdenv.isLinux [
-  # Linux-only packages
-];
-```
-
-### Adding macOS-only Packages
-
-```nix
-home.packages = with pkgs; [
-  # common packages
-] ++ lib.optionals pkgs.stdenv.isDarwin [
-  # macOS packages from nixpkgs
-];
-```
-
-### Adding macOS Casks (Homebrew)
-
-In `modules/core/packages.nix`:
-
-```nix
-home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
-  text = ''
-    cask "app-name"
-  '';
-};
-```
+See `code_style_conventions` memory for platform-specific code patterns.
 
 ## Updating Dependencies
 
-```bash
-# Update all inputs
-nix flake update
-
-# Update specific input
-nix flake lock --update-input nixpkgs
-nix flake lock --update-input home-manager
-nix flake lock --update-input opencode
-nix flake lock --update-input opencode-nvim
-```
+See `suggested_commands` memory for dependency management commands.
 
 ## Adding New Users
 
@@ -196,43 +148,6 @@ nix flake lock --update-input opencode-nvim
 
 3. **Update CI** if the user should be tested
 
-## CI/CD Notes
+## CI/CD & Debugging
 
-The GitHub workflow (`.github/workflows/check.yml`) runs on:
-
-- Push to `main` (paths: flake.\*, home-manager/**, checks/**, constants.nix)
-- Pull requests to `main`
-- Manual dispatch
-
-Matrix:
-
-- `ubuntu-latest` / `x86_64-linux`
-- `macos-latest` / `aarch64-darwin`
-
-## Debugging Tips
-
-### Build specific configuration
-
-```bash
-nix build .#homeConfigurations.fraggle.activationPackage
-```
-
-### Check what would be installed
-
-```bash
-nix eval .#homeConfigurations.fraggle.config.home.packages --apply 'pkgs: map (p: p.name or p.pname or "unknown") pkgs'
-```
-
-### Interactive debugging
-
-```bash
-nix repl
-:lf .
-homeConfigurations.fraggle.config.modules.core.profile.name
-```
-
-### Check module option values
-
-```bash
-nix eval .#homeConfigurations.fraggle.config.modules.shell.zsh.enable
-```
+See `suggested_commands` memory for CI details, debugging tips, and operational commands.

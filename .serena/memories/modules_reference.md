@@ -10,7 +10,8 @@ Defines user-level constants accessible via `config.modules.core.constants`:
 - `profiles` - Profile names: desktop, server (readonly)
 - `distros` - Supported distros: almalinux, debian, fedora, ubuntu (readonly)
 - `username` - "Jérôme Benoit" (readonly)
-- `email` - Personal email (readonly)
+- `primaryEmail` - Personal email (readonly)
+- `secondaryEmail` - Secondary email (readonly)
 - `workEmail` - Work email (readonly)
 - `gpg.keyId` - GPG key ID (readonly)
 - `gpg.fingerprint` - GPG fingerprint (readonly)
@@ -18,6 +19,8 @@ Defines user-level constants accessible via `config.modules.core.constants`:
 - `timezone` - "Europe/Paris" (configurable)
 - `hosts` - Known hostnames: rigel, ns3108029 (readonly)
 - `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
+- `deltaConfig` - Shared delta pager configuration submodule (readonly)
+- `deltaConfigToCli` - Function to convert deltaConfig to CLI flags string (readonly)
 
 ### distro.nix
 
@@ -26,6 +29,13 @@ Auto-detects Linux distribution via `/etc/os-release`:
 - `config.modules.core.distro.id` - Detected distro ID or "darwin" or null
 - `config.modules.core.distro.ids` - Attribute set of supported distros
 - Emits warning for unsupported distributions
+
+### lib.nix
+
+Shared library functions:
+
+- `config.modules.core.lib.mkSystemPackage` - Placeholder package for system-managed binaries
+- `config.modules.core.lib.mkPlatformPackage` - Nix package on Darwin, system stub on Linux
 
 ### home-manager.nix
 
@@ -39,10 +49,10 @@ Base home-manager configuration:
 
 Common packages for all platforms:
 
-- **All**: nerd-fonts.jetbrains-mono, nh, mergiraf, nixfmt, volta
+- **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta, whisper-cpp
 - **Linux server**: delta, grc (only on server profile)
-- **macOS**: Extensive list including dev tools, IDEs, browsers, utilities
-- **Homebrew**: .Brewfile for casks (docker-desktop, ferdium, ghostty, gpg-suite, ice, shuttle)
+- **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
+- **Homebrew**: .Brewfile with taps (hAIperspace/hai, moltenbits, steipete) and packages (docker-desktop, ferdium, ghostty, gpg-suite@nightly, jordanbaird-ice, shuttle, growlrrr, hai, mole, peekaboo)
 
 ### profile.nix
 
@@ -85,6 +95,7 @@ Creates work/personal contexts with different:
 - Git user email and signing key
 - Email signature file (.signature)
 - Shell aliases (hm, hmw, hmp)
+- Active theme (via `modules.themes.active`)
 - SSH matchBlocks (work specialisation has \*.local -> fraggle user)
 
 Requires: `modules.development.git.enable = true`, `modules.shell.zsh.enable = true`
@@ -101,14 +112,15 @@ Shell configuration with oh-my-zsh:
 - Session variables: NH_FLAKE, WORKSPACE, EDITOR
 - Base plugins: colorize, screen, docker, python, poetry, rust, deno, volta, node, npm, etc.
 - Dynamic plugins based on: profile modules, distro, platform
-- Custom init: DVM support, .secrets loading with permission check
-- Profile: Volta setup, PATH configuration, .zprofile.d scripts
+- Custom init: `oc()` tmux+opencode wrapper, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
+- envExtra: cargo env, gh auth token for NIX_CONFIG access-tokens and HOMEBREW_GITHUB_API_TOKEN
+- Profile: Volta setup, PATH configuration, .zprofile.d scripts sourcing
 
 ### fzf.nix
 
 Fuzzy finder configuration:
 
-- Uses system fzf on Linux, Nix package on macOS
+- Uses `mkPlatformPackage` (Nix on Darwin, system stub on Linux)
 - Commands use fd for file discovery
 - **Requires**: fd module enabled
 
@@ -129,7 +141,7 @@ Modern ls replacement:
 
 ### fd.nix, ripgrep.nix, zoxide.nix
 
-Simple wrappers using system binaries on Linux.
+Simple wrappers using `mkPlatformPackage` (Nix on Darwin, system stub on Linux).
 
 ---
 
@@ -155,7 +167,7 @@ GitHub CLI:
 
 ### lazygit.nix
 
-Git TUI with Tokyo Night theme colors:
+Git TUI with dynamic theme colors from `themes.current`:
 
 - Custom conventional commit command (key: C)
 - Delta pager integration
@@ -194,8 +206,9 @@ AI agent command center TUI:
 
 Agent of Empires session manager:
 
-- Options: `enable`, `package`, `defaultTool`
+- Options: `enable`, `package`, `theme`, `defaultTool`
 - Default tool: opencode (supports claude, opencode, vibe, codex, gemini)
+- Theme: tokyo-night-storm (supports phosphor, tokyo-night-storm, catppuccin-latte, dracula, empire)
 - Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
 - Shell completions: bash, fish, zsh
 - Built from flake input with `rustPlatform.buildRustPackage`
@@ -216,12 +229,12 @@ OpenSpec CLI:
 
 Terminal emulator:
 
-- Theme: tokyo_night_storm (from alacritty-theme package)
+- Theme: dynamic from `themes.current.fileName` (via alacritty-theme package)
 - Font: constants.fontFamily, 14pt
 - Window: maximized, 0.95 opacity, blur
 - Scrollback: uses constants.historySize
 - URL hints: Cmd/Ctrl+click to open (cross-platform)
-- Bell: visual + notify-send on Linux
+- Bell: grrr on macOS (auto-detected path), notify-send on Linux
 - Keybindings: cross-platform (Command on macOS, Control on Linux)
 
 ### ghostty.nix
@@ -229,8 +242,8 @@ Terminal emulator:
 Terminal emulator:
 
 - Font: constants.fontFamily, 12pt
-- Theme: Tokyo Night Storm (macOS only)
-- Keybindings: uses Ghostty defaults
+- Theme: dynamic from `themes.current.altName` (macOS only)
+- Quick terminal: Ctrl+grave toggle, centered, no animation
 - macOS: option-as-alt enabled
 
 ### tmux.nix
@@ -238,23 +251,26 @@ Terminal emulator:
 Terminal multiplexer:
 
 - vi mode, mouse enabled
-- Tokyo Night theme plugin (storm variant)
+- Theme: dynamic plugin selection via `theme.family` (supports tokyonight and catppuccin)
 - Plugins: sensible, yank, pain-control, vim-tmux-navigator, resurrect, continuum
+- Catppuccin: includes battery plugin + custom status line
 - Session persistence: 15-minute autosave, restore on start
+- Assertion validates theme family exists in `tmuxThemePlugins`
 
 ### zellij.nix
 
 Terminal multiplexer:
 
-- Theme: tokyo-night-storm
-- zjstatus plugin for status bar with theme colors
-- Custom keybindings: Alt+hjkl navigation, Alt+[] tabs, Alt+n/t new pane/tab
+- Theme: dynamic from `themes.current.name`
+- zjstatus plugin for status bar with dynamic theme colors
+- Session serialization enabled (60s interval)
+- Custom keybindings: Alt+hjkl navigation, Alt+[] tabs, Alt+n/t new pane/tab, Alt+f/z float/fullscreen
 
 ### lazydocker.nix
 
 Docker TUI:
 
-- Tokyo Night theme colors
+- Theme: dynamic colors from `themes.current`
 - Rounded borders
 - Custom commands: bash, sh shell access
 
@@ -275,9 +291,17 @@ CLI email client:
 - Account: piment-noir (OVH IMAP/SMTP)
 - GPG signing enabled by default
 
-### btop.nix, glow.nix
+### btop.nix
 
-Simple wrappers with basic configuration.
+Simple wrapper using `mkPlatformPackage`.
+
+### glow.nix
+
+Markdown viewer:
+
+- Package via `mkPlatformPackage`
+- YAML config generated (style: auto, mouse: true, pager: true, width: 100)
+- Platform-aware config path: `~/Library/Preferences/glow/` on macOS, XDG on Linux
 
 ---
 
@@ -289,7 +313,7 @@ Vim configuration:
 
 - Linux: Generates .vimrc for system vim with plugin runtimepath
 - macOS: Uses home-manager vim module
-- Plugins: airline, vim-nix, commentary, surround, gitgutter
+- Plugins: airline, airline-themes, vim-nix, commentary, surround, gitgutter
 - Settings: numbers, cursor line, 2-space indent, search highlighting
 
 ### neovim.nix
@@ -298,7 +322,8 @@ Full IDE configuration (~500 lines):
 
 **Plugins**:
 
-- UI: snacks-nvim, tokyonight-nvim, lualine-nvim, nvim-web-devicons
+- UI: snacks-nvim, lualine-nvim, nvim-web-devicons
+- Theme: dynamic plugin selection via `theme.family` (tokyonight-nvim or catppuccin-nvim)
 - Files: neo-tree-nvim, oil-nvim
 - Editor: nvim-surround, nvim-autopairs, comment-nvim, which-key-nvim, gitsigns-nvim
 - Treesitter: with all grammars
@@ -322,33 +347,39 @@ Full IDE configuration (~500 lines):
 
 ---
 
-## Themes Modules (`modules/themes/`)
+## Themes Module (`modules/themes/default.nix`)
 
-### tokyo-night-storm.nix (default)
+### Architecture
 
-Color palette definition:
+All themes defined in a single file via `mkTheme` factory function. The theme system uses:
 
-- `name`: "tokyo-night-storm"
-- `altName`: "TokyoNight Storm"
-- `fileName`: "tokyo_night_storm"
-- `colors`: Full 16-color palette + bg/fg (bg: #24283b)
+- **Registry**: `config.modules.themes.registry` — attrsOf typed submodule
+- **Active key**: `config.modules.themes.active` — string key (default: "tokyoNightStorm")
+- **Current**: `config.modules.themes.current` — resolved theme from registry (readOnly)
 
-### tokyo-night.nix
+### Available Themes (7)
 
-Color palette definition:
+| Key                   | Family     | Style     | bg      |
+| --------------------- | ---------- | --------- | ------- |
+| `tokyoNight`          | tokyonight | night     | #1a1b26 |
+| `tokyoNightStorm`     | tokyonight | storm     | #24283b |
+| `tokyoNightLight`     | tokyonight | day       | #e6e7ed |
+| `catppuccinMocha`     | catppuccin | mocha     | #1e1e2e |
+| `catppuccinMacchiato` | catppuccin | macchiato | #24273a |
+| `catppuccinFrappe`    | catppuccin | frappe    | #303446 |
+| `catppuccinLatte`     | catppuccin | latte     | #eff1f5 |
 
-- `name`: "tokyo-night"
-- `altName`: "TokyoNight"
-- `fileName`: "tokyo_night"
-- `colors`: Full 16-color palette + bg/fg (bg: #1a1b26)
+### Theme Submodule Type
 
-### tokyo-night-light.nix
+Each theme provides: `family`, `name`, `altName`, `fileName`, `style`, `colors` (attrsOf str with 18 color keys)
 
-Color palette definition:
+### Access Pattern
 
-- `name`: "tokyo-night-light"
-- `altName`: "TokyoNight Light"
-- `fileName`: "tokyo_night_light"
-- `colors`: Full 16-color palette + bg/fg (bg: #e6e7ed)
+```nix
+theme = config.modules.themes.current;
+theme.name       # "tokyo-night-storm"
+theme.colors.bg  # "#24283b"
+theme.colors.blue # "#7aa2f7"
+```
 
 Used by: alacritty, ghostty, lazygit, lazydocker, tmux, zellij, neovim
