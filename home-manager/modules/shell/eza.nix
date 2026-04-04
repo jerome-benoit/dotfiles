@@ -1,13 +1,12 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }:
 
 let
   cfg = config.modules.shell.eza;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
 in
 {
   options.modules.shell.eza = {
@@ -17,7 +16,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.eza = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.eza else mkSystemPackage "eza" { };
+      package = mkPlatformPackage "eza" { };
       enableZshIntegration = false;
       git = true;
       icons = "auto";

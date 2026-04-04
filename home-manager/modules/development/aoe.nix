@@ -50,6 +50,7 @@ in
         "tokyo-night-storm"
         "catppuccin-latte"
         "dracula"
+        "empire"
       ];
       default = "tokyo-night-storm";
       description = "TUI theme";
@@ -78,7 +79,7 @@ in
     home.activation.aoeConfig = lib.mkIf (cfg.package != null && cfg.defaultTool != null) (
       let
         configDir =
-          if pkgs.stdenv.isDarwin then
+          if pkgs.stdenv.hostPlatform.isDarwin then
             "${config.home.homeDirectory}/.agent-of-empires"
           else
             "${config.xdg.configHome}/agent-of-empires";

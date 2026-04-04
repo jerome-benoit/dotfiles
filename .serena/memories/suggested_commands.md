@@ -44,11 +44,13 @@ After installation, restart your shell to pick up aliases.
 
 ### What `nix flake check` validates:
 
-1. **formatting** - All .nix files formatted correctly
-2. **symlinks** - No broken symlinks in build output
-3. **home-fraggle** - Build fraggle's home configuration (Linux)
-4. **home-almalinux** - Build almalinux's home configuration (Linux)
-5. **home-I339261** - Build I339261's home configuration (macOS)
+1. **formatting** - All .nix files formatted correctly (nixfmt)
+2. **symlinks** - No broken symlinks in build output (platform-aware)
+3. **statix** - Nix linter (anti-patterns, style)
+4. **deadnix** - Dead code detection (unused bindings, inputs)
+5. **home-fraggle** - Build fraggle's home configuration (Linux)
+6. **home-almalinux** - Build almalinux's home configuration (Linux)
+7. **home-I339261** - Build I339261's home configuration (macOS)
 
 ## Dependency Management
 

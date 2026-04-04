@@ -114,7 +114,7 @@ Defined in `modules/core/constants.nix`:
 
 ```nix
 config.modules.core.constants.username      # "Jérôme Benoit"
-config.modules.core.constants.email         # "jerome.benoit@piment-noir.org"
+config.modules.core.constants.primaryEmail   # "jerome.benoit@piment-noir.org"
 config.modules.core.constants.workEmail     # "jerome.benoit@sap.com"
 config.modules.core.constants.gpg.keyId     # "27B535D3"
 config.modules.core.constants.historySize   # 50000
@@ -156,15 +156,16 @@ lib.optionals (distroId == distroIds.fedora) [ ... ]
 Access theme colors:
 
 ```nix
-theme = config.modules.themes.tokyoNightStorm;
+theme = config.modules.themes.current;
 
-theme.name       # "tokyo-night-storm"
+theme.name       # "tokyo-night-storm" (depends on active theme)
 theme.altName    # "TokyoNight Storm"
 theme.fileName   # "tokyo_night_storm"
+theme.family     # "tokyonight"
+theme.style      # "storm"
 theme.colors.bg  # "#24283b"
 theme.colors.fg  # "#a9b1d6"
 theme.colors.blue # "#7aa2f7"
-# ... (see tokyo-night-storm.nix for full palette)
 ```
 
 ## Platform-Specific Code
@@ -172,32 +173,32 @@ theme.colors.blue # "#7aa2f7"
 ### Package selection
 
 ```nix
-# Use system binary on Linux, Nix package on macOS
-package = if pkgs.stdenv.isDarwin then pkgs.fzf else systemFzf;
+# Preferred: use mkPlatformPackage helper (Nix on Darwin, system stub on Linux)
+mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
+package = mkPlatformPackage "fzf" { };
+package = mkPlatformPackage "ripgrep" { mainProgram = "rg"; };
 
-# Create dummy package for system binary
-systemFzf = pkgs.runCommand "fzf-system" {
-  version = "0.60.0";  # Optional: for version checks
-  meta.mainProgram = "fzf";
-} "mkdir -p $out";
+# For packages that always use system binary (regardless of platform):
+mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+package = mkSystemPackage "zsh" { };
 ```
 
 ### Conditional configuration
 
 ```nix
 # Platform-specific packages
-lib.optionals pkgs.stdenv.isLinux [ pkgs.delta pkgs.grc ]
-lib.optionals pkgs.stdenv.isDarwin [ pkgs.vscode pkgs.firefox ]
+lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.delta pkgs.grc ]
+lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.vscode pkgs.firefox ]
 
 # Platform-specific settings
-lib.mkIf pkgs.stdenv.isDarwin {
+lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
   settings.credential.helper = "osxkeychain";
 }
 
 # Merge platform-specific configs
 programs.git = lib.mkMerge [
   { /* common config */ }
-  (lib.mkIf pkgs.stdenv.isDarwin { /* macOS config */ })
+  (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin { /* macOS config */ })
 ];
 ```
 

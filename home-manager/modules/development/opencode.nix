@@ -23,8 +23,8 @@ let
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =
           (oldAttrs.postFixup or "")
-          + lib.optionalString pkgs.stdenv.isLinux ''
-            wrapProgram $out/bin/opencode \
+          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            wrapProgram "$out/bin/opencode" \
               --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
           '';
       })
@@ -53,7 +53,7 @@ in
     enableDesktop = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "OpenCode Desktop package";
+      description = "OpenCode Desktop integration";
     };
 
     opencodePackage = lib.mkOption {

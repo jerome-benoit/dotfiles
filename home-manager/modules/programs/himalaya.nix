@@ -8,7 +8,7 @@
 let
   cfg = config.modules.programs.himalaya;
   constants = config.modules.core.constants;
-  isDarwin = pkgs.stdenv.isDarwin;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
   mkPasswordCommand =
     email:

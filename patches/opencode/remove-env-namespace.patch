@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index 6353ca79adf2..b9165799fd7d 100644
+index e8f3e6a11e1c..69a4f82c85f4 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -453,7 +453,7 @@ export const GithubRunCommand = cmd({
@@ -533,7 +533,7 @@ index 2eb9887ea4fe..3bdf74084c9c 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index 1bb270716cb9..ea1f2806f1f8 100644
+index b538a9e88018..7f34d0fbdd0a 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
 @@ -32,7 +32,6 @@ import { pathToFileURL } from "url"
@@ -541,18 +541,18 @@ index 1bb270716cb9..ea1f2806f1f8 100644
  import { InstanceState } from "@/effect/instance-state"
  import { makeRuntime } from "@/effect/run-service"
 -import { Env } from "../env"
+ import { Question } from "../question"
+ import { Todo } from "../session/todo"
  
- export namespace ToolRegistry {
-   const log = Log.create({ service: "tool.registry" })
-@@ -167,7 +166,7 @@ export namespace ToolRegistry {
-           }
+@@ -186,7 +185,7 @@ export namespace ToolRegistry {
+             }
  
-           const usePatch =
--            !!Env.get("OPENCODE_E2E_LLM_URL") ||
-+            !!process.env.OPENCODE_E2E_LLM_URL ||
-             (model.modelID.includes("gpt-") && !model.modelID.includes("oss") && !model.modelID.includes("gpt-4"))
-           if (tool.id === "apply_patch") return usePatch
-           if (tool.id === "edit" || tool.id === "write") return !usePatch
+             const usePatch =
+-              !!Env.get("OPENCODE_E2E_LLM_URL") ||
++              !!process.env.OPENCODE_E2E_LLM_URL ||
+               (model.modelID.includes("gpt-") && !model.modelID.includes("oss") && !model.modelID.includes("gpt-4"))
+             if (tool.id === "apply_patch") return usePatch
+             if (tool.id === "edit" || tool.id === "write") return !usePatch
 diff --git a/packages/opencode/src/util/network.ts b/packages/opencode/src/util/network.ts
 index 69e5d17588ac..8ed608162a2e 100644
 --- a/packages/opencode/src/util/network.ts

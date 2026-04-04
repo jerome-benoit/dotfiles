@@ -39,10 +39,10 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 ## Specialisations
 
-| Name       | Email                         | Signature       |
-| ---------- | ----------------------------- | --------------- |
-| `work`     | jerome.benoit@sap.com         | SAP Labs France |
-| `personal` | jerome.benoit@piment-noir.org | Piment Noir     |
+| Name       | Email                  | Signature       |
+| ---------- | ---------------------- | --------------- |
+| `work`     | constants.workEmail    | SAP Labs France |
+| `personal` | constants.primaryEmail | Piment Noir     |
 
 ## Known Hosts
 
@@ -106,19 +106,23 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── himalaya.nix     # CLI email client
 │       │   ├── lazydocker.nix   # Docker TUI with theme
 │       │   ├── ssh.nix          # SSH config with specialisation overrides
-│       │   ├── tmux.nix         # Terminal multiplexer with tokyo-night
+│       │   ├── tmux.nix         # Terminal multiplexer with dynamic theme
 │       │   └── zellij.nix       # Terminal multiplexer with zjstatus
 │       ├── editors/             # Editors (2 files)
 │       │   ├── vim.nix          # Vim config (system vim on Linux)
-│       │   └─�� neovim.nix       # Full IDE setup with LSP, treesitter, opencode
-│       └── themes/              # Color themes (3 files)
-│           ├── tokyo-night.nix       # TokyoNight dark theme
-│           ├── tokyo-night-light.nix # TokyoNight light theme
-│           └── tokyo-night-storm.nix # TokyoNight Storm theme (default)
-├── checks/                      # Flake checks (3 files)
+│       │   └── neovim.nix       # Full IDE setup with LSP, treesitter, opencode
+│       └── themes/              # Color themes (1 file)
+│           └── default.nix      # Theme registry with mkTheme factory (7 themes)
+├── statix.toml                  # Statix linter configuration
+├── patches/                     # Upstream PR patches
+│   ├── opencode/                # Patches for anomalyco/opencode
+│   └── aoe/                     # Patches for njbrake/agent-of-empires
+├── checks/                      # Flake checks (5 files)
 │   ├── default.nix              # Check aggregator
 │   ├── formatting.nix           # Nix formatting check (nixfmt)
-│   └── symlinks.nix             # Broken symlinks detection
+│   ├── symlinks.nix             # Broken symlinks detection (platform-aware)
+│   ├── statix.nix               # Nix linter check
+│   └── deadnix.nix              # Dead code detection check
 └── .github/
     └── workflows/
         └── check.yml            # CI workflow (Linux + macOS)
@@ -135,9 +139,9 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 
 ## Key Design Patterns
 
-- **System packages on Linux**: Most shell tools use system-installed binaries via dummy `pkgs.runCommand` packages
-- **Nix packages on macOS**: Full packages installed via Nix on Darwin
+- **mkPlatformPackage**: Helper in `lib.nix` selects Nix package on Darwin or system stub on Linux
+- **mkSystemPackage**: Creates placeholder packages for system-managed binaries on Linux
 - **Profile-driven**: Modules check `profileModules.<category>.<module>` for enable state
-- **Theme centralization**: Colors defined in `themes/tokyo-night-storm.nix`, referenced by multiple programs
+- **Theme registry**: 7 themes (3 Tokyo Night + 4 Catppuccin) defined via `mkTheme` factory, active theme selected by key, accessed via `config.modules.themes.current`
 - **Assertions**: Modules validate dependencies (e.g., lazygit requires git)
 - **Homebrew integration**: macOS uses `.Brewfile` for casks not in nixpkgs

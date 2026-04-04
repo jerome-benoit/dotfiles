@@ -1,13 +1,12 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }:
 
 let
   cfg = config.modules.shell.direnv;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
 in
 {
   options.modules.shell.direnv = {
@@ -17,7 +16,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.direnv = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.direnv else mkSystemPackage "direnv" { };
+      package = mkPlatformPackage "direnv" { };
       nix-direnv.enable = true;
       enableZshIntegration = false;
     };

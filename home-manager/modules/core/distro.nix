@@ -11,7 +11,7 @@ let
   distroIdsEnumType = lib.types.enum supportedDistros;
 
   detectDistro =
-    if !pkgs.stdenv.isLinux then
+    if !pkgs.stdenv.hostPlatform.isLinux then
       null
     else if !builtins.pathExists /etc/os-release then
       null
@@ -31,7 +31,7 @@ let
       in
       if distro != null && builtins.elem distro supportedDistros then distro else null;
 
-  detectDarwin = if pkgs.stdenv.isDarwin then constants.systems.darwin.name else null;
+  detectDarwin = if pkgs.stdenv.hostPlatform.isDarwin then constants.systems.darwin.name else null;
 
   distroId = if detectDistro != null then detectDistro else detectDarwin;
 in
@@ -42,7 +42,7 @@ in
         lib.types.either distroIdsEnumType (lib.types.enum [ constants.systems.darwin.name ])
       );
       default = distroId;
-      description = "The OS distribution ID";
+      description = "OS distribution ID";
       readOnly = true;
     };
 
@@ -56,7 +56,8 @@ in
 
   config = {
     warnings =
-      lib.optional (pkgs.stdenv.isLinux && distroId == null && builtins.pathExists /etc/os-release)
+      lib.optional
+        (pkgs.stdenv.hostPlatform.isLinux && distroId == null && builtins.pathExists /etc/os-release)
         "distro: Detected unsupported Linux distribution. Supported: ${lib.concatStringsSep ", " supportedDistros}";
   };
 }

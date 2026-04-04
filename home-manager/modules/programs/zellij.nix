@@ -1,14 +1,13 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }:
 
 let
   cfg = config.modules.programs.zellij;
   theme = config.modules.themes.current;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
 in
 {
   options.modules.programs.zellij = {
@@ -18,8 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.zellij = {
       enable = true;
-      package =
-        if pkgs.stdenv.isDarwin then pkgs.zellij else mkSystemPackage "zellij" { version = "0.43.1"; };
+      package = mkPlatformPackage "zellij" { version = "0.43.1"; };
       enableZshIntegration = false;
 
       settings = {

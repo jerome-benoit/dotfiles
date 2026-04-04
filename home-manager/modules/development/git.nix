@@ -133,7 +133,7 @@ in
           delta = config.modules.core.constants.deltaConfig;
         };
       }
-      (lib.mkIf pkgs.stdenv.isDarwin {
+      (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
         settings = {
           merge = {
             tool = "opendiff";

@@ -23,16 +23,17 @@ in
       pkgs.volta
       pkgs.whisper-cpp
     ]
-    ++ lib.optionals pkgs.stdenv.isLinux (
-      [ ]
-      ++
-        lib.optionals (config.modules.core.profile.name == config.modules.core.constants.profiles.server)
-          [
-            pkgs.delta
-            pkgs.grc
-          ]
-    )
-    ++ lib.optionals pkgs.stdenv.isDarwin [
+    ++
+      lib.optionals
+        (
+          pkgs.stdenv.hostPlatform.isLinux
+          && config.modules.core.profile.name == config.modules.core.constants.profiles.server
+        )
+        [
+          pkgs.delta
+          pkgs.grc
+        ]
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       pkgs.autoconf
       pkgs.automake
       pkgs.bat
@@ -80,7 +81,7 @@ in
       pkgs.zoom-us
     ];
 
-    home.file.".Brewfile" = lib.mkIf pkgs.stdenv.isDarwin {
+    home.file.".Brewfile" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       text = ''
         tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
         tap "moltenbits/tap"
@@ -95,7 +96,7 @@ in
         brew "mole"
       '';
     };
-    home.activation.brewBundle = lib.mkIf pkgs.stdenv.isDarwin (
+    home.activation.brewBundle = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
       lib.hm.dag.entryAfter [ "linkGeneration" ] ''
         _brew=""
         if [[ -f /opt/homebrew/bin/brew ]]; then

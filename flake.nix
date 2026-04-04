@@ -96,8 +96,6 @@
             inherit
               self
               pkgs
-              home-manager
-              arch
               ;
           };
           homeConfigChecks =

@@ -7,7 +7,7 @@
 
 let
   cfg = config.modules.programs.tmux;
-  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
   theme = config.modules.themes.current;
 
   tmuxThemePlugins = {
@@ -64,7 +64,7 @@ in
 
     programs.tmux = {
       enable = true;
-      package = if pkgs.stdenv.isDarwin then pkgs.tmux else mkSystemPackage "tmux" { };
+      package = mkPlatformPackage "tmux" { };
       keyMode = "vi";
       terminal = "tmux-256color";
       mouse = true;
