@@ -23,6 +23,10 @@
     };
     openspec.url = "github:Fission-AI/OpenSpec";
     openspec.inputs.nixpkgs.follows = "nixpkgs";
+    nix-openclaw.url = "github:openclaw/nix-openclaw";
+    nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
+    nix-openclaw.inputs.home-manager.follows = "home-manager";
+    nix-openclaw.inputs.nix-steipete-tools.follows = "nix-steipete-tools";
     nix-steipete-tools.url = "github:openclaw/nix-steipete-tools";
     nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -38,6 +42,7 @@
       agent-deck,
       agtx,
       openspec,
+      nix-openclaw,
       nix-steipete-tools,
     }@inputs:
     let
@@ -61,7 +66,10 @@
               self
               ;
           };
-          modules = [ ./home-manager/home.nix ];
+          modules = [
+            inputs.nix-openclaw.homeManagerModules.openclaw
+            ./home-manager/home.nix
+          ];
         };
     in
     {

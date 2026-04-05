@@ -85,34 +85,37 @@ in
     ]
     ++ (
       let
+        openclawEnabled = config.modules.development.openclaw.enable or false;
         steipeteTools = inputs.nix-steipete-tools.packages.${pkgs.system};
       in
-      lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-        steipeteTools.peekaboo
-        # https://github.com/openclaw/nix-steipete-tools/issues/11
-        (steipeteTools.poltergeist.overrideAttrs (_: {
-          propagatedBuildInputs = [ ];
-        }))
-        steipeteTools.imsg
-        steipeteTools.camsnap
-        steipeteTools.sag
-      ]
-      ++ [
-        # https://github.com/openclaw/nix-steipete-tools/issues/9
-        (
-          if pkgs.stdenv.hostPlatform.isLinux then
-            steipeteTools.summarize.overrideAttrs (old: {
-              env = old.env // {
-                npm_config_nodedir = "${pkgs.nodejs_22}";
-              };
-            })
-          else
-            steipeteTools.summarize
-        )
-        steipeteTools.gogcli
-        steipeteTools.goplaces
-        steipeteTools.sonoscli
-      ]
+      lib.optionals (!openclawEnabled) (
+        lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+          steipeteTools.peekaboo
+          # https://github.com/openclaw/nix-steipete-tools/issues/11
+          (steipeteTools.poltergeist.overrideAttrs (_: {
+            propagatedBuildInputs = [ ];
+          }))
+          steipeteTools.imsg
+          steipeteTools.camsnap
+          steipeteTools.sag
+        ]
+        ++ [
+          # https://github.com/openclaw/nix-steipete-tools/issues/9
+          (
+            if pkgs.stdenv.hostPlatform.isLinux then
+              steipeteTools.summarize.overrideAttrs (old: {
+                env = old.env // {
+                  npm_config_nodedir = "${pkgs.nodejs_22}";
+                };
+              })
+            else
+              steipeteTools.summarize
+          )
+          steipeteTools.gogcli
+          steipeteTools.goplaces
+          steipeteTools.sonoscli
+        ]
+      )
     );
 
     home.file.".Brewfile" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {

@@ -32,6 +32,7 @@ let
         enable = true;
         enableDesktop = true;
       };
+      openclaw = true;
       openspec = true;
     };
 
@@ -82,6 +83,7 @@ let
         enable = false;
         enableDesktop = false;
       };
+      openclaw = false;
       openspec = false;
     };
 
