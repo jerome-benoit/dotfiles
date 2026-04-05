@@ -70,7 +70,7 @@ in
       pkgs.podman-compose
       pkgs.podman-desktop
       pkgs.poetry
-      pkgs.poppler
+      pkgs.poppler_utils
       pkgs.python3
       pkgs.python3Packages.virtualenv
       pkgs.qpdf
