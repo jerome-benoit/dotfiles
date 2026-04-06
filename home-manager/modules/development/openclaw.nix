@@ -159,8 +159,7 @@ in
       };
     };
 
-    # Generate active config with $include from the HM-managed symlink.
-    # Writes to a separate file to preserve the HM symlink intact.
+    # Generate active config with $include, preserving the HM symlink
     home.activation.openclawLocalConfig =
       let
         jq = lib.getExe pkgs.jq;
