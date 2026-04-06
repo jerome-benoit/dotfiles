@@ -110,6 +110,12 @@ in
           subagents.maxConcurrent = 8;
         };
 
+        plugins.entries = {
+          telegram.enabled = true;
+          github-copilot.enabled = true;
+          memory-core.config.dreaming.enabled = true;
+        };
+
         env.shellEnv.enabled = true;
         update.channel = "stable";
 
@@ -148,8 +154,6 @@ in
         commands = {
           native = "auto";
           nativeSkills = "auto";
-          restart = true;
-          ownerDisplay = "raw";
         };
       };
     };
