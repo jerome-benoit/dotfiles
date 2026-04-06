@@ -18,6 +18,7 @@ Defines user-level constants accessible via `config.modules.core.constants`:
 - `historySize` - 50000 (configurable)
 - `timezone` - "Europe/Paris" (configurable)
 - `hosts` - Known hostnames: rigel, ns3108029 (readonly)
+- `telegramUserId` - Telegram user ID for bot integrations (readonly)
 - `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
 - `deltaConfig` - Shared delta pager configuration submodule (readonly)
 - `deltaConfigToCli` - Function to convert deltaConfig to CLI flags string (readonly)
@@ -76,7 +77,7 @@ Profile system defining which modules are enabled per profile:
 | development | agentDeck  | ✓       | ✗      |
 | development | aoe        | ✓       | ✗      |
 | development | claudeCode | ✓       | ✗      |
-| development | openclaw   | ✓       | ✗      |
+| development | openclaw   | ✗       | ✗      |
 | development | openspec   | ✓       | ✗      |
 | programs    | alacritty  | ✓       | ✗      |
 | programs    | btop       | ✓       | ✓      |

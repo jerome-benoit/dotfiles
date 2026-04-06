@@ -8,6 +8,7 @@
 
 let
   cfg = config.modules.development.openclaw;
+  constants = config.modules.core.constants;
   homeDir = config.home.homeDirectory;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
@@ -84,12 +85,12 @@ in
           enabled = true;
           dmPolicy = "allowlist";
           tokenFile = "~/.openclaw/secrets/telegram-bot-token";
-          allowFrom = [ "7563526558" ];
+          allowFrom = [ constants.telegramUserId ];
           groupPolicy = "disabled";
           configWrites = false;
           execApprovals = {
             enabled = true;
-            approvers = [ "7563526558" ];
+            approvers = [ constants.telegramUserId ];
             target = "dm";
           };
         };
@@ -158,17 +159,25 @@ in
       };
     };
 
-    # Inject $include into the Nix-generated config (typed schema doesn't support it)
-    # and seed openclaw.local.json for mutable local overrides
+    # Generate active config with $include from the HM-managed symlink.
+    # Writes to a separate file to preserve the HM symlink intact.
     home.activation.openclawLocalConfig =
       let
         jq = lib.getExe pkgs.jq;
-        injectInclude = pkgs.writeShellScript "openclaw-inject-include" ''
+        generateActiveConfig = pkgs.writeShellScript "openclaw-generate-active" ''
           set -e
-          config="$1"
-          store_path="$(readlink "$config")"
-          ${jq} '. + {"$include": ["./openclaw.local.json"]}' "$store_path" > "$config.tmp"
-          mv "$config.tmp" "$config"
+          src="$1"
+          dst="$2"
+          if [ -L "$src" ]; then
+            store_path="$(readlink "$src")"
+          elif [ -f "$src" ]; then
+            store_path="$src"
+          else
+            echo "openclaw: source config not found: $src" >&2
+            exit 0
+          fi
+          ${jq} '. + {"$include": ["./openclaw.local.json"]}' "$store_path" > "$dst.tmp"
+          mv "$dst.tmp" "$dst"
         '';
         seedLocal = pkgs.writeShellScript "openclaw-seed-local" ''
           set -e
@@ -182,14 +191,12 @@ in
           run ${seedLocal} "$LOCAL"
         fi
 
-        CONFIG="${homeDir}/.openclaw/openclaw.json"
-        if [ -L "$CONFIG" ]; then
-          run ${injectInclude} "$CONFIG"
-        elif [ -f "$CONFIG" ]; then
-          warnEcho "openclaw: $CONFIG is not a symlink — skipping \$include injection"
-        else
-          warnEcho "openclaw: $CONFIG not found — openclawConfigFiles may not have run"
-        fi
+        run ${generateActiveConfig} \
+          "${homeDir}/.openclaw/openclaw.json" \
+          "${homeDir}/.openclaw/openclaw.active.json"
       '';
+
+    # Point openclaw at the active config instead of the HM symlink
+    home.sessionVariables.OPENCLAW_CONFIG_PATH = "${homeDir}/.openclaw/openclaw.active.json";
   };
 }

@@ -79,6 +79,12 @@ in
         readOnly = true;
       };
     };
+    telegramUserId = lib.mkOption {
+      type = lib.types.strMatching "^[0-9]+$";
+      default = "7563526558";
+      description = "Telegram user ID for bot integrations";
+      readOnly = true;
+    };
     historySize = lib.mkOption {
       type = lib.types.ints.positive;
       default = 50000;
