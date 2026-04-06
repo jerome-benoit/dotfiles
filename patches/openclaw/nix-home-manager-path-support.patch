@@ -1,0 +1,148 @@
+diff --git a/src/daemon/service-env.test.ts b/src/daemon/service-env.test.ts
+index 9bc2f7862cc3..d1d9ca791883 100644
+--- a/src/daemon/service-env.test.ts
++++ b/src/daemon/service-env.test.ts
+@@ -172,6 +172,82 @@ describe("getMinimalServicePathParts - Linux user directories", () => {
+   });
+ });
+ 
++describe("getMinimalServicePathParts - Nix Home Manager", () => {
++  it("includes default Nix Home Manager profile on Linux", () => {
++    const result = getMinimalServicePathParts({
++      platform: "linux",
++      home: "/home/testuser",
++    });
++
++    expect(result).toContain("/home/testuser/.nix-profile/bin");
++  });
++
++  it("includes Nix Home Manager profile directories on Linux", () => {
++    const result = getMinimalServicePathPartsFromEnv({
++      platform: "linux",
++      env: {
++        HOME: "/home/testuser",
++        NIX_PROFILES: "/nix/var/nix/profiles/default /home/testuser/.nix-profile",
++      },
++    });
++
++    // Should include default Nix profile
++    expect(result).toContain("/home/testuser/.nix-profile/bin");
++    // Should include all profiles from NIX_PROFILES env var
++    expect(result).toContain("/nix/var/nix/profiles/default/bin");
++  });
++
++  it("handles single Nix profile from NIX_PROFILES on Linux", () => {
++    const result = getMinimalServicePathPartsFromEnv({
++      platform: "linux",
++      env: {
++        HOME: "/home/testuser",
++        NIX_PROFILES: "/nix/var/nix/profiles/per-user/testuser/profile",
++      },
++    });
++
++    expect(result).toContain("/nix/var/nix/profiles/per-user/testuser/profile/bin");
++    expect(result).toContain("/home/testuser/.nix-profile/bin");
++  });
++
++  it("includes default Nix Home Manager profile on macOS", () => {
++    const result = getMinimalServicePathParts({
++      platform: "darwin",
++      home: "/Users/testuser",
++    });
++
++    expect(result).toContain("/Users/testuser/.nix-profile/bin");
++  });
++
++  it("includes Nix Home Manager profile directories on macOS", () => {
++    const result = getMinimalServicePathPartsFromEnv({
++      platform: "darwin",
++      env: {
++        HOME: "/Users/testuser",
++        NIX_PROFILES: "/nix/var/nix/profiles/default /Users/testuser/.nix-profile",
++      },
++    });
++
++    // Should include default Nix profile
++    expect(result).toContain("/Users/testuser/.nix-profile/bin");
++    // Should include all profiles from NIX_PROFILES env var
++    expect(result).toContain("/nix/var/nix/profiles/default/bin");
++  });
++
++  it("handles single Nix profile from NIX_PROFILES on macOS", () => {
++    const result = getMinimalServicePathPartsFromEnv({
++      platform: "darwin",
++      env: {
++        HOME: "/Users/testuser",
++        NIX_PROFILES: "/nix/var/nix/profiles/per-user/testuser/profile",
++      },
++    });
++
++    expect(result).toContain("/nix/var/nix/profiles/per-user/testuser/profile/bin");
++    expect(result).toContain("/Users/testuser/.nix-profile/bin");
++  });
++});
++
+ describe("buildMinimalServicePath", () => {
+   const splitPath = (value: string, platform: NodeJS.Platform) =>
+     value.split(platform === "win32" ? path.win32.delimiter : path.posix.delimiter);
+diff --git a/src/daemon/service-env.ts b/src/daemon/service-env.ts
+index bd20aae894a9..703d3b61eddf 100644
+--- a/src/daemon/service-env.ts
++++ b/src/daemon/service-env.ts
+@@ -105,6 +105,36 @@ function addCommonEnvConfiguredBinDirs(
+   addNonEmptyDir(dirs, appendSubdir(env?.ASDF_DATA_DIR, "shims"));
+ }
+ 
++/**
++ * Add Nix Home Manager bin directories.
++ * Supports darwin and linux platforms (matches the platforms handled
++ * by resolveDarwinUserBinDirs / resolveLinuxUserBinDirs).
++ *
++ * Nix profiles can be in multiple locations:
++ * - ~/.nix-profile/bin (default single-user profile)
++ * - NIX_PROFILES env var (space-separated list of profile paths for multi-profile setups)
++ */
++function addNixProfileBinDirs(
++  dirs: string[],
++  home: string,
++  env: Record<string, string | undefined> | undefined,
++): void {
++  // Default single-user Nix profile
++  dirs.push(`${home}/.nix-profile/bin`);
++
++  // Multi-profile support: NIX_PROFILES is a space-separated list of profile paths
++  // Example: "/nix/var/nix/profiles/default /home/user/.nix-profile"
++  const nixProfiles = env?.NIX_PROFILES?.trim();
++  if (nixProfiles) {
++    const profiles = nixProfiles.split(/\s+/);
++    for (const profile of profiles) {
++      if (profile) {
++        addNonEmptyDir(dirs, appendSubdir(profile, "bin"));
++      }
++    }
++  }
++}
++
+ function resolveSystemPathDirs(platform: NodeJS.Platform): string[] {
+   if (platform === "darwin") {
+     return ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+@@ -147,6 +177,9 @@ export function resolveDarwinUserBinDirs(
+   // Common user bin directories
+   addCommonUserBinDirs(dirs, home);
+ 
++  // Nix Home Manager (cross-platform)
++  addNixProfileBinDirs(dirs, home, env);
++
+   // Node version managers - macOS specific paths
+   // nvm: no stable default path, depends on user's shell configuration
+   // fnm: macOS default is ~/Library/Application Support/fnm, not ~/.fnm
+@@ -181,6 +214,9 @@ export function resolveLinuxUserBinDirs(
+   // Common user bin directories
+   addCommonUserBinDirs(dirs, home);
+ 
++  // Nix Home Manager (cross-platform)
++  addNixProfileBinDirs(dirs, home, env);
++
+   // Node version managers
+   dirs.push(`${home}/.nvm/current/bin`); // nvm with current symlink
+   dirs.push(`${home}/.fnm/current/bin`); // fnm
