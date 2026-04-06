@@ -32,7 +32,7 @@ let
         enable = true;
         enableDesktop = true;
       };
-      openclaw = true;
+      openclaw = false;
       openspec = true;
     };
 
