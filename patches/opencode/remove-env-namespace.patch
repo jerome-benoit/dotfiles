@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index e8f3e6a11e1..69a4f82c85f 100644
+index e8f3e6a11e1c..69a4f82c85f4 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -453,7 +453,7 @@ export const GithubRunCommand = cmd({
@@ -82,7 +82,7 @@ index e8f3e6a11e1..69a4f82c85f 100644
            .map((m) => m.trim().toLowerCase())
            .filter(Boolean)
 diff --git a/packages/opencode/src/cli/cmd/tui/context/route.tsx b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-index 939c2d5dc8a..825820ecba8 100644
+index 939c2d5dc8af..825820ecba89 100644
 --- a/packages/opencode/src/cli/cmd/tui/context/route.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/context/route.tsx
 @@ -26,8 +26,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
@@ -97,7 +97,7 @@ index 939c2d5dc8a..825820ecba8 100644
              type: "home",
            },
 diff --git a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
-index 87c0a63abc8..4deca03964b 100644
+index 87c0a63abc82..4deca03964b7 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 @@ -17,7 +17,7 @@ function writeOsc52(text: string): void {
@@ -119,7 +119,7 @@ index 87c0a63abc8..4deca03964b 100644
          return async (text: string) => {
            const proc = Process.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
 diff --git a/packages/opencode/src/cli/cmd/tui/util/editor.ts b/packages/opencode/src/cli/cmd/tui/util/editor.ts
-index 9eaae99fce7..5587c0cb81b 100644
+index 9eaae99fce78..5587c0cb81bf 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/editor.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/editor.ts
 @@ -8,7 +8,7 @@ import { Process } from "@/util/process"
@@ -132,7 +132,7 @@ index 9eaae99fce7..5587c0cb81b 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index b11ae83192c..e83c5aa32d0 100644
+index b11ae83192ce..e83c5aa32d03 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -11,7 +11,6 @@ import fsNode from "fs/promises"
@@ -155,7 +155,7 @@ index b11ae83192c..e83c5aa32d0 100644
                activeOrgName = activeOrg.org.name
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
 deleted file mode 100644
-index 003b59fc71c..00000000000
+index 003b59fc71c9..000000000000
 --- a/packages/opencode/src/env/index.ts
 +++ /dev/null
 @@ -1,28 +0,0 @@
@@ -188,7 +188,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index 739009502b1..b142087680b 100644
+index 739009502b17..b142087680be 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -13,19 +13,19 @@ function falsy(key: string) {
@@ -289,7 +289,7 @@ index 739009502b1..b142087680b 100644
    enumerable: true,
    configurable: false,
 diff --git a/packages/opencode/src/ide/index.ts b/packages/opencode/src/ide/index.ts
-index ce4128b906d..cc03e455d0a 100644
+index ce4128b906d7..cc03e455d0a5 100644
 --- a/packages/opencode/src/ide/index.ts
 +++ b/packages/opencode/src/ide/index.ts
 @@ -35,8 +35,8 @@ export namespace Ide {
@@ -313,10 +313,10 @@ index ce4128b906d..cc03e455d0a 100644
  
    export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index aa9bc884a83..4c74e4c32fa 100644
+index 7421ed5436ca..ddea2d934e7b 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
-@@ -441,7 +441,7 @@ export namespace LSPServer {
+@@ -451,7 +451,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -325,7 +325,7 @@ index aa9bc884a83..4c74e4c32fa 100644
          (p): p is string => p !== undefined,
        )
        for (const venvPath of potentialVenvPaths) {
-@@ -501,7 +501,7 @@ export namespace LSPServer {
+@@ -511,7 +511,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -335,7 +335,7 @@ index aa9bc884a83..4c74e4c32fa 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 9ca49bf8f10..743d4920587 100644
+index 9ca49bf8f106..743d4920587b 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -529,7 +529,7 @@ index 9ca49bf8f10..743d4920587 100644
              })
              return url
 diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
-index 2eb9887ea4f..3bdf74084c9 100644
+index 2eb9887ea4fe..3bdf74084c9c 100644
 --- a/packages/opencode/src/share/share-next.ts
 +++ b/packages/opencode/src/share/share-next.ts
 @@ -17,7 +17,7 @@ import { SessionShareTable } from "./share.sql"
@@ -542,7 +542,7 @@ index 2eb9887ea4f..3bdf74084c9 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index 9c045338ee6..2d4afe39eaf 100644
+index 9c045338ee63..2d4afe39eaf0 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
 @@ -32,7 +32,6 @@ import { pathToFileURL } from "url"
@@ -563,7 +563,7 @@ index 9c045338ee6..2d4afe39eaf 100644
            if (tool.id === "apply_patch") return usePatch
            if (tool.id === "edit" || tool.id === "write") return !usePatch
 diff --git a/packages/opencode/src/util/network.ts b/packages/opencode/src/util/network.ts
-index 69e5d17588a..8ed608162a2 100644
+index 69e5d17588ac..8ed608162a2e 100644
 --- a/packages/opencode/src/util/network.ts
 +++ b/packages/opencode/src/util/network.ts
 @@ -5,5 +5,10 @@ export function online() {
@@ -579,7 +579,7 @@ index 69e5d17588a..8ed608162a2 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index 0ac61aee717..2e3de62bde2 100644
+index 0ac61aee7172..2e3de62bde24 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
 @@ -204,8 +204,8 @@ test("jsonc overrides json in the same directory", async () => {
@@ -826,7 +826,7 @@ index 0ac61aee717..2e3de62bde2 100644
      }
    })
 diff --git a/packages/opencode/test/ide/ide.test.ts b/packages/opencode/test/ide/ide.test.ts
-index e10700e80ff..c366bab0704 100644
+index e10700e80ffe..c366bab07044 100644
 --- a/packages/opencode/test/ide/ide.test.ts
 +++ b/packages/opencode/test/ide/ide.test.ts
 @@ -12,70 +12,70 @@ describe("ide", () => {
@@ -918,7 +918,7 @@ index e10700e80ff..c366bab0704 100644
      expect(Ide.alreadyInstalled()).toBe(false)
    })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 0ddc797faf7..503e54e775c 100644
+index 0ddc797faf7f..503e54e775c5 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -4,7 +4,7 @@ import os from "os"
@@ -1043,7 +1043,7 @@ index 0ddc797faf7..503e54e775c 100644
 +  }
 +})
 diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
-index 3358e923000..2cbda3041f5 100644
+index 3358e9230000..2cbda3041f54 100644
 --- a/packages/opencode/test/provider/amazon-bedrock.test.ts
 +++ b/packages/opencode/test/provider/amazon-bedrock.test.ts
 @@ -6,7 +6,6 @@ import { ProviderID } from "../../src/provider/schema"
@@ -1161,7 +1161,7 @@ index 3358e923000..2cbda3041f5 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index 88e9ea64c9d..0ce6fcdb458 100644
+index 88e9ea64c9de..0ce6fcdb4588 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
 @@ -9,7 +9,6 @@ import { Plugin } from "../../src/plugin/index"
@@ -1634,7 +1634,7 @@ index 88e9ea64c9d..0ce6fcdb458 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/session/instruction.test.ts b/packages/opencode/test/session/instruction.test.ts
-index a8c25c6f0e1..72d39190a7d 100644
+index a8c25c6f0e10..72d39190a7db 100644
 --- a/packages/opencode/test/session/instruction.test.ts
 +++ b/packages/opencode/test/session/instruction.test.ts
 @@ -190,14 +190,14 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {

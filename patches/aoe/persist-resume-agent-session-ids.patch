@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 76ea70f3..f602097f 100644
+index 3fb62751..17f1561d 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -53,10 +53,10 @@ index 76ea70f3..f602097f 100644
      pub hook_config: Option<AgentHookConfig>,
 +    /// How this agent resumes a prior session.
 +    pub resume_strategy: ResumeStrategy,
- }
- 
- /// Hook events shared by Claude Code and Cursor CLI.
-@@ -92,6 +116,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
+     /// If true, this agent can only run on the host (no sandbox/worktree support).
+     /// The new-session dialog hides sandbox and worktree options for these agents.
+     pub host_only: bool,
+@@ -95,6 +119,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
          matcher: Some("permission_prompt|elicitation_dialog"),
          status: Some("waiting"),
      },
@@ -73,7 +73,7 @@ index 76ea70f3..f602097f 100644
      HookEvent {
          name: "ElicitationResult",
          matcher: None,
-@@ -114,6 +148,10 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -117,6 +151,10 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".claude/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
@@ -81,34 +81,34 @@ index 76ea70f3..f602097f 100644
 +            existing: "--resume",
 +            new_session: "--session-id",
 +        },
+         host_only: false,
      },
      AgentDef {
-         name: "opencode",
-@@ -126,6 +164,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -130,6 +168,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_opencode_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Flag("--session"),
+         host_only: false,
      },
      AgentDef {
-         name: "vibe",
-@@ -138,6 +177,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -143,6 +182,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_vibe_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Flag("--resume"),
+         host_only: false,
      },
      AgentDef {
-         name: "codex",
-@@ -152,6 +192,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -158,6 +198,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Subcommand("resume"),
+         host_only: false,
      },
      AgentDef {
-         name: "gemini",
-@@ -186,8 +227,19 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -193,8 +234,19 @@ pub const AGENTS: &[AgentDef] = &[
                      matcher: Some("ToolPermission"),
                      status: Some("waiting"),
                  },
@@ -125,41 +125,49 @@ index 76ea70f3..f602097f 100644
              ],
          }),
 +        resume_strategy: ResumeStrategy::Flag("--resume"),
+         host_only: false,
      },
      AgentDef {
-         name: "cursor",
-@@ -203,6 +255,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -211,6 +263,7 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".cursor/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
 +        resume_strategy: ResumeStrategy::Unsupported,
+         host_only: false,
      },
      AgentDef {
-         name: "copilot",
-@@ -215,6 +268,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -224,6 +277,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_copilot_status,
          container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
+         host_only: false,
      },
      AgentDef {
-         name: "pi",
-@@ -228,6 +282,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -238,6 +292,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
+         host_only: false,
      },
      AgentDef {
-         name: "droid",
-@@ -240,6 +295,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -251,6 +306,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_droid_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
+         host_only: false,
+     },
+     AgentDef {
+@@ -264,6 +320,7 @@ pub const AGENTS: &[AgentDef] = &[
+         detect_status: status_detection::detect_settl_status,
+         container_env: &[],
+         hook_config: None,
++        resume_strategy: ResumeStrategy::Unsupported,
+         host_only: true,
      },
  ];
- 
 diff --git a/src/cli/add.rs b/src/cli/add.rs
 index 13e4957a..0b26cbfa 100644
 --- a/src/cli/add.rs
@@ -257,10 +265,10 @@ index be6a1e5a..347965b9 100644
 +    Ok(())
 +}
 diff --git a/src/hooks/mod.rs b/src/hooks/mod.rs
-index 1fde45ab..de78ce44 100644
+index 82a424b5..13df0e06 100644
 --- a/src/hooks/mod.rs
 +++ b/src/hooks/mod.rs
-@@ -261,6 +261,9 @@ mod tests {
+@@ -373,6 +373,9 @@ mod tests {
          assert!(hooks.contains_key("UserPromptSubmit"));
          assert!(hooks.contains_key("Stop"));
          assert!(hooks.contains_key("Notification"));
@@ -1820,10 +1828,10 @@ index 00000000..4b9eb19e
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 7453c271..e56872d8 100644
+index cce8aeb9..ae9d1dc6 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
-@@ -440,7 +440,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
+@@ -463,7 +463,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -1831,7 +1839,7 @@ index 7453c271..e56872d8 100644
      if dest.exists() {
          if let Ok(existing_content) = std::fs::read_to_string(dest) {
              if !should_overwrite_credential(&existing_content, trimmed) {
-@@ -531,14 +530,8 @@ pub(crate) fn compute_volume_paths(
+@@ -566,14 +565,8 @@ pub(crate) fn compute_volume_paths(
      project_path: &Path,
      project_path_str: &str,
  ) -> Result<(Vec<VolumeMount>, String)> {
@@ -1848,7 +1856,7 @@ index 7453c271..e56872d8 100644
      if project_path.join(".git").exists() {
          if let Ok(main_repo) = GitWorktree::find_main_repo(project_path) {
              // Canonicalize paths for reliable comparison (handles symlinks like /tmp -> /private/tmp)
-@@ -554,8 +547,6 @@ pub(crate) fn compute_volume_paths(
+@@ -589,8 +582,6 @@ pub(crate) fn compute_volume_paths(
              // resolves correctly inside the container.
              if main_repo_canonical != project_canonical {
                  if project_canonical.starts_with(&main_repo_canonical) {
@@ -1857,7 +1865,7 @@ index 7453c271..e56872d8 100644
                      let name = main_repo_canonical
                          .file_name()
                          .map(|n| n.to_string_lossy().to_string())
-@@ -580,11 +571,8 @@ pub(crate) fn compute_volume_paths(
+@@ -615,11 +606,8 @@ pub(crate) fn compute_volume_paths(
                          working_dir,
                      ));
                  } else {
@@ -1871,7 +1879,7 @@ index 7453c271..e56872d8 100644
                      let common = common_ancestor(&main_repo_canonical, &project_canonical);
                      let repo_rel = main_repo_canonical
                          .strip_prefix(&common)
-@@ -616,7 +604,6 @@ pub(crate) fn compute_volume_paths(
+@@ -651,7 +639,6 @@ pub(crate) fn compute_volume_paths(
          }
      }
  
@@ -1879,7 +1887,7 @@ index 7453c271..e56872d8 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -783,9 +770,7 @@ pub(crate) fn build_container_config(
+@@ -818,9 +805,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -1890,7 +1898,7 @@ index 7453c271..e56872d8 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -813,8 +798,6 @@ pub(crate) fn build_container_config(
+@@ -848,8 +833,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
@@ -1900,7 +1908,7 @@ index 7453c271..e56872d8 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index a5cc5fa9..406c57b5 100644
+index d2589448..83d9f034 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2215,7 +2223,7 @@ index a5cc5fa9..406c57b5 100644
  
          let env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
          let env_part = if env_args.is_empty() {
-@@ -365,191 +615,266 @@ impl Instance {
+@@ -365,199 +615,274 @@ impl Instance {
              return Ok(());
          }
  
@@ -2305,7 +2313,12 @@ index a5cc5fa9..406c57b5 100644
              .map(|c| c.session.agent_status_hooks)
              .unwrap_or(true);
 -        if hooks_enabled {
--            if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
+-            if self.tool == "settl" {
+-                // settl uses TOML config, not JSON settings
+-                if let Err(e) = crate::hooks::install_settl_hooks() {
+-                    tracing::warn!("Failed to install settl hooks: {}", e);
+-                }
+-            } else if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
 -                if self.is_sandboxed() {
 -                    // For sandboxed sessions, hooks are installed via build_container_config
 -                } else {
@@ -2319,7 +2332,12 @@ index a5cc5fa9..406c57b5 100644
 +        if !hooks_enabled {
 +            return;
 +        }
-+        if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
++        if self.tool == "settl" {
++            // settl uses TOML config, not JSON settings
++            if let Err(e) = crate::hooks::install_settl_hooks() {
++                tracing::warn!("Failed to install settl hooks: {}", e);
++            }
++        } else if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
 +            if self.is_sandboxed() {
 +                // For sandboxed sessions, hooks are installed via build_container_config
 +            } else {
@@ -2443,7 +2461,10 @@ index a5cc5fa9..406c57b5 100644
 +        }
  
 -            // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
--            let env_prefix = if agent.and_then(|a| a.hook_config.as_ref()).is_some() {
+-            // (either JSON-based hook_config or settl's TOML hooks)
+-            let has_hooks =
+-                agent.and_then(|a| a.hook_config.as_ref()).is_some() || self.tool == "settl";
+-            let env_prefix = if has_hooks {
 -                format!("AOE_INSTANCE_ID={} ", self.id)
 -            } else {
 -                String::new()
@@ -2502,7 +2523,10 @@ index a5cc5fa9..406c57b5 100644
 +        }
 +
 +        // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
-+        let env_prefix = if agent.and_then(|a| a.hook_config.as_ref()).is_some() {
++        // (either JSON-based hook_config or settl's TOML hooks)
++        let has_hooks =
++            agent.and_then(|a| a.hook_config.as_ref()).is_some() || self.tool == "settl";
++        let env_prefix = if has_hooks {
 +            format!("AOE_INSTANCE_ID={} ", self.id)
 +        } else {
 +            String::new()
@@ -2629,7 +2653,7 @@ index a5cc5fa9..406c57b5 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -598,9 +923,13 @@ impl Instance {
+@@ -606,9 +931,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2644,7 +2668,7 @@ index a5cc5fa9..406c57b5 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -608,24 +937,111 @@ impl Instance {
+@@ -616,24 +945,111 @@ impl Instance {
          )
      }
  
@@ -2760,7 +2784,7 @@ index a5cc5fa9..406c57b5 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1128,6 +1544,274 @@ mod tests {
+@@ -1136,6 +1552,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3035,7 +3059,7 @@ index a5cc5fa9..406c57b5 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1192,4 +1876,39 @@ mod tests {
+@@ -1200,4 +1884,39 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
