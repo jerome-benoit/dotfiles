@@ -173,8 +173,7 @@ in
           elif [ -f "$src" ]; then
             store_path="$src"
           else
-            echo "openclaw: source config not found: $src" >&2
-            exit 0
+            exit 1
           fi
           ${jq} '. + {"$include": ["./openclaw.local.json"]}' "$store_path" > "$dst.tmp"
           mv "$dst.tmp" "$dst"
@@ -191,9 +190,13 @@ in
           run ${seedLocal} "$LOCAL"
         fi
 
-        run ${generateActiveConfig} \
-          "${homeDir}/.openclaw/openclaw.json" \
-          "${homeDir}/.openclaw/openclaw.active.json"
+        CONFIG="${homeDir}/.openclaw/openclaw.json"
+        ACTIVE="${homeDir}/.openclaw/openclaw.active.json"
+        if [ -e "$CONFIG" ]; then
+          run ${generateActiveConfig} "$CONFIG" "$ACTIVE"
+        else
+          warnEcho "openclaw: $CONFIG not found — openclawConfigFiles may not have run"
+        fi
       '';
 
     # Point openclaw at the active config instead of the HM symlink
