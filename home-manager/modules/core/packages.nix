@@ -7,6 +7,12 @@
 }:
 let
   cfg = config.modules.core.packages;
+  openclawEnabled = config.modules.development.openclaw.enable or false;
+  steipeteTools = inputs.nix-steipete-tools.packages.${pkgs.system};
+  isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
+  isServer = config.modules.core.profile.name == config.modules.core.constants.profiles.server;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
   options.modules.core.packages = {
@@ -17,108 +23,102 @@ in
     home.packages = [
       pkgs.litellm
       pkgs.mergiraf
-      pkgs.nerd-fonts.jetbrains-mono
       pkgs.nh
       pkgs.nixfmt
       pkgs.ollama
       pkgs.volta
       pkgs.whisper-cpp
     ]
-    ++
-      lib.optionals
-        (
-          pkgs.stdenv.hostPlatform.isLinux
-          && config.modules.core.profile.name == config.modules.core.constants.profiles.server
-        )
-        [
-          pkgs.delta
-          pkgs.grc
-        ]
-    ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-      pkgs.autoconf
-      pkgs.automake
-      pkgs.bat
-      pkgs.bruno
-      pkgs.chroma
-      pkgs.cloudfoundry-cli
-      pkgs.cmake
-      pkgs.coreutils
-      pkgs.delta
-      pkgs.ffmpeg
-      pkgs.firefox
-      pkgs.gnused
-      pkgs.go
-      pkgs.go-task
-      pkgs.golangci-lint
-      pkgs.gopls
-      pkgs.google-chrome
-      pkgs.grc
-      pkgs.hyperfine
-      pkgs.insomnia
-      pkgs.iterm2
-      pkgs.jdk25
-      pkgs.jetbrains.pycharm
-      pkgs.jetbrains.rust-rover
-      pkgs.lychee
-      pkgs.mitmproxy
-      pkgs.nheko
-      pkgs.ninja
-      pkgs.pass
-      pkgs.pipenv
-      pkgs.pkg-config
-      pkgs.podman
-      pkgs.podman-compose
-      pkgs.podman-desktop
-      pkgs.poetry
-      pkgs.poppler-utils
-      pkgs.python3
-      pkgs.python3Packages.virtualenv
-      pkgs.qpdf
-      pkgs.rectangle
-      pkgs.ruff
-      pkgs.rustup
-      pkgs.uv
-      pkgs.vscode
-      pkgs.yq
-      pkgs.zed-editor
-      pkgs.zoom-us
-    ]
-    ++ (
-      let
-        openclawEnabled = config.modules.development.openclaw.enable or false;
-        steipeteTools = inputs.nix-steipete-tools.packages.${pkgs.system};
-      in
-      lib.optionals (!openclawEnabled) (
-        lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-          steipeteTools.peekaboo
-          # https://github.com/openclaw/nix-steipete-tools/issues/11
-          (steipeteTools.poltergeist.overrideAttrs (_: {
-            propagatedBuildInputs = [ ];
-          }))
-          steipeteTools.imsg
-          steipeteTools.camsnap
-          steipeteTools.sag
-        ]
-        ++ [
-          # https://github.com/openclaw/nix-steipete-tools/issues/9
-          (
-            if pkgs.stdenv.hostPlatform.isLinux then
-              steipeteTools.summarize.overrideAttrs (old: {
-                env = old.env // {
-                  npm_config_nodedir = "${pkgs.nodejs_22}";
-                };
-              })
-            else
-              steipeteTools.summarize
-          )
-          steipeteTools.gogcli
-          steipeteTools.goplaces
-          steipeteTools.sonoscli
-        ]
+    ++ lib.optionals (!openclawEnabled) [
+      steipeteTools.camsnap
+      steipeteTools.gogcli
+      steipeteTools.goplaces
+      steipeteTools.sag
+      steipeteTools.sonoscli
+      # https://github.com/openclaw/nix-steipete-tools/issues/9
+      (
+        if isLinux then
+          steipeteTools.summarize.overrideAttrs (old: {
+            env = old.env // {
+              npm_config_nodedir = "${pkgs.nodejs_22}";
+            };
+          })
+        else
+          steipeteTools.summarize
       )
-    );
+    ]
+    ++ lib.optionals isServer [
+      pkgs.delta
+      pkgs.grc
+    ]
+    ++ lib.optionals (isServer && isLinux) [
+    ]
+    ++ lib.optionals isDesktop [
+      pkgs.bruno
+      pkgs.cloudfoundry-cli
+      pkgs.lychee
+      pkgs.nerd-fonts.jetbrains-mono
+      pkgs.zed-editor
+    ]
+    ++ lib.optionals (isDesktop && isDarwin) (
+      [
+        pkgs.autoconf
+        pkgs.automake
+        pkgs.bat
+        pkgs.chroma
+        pkgs.cmake
+        pkgs.coreutils
+        pkgs.delta
+        pkgs.ffmpeg
+        pkgs.firefox
+        pkgs.gnused
+        pkgs.go
+        pkgs.go-task
+        pkgs.golangci-lint
+        pkgs.google-chrome
+        pkgs.gopls
+        pkgs.grc
+        pkgs.hyperfine
+        pkgs.insomnia
+        pkgs.iterm2
+        pkgs.jdk25
+        pkgs.jetbrains.pycharm
+        pkgs.jetbrains.rust-rover
+        pkgs.mitmproxy
+        pkgs.nheko
+        pkgs.ninja
+        pkgs.pass
+        pkgs.pipenv
+        pkgs.pkg-config
+        pkgs.podman
+        pkgs.podman-compose
+        pkgs.podman-desktop
+        pkgs.poetry
+        pkgs.poppler-utils
+        pkgs.python3
+        pkgs.python3Packages.virtualenv
+        pkgs.qpdf
+        pkgs.rectangle
+        pkgs.ruff
+        pkgs.rustup
+        pkgs.uv
+        pkgs.vscode
+        pkgs.yq
+        pkgs.zoom-us
+      ]
+      ++ lib.optionals (!openclawEnabled) [
+        steipeteTools.imsg
+        steipeteTools.peekaboo
+        # https://github.com/openclaw/nix-steipete-tools/issues/11
+        (steipeteTools.poltergeist.overrideAttrs (_: {
+          propagatedBuildInputs = [ ];
+        }))
+      ]
+    )
+    ++ lib.optionals (isDesktop && isLinux) [
+    ];
 
-    home.file.".Brewfile" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+    home.file.".Brewfile" = lib.mkIf (isDesktop && isDarwin) {
       text = ''
         tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
         tap "moltenbits/tap"
@@ -133,7 +133,7 @@ in
         brew "mole"
       '';
     };
-    home.activation.brewBundle = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
+    home.activation.brewBundle = lib.mkIf (isDesktop && isDarwin) (
       lib.hm.dag.entryAfter [ "linkGeneration" ] ''
         _brew=""
         if [[ -f /opt/homebrew/bin/brew ]]; then
