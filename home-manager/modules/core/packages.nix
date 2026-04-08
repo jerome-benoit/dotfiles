@@ -21,6 +21,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = [
+      pkgs.gemini-cli
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
