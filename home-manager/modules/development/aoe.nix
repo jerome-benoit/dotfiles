@@ -19,6 +19,8 @@ let
         patches = (oldAttrs.patches or [ ]) ++ [
           # https://github.com/njbrake/agent-of-empires/pull/382
           (self + "/patches/aoe/persist-resume-agent-session-ids.patch")
+          # https://github.com/njbrake/agent-of-empires/pull/583
+          (self + "/patches/aoe/fix-idle-opencode-session-error.patch")
         ];
       })
     else
