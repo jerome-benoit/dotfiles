@@ -23,10 +23,15 @@
     };
     openspec.url = "github:Fission-AI/OpenSpec";
     openspec.inputs.nixpkgs.follows = "nixpkgs";
+    qmd.url = "github:tobi/qmd";
+    qmd.inputs.nixpkgs.follows = "nixpkgs";
+    qmd.inputs.flake-utils.follows = "flake-utils";
     nix-openclaw.url = "github:openclaw/nix-openclaw";
     nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
     nix-openclaw.inputs.home-manager.follows = "home-manager";
+    nix-openclaw.inputs.flake-utils.follows = "flake-utils";
     nix-openclaw.inputs.nix-steipete-tools.follows = "nix-steipete-tools";
+    flake-utils.url = "github:numtide/flake-utils";
     nix-steipete-tools.url = "github:openclaw/nix-steipete-tools";
     nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -42,6 +47,8 @@
       agent-deck,
       agtx,
       openspec,
+      qmd,
+      flake-utils,
       nix-openclaw,
       nix-steipete-tools,
     }@inputs:

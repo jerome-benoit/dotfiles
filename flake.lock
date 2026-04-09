@@ -127,7 +127,9 @@
     },
     "nix-openclaw": {
       "inputs": {
-        "flake-utils": "flake-utils",
+        "flake-utils": [
+          "flake-utils"
+        ],
         "home-manager": [
           "home-manager"
         ],
@@ -259,18 +261,43 @@
         "type": "github"
       }
     },
+    "qmd": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775697596,
+        "narHash": "sha256-lY/jGlxbIucvVF0PWa5bPSXdl88o7PYeQhfFNDKRdy8=",
+        "owner": "tobi",
+        "repo": "qmd",
+        "rev": "171e9e3e656b63cbdb00edd64437471dc0b252cc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tobi",
+        "repo": "qmd",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "agent-deck": "agent-deck",
         "agent-of-empires": "agent-of-empires",
         "agtx": "agtx",
+        "flake-utils": "flake-utils",
         "home-manager": "home-manager",
         "nix-openclaw": "nix-openclaw",
         "nix-steipete-tools": "nix-steipete-tools",
         "nixpkgs": "nixpkgs",
         "opencode": "opencode",
         "opencode-nvim": "opencode-nvim",
-        "openspec": "openspec"
+        "openspec": "openspec",
+        "qmd": "qmd"
       }
     },
     "systems": {

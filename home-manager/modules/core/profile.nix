@@ -34,6 +34,7 @@ let
       };
       openclaw = false;
       openspec = true;
+      qmd = true;
     };
 
     programs = {
@@ -85,6 +86,7 @@ let
       };
       openclaw = false;
       openspec = false;
+      qmd = false;
     };
 
     programs = {
