@@ -60,7 +60,6 @@ in
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.obsidian
-      pkgs.zed-editor
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [
@@ -106,6 +105,7 @@ in
         pkgs.uv
         pkgs.vscode
         pkgs.yq
+        pkgs.zed-editor
         pkgs.zoom-us
       ]
       ++ lib.optionals (!openclawEnabled) [
