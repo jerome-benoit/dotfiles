@@ -4454,10 +4454,10 @@ index 992d8488..f0558d15 100644
  pub mod status_bar;
  pub(crate) mod status_detection;
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index 7fd138a0..0375bbfa 100644
+index c077cd3a..90e5bc59 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
-@@ -31,6 +31,10 @@ impl Session {
+@@ -38,6 +38,10 @@ impl Session {
          format!("{}{}_{}", SESSION_PREFIX, safe_title, truncate_id(id, 8))
      }
  
