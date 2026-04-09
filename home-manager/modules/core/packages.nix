@@ -59,6 +59,7 @@ in
       pkgs.cloudfoundry-cli
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
+      pkgs.obsidian
       pkgs.zed-editor
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
