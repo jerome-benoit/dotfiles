@@ -13,7 +13,7 @@ in
   options.modules.development.openspec = {
     enable = lib.mkEnableOption "openspec configuration";
 
-    openspecPackage = lib.mkOption {
+    package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = inputs.openspec.packages.${system}.default or null;
       defaultText = lib.literalExpression "inputs.openspec.packages.\${system}.default";
@@ -23,10 +23,10 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.openspecPackage != null) cfg.openspecPackage;
+    home.packages = lib.optional (cfg.package != null) cfg.package;
 
     warnings = lib.optional (
-      cfg.openspecPackage == null
+      cfg.package == null
     ) "openspec: package not available for system ${system}";
   };
 }
