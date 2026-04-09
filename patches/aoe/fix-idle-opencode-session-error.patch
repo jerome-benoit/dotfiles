@@ -1,7 +1,7 @@
-diff --git a/src/cli/session.rs b/src/cli/session.rs
-index be6a1e5a..672e9c99 100644
---- a/src/cli/session.rs
-+++ b/src/cli/session.rs
+diff --git i/src/cli/session.rs w/src/cli/session.rs
+index be6a1e5..672e9c9 100644
+--- i/src/cli/session.rs
++++ w/src/cli/session.rs
 @@ -234,8 +234,8 @@ async fn show_session(profile: &str, args: ShowArgs) -> Result<()> {
      let storage = Storage::new(profile)?;
      let (instances, _) = storage.load_with_groups()?;
@@ -31,11 +31,11 @@ index be6a1e5a..672e9c99 100644
      if args.json {
          let details = SessionDetails {
              id: inst.id.clone(),
-diff --git a/src/session/instance.rs b/src/session/instance.rs
-index a5cc5fa9..5c13fb44 100644
---- a/src/session/instance.rs
-+++ b/src/session/instance.rs
-@@ -699,10 +699,8 @@ impl Instance {
+diff --git i/src/session/instance.rs w/src/session/instance.rs
+index d258944..6b2a9a5 100644
+--- i/src/session/instance.rs
++++ w/src/session/instance.rs
+@@ -707,10 +707,8 @@ impl Instance {
              return;
          }
  
@@ -48,34 +48,22 @@ index a5cc5fa9..5c13fb44 100644
          tracing::trace!(
              "status detection '{}' (tool={}, cmd_override={}, custom_cmd={}): {:?}",
              self.title,
-@@ -724,15 +722,37 @@ impl Instance {
+@@ -732,15 +730,26 @@ impl Instance {
              Status::Idle if self.has_command_override() => {
                  // Custom commands run agents through wrapper scripts that appear
                  // as shell processes to tmux. Only declare Error when the pane is
 -                // actually dead -- don't use is_shell_stale() since the shell IS
 -                // the expected wrapper process.
--                if is_dead {
-+                // actually dead AND the content doesn't show agent UI (the wrapper
-+                // may exit while the agent continues as a child process with
-+                // remain-on-exit preserving the TUI output).
-+                if is_dead && !pane_has_agent_content(&pane_content, &self.tool) {
++                // actually dead -- don't use is_shell_stale() since the shell
++                // IS the expected wrapper process.
+                 if is_dead {
                      Status::Error
                  } else {
                      Status::Unknown
                  }
              }
 -            Status::Idle if is_dead || is_shell_stale() => Status::Error,
-+            Status::Idle if is_dead => {
-+                // The pane process exited but remain-on-exit preserves the
-+                // screen. If the captured content still shows the agent's
-+                // TUI (e.g. a nix wrapper exited while the agent lives on
-+                // as a child), keep Idle instead of declaring Error.
-+                if pane_has_agent_content(&pane_content, &self.tool) {
-+                    Status::Idle
-+                } else {
-+                    Status::Error
-+                }
-+            }
++            Status::Idle if is_dead => Status::Error,
 +            Status::Idle if is_shell_stale() => {
 +                // A shell is the foreground process but the pane is alive.
 +                // Check captured pane content: if it contains the agent's
@@ -90,7 +78,7 @@ index a5cc5fa9..5c13fb44 100644
              other => other,
          };
  
-@@ -785,6 +805,51 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -793,6 +802,51 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
      format!("{} -lc 'stty susp undef; exec env {}'", shell, escaped)
  }
  
@@ -142,7 +130,7 @@ index a5cc5fa9..5c13fb44 100644
  #[cfg(test)]
  mod tests {
      use super::*;
-@@ -1192,4 +1257,70 @@ mod tests {
+@@ -1200,4 +1254,70 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
