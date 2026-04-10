@@ -79,5 +79,18 @@ in
         macos-option-as-alt = true;
       };
     };
+
+    home.activation.ghosttyCleanLegacyConfig = lib.mkIf isDarwin (
+      let
+        legacyDir = "${config.home.homeDirectory}/Library/Application Support/com.mitchellh.ghostty";
+        legacyConfig = "${legacyDir}/config";
+      in
+      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        if [[ -f "${legacyConfig}" && ! -L "${legacyConfig}" ]]; then
+          verboseEcho "ghostty: removing legacy config at ${legacyConfig}"
+          run rm "${legacyConfig}"
+        fi
+      ''
+    );
   };
 }
