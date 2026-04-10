@@ -1,7 +1,7 @@
-diff --git a/src/cli/session.rs b/src/cli/session.rs
-index be6a1e5a..672e9c99 100644
---- a/src/cli/session.rs
-+++ b/src/cli/session.rs
+diff --git i/src/cli/session.rs w/src/cli/session.rs
+index be6a1e5..672e9c9 100644
+--- i/src/cli/session.rs
++++ w/src/cli/session.rs
 @@ -234,8 +234,8 @@ async fn show_session(profile: &str, args: ShowArgs) -> Result<()> {
      let storage = Storage::new(profile)?;
      let (instances, _) = storage.load_with_groups()?;
@@ -31,63 +31,11 @@ index be6a1e5a..672e9c99 100644
      if args.json {
          let details = SessionDetails {
              id: inst.id.clone(),
-diff --git a/src/session/instance.rs b/src/session/instance.rs
-index d2589448..d609db2c 100644
---- a/src/session/instance.rs
-+++ b/src/session/instance.rs
-@@ -684,6 +684,10 @@ impl Instance {
-         let session = match self.tmux_session() {
-             Ok(s) => s,
-             Err(_) => {
-+                tracing::debug!(
-+                    "status '{}': tmux_session() failed, setting Error",
-+                    self.title
-+                );
-                 self.status = Status::Error;
-                 self.last_error_check = Some(std::time::Instant::now());
-                 return;
-@@ -691,6 +695,11 @@ impl Instance {
-         };
- 
-         if !session.exists() {
-+            tracing::debug!(
-+                "status '{}': session.exists()=false (tmux name={}), setting Error",
-+                self.title,
-+                tmux::Session::generate_name(&self.id, &self.title)
-+            );
-             self.status = Status::Error;
-             self.last_error_check = Some(std::time::Instant::now());
-             return;
-@@ -700,39 +709,65 @@ impl Instance {
-             .map(|m| m.pane_dead)
-             .unwrap_or_else(|| session.is_pane_dead());
- 
-+        let pane_cmd = metadata
-+            .and_then(|m| m.pane_current_command.clone())
-+            .or_else(|| {
-+                let name = tmux::Session::generate_name(&self.id, &self.title);
-+                tmux::utils::pane_current_command(&name)
-+            });
-+
-+        tracing::debug!(
-+            "status '{}': exists=true, is_dead={}, pane_cmd={:?}, tool={}, cmd_override={}",
-+            self.title,
-+            is_dead,
-+            pane_cmd,
-+            self.tool,
-+            self.has_command_override()
-+        );
-+
-         if let Some(hook_status) = crate::hooks::read_hook_status(&self.id) {
--            tracing::trace!("hook status detection '{}': {:?}", self.title, hook_status);
-+            tracing::debug!(
-+                "status '{}': hook detected {:?}, is_dead={}",
-+                self.title,
-+                hook_status,
-+                is_dead
-+            );
-             self.status = if is_dead { Status::Error } else { hook_status };
-             self.last_error = None;
+diff --git i/src/session/instance.rs w/src/session/instance.rs
+index d258944..6b2a9a5 100644
+--- i/src/session/instance.rs
++++ w/src/session/instance.rs
+@@ -707,10 +707,8 @@ impl Instance {
              return;
          }
  
@@ -95,49 +43,22 @@ index d2589448..d609db2c 100644
 -            Ok(status) => status,
 -            Err(_) => Status::Idle,
 -        };
--        tracing::trace!(
--            "status detection '{}' (tool={}, cmd_override={}, custom_cmd={}): {:?}",
 +        let pane_content = session.capture_pane(50).unwrap_or_default();
 +        let detected = tmux::detect_status_from_content(&pane_content, &self.tool);
-+        tracing::debug!(
-+            "status '{}': detected={:?}, cmd_override={}, custom_cmd={}",
+         tracing::trace!(
+             "status detection '{}' (tool={}, cmd_override={}, custom_cmd={}): {:?}",
              self.title,
--            self.tool,
-+            detected,
-             self.has_command_override(),
-             self.has_custom_command(),
--            detected
-         );
-         let is_shell_stale = || {
--            if self.expects_shell() {
-+            let expects = self.expects_shell();
-+            if expects {
-                 return false;
-             }
--            metadata
-+            let shell_check = metadata
-                 .and_then(|m| m.pane_current_command.as_deref())
-                 .map(tmux::utils::is_shell_command)
--                .unwrap_or_else(|| session.is_pane_running_shell())
-+                .unwrap_or_else(|| session.is_pane_running_shell());
-+            tracing::debug!(
-+                "status '{}': is_shell_stale check: expects_shell={}, shell_check={}",
-+                self.title,
-+                expects,
-+                shell_check,
-+            );
-+            shell_check
-         };
-         self.status = match detected {
+@@ -732,15 +730,26 @@ impl Instance {
              Status::Idle if self.has_command_override() => {
                  // Custom commands run agents through wrapper scripts that appear
                  // as shell processes to tmux. Only declare Error when the pane is
 -                // actually dead -- don't use is_shell_stale() since the shell IS
-+                // actually dead; don't use is_shell_stale() since the shell IS
-                 // the expected wrapper process.
+-                // the expected wrapper process.
++                // actually dead -- don't use is_shell_stale() since the shell
++                // IS the expected wrapper process.
                  if is_dead {
                      Status::Error
-@@ -740,10 +775,31 @@ impl Instance {
+                 } else {
                      Status::Unknown
                  }
              }
@@ -149,28 +70,15 @@ index d2589448..d609db2c 100644
 +                // UI the agent is still alive; only declare Error when the
 +                // content looks like a bare shell prompt.
 +                if pane_has_agent_content(&pane_content, &self.tool) {
-+                    tracing::debug!(
-+                        "status '{}': shell stale but pane has agent content, staying Idle",
-+                        self.title,
-+                    );
 +                    Status::Idle
 +                } else {
-+                    tracing::debug!(
-+                        "status '{}': shell stale, no agent content, setting Error",
-+                        self.title,
-+                    );
 +                    Status::Error
 +                }
 +            }
              other => other,
          };
  
-+        tracing::debug!("status '{}': final={:?}", self.title, self.status);
-+
-         self.last_error = None;
-     }
- 
-@@ -793,6 +849,51 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
+@@ -793,6 +802,51 @@ fn wrap_command_ignore_suspend(cmd: &str) -> String {
      format!("{} -lc 'stty susp undef; exec env {}'", shell, escaped)
  }
  
@@ -222,7 +130,7 @@ index d2589448..d609db2c 100644
  #[cfg(test)]
  mod tests {
      use super::*;
-@@ -1200,4 +1301,70 @@ mod tests {
+@@ -1200,4 +1254,70 @@ mod tests {
          let deserialized: Status = serde_json::from_str(&json).unwrap();
          assert_eq!(deserialized, Status::Unknown);
      }
@@ -293,16 +201,3 @@ index d2589448..d609db2c 100644
 +        assert!(pane_has_agent_content("OpenCode v1.0", "opencode"));
 +    }
  }
-diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index 3e6c0a4a..9aff9b8a 100644
---- a/src/tmux/utils.rs
-+++ b/src/tmux/utils.rs
-@@ -86,7 +86,7 @@ pub fn is_pane_dead(session_name: &str) -> bool {
-         .unwrap_or(false)
- }
- 
--fn pane_current_command(session_name: &str) -> Option<String> {
-+pub(crate) fn pane_current_command(session_name: &str) -> Option<String> {
-     // Use `^.0` to target the first window's first pane regardless of
-     // base-index or which pane is active.  See #435, #488.
-     let target = format!("{session_name}:^.0");
