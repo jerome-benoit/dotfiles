@@ -21,7 +21,6 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = [
-      pkgs.docling
       pkgs.gemini-cli
       pkgs.litellm
       pkgs.mergiraf
@@ -61,7 +60,6 @@ in
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.obsidian
-      pkgs.python3Packages.docling-mcp
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [
@@ -72,6 +70,7 @@ in
         pkgs.cmake
         pkgs.coreutils
         pkgs.delta
+        pkgs.docling
         pkgs.ffmpeg
         pkgs.firefox
         pkgs.gnused
@@ -99,6 +98,7 @@ in
         pkgs.poetry
         pkgs.poppler-utils
         pkgs.python3
+        pkgs.python3Packages.docling-mcp
         pkgs.python3Packages.virtualenv
         pkgs.qpdf
         pkgs.rectangle
