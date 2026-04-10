@@ -70,7 +70,6 @@ in
         pkgs.cmake
         pkgs.coreutils
         pkgs.delta
-        pkgs.docling
         pkgs.ffmpeg
         pkgs.firefox
         pkgs.gnused
@@ -98,7 +97,6 @@ in
         pkgs.poetry
         pkgs.poppler-utils
         pkgs.python3
-        pkgs.python3Packages.docling-mcp
         pkgs.python3Packages.virtualenv
         pkgs.qpdf
         pkgs.rectangle
