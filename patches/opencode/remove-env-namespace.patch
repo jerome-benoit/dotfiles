@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index e8f3e6a11e1c..69a4f82c85f4 100644
+index 8b693e79ae20..59b7ec8cb690 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
-@@ -453,7 +453,7 @@ export const GithubRunCommand = cmd({
+@@ -454,7 +454,7 @@ export const GithubRunCommand = cmd({
        const isWorkflowDispatchEvent = context.eventName === "workflow_dispatch"
  
        const { providerID, modelID } = normalizeModel()
@@ -11,7 +11,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
        const runId = normalizeRunId()
        const share = normalizeShare()
        const oidcBaseUrl = normalizeOidcBaseUrl()
-@@ -518,7 +518,7 @@ export const GithubRunCommand = cmd({
+@@ -519,7 +519,7 @@ export const GithubRunCommand = cmd({
  
        try {
          if (useGithubToken) {
@@ -20,7 +20,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
            if (!githubToken) {
              throw new Error(
                "GITHUB_TOKEN environment variable is not set. When using use_github_token, you must provide GITHUB_TOKEN.",
-@@ -701,7 +701,7 @@ export const GithubRunCommand = cmd({
+@@ -702,7 +702,7 @@ export const GithubRunCommand = cmd({
        process.exit(exitCode)
  
        function normalizeModel() {
@@ -29,7 +29,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
          if (!value) throw new Error(`Environment variable "MODEL" is not set`)
  
          const { providerID, modelID } = Provider.parseModel(value)
-@@ -712,13 +712,13 @@ export const GithubRunCommand = cmd({
+@@ -713,13 +713,13 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeRunId() {
@@ -45,7 +45,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
          if (!value) return undefined
          if (value === "true") return true
          if (value === "false") return false
-@@ -726,7 +726,7 @@ export const GithubRunCommand = cmd({
+@@ -727,7 +727,7 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeUseGithubToken() {
@@ -54,7 +54,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
          if (!value) return false
          if (value === "true") return true
          if (value === "false") return false
-@@ -734,7 +734,7 @@ export const GithubRunCommand = cmd({
+@@ -735,7 +735,7 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeOidcBaseUrl(): string {
@@ -63,7 +63,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
          if (!value) return "https://api.opencode.ai"
          return value.replace(/\/+$/, "")
        }
-@@ -769,7 +769,7 @@ export const GithubRunCommand = cmd({
+@@ -770,7 +770,7 @@ export const GithubRunCommand = cmd({
        }
  
        async function getUserPrompt() {
@@ -72,7 +72,7 @@ index e8f3e6a11e1c..69a4f82c85f4 100644
          // For repo events and issues events, PROMPT is required since there's no comment to extract from
          if (isRepoEvent || isIssuesEvent) {
            if (!customPrompt) {
-@@ -784,7 +784,7 @@ export const GithubRunCommand = cmd({
+@@ -785,7 +785,7 @@ export const GithubRunCommand = cmd({
          }
  
          const reviewContext = getReviewCommentContext()
@@ -132,7 +132,7 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 1952e3b57249..9eaab4b74427 100644
+index ff79b739fe10..b24f4df9bf0a 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -11,7 +11,6 @@ import fsNode from "fs/promises"
@@ -143,7 +143,7 @@ index 1952e3b57249..9eaab4b74427 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1443,8 +1442,7 @@ export namespace Config {
+@@ -1447,8 +1446,7 @@ export namespace Config {
                  { concurrency: 2 },
                )
                if (Option.isSome(tokenOpt)) {
@@ -313,10 +313,10 @@ index ce4128b906d7..cc03e455d0a5 100644
  
    export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index f50c858e912f..dd981e45ba03 100644
+index abfb31ead0eb..beb409bc11ce 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
-@@ -451,7 +451,7 @@ export namespace LSPServer {
+@@ -441,7 +441,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -325,7 +325,7 @@ index f50c858e912f..dd981e45ba03 100644
          (p): p is string => p !== undefined,
        )
        for (const venvPath of potentialVenvPaths) {
-@@ -511,7 +511,7 @@ export namespace LSPServer {
+@@ -501,7 +501,7 @@ export namespace LSPServer {
  
        const initialization: Record<string, string> = {}
  
@@ -335,7 +335,7 @@ index f50c858e912f..dd981e45ba03 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 8d5c9f2ced1c..fe7d5e6eb65a 100644
+index 004fb77f91a0..c484f73fa0a8 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -510,7 +510,7 @@ index 8d5c9f2ced1c..fe7d5e6eb65a 100644
            if (envToken) return envToken
            if (auth?.type === "api") return auth.key
            return undefined
-@@ -1155,7 +1150,7 @@ export namespace Provider {
+@@ -1178,7 +1173,7 @@ export namespace Provider {
            }
  
            // load env
@@ -519,7 +519,7 @@ index 8d5c9f2ced1c..fe7d5e6eb65a 100644
            for (const [id, provider] of Object.entries(database)) {
              const providerID = ProviderID.make(id)
              if (disabled.has(providerID)) continue
-@@ -1362,7 +1357,7 @@ export namespace Provider {
+@@ -1385,7 +1380,7 @@ export namespace Provider {
              }
  
              url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -529,7 +529,7 @@ index 8d5c9f2ced1c..fe7d5e6eb65a 100644
              })
              return url
 diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
-index 0cd0055c85d2..d81c392864d4 100644
+index 26b2d2570a32..127c1afc0405 100644
 --- a/packages/opencode/src/share/share-next.ts
 +++ b/packages/opencode/src/share/share-next.ts
 @@ -17,7 +17,7 @@ import { SessionShareTable } from "./share.sql"
@@ -542,7 +542,7 @@ index 0cd0055c85d2..d81c392864d4 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index 800c45ced0c0..2f5f8e2c44ff 100644
+index 9c0771b8df78..dae05dff8f4a 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
 @@ -30,7 +30,6 @@ import { pathToFileURL } from "url"
@@ -553,7 +553,7 @@ index 800c45ced0c0..2f5f8e2c44ff 100644
  import { Question } from "../question"
  import { Todo } from "../session/todo"
  import { LSP } from "../lsp"
-@@ -206,7 +205,7 @@ export namespace ToolRegistry {
+@@ -245,7 +244,7 @@ export namespace ToolRegistry {
            }
  
            const usePatch =
@@ -1161,10 +1161,10 @@ index 3358e9230000..2cbda3041f54 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index 88e9ea64c9de..0ce6fcdb4588 100644
+index 9cadc391a1f1..a5a4b6fa00bd 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
-@@ -9,7 +9,6 @@ import { Plugin } from "../../src/plugin/index"
+@@ -10,7 +10,6 @@ import { ModelsDev } from "../../src/provider/models"
  import { Provider } from "../../src/provider/provider"
  import { ProviderID, ModelID } from "../../src/provider/schema"
  import { Filesystem } from "../../src/util/filesystem"
@@ -1172,7 +1172,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
  
  function paid(providers: Awaited<ReturnType<typeof Provider.list>>) {
    const item = providers[ProviderID.make("opencode")]
-@@ -31,7 +30,7 @@ test("provider loaded from env variable", async () => {
+@@ -32,7 +31,7 @@ test("provider loaded from env variable", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1181,7 +1181,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -86,7 +85,7 @@ test("disabled_providers excludes provider", async () => {
+@@ -87,7 +86,7 @@ test("disabled_providers excludes provider", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1190,7 +1190,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -110,8 +109,8 @@ test("enabled_providers restricts to only listed providers", async () => {
+@@ -111,8 +110,8 @@ test("enabled_providers restricts to only listed providers", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1201,7 +1201,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -140,7 +139,7 @@ test("model whitelist filters models for provider", async () => {
+@@ -141,7 +140,7 @@ test("model whitelist filters models for provider", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1210,7 +1210,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -171,7 +170,7 @@ test("model blacklist excludes specific models", async () => {
+@@ -172,7 +171,7 @@ test("model blacklist excludes specific models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1219,7 +1219,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -206,7 +205,7 @@ test("custom model alias via config", async () => {
+@@ -207,7 +206,7 @@ test("custom model alias via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1228,7 +1228,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -282,7 +281,7 @@ test("env variable takes precedence, config merges options", async () => {
+@@ -283,7 +282,7 @@ test("env variable takes precedence, config merges options", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1237,7 +1237,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -308,7 +307,7 @@ test("getModel returns model for valid provider/model", async () => {
+@@ -309,7 +308,7 @@ test("getModel returns model for valid provider/model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1246,7 +1246,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const model = await Provider.getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
-@@ -335,7 +334,7 @@ test("getModel throws ModelNotFoundError for invalid model", async () => {
+@@ -336,7 +335,7 @@ test("getModel throws ModelNotFoundError for invalid model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1255,7 +1255,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        expect(Provider.getModel(ProviderID.anthropic, ModelID.make("nonexistent-model"))).rejects.toThrow()
-@@ -388,7 +387,7 @@ test("defaultModel returns first available model when no config set", async () =
+@@ -389,7 +388,7 @@ test("defaultModel returns first available model when no config set", async () =
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1264,7 +1264,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const model = await Provider.defaultModel()
-@@ -413,7 +412,7 @@ test("defaultModel respects config model setting", async () => {
+@@ -414,7 +413,7 @@ test("defaultModel respects config model setting", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1273,7 +1273,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const model = await Provider.defaultModel()
-@@ -528,7 +527,7 @@ test("model options are merged from existing model", async () => {
+@@ -529,7 +528,7 @@ test("model options are merged from existing model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1282,7 +1282,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -557,7 +556,7 @@ test("provider removed when all models filtered out", async () => {
+@@ -558,7 +557,7 @@ test("provider removed when all models filtered out", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1291,7 +1291,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -580,7 +579,7 @@ test("closest finds model by partial match", async () => {
+@@ -581,7 +580,7 @@ test("closest finds model by partial match", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1300,7 +1300,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const result = await Provider.closest(ProviderID.anthropic, ["sonnet-4"])
-@@ -635,7 +634,7 @@ test("getModel uses realIdByKey for aliased models", async () => {
+@@ -636,7 +635,7 @@ test("getModel uses realIdByKey for aliased models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1309,7 +1309,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -750,7 +749,7 @@ test("model inherits properties from existing database model", async () => {
+@@ -751,7 +750,7 @@ test("model inherits properties from existing database model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1318,7 +1318,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -778,7 +777,7 @@ test("disabled_providers prevents loading even with env var", async () => {
+@@ -779,7 +778,7 @@ test("disabled_providers prevents loading even with env var", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1327,7 +1327,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -802,8 +801,8 @@ test("enabled_providers with empty array allows no providers", async () => {
+@@ -803,8 +802,8 @@ test("enabled_providers with empty array allows no providers", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1338,7 +1338,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -832,7 +831,7 @@ test("whitelist and blacklist can be combined", async () => {
+@@ -833,7 +832,7 @@ test("whitelist and blacklist can be combined", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1347,7 +1347,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -941,7 +940,7 @@ test("getSmallModel returns appropriate small model", async () => {
+@@ -942,7 +941,7 @@ test("getSmallModel returns appropriate small model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1356,7 +1356,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const model = await Provider.getSmallModel(ProviderID.anthropic)
-@@ -966,7 +965,7 @@ test("getSmallModel respects config small_model override", async () => {
+@@ -967,7 +966,7 @@ test("getSmallModel respects config small_model override", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1365,7 +1365,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const model = await Provider.getSmallModel(ProviderID.anthropic)
-@@ -1014,8 +1013,8 @@ test("multiple providers can be configured simultaneously", async () => {
+@@ -1015,8 +1014,8 @@ test("multiple providers can be configured simultaneously", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1376,7 +1376,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1093,7 +1092,7 @@ test("model alias name defaults to alias key when id differs", async () => {
+@@ -1094,7 +1093,7 @@ test("model alias name defaults to alias key when id differs", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1385,7 +1385,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1133,7 +1132,7 @@ test("provider with multiple env var options only includes apiKey when single en
+@@ -1134,7 +1133,7 @@ test("provider with multiple env var options only includes apiKey when single en
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1394,7 +1394,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1175,7 +1174,7 @@ test("provider with single env var includes apiKey automatically", async () => {
+@@ -1176,7 +1175,7 @@ test("provider with single env var includes apiKey automatically", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1403,7 +1403,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1212,7 +1211,7 @@ test("model cost overrides existing cost values", async () => {
+@@ -1213,7 +1212,7 @@ test("model cost overrides existing cost values", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1412,7 +1412,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1291,9 +1290,9 @@ test("disabled_providers and enabled_providers interaction", async () => {
+@@ -1292,9 +1291,9 @@ test("disabled_providers and enabled_providers interaction", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1425,7 +1425,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1450,7 +1449,7 @@ test("provider env fallback - second env var used if first missing", async () =>
+@@ -1451,7 +1450,7 @@ test("provider env fallback - second env var used if first missing", async () =>
      directory: tmp.path,
      init: async () => {
        // Only set fallback, not primary
@@ -1434,7 +1434,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1474,7 +1473,7 @@ test("getModel returns consistent results", async () => {
+@@ -1475,7 +1474,7 @@ test("getModel returns consistent results", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1443,7 +1443,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const model1 = await Provider.getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
-@@ -1535,7 +1534,7 @@ test("ModelNotFoundError includes suggestions for typos", async () => {
+@@ -1536,7 +1535,7 @@ test("ModelNotFoundError includes suggestions for typos", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1452,7 +1452,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        try {
-@@ -1563,7 +1562,7 @@ test("ModelNotFoundError for provider includes suggestions", async () => {
+@@ -1564,7 +1563,7 @@ test("ModelNotFoundError for provider includes suggestions", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1461,7 +1461,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        try {
-@@ -1611,7 +1610,7 @@ test("getProvider returns provider info", async () => {
+@@ -1612,7 +1611,7 @@ test("getProvider returns provider info", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1470,7 +1470,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const provider = await Provider.getProvider(ProviderID.anthropic)
-@@ -1635,7 +1634,7 @@ test("closest returns undefined when no partial match found", async () => {
+@@ -1636,7 +1635,7 @@ test("closest returns undefined when no partial match found", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1479,7 +1479,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const result = await Provider.closest(ProviderID.anthropic, ["nonexistent-xyz-model"])
-@@ -1658,7 +1657,7 @@ test("closest checks multiple query terms in order", async () => {
+@@ -1659,7 +1658,7 @@ test("closest checks multiple query terms in order", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1488,7 +1488,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        // First term won't match, second will
-@@ -1730,7 +1729,7 @@ test("provider options are deeply merged", async () => {
+@@ -1731,7 +1730,7 @@ test("provider options are deeply merged", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1497,7 +1497,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1768,7 +1767,7 @@ test("custom model inherits npm package from models.dev provider config", async
+@@ -1769,7 +1768,7 @@ test("custom model inherits npm package from models.dev provider config", async
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1506,7 +1506,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1803,7 +1802,7 @@ test("custom model inherits api.url from models.dev provider", async () => {
+@@ -1804,7 +1803,7 @@ test("custom model inherits api.url from models.dev provider", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1515,7 +1515,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1837,7 +1836,7 @@ test("model variants are generated for reasoning models", async () => {
+@@ -1905,7 +1904,7 @@ test("model variants are generated for reasoning models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1524,7 +1524,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1875,7 +1874,7 @@ test("model variants can be disabled via config", async () => {
+@@ -1943,7 +1942,7 @@ test("model variants can be disabled via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1533,7 +1533,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1918,7 +1917,7 @@ test("model variants can be customized via config", async () => {
+@@ -1986,7 +1985,7 @@ test("model variants can be customized via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1542,7 +1542,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1957,7 +1956,7 @@ test("disabled key is stripped from variant config", async () => {
+@@ -2025,7 +2024,7 @@ test("disabled key is stripped from variant config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1551,7 +1551,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -1995,7 +1994,7 @@ test("all variants can be disabled via config", async () => {
+@@ -2063,7 +2062,7 @@ test("all variants can be disabled via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1560,7 +1560,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2033,7 +2032,7 @@ test("variant config merges with generated variants", async () => {
+@@ -2101,7 +2100,7 @@ test("variant config merges with generated variants", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1569,7 +1569,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2071,7 +2070,7 @@ test("variants filtered in second pass for database models", async () => {
+@@ -2139,7 +2138,7 @@ test("variants filtered in second pass for database models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1578,7 +1578,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2175,7 +2174,7 @@ test("Google Vertex: retains baseURL for custom proxy", async () => {
+@@ -2243,7 +2242,7 @@ test("Google Vertex: retains baseURL for custom proxy", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1587,7 +1587,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2220,7 +2219,7 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
+@@ -2288,7 +2287,7 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1596,7 +1596,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2246,9 +2245,9 @@ test("cloudflare-ai-gateway loads with env variables", async () => {
+@@ -2314,9 +2313,9 @@ test("cloudflare-ai-gateway loads with env variables", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1609,7 +1609,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2278,9 +2277,9 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
+@@ -2346,9 +2345,9 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1622,7 +1622,7 @@ index 88e9ea64c9de..0ce6fcdb4588 100644
      },
      fn: async () => {
        const providers = await Provider.list()
-@@ -2373,8 +2372,8 @@ test("plugin config enabled and disabled providers are honored", async () => {
+@@ -2441,8 +2440,8 @@ test("plugin config enabled and disabled providers are honored", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
