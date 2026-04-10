@@ -82,10 +82,10 @@ index 8b693e79ae20..59b7ec8cb690 100644
            .map((m) => m.trim().toLowerCase())
            .filter(Boolean)
 diff --git a/packages/opencode/src/cli/cmd/tui/context/route.tsx b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-index 939c2d5dc8af..825820ecba89 100644
+index e9f463a13fb3..bea8238c6fd4 100644
 --- a/packages/opencode/src/cli/cmd/tui/context/route.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-@@ -26,8 +26,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
+@@ -25,8 +25,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
    name: "Route",
    init: () => {
      const [store, setStore] = createStore<Route>(
@@ -542,18 +542,18 @@ index 26b2d2570a32..127c1afc0405 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index 9c0771b8df78..dae05dff8f4a 100644
+index bbc154371c56..6c2d36362c7b 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
-@@ -30,7 +30,6 @@ import { pathToFileURL } from "url"
- import { Effect, Layer, ServiceMap } from "effect"
+@@ -36,7 +36,6 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+ import { Ripgrep } from "../file/ripgrep"
  import { InstanceState } from "@/effect/instance-state"
  import { makeRuntime } from "@/effect/run-service"
 -import { Env } from "../env"
  import { Question } from "../question"
  import { Todo } from "../session/todo"
  import { LSP } from "../lsp"
-@@ -245,7 +244,7 @@ export namespace ToolRegistry {
+@@ -265,7 +264,7 @@ export namespace ToolRegistry {
            }
  
            const usePatch =
