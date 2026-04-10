@@ -169,10 +169,10 @@ index 3fb62751..17f1561d 100644
      },
  ];
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index 13e4957a..0b26cbfa 100644
+index d3694e59..17da314b 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
-@@ -209,9 +209,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
+@@ -214,9 +214,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
      if let Some(cmd) = &args.command {
          let tool_name = detect_tool(cmd)?;
          instance.tool = tool_name;
@@ -1828,7 +1828,7 @@ index 00000000..4b9eb19e
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index cce8aeb9..ae9d1dc6 100644
+index 1cd9d5c3..2b2fb6b0 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
 @@ -463,7 +463,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
@@ -1887,7 +1887,7 @@ index cce8aeb9..ae9d1dc6 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -818,9 +805,7 @@ pub(crate) fn build_container_config(
+@@ -829,9 +816,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -1898,7 +1898,7 @@ index cce8aeb9..ae9d1dc6 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -848,8 +833,6 @@ pub(crate) fn build_container_config(
+@@ -859,8 +844,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
