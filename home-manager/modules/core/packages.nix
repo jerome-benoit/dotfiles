@@ -102,7 +102,6 @@ in
         pkgs.rectangle
         pkgs.ruff
         pkgs.rustup
-        pkgs.syncthing
         pkgs.uv
         pkgs.vscode
         pkgs.yq

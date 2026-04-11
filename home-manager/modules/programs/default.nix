@@ -7,6 +7,7 @@
     ./himalaya.nix
     ./lazydocker.nix
     ./ssh.nix
+    ./syncthing.nix
     ./tmux.nix
     ./zellij.nix
   ];

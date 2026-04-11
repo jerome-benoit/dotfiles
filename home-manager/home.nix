@@ -132,6 +132,7 @@ in
     himalaya.enable = profileModules.programs.himalaya;
     lazydocker.enable = profileModules.programs.lazydocker;
     ssh.enable = profileModules.programs.ssh;
+    syncthing.enable = pkgs.stdenv.hostPlatform.isDarwin && profileModules.programs.syncthing;
     tmux.enable = profileModules.programs.tmux;
     zellij.enable = profileModules.programs.zellij;
   };

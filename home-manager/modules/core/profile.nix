@@ -45,6 +45,7 @@ let
       himalaya = true;
       lazydocker = true;
       ssh = true;
+      syncthing = true;
       tmux = true;
       zellij = true;
     };
@@ -97,6 +98,7 @@ let
       himalaya = false;
       lazydocker = true;
       ssh = true;
+      syncthing = false;
       tmux = true;
       zellij = false;
     };
