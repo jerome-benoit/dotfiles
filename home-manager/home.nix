@@ -4,6 +4,7 @@
   config,
   pkgs,
   username,
+  constants,
   ...
 }:
 let
@@ -15,11 +16,33 @@ let
 
   bunSupported = hostname != config.modules.core.constants.hosts.rigel;
 
+  nvidiaVersion =
+    if builtins.pathExists /proc/driver/nvidia/version then
+      let
+        raw = builtins.readFile /proc/driver/nvidia/version;
+        match = builtins.match ".*Module[[:space:]]+([0-9.]+)[[:space:]].*" raw;
+      in
+      if match != null then builtins.head match else null
+    else
+      null;
+
+  nvidiaArch = if pkgs.stdenv.hostPlatform.isx86_64 then "x86_64" else "aarch64";
+  nvidiaDriverSri =
+    let
+      url = "https://download.nvidia.com/XFree86/Linux-${nvidiaArch}/${nvidiaVersion}/NVIDIA-Linux-${nvidiaArch}-${nvidiaVersion}.run";
+      hash = builtins.hashFile "sha256" (builtins.fetchurl url);
+    in
+    builtins.convertHash {
+      inherit hash;
+      toHashFormat = "sri";
+      hashAlgo = "sha256";
+    };
+
   profileName =
     if hostname == config.modules.core.constants.hosts.ns3108029 then
-      config.modules.core.constants.profiles.server
+      constants.profiles.server
     else
-      config.modules.core.constants.profiles.desktop;
+      constants.profiles.desktop;
   profileModules = config.modules.core.profile.modules;
 in
 {
@@ -60,6 +83,14 @@ in
 
   modules.core = {
     home-manager.enable = true;
+    gpu = {
+      enable = pkgs.stdenv.hostPlatform.isLinux && profileName == constants.profiles.desktop;
+      nvidia = lib.mkIf (nvidiaVersion != null) {
+        enable = true;
+        version = nvidiaVersion;
+        sha256 = nvidiaDriverSri;
+      };
+    };
     packages.enable = true;
     specialisations.enable = true;
     profile.name = profileName;
