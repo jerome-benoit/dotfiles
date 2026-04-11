@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index 8b693e79ae20..59b7ec8cb690 100644
+index 28a05512dee7..dc2862ecf651 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
-@@ -454,7 +454,7 @@ export const GithubRunCommand = cmd({
+@@ -457,7 +457,7 @@ export const GithubRunCommand = cmd({
        const isWorkflowDispatchEvent = context.eventName === "workflow_dispatch"
  
        const { providerID, modelID } = normalizeModel()
@@ -11,7 +11,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
        const runId = normalizeRunId()
        const share = normalizeShare()
        const oidcBaseUrl = normalizeOidcBaseUrl()
-@@ -519,7 +519,7 @@ export const GithubRunCommand = cmd({
+@@ -523,7 +523,7 @@ export const GithubRunCommand = cmd({
  
        try {
          if (useGithubToken) {
@@ -20,7 +20,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
            if (!githubToken) {
              throw new Error(
                "GITHUB_TOKEN environment variable is not set. When using use_github_token, you must provide GITHUB_TOKEN.",
-@@ -702,7 +702,7 @@ export const GithubRunCommand = cmd({
+@@ -706,7 +706,7 @@ export const GithubRunCommand = cmd({
        process.exit(exitCode)
  
        function normalizeModel() {
@@ -29,7 +29,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
          if (!value) throw new Error(`Environment variable "MODEL" is not set`)
  
          const { providerID, modelID } = Provider.parseModel(value)
-@@ -713,13 +713,13 @@ export const GithubRunCommand = cmd({
+@@ -717,13 +717,13 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeRunId() {
@@ -45,7 +45,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
          if (!value) return undefined
          if (value === "true") return true
          if (value === "false") return false
-@@ -727,7 +727,7 @@ export const GithubRunCommand = cmd({
+@@ -731,7 +731,7 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeUseGithubToken() {
@@ -54,7 +54,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
          if (!value) return false
          if (value === "true") return true
          if (value === "false") return false
-@@ -735,7 +735,7 @@ export const GithubRunCommand = cmd({
+@@ -739,7 +739,7 @@ export const GithubRunCommand = cmd({
        }
  
        function normalizeOidcBaseUrl(): string {
@@ -63,7 +63,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
          if (!value) return "https://api.opencode.ai"
          return value.replace(/\/+$/, "")
        }
-@@ -770,7 +770,7 @@ export const GithubRunCommand = cmd({
+@@ -774,7 +774,7 @@ export const GithubRunCommand = cmd({
        }
  
        async function getUserPrompt() {
@@ -72,7 +72,7 @@ index 8b693e79ae20..59b7ec8cb690 100644
          // For repo events and issues events, PROMPT is required since there's no comment to extract from
          if (isRepoEvent || isIssuesEvent) {
            if (!customPrompt) {
-@@ -785,7 +785,7 @@ export const GithubRunCommand = cmd({
+@@ -789,7 +789,7 @@ export const GithubRunCommand = cmd({
          }
  
          const reviewContext = getReviewCommentContext()
@@ -132,7 +132,7 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index ff79b739fe10..b24f4df9bf0a 100644
+index 086d51abd8af..09889fd6279c 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -11,7 +11,6 @@ import fsNode from "fs/promises"
@@ -143,7 +143,7 @@ index ff79b739fe10..b24f4df9bf0a 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1447,8 +1446,7 @@ export namespace Config {
+@@ -1452,8 +1451,7 @@ export namespace Config {
                  { concurrency: 2 },
                )
                if (Option.isSome(tokenOpt)) {
@@ -335,7 +335,7 @@ index abfb31ead0eb..beb409bc11ce 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 004fb77f91a0..c484f73fa0a8 100644
+index e401a067c716..122617103bd9 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -346,7 +346,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -115,7 +114,7 @@ export namespace Provider {
+@@ -116,7 +115,7 @@ export namespace Provider {
    }
  
    function e2eURL() {
@@ -355,7 +355,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
      if (typeof url !== "string" || url === "") return
      return url
    }
-@@ -181,7 +180,7 @@ export namespace Provider {
+@@ -182,7 +181,7 @@ export namespace Provider {
            },
          }),
        opencode: Effect.fnUntraced(function* (input: Info) {
@@ -364,7 +364,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          const hasKey = iife(() => {
            if (input.env.some((item) => env[item])) return true
            return false
-@@ -232,7 +231,7 @@ export namespace Provider {
+@@ -233,7 +232,7 @@ export namespace Provider {
          const resource = iife(() => {
            const name = provider.options?.resourceName
            if (typeof name === "string" && name.trim() !== "") return name
@@ -373,7 +373,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          })
  
          return Effect.succeed({
-@@ -254,7 +253,7 @@ export namespace Provider {
+@@ -255,7 +254,7 @@ export namespace Provider {
          })
        },
        "azure-cognitive-services": () => {
@@ -382,7 +382,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          return Effect.succeed({
            autoload: false,
            async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -276,18 +275,16 @@ export namespace Provider {
+@@ -277,18 +276,16 @@ export namespace Provider {
  
          // Region precedence: 1) config file, 2) env var, 3) default
          const configRegion = providerConfig?.options?.region
@@ -404,7 +404,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          const awsBearerToken = iife(() => {
            const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
            if (envToken) return envToken
-@@ -298,7 +295,7 @@ export namespace Provider {
+@@ -299,7 +296,7 @@ export namespace Provider {
            return undefined
          })
  
@@ -413,7 +413,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
  
          const containerCreds = Boolean(
            process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -439,15 +436,15 @@ export namespace Provider {
+@@ -440,15 +437,15 @@ export namespace Provider {
        "google-vertex": (provider) => {
          const project =
            provider.options?.project ??
@@ -435,7 +435,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
              "us-central1",
          )
  
-@@ -485,8 +482,8 @@ export namespace Provider {
+@@ -486,8 +483,8 @@ export namespace Provider {
          })
        },
        "google-vertex-anthropic": () => {
@@ -446,7 +446,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          const autoload = Boolean(project)
          if (!autoload) return Effect.succeed({ autoload: false })
          return Effect.succeed({
-@@ -503,8 +500,6 @@ export namespace Provider {
+@@ -504,8 +501,6 @@ export namespace Provider {
        },
        "sap-ai-core": Effect.fnUntraced(function* () {
          const auth = yield* dep.auth("sap-ai-core")
@@ -455,7 +455,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          const envServiceKey = iife(() => {
            const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
            if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -536,13 +531,13 @@ export namespace Provider {
+@@ -537,13 +532,13 @@ export namespace Provider {
            },
          }),
        gitlab: Effect.fnUntraced(function* (input: Info) {
@@ -471,7 +471,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          })
  
          const providerConfig = (yield* dep.config()).provider?.["gitlab"]
-@@ -679,7 +674,7 @@ export namespace Provider {
+@@ -680,7 +675,7 @@ export namespace Provider {
  
          const auth = yield* dep.auth(input.id)
          const accountId =
@@ -480,7 +480,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
          if (!accountId)
            return {
              autoload: false,
-@@ -691,7 +686,7 @@ export namespace Provider {
+@@ -692,7 +687,7 @@ export namespace Provider {
            }
  
          const apiKey = yield* Effect.gen(function* () {
@@ -489,7 +489,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
            if (envToken) return envToken
            if (auth?.type === "api") return auth.key
            return undefined
-@@ -721,9 +716,9 @@ export namespace Provider {
+@@ -722,9 +717,9 @@ export namespace Provider {
  
          const auth = yield* dep.auth(input.id)
          const accountId =
@@ -501,7 +501,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
  
          if (!accountId || !gateway) {
            const missing = [
-@@ -742,7 +737,7 @@ export namespace Provider {
+@@ -743,7 +738,7 @@ export namespace Provider {
  
          // Get API token from env or auth - required for authenticated gateways
          const apiToken = yield* Effect.gen(function* () {
@@ -510,7 +510,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
            if (envToken) return envToken
            if (auth?.type === "api") return auth.key
            return undefined
-@@ -1178,7 +1173,7 @@ export namespace Provider {
+@@ -1179,7 +1174,7 @@ export namespace Provider {
            }
  
            // load env
@@ -519,7 +519,7 @@ index 004fb77f91a0..c484f73fa0a8 100644
            for (const [id, provider] of Object.entries(database)) {
              const providerID = ProviderID.make(id)
              if (disabled.has(providerID)) continue
-@@ -1385,7 +1380,7 @@ export namespace Provider {
+@@ -1387,7 +1382,7 @@ export namespace Provider {
              }
  
              url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -529,10 +529,10 @@ index 004fb77f91a0..c484f73fa0a8 100644
              })
              return url
 diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
-index 26b2d2570a32..127c1afc0405 100644
+index ad247f546651..1b33565bd12e 100644
 --- a/packages/opencode/src/share/share-next.ts
 +++ b/packages/opencode/src/share/share-next.ts
-@@ -17,7 +17,7 @@ import { SessionShareTable } from "./share.sql"
+@@ -16,7 +16,7 @@ import { SessionShareTable } from "./share.sql"
  
  export namespace ShareNext {
    const log = Log.create({ service: "share-next" })
@@ -542,18 +542,18 @@ index 26b2d2570a32..127c1afc0405 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index bbc154371c56..6c2d36362c7b 100644
+index afb19a468c08..411e873f67ea 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
-@@ -36,7 +36,6 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
- import { Ripgrep } from "../file/ripgrep"
+@@ -37,7 +37,6 @@ import { Ripgrep } from "../file/ripgrep"
+ import { Format } from "../format"
  import { InstanceState } from "@/effect/instance-state"
  import { makeRuntime } from "@/effect/run-service"
 -import { Env } from "../env"
  import { Question } from "../question"
  import { Todo } from "../session/todo"
  import { LSP } from "../lsp"
-@@ -265,7 +264,7 @@ export namespace ToolRegistry {
+@@ -278,7 +277,7 @@ export namespace ToolRegistry {
            }
  
            const usePatch =

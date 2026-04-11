@@ -185,7 +185,7 @@ index d3694e59..17da314b 100644
              instance.command = cmd.clone();
          }
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index be6a1e5a..347965b9 100644
+index 672e9c99..cfcf79da 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -31,6 +31,9 @@ pub enum SessionCommands {
@@ -221,7 +221,7 @@ index be6a1e5a..347965b9 100644
      }
  }
  
-@@ -468,3 +480,42 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
+@@ -474,3 +486,42 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
  
      bail!("Current tmux session is not an Agent of Empires session")
  }
@@ -1908,7 +1908,7 @@ index 1cd9d5c3..2b2fb6b0 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index d2589448..83d9f034 100644
+index 7ca7e52e..d81c2b47 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2564,13 +2564,13 @@ index d2589448..83d9f034 100644
 +            let mut cmd = self.command.clone();
 +            if !self.extra_args.is_empty() {
 +                cmd = format!("{} {}", cmd, self.extra_args);
-             }
--        };
++            }
 +            if self.is_yolo_mode() {
 +                if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
 +                    apply_yolo_mode(&mut cmd, yolo, false);
 +                }
-+            }
+             }
+-        };
 +            self.apply_session_flags(&mut cmd, "host custom");
 +            Some(wrap_command_ignore_suspend(&format!(
 +                "{}{}",
@@ -2784,7 +2784,7 @@ index d2589448..83d9f034 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1136,6 +1552,274 @@ mod tests {
+@@ -1237,6 +1653,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3059,11 +3059,10 @@ index d2589448..83d9f034 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1200,4 +1884,39 @@ mod tests {
-         let deserialized: Status = serde_json::from_str(&json).unwrap();
+@@ -1302,6 +1986,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
-+
+ 
 +    #[test]
 +    fn test_build_host_command_basic() {
 +        let mut inst = Instance::new("test", "/tmp/test");
@@ -3098,7 +3097,10 @@ index d2589448..83d9f034 100644
 +        assert!(cmd_str.contains("ses_abc123def456"));
 +        assert!(cmd_str.contains("--session-id") || cmd_str.contains("--resume"));
 +    }
- }
++
+     #[test]
+     fn test_pane_has_agent_content_bare_shell() {
+         assert!(!pane_has_agent_content("$ ", "opencode"));
 diff --git a/src/session/mod.rs b/src/session/mod.rs
 index 4589f7ca..76dd0b53 100644
 --- a/src/session/mod.rs
@@ -4469,7 +4471,7 @@ index c077cd3a..90e5bc59 100644
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index 3e6c0a4a..16e32290 100644
+index 9aff9b8a..08de2d30 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -1,4 +1,4 @@

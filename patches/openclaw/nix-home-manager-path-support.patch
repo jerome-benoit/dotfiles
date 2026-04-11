@@ -1,5 +1,5 @@
 diff --git a/src/daemon/service-env.test.ts b/src/daemon/service-env.test.ts
-index aa1cae68b0f2..8cae1166f70e 100644
+index aa1cae68b0f2b..8cae1166f70ed 100644
 --- a/src/daemon/service-env.test.ts
 +++ b/src/daemon/service-env.test.ts
 @@ -172,6 +172,102 @@ describe("getMinimalServicePathParts - Linux user directories", () => {
@@ -106,7 +106,7 @@ index aa1cae68b0f2..8cae1166f70e 100644
    const splitPath = (value: string, platform: NodeJS.Platform) =>
      value.split(platform === "win32" ? path.win32.delimiter : path.posix.delimiter);
 diff --git a/src/daemon/service-env.ts b/src/daemon/service-env.ts
-index c415df817c8b..b0c81d1c7ed1 100644
+index c415df817c8be..b0c81d1c7ed19 100644
 --- a/src/daemon/service-env.ts
 +++ b/src/daemon/service-env.ts
 @@ -106,6 +106,23 @@ function addCommonEnvConfiguredBinDirs(
