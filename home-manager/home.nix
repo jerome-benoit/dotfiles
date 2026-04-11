@@ -20,7 +20,7 @@ let
     if builtins.pathExists /proc/driver/nvidia/version then
       let
         raw = builtins.readFile /proc/driver/nvidia/version;
-        match = builtins.match ".*Module[[:space:]]+([0-9.]+)[[:space:]].*" raw;
+        match = builtins.match "NVRM version:.*Module[[:space:]]+([0-9.]+)[^\n]*\n.*" raw;
       in
       if match != null then builtins.head match else null
     else
