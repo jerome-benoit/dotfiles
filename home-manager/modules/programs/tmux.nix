@@ -81,6 +81,7 @@ in
 
         # Server Options
         set -s extended-keys on
+        set -s extended-keys-format csi-u
         set -s focus-events on
 
         # Session Options
@@ -93,6 +94,7 @@ in
 
         # Terminal Features
         set -as terminal-features ",*:RGB"
+        set -as terminal-features 'xterm*:extkeys'
 
         # Terminal Overrides
         set -as terminal-overrides ',*:Smulx=\E[4::%p1%dm'
