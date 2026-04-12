@@ -34,6 +34,7 @@ let
       };
       openclaw = false;
       openspec = true;
+      pi = true;
       qmd = true;
     };
 
@@ -87,6 +88,7 @@ let
       };
       openclaw = false;
       openspec = false;
+      pi = false;
       qmd = false;
     };
 

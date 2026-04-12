@@ -121,6 +121,7 @@ in
     };
     openspec.enable = profileModules.development.openspec;
     openclaw.enable = profileModules.development.openclaw;
+    pi.enable = profileModules.development.pi;
     qmd.enable = bunSupported && profileModules.development.qmd;
   };
 

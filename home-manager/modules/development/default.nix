@@ -11,6 +11,7 @@
     ./openclaw.nix
     ./opencode.nix
     ./openspec.nix
+    ./pi.nix
     ./qmd.nix
   ];
 }
