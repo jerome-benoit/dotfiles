@@ -83,6 +83,10 @@ in
         ];
       };
       initContent = ''
+        ${lib.optionalString profileModules.development.pi ''
+          unalias pi 2>/dev/null || true
+        ''}
+
         ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
