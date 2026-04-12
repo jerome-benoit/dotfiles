@@ -17,6 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.zellij = {
       enable = true;
+      # renovate: datasource=github-releases depName=zellij-org/zellij
       package = mkPlatformPackage "zellij" { version = "0.43.1"; };
       enableZshIntegration = false;
 

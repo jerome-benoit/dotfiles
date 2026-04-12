@@ -13,5 +13,15 @@
   },
   "nix": {
     "enabled": true
-  }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/\\.nix$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?\\s*\\n[^\\n]*version\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+    }
+  ]
 }
