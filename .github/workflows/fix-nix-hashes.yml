@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "home-manager/modules/development/pi.nix"
+      - "flake.lock"
 
 permissions:
   contents: write
@@ -25,11 +26,27 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Detect changed packages
+        id: detect
+        run: |
+          if git diff "origin/${{ github.base_ref }}" --name-only | grep -q 'home-manager/modules/development/pi.nix'; then
+            echo "pi=true" >> "$GITHUB_OUTPUT"
+          fi
+          if git diff "origin/${{ github.base_ref }}" -- flake.lock | grep -q 'agent-deck'; then
+            echo "agent-deck=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Nix
+        if: steps.detect.outputs.pi == 'true' || steps.detect.outputs.agent-deck == 'true'
         uses: nixbuild/nix-quick-install-action@v34
+        with:
+          nix_conf: |
+            extra-experimental-features = nix-command flakes
 
       - name: Update pi-coding-agent hashes
+        if: steps.detect.outputs.pi == 'true'
         env:
           PI_NIX: home-manager/modules/development/pi.nix
           PI_LOCK: home-manager/modules/development/pi-package-lock.json
@@ -47,6 +64,23 @@ jobs:
           NPM_HASH=$(nix run nixpkgs#prefetch-npm-deps -- ./package-lock.json)
           awk -v h="$NPM_HASH" '{gsub(/npmDepsHash = "sha256-[^"]*"/, "npmDepsHash = \"" h "\"")}1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
           cp package-lock.json "$GITHUB_WORKSPACE/$PI_LOCK"
+
+      - name: Update agent-deck vendorHash
+        if: steps.detect.outputs.agent-deck == 'true'
+        env:
+          AD_NIX: home-manager/modules/development/agent-deck.nix
+        run: |
+          awk '{gsub(/vendorHash = "sha256-[^"]*"/, "vendorHash = \"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"")}1' "$AD_NIX" > "$AD_NIX.tmp" && mv "$AD_NIX.tmp" "$AD_NIX"
+
+          BUILD_OUTPUT=$(nix build --impure --no-link --extra-experimental-features 'nix-command flakes' \
+            --expr "(builtins.getFlake \"path:$GITHUB_WORKSPACE\").homeConfigurations.fraggle.config.modules.development.agent-deck.package.goModules" 2>&1 || true)
+
+          VENDOR_HASH=$(echo "$BUILD_OUTPUT" | awk '/got:/ { print $2 }')
+          if [ -n "$VENDOR_HASH" ]; then
+            awk -v h="$VENDOR_HASH" '{gsub(/vendorHash = "sha256-[^"]*"/, "vendorHash = \"" h "\"")}1' "$AD_NIX" > "$AD_NIX.tmp" && mv "$AD_NIX.tmp" "$AD_NIX"
+          else
+            git checkout -- "$AD_NIX"
+          fi
 
       - name: Commit hash fixes
         run: |
