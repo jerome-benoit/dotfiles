@@ -18,7 +18,7 @@ let
       hash = "sha256-zEHnHOQXvDzMvhUNXB0k6d5ivyncOapUQCXiXKeMSl8=";
     };
 
-    npmDepsHash = "sha256-Ot4uv6qcve4vJT2BRR7qgXxKVw1EsG38ZT/evd0lQ0c=";
+    npmDepsHash = "sha256-mki5UrBhH5v01Z1dR3V0PIwz40XkqeiQHw4OsrrXUAQ=";
 
     postPatch = ''
       cp ${./pi-package-lock.json} package-lock.json

@@ -32,6 +32,7 @@ jobs:
       - name: Update pi-coding-agent hashes
         env:
           PI_NIX: home-manager/modules/development/pi.nix
+          PI_LOCK: home-manager/modules/development/pi-package-lock.json
         run: |
           VERSION=$(sed -n 's/.*version = "\([^"]*\)".*/\1/p' "$PI_NIX" | head -1)
           URL="https://registry.npmjs.org/@mariozechner/pi-coding-agent/-/pi-coding-agent-${VERSION}.tgz"
@@ -39,11 +40,13 @@ jobs:
           FETCH_HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
           awk -v h="$FETCH_HASH" '{gsub(/hash = "sha256-[^"]*"/, "hash = \"" h "\"")}1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
 
-          cd "$(mktemp -d)"
-          npm install --package-lock-only --ignore-scripts "@mariozechner/pi-coding-agent@${VERSION}"
+          WORKDIR="$(mktemp -d)"
+          curl -sL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
+          cd "$WORKDIR"
+          npm install --package-lock-only --ignore-scripts
           NPM_HASH=$(nix run nixpkgs#prefetch-npm-deps -- ./package-lock.json)
           awk -v h="$NPM_HASH" '{gsub(/npmDepsHash = "sha256-[^"]*"/, "npmDepsHash = \"" h "\"")}1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
-          cp package-lock.json "$GITHUB_WORKSPACE/home-manager/modules/development/pi-package-lock.json"
+          cp package-lock.json "$GITHUB_WORKSPACE/$PI_LOCK"
 
       - name: Commit hash fixes
         run: |
