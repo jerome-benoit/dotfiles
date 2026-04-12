@@ -132,10 +132,10 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 086d51abd8af..09889fd6279c 100644
+index ecce8fb8f85f..53d3209bb524 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
-@@ -11,7 +11,6 @@ import fsNode from "fs/promises"
+@@ -10,7 +10,6 @@ import fsNode from "fs/promises"
  import { NamedError } from "@opencode-ai/util/error"
  import { Flag } from "../flag/flag"
  import { Auth } from "../auth"
@@ -143,7 +143,7 @@ index 086d51abd8af..09889fd6279c 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1452,8 +1451,7 @@ export namespace Config {
+@@ -1451,8 +1450,7 @@ export namespace Config {
                  { concurrency: 2 },
                )
                if (Option.isSome(tokenOpt)) {
@@ -1634,10 +1634,10 @@ index 9cadc391a1f1..a5a4b6fa00bd 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/session/instruction.test.ts b/packages/opencode/test/session/instruction.test.ts
-index a8c25c6f0e10..72d39190a7db 100644
+index 4ba3b78e420b..3c78f977974c 100644
 --- a/packages/opencode/test/session/instruction.test.ts
 +++ b/packages/opencode/test/session/instruction.test.ts
-@@ -190,14 +190,14 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -223,14 +223,14 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
    let originalConfigDir: string | undefined
  
    beforeEach(() => {
@@ -1655,7 +1655,7 @@ index a8c25c6f0e10..72d39190a7db 100644
      }
    })
  
-@@ -214,7 +214,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -247,7 +247,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
      })
      await using projectTmp = await tmpdir()
  
@@ -1664,7 +1664,7 @@ index a8c25c6f0e10..72d39190a7db 100644
      const originalGlobalConfig = Global.Path.config
      ;(Global.Path as { config: string }).config = globalTmp.path
  
-@@ -241,7 +241,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -279,7 +279,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
      })
      await using projectTmp = await tmpdir()
  
@@ -1673,7 +1673,7 @@ index a8c25c6f0e10..72d39190a7db 100644
      const originalGlobalConfig = Global.Path.config
      ;(Global.Path as { config: string }).config = globalTmp.path
  
-@@ -267,7 +267,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -310,7 +310,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
      })
      await using projectTmp = await tmpdir()
  

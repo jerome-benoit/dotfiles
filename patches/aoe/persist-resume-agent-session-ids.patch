@@ -280,10 +280,10 @@ index 82a424b5..13df0e06 100644
  
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 00000000..4b9eb19e
+index 00000000..6fdf14dd
 --- /dev/null
 +++ b/src/session/capture.rs
-@@ -0,0 +1,1543 @@
+@@ -0,0 +1,1544 @@
 +//! Session ID capture logic for all supported agent types.
 +
 +use std::collections::HashSet;
@@ -839,10 +839,11 @@ index 00000000..4b9eb19e
 +    }
 +
 +    let canonical_project = canonicalize_or_raw(project_path);
-+    let expected_hash = format!(
-+        "{:x}",
-+        Sha256::digest(canonical_project.to_string_lossy().as_bytes())
-+    );
++    let digest = Sha256::digest(canonical_project.to_string_lossy().as_bytes());
++    let expected_hash = digest
++        .iter()
++        .map(|b| format!("{:02x}", b))
++        .collect::<String>();
 +
 +    // Hash-named dir (legacy) as fast path; fall back to scanning all subdirs.
 +    let project_dirs: Vec<std::path::PathBuf> = {
@@ -1828,7 +1829,7 @@ index 00000000..4b9eb19e
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 1cd9d5c3..2b2fb6b0 100644
+index 45ceb8f4..d90eea58 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
 @@ -463,7 +463,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
@@ -4481,10 +4482,10 @@ index 9aff9b8a..08de2d30 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index eefd72db..14146b5b 100644
+index 7b6dc082..a8ea5ce5 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -254,6 +254,10 @@ impl App {
+@@ -299,6 +299,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4492,10 +4493,10 @@ index eefd72db..14146b5b 100644
 +                refresh_needed = true;
 +            }
 +
-             // Check for and apply creation results (non-blocking)
              if let Some(session_id) = self.home.apply_creation_results() {
-                 // Creation succeeded - attach to the new session
-@@ -283,6 +287,7 @@ impl App {
+                 self.attach_session(&session_id, terminal)?;
+                 refresh_needed = true;
+@@ -323,6 +327,7 @@ impl App {
              }
          }
  
@@ -4503,7 +4504,7 @@ index eefd72db..14146b5b 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -455,10 +460,8 @@ impl App {
+@@ -495,10 +500,8 @@ impl App {
          } else {
              !instance.expects_shell() && tmux_session.is_pane_running_shell()
          };
@@ -4515,7 +4516,7 @@ index eefd72db..14146b5b 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -474,17 +477,16 @@ impl App {
+@@ -514,17 +517,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4540,7 +4541,7 @@ index eefd72db..14146b5b 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -494,17 +496,15 @@ impl App {
+@@ -534,17 +536,15 @@ impl App {
                  }
              }
  
@@ -4562,7 +4563,7 @@ index eefd72db..14146b5b 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -514,6 +514,10 @@ impl App {
+@@ -554,6 +554,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
