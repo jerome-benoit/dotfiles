@@ -128,7 +128,7 @@ let
     version = "unstable-${inputs.agent-deck.shortRev}";
     src = inputs.agent-deck;
 
-    vendorHash = "sha256-8PaCkPkmLXBz6UZeLTCeG3h/GGe9I15sOyxYmXiY31A=";
+    vendorHash = "sha256-1aCd3tT5Oh+K7kLils2r3kX4YMkDCL3Eqoj5XJ9R8m0=";
     subPackages = [ "cmd/agent-deck" ];
 
     ldflags = [
