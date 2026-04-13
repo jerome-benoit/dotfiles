@@ -169,7 +169,7 @@ index 3fb62751..17f1561d 100644
      },
  ];
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index d3694e59..17da314b 100644
+index dcbb044a..f46630bc 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
 @@ -214,9 +214,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
@@ -1909,7 +1909,7 @@ index 45ceb8f4..d90eea58 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 7ca7e52e..d81c2b47 100644
+index 39feb454..6c9a256f 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -1951,7 +1951,7 @@ index 7ca7e52e..d81c2b47 100644
  #[derive(Debug, Clone, Serialize, Deserialize)]
  pub struct Instance {
      pub id: String,
-@@ -124,6 +142,14 @@ pub struct Instance {
+@@ -128,6 +146,14 @@ pub struct Instance {
      #[serde(default, skip_serializing_if = "Option::is_none")]
      pub terminal_info: Option<TerminalInfo>,
  
@@ -1966,7 +1966,7 @@ index 7ca7e52e..d81c2b47 100644
      /// Runtime-only: which profile this instance was loaded from. Not persisted to disk.
      #[serde(default, skip_serializing)]
      pub source_profile: String,
-@@ -135,6 +161,157 @@ pub struct Instance {
+@@ -139,6 +165,157 @@ pub struct Instance {
      pub last_start_time: Option<std::time::Instant>,
      #[serde(skip)]
      pub last_error: Option<String>,
@@ -2124,7 +2124,7 @@ index 7ca7e52e..d81c2b47 100644
  }
  
  impl Instance {
-@@ -156,10 +333,12 @@ impl Instance {
+@@ -161,10 +338,12 @@ impl Instance {
              workspace_info: None,
              sandbox_info: None,
              terminal_info: None,
@@ -2137,7 +2137,7 @@ index 7ca7e52e..d81c2b47 100644
          }
      }
  
-@@ -179,6 +358,74 @@ impl Instance {
+@@ -184,6 +363,74 @@ impl Instance {
          self.yolo_mode
      }
  
@@ -2212,7 +2212,7 @@ index 7ca7e52e..d81c2b47 100644
      pub fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -276,7 +523,10 @@ impl Instance {
+@@ -281,7 +528,10 @@ impl Instance {
          }
  
          let container = self.get_container_for_instance()?;
@@ -2224,7 +2224,7 @@ index 7ca7e52e..d81c2b47 100644
  
          let env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
          let env_part = if env_args.is_empty() {
-@@ -365,199 +615,274 @@ impl Instance {
+@@ -370,199 +620,274 @@ impl Instance {
              return Ok(());
          }
  
@@ -2654,7 +2654,7 @@ index 7ca7e52e..d81c2b47 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -606,9 +931,13 @@ impl Instance {
+@@ -611,9 +936,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2669,7 +2669,7 @@ index 7ca7e52e..d81c2b47 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -616,24 +945,111 @@ impl Instance {
+@@ -621,24 +950,111 @@ impl Instance {
          )
      }
  
@@ -2785,7 +2785,7 @@ index 7ca7e52e..d81c2b47 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1237,6 +1653,274 @@ mod tests {
+@@ -1247,6 +1663,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3060,7 +3060,7 @@ index 7ca7e52e..d81c2b47 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1302,6 +1986,41 @@ mod tests {
+@@ -1312,6 +1996,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
@@ -4446,7 +4446,7 @@ index 00000000..5a312b3c
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index 992d8488..f0558d15 100644
+index 768a7421..85c40bd6 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4482,10 +4482,10 @@ index 9aff9b8a..08de2d30 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 7b6dc082..a8ea5ce5 100644
+index b6f78ed5..6fff5b77 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -299,6 +299,10 @@ impl App {
+@@ -302,6 +302,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4496,7 +4496,7 @@ index 7b6dc082..a8ea5ce5 100644
              if let Some(session_id) = self.home.apply_creation_results() {
                  self.attach_session(&session_id, terminal)?;
                  refresh_needed = true;
-@@ -323,6 +327,7 @@ impl App {
+@@ -335,6 +339,7 @@ impl App {
              }
          }
  
@@ -4504,7 +4504,7 @@ index 7b6dc082..a8ea5ce5 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -495,10 +500,8 @@ impl App {
+@@ -507,10 +512,8 @@ impl App {
          } else {
              !instance.expects_shell() && tmux_session.is_pane_running_shell()
          };
@@ -4516,7 +4516,7 @@ index 7b6dc082..a8ea5ce5 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -514,17 +517,16 @@ impl App {
+@@ -526,17 +529,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4541,7 +4541,7 @@ index 7b6dc082..a8ea5ce5 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -534,17 +536,15 @@ impl App {
+@@ -546,17 +548,15 @@ impl App {
                  }
              }
  
@@ -4563,7 +4563,7 @@ index 7b6dc082..a8ea5ce5 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -554,6 +554,10 @@ impl App {
+@@ -566,6 +566,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4640,10 +4640,10 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index cce6d43c..a2ea72d0 100644
+index 90240425..d0626e20 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -298,6 +298,65 @@ impl HomeView {
+@@ -295,6 +295,65 @@ impl HomeView {
                  .unwrap_or(35),
          };
  
@@ -4709,7 +4709,7 @@ index cce6d43c..a2ea72d0 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -328,6 +387,14 @@ impl HomeView {
+@@ -325,6 +384,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4724,7 +4724,7 @@ index cce6d43c..a2ea72d0 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -441,6 +508,43 @@ impl HomeView {
+@@ -438,6 +505,43 @@ impl HomeView {
          false
      }
  
@@ -4768,7 +4768,7 @@ index cce6d43c..a2ea72d0 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      pub fn request_creation(
          &mut self,
-@@ -868,6 +972,15 @@ impl HomeView {
+@@ -877,6 +981,15 @@ impl HomeView {
          Ok(())
      }
  

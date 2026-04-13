@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index 28a05512dee7..dc2862ecf651 100644
+index 28a05512dee..dc2862ecf65 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -457,7 +457,7 @@ export const GithubRunCommand = cmd({
@@ -82,7 +82,7 @@ index 28a05512dee7..dc2862ecf651 100644
            .map((m) => m.trim().toLowerCase())
            .filter(Boolean)
 diff --git a/packages/opencode/src/cli/cmd/tui/context/route.tsx b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-index e9f463a13fb3..bea8238c6fd4 100644
+index e9f463a13fb..bea8238c6fd 100644
 --- a/packages/opencode/src/cli/cmd/tui/context/route.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/context/route.tsx
 @@ -25,8 +25,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
@@ -97,7 +97,7 @@ index e9f463a13fb3..bea8238c6fd4 100644
              type: "home",
            },
 diff --git a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
-index 87c0a63abc82..4deca03964b7 100644
+index 87c0a63abc8..4deca03964b 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 @@ -17,7 +17,7 @@ function writeOsc52(text: string): void {
@@ -119,7 +119,7 @@ index 87c0a63abc82..4deca03964b7 100644
          return async (text: string) => {
            const proc = Process.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
 diff --git a/packages/opencode/src/cli/cmd/tui/util/editor.ts b/packages/opencode/src/cli/cmd/tui/util/editor.ts
-index 9eaae99fce78..5587c0cb81bf 100644
+index 9eaae99fce7..5587c0cb81b 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/editor.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/editor.ts
 @@ -8,7 +8,7 @@ import { Process } from "@/util/process"
@@ -132,7 +132,7 @@ index 9eaae99fce78..5587c0cb81bf 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index ecce8fb8f85f..53d3209bb524 100644
+index ecce8fb8f85..53d3209bb52 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -10,7 +10,6 @@ import fsNode from "fs/promises"
@@ -155,7 +155,7 @@ index ecce8fb8f85f..53d3209bb524 100644
                activeOrgName = activeOrg.org.name
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
 deleted file mode 100644
-index 003b59fc71c9..000000000000
+index 003b59fc71c..00000000000
 --- a/packages/opencode/src/env/index.ts
 +++ /dev/null
 @@ -1,28 +0,0 @@
@@ -188,7 +188,7 @@ index 003b59fc71c9..000000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index f091fa02a987..e8093e4b0278 100644
+index f091fa02a98..e8093e4b027 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -16,19 +16,19 @@ export namespace Flag {
@@ -289,7 +289,7 @@ index f091fa02a987..e8093e4b0278 100644
    enumerable: true,
    configurable: false,
 diff --git a/packages/opencode/src/ide/index.ts b/packages/opencode/src/ide/index.ts
-index ce4128b906d7..cc03e455d0a5 100644
+index ce4128b906d..cc03e455d0a 100644
 --- a/packages/opencode/src/ide/index.ts
 +++ b/packages/opencode/src/ide/index.ts
 @@ -35,8 +35,8 @@ export namespace Ide {
@@ -313,7 +313,7 @@ index ce4128b906d7..cc03e455d0a5 100644
  
    export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index abfb31ead0eb..beb409bc11ce 100644
+index abfb31ead0e..beb409bc11c 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
 @@ -441,7 +441,7 @@ export namespace LSPServer {
@@ -335,7 +335,7 @@ index abfb31ead0eb..beb409bc11ce 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index e401a067c716..122617103bd9 100644
+index ef822739dd5..366b43f173c 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -346,7 +346,7 @@ index e401a067c716..122617103bd9 100644
  import { Instance } from "../project/instance"
  import { Flag } from "../flag/flag"
  import { iife } from "@/util/iife"
-@@ -116,7 +115,7 @@ export namespace Provider {
+@@ -117,7 +116,7 @@ export namespace Provider {
    }
  
    function e2eURL() {
@@ -355,7 +355,7 @@ index e401a067c716..122617103bd9 100644
      if (typeof url !== "string" || url === "") return
      return url
    }
-@@ -182,7 +181,7 @@ export namespace Provider {
+@@ -184,7 +183,7 @@ export namespace Provider {
            },
          }),
        opencode: Effect.fnUntraced(function* (input: Info) {
@@ -364,7 +364,7 @@ index e401a067c716..122617103bd9 100644
          const hasKey = iife(() => {
            if (input.env.some((item) => env[item])) return true
            return false
-@@ -233,7 +232,7 @@ export namespace Provider {
+@@ -235,7 +234,7 @@ export namespace Provider {
          const resource = iife(() => {
            const name = provider.options?.resourceName
            if (typeof name === "string" && name.trim() !== "") return name
@@ -373,7 +373,7 @@ index e401a067c716..122617103bd9 100644
          })
  
          return Effect.succeed({
-@@ -255,7 +254,7 @@ export namespace Provider {
+@@ -257,7 +256,7 @@ export namespace Provider {
          })
        },
        "azure-cognitive-services": () => {
@@ -382,7 +382,7 @@ index e401a067c716..122617103bd9 100644
          return Effect.succeed({
            autoload: false,
            async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-@@ -277,18 +276,16 @@ export namespace Provider {
+@@ -279,18 +278,16 @@ export namespace Provider {
  
          // Region precedence: 1) config file, 2) env var, 3) default
          const configRegion = providerConfig?.options?.region
@@ -404,7 +404,7 @@ index e401a067c716..122617103bd9 100644
          const awsBearerToken = iife(() => {
            const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
            if (envToken) return envToken
-@@ -299,7 +296,7 @@ export namespace Provider {
+@@ -301,7 +298,7 @@ export namespace Provider {
            return undefined
          })
  
@@ -413,7 +413,7 @@ index e401a067c716..122617103bd9 100644
  
          const containerCreds = Boolean(
            process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-@@ -440,15 +437,15 @@ export namespace Provider {
+@@ -442,15 +439,15 @@ export namespace Provider {
        "google-vertex": (provider) => {
          const project =
            provider.options?.project ??
@@ -435,7 +435,7 @@ index e401a067c716..122617103bd9 100644
              "us-central1",
          )
  
-@@ -486,8 +483,8 @@ export namespace Provider {
+@@ -488,8 +485,8 @@ export namespace Provider {
          })
        },
        "google-vertex-anthropic": () => {
@@ -446,7 +446,7 @@ index e401a067c716..122617103bd9 100644
          const autoload = Boolean(project)
          if (!autoload) return Effect.succeed({ autoload: false })
          return Effect.succeed({
-@@ -504,8 +501,6 @@ export namespace Provider {
+@@ -506,8 +503,6 @@ export namespace Provider {
        },
        "sap-ai-core": Effect.fnUntraced(function* () {
          const auth = yield* dep.auth("sap-ai-core")
@@ -455,7 +455,7 @@ index e401a067c716..122617103bd9 100644
          const envServiceKey = iife(() => {
            const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
            if (envAICoreServiceKey) return envAICoreServiceKey
-@@ -537,13 +532,13 @@ export namespace Provider {
+@@ -539,13 +534,13 @@ export namespace Provider {
            },
          }),
        gitlab: Effect.fnUntraced(function* (input: Info) {
@@ -471,7 +471,7 @@ index e401a067c716..122617103bd9 100644
          })
  
          const providerConfig = (yield* dep.config()).provider?.["gitlab"]
-@@ -680,7 +675,7 @@ export namespace Provider {
+@@ -682,7 +677,7 @@ export namespace Provider {
  
          const auth = yield* dep.auth(input.id)
          const accountId =
@@ -480,7 +480,7 @@ index e401a067c716..122617103bd9 100644
          if (!accountId)
            return {
              autoload: false,
-@@ -692,7 +687,7 @@ export namespace Provider {
+@@ -694,7 +689,7 @@ export namespace Provider {
            }
  
          const apiKey = yield* Effect.gen(function* () {
@@ -489,7 +489,7 @@ index e401a067c716..122617103bd9 100644
            if (envToken) return envToken
            if (auth?.type === "api") return auth.key
            return undefined
-@@ -722,9 +717,9 @@ export namespace Provider {
+@@ -724,9 +719,9 @@ export namespace Provider {
  
          const auth = yield* dep.auth(input.id)
          const accountId =
@@ -501,7 +501,7 @@ index e401a067c716..122617103bd9 100644
  
          if (!accountId || !gateway) {
            const missing = [
-@@ -743,7 +738,7 @@ export namespace Provider {
+@@ -745,7 +740,7 @@ export namespace Provider {
  
          // Get API token from env or auth - required for authenticated gateways
          const apiToken = yield* Effect.gen(function* () {
@@ -510,7 +510,7 @@ index e401a067c716..122617103bd9 100644
            if (envToken) return envToken
            if (auth?.type === "api") return auth.key
            return undefined
-@@ -1179,7 +1174,7 @@ export namespace Provider {
+@@ -1181,7 +1176,7 @@ export namespace Provider {
            }
  
            // load env
@@ -519,7 +519,7 @@ index e401a067c716..122617103bd9 100644
            for (const [id, provider] of Object.entries(database)) {
              const providerID = ProviderID.make(id)
              if (disabled.has(providerID)) continue
-@@ -1387,7 +1382,7 @@ export namespace Provider {
+@@ -1389,7 +1384,7 @@ export namespace Provider {
              }
  
              url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
@@ -529,7 +529,7 @@ index e401a067c716..122617103bd9 100644
              })
              return url
 diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
-index ad247f546651..1b33565bd12e 100644
+index ad247f54665..1b33565bd12 100644
 --- a/packages/opencode/src/share/share-next.ts
 +++ b/packages/opencode/src/share/share-next.ts
 @@ -16,7 +16,7 @@ import { SessionShareTable } from "./share.sql"
@@ -542,7 +542,7 @@ index ad247f546651..1b33565bd12e 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index afb19a468c08..411e873f67ea 100644
+index afb19a468c0..411e873f67e 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
 @@ -37,7 +37,6 @@ import { Ripgrep } from "../file/ripgrep"
@@ -563,7 +563,7 @@ index afb19a468c08..411e873f67ea 100644
            if (tool.id === ApplyPatchTool.id) return usePatch
            if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 diff --git a/packages/opencode/src/util/network.ts b/packages/opencode/src/util/network.ts
-index 69e5d17588ac..8ed608162a2e 100644
+index 69e5d17588a..8ed608162a2 100644
 --- a/packages/opencode/src/util/network.ts
 +++ b/packages/opencode/src/util/network.ts
 @@ -5,5 +5,10 @@ export function online() {
@@ -579,7 +579,7 @@ index 69e5d17588ac..8ed608162a2e 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index 0ac61aee7172..2e3de62bde24 100644
+index 0ac61aee717..2e3de62bde2 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
 @@ -204,8 +204,8 @@ test("jsonc overrides json in the same directory", async () => {
@@ -826,7 +826,7 @@ index 0ac61aee7172..2e3de62bde24 100644
      }
    })
 diff --git a/packages/opencode/test/ide/ide.test.ts b/packages/opencode/test/ide/ide.test.ts
-index e10700e80ffe..c366bab07044 100644
+index e10700e80ff..c366bab0704 100644
 --- a/packages/opencode/test/ide/ide.test.ts
 +++ b/packages/opencode/test/ide/ide.test.ts
 @@ -12,70 +12,70 @@ describe("ide", () => {
@@ -918,7 +918,7 @@ index e10700e80ffe..c366bab07044 100644
      expect(Ide.alreadyInstalled()).toBe(false)
    })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 0ddc797faf7f..503e54e775c5 100644
+index 0ddc797faf7..503e54e775c 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -4,7 +4,7 @@ import os from "os"
@@ -1043,7 +1043,7 @@ index 0ddc797faf7f..503e54e775c5 100644
 +  }
 +})
 diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
-index 3358e9230000..2cbda3041f54 100644
+index 3358e923000..2cbda3041f5 100644
 --- a/packages/opencode/test/provider/amazon-bedrock.test.ts
 +++ b/packages/opencode/test/provider/amazon-bedrock.test.ts
 @@ -6,7 +6,6 @@ import { ProviderID } from "../../src/provider/schema"
@@ -1161,7 +1161,7 @@ index 3358e9230000..2cbda3041f54 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index 9cadc391a1f1..a5a4b6fa00bd 100644
+index 9cadc391a1f..a5a4b6fa00b 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
 @@ -10,7 +10,6 @@ import { ModelsDev } from "../../src/provider/models"
@@ -1634,7 +1634,7 @@ index 9cadc391a1f1..a5a4b6fa00bd 100644
      fn: async () => {
        const providers = await Provider.list()
 diff --git a/packages/opencode/test/session/instruction.test.ts b/packages/opencode/test/session/instruction.test.ts
-index 4ba3b78e420b..3c78f977974c 100644
+index 4ba3b78e420..3c78f977974 100644
 --- a/packages/opencode/test/session/instruction.test.ts
 +++ b/packages/opencode/test/session/instruction.test.ts
 @@ -223,14 +223,14 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
