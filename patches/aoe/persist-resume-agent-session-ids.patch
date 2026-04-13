@@ -1909,7 +1909,7 @@ index 45ceb8f4..d90eea58 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 39feb454..6c9a256f 100644
+index 36199412..40e7561c 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2224,7 +2224,7 @@ index 39feb454..6c9a256f 100644
  
          let env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
          let env_part = if env_args.is_empty() {
-@@ -370,199 +620,274 @@ impl Instance {
+@@ -370,204 +620,280 @@ impl Instance {
              return Ok(());
          }
  
@@ -2263,6 +2263,12 @@ index 39feb454..6c9a256f 100644
 -                None
 -            } else {
 -                Some(resolved_on_launch)
++        tracing::debug!(
++            "container cmd: {}",
++            cmd.as_ref().map_or("none".to_string(), |v| {
++                super::environment::redact_env_values(v)
++            })
++        );
 +        session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 +
 +        self.finalize_launch(session.name(), &profile);
@@ -2565,13 +2571,13 @@ index 39feb454..6c9a256f 100644
 +            let mut cmd = self.command.clone();
 +            if !self.extra_args.is_empty() {
 +                cmd = format!("{} {}", cmd, self.extra_args);
-+            }
+             }
+-        };
 +            if self.is_yolo_mode() {
 +                if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
 +                    apply_yolo_mode(&mut cmd, yolo, false);
 +                }
-             }
--        };
++            }
 +            self.apply_session_flags(&mut cmd, "host custom");
 +            Some(wrap_command_ignore_suspend(&format!(
 +                "{}{}",
@@ -2580,7 +2586,12 @@ index 39feb454..6c9a256f 100644
 +        }
 +    }
  
--        tracing::debug!("container cmd: {}", cmd.as_ref().map_or("none", |v| v));
+-        tracing::debug!(
+-            "container cmd: {}",
+-            cmd.as_ref().map_or("none".to_string(), |v| {
+-                super::environment::redact_env_values(v)
+-            })
+-        );
 -        session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 +    /// Post-launch setup: persist state, start pollers, and apply tmux options.
 +    fn finalize_launch(&mut self, session_name: &str, profile: &str) {
@@ -2654,7 +2665,7 @@ index 39feb454..6c9a256f 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -611,9 +936,13 @@ impl Instance {
+@@ -616,9 +942,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2669,7 +2680,7 @@ index 39feb454..6c9a256f 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -621,24 +950,111 @@ impl Instance {
+@@ -626,24 +956,111 @@ impl Instance {
          )
      }
  
@@ -2785,7 +2796,7 @@ index 39feb454..6c9a256f 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1247,6 +1663,274 @@ mod tests {
+@@ -1252,6 +1669,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3060,7 +3071,7 @@ index 39feb454..6c9a256f 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1312,6 +1996,41 @@ mod tests {
+@@ -1317,6 +2002,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
@@ -3103,7 +3114,7 @@ index 39feb454..6c9a256f 100644
      fn test_pane_has_agent_content_bare_shell() {
          assert!(!pane_has_agent_content("$ ", "opencode"));
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index 4589f7ca..76dd0b53 100644
+index fcad87aa..5b5a36fe 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -1,18 +1,21 @@
@@ -3114,7 +3125,7 @@ index 4589f7ca..76dd0b53 100644
  pub mod civilizations;
  pub mod config;
  pub(crate) mod container_config;
- mod environment;
+ pub(crate) mod environment;
  mod groups;
  mod instance;
 +pub mod poller;
@@ -4457,7 +4468,7 @@ index 768a7421..85c40bd6 100644
  pub mod status_bar;
  pub(crate) mod status_detection;
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index c077cd3a..90e5bc59 100644
+index 9ff3c1af..04ef7812 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -38,6 +38,10 @@ impl Session {
@@ -4482,10 +4493,10 @@ index 9aff9b8a..08de2d30 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index b6f78ed5..6fff5b77 100644
+index f463992e..2d985945 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -302,6 +302,10 @@ impl App {
+@@ -301,6 +301,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4496,7 +4507,7 @@ index b6f78ed5..6fff5b77 100644
              if let Some(session_id) = self.home.apply_creation_results() {
                  self.attach_session(&session_id, terminal)?;
                  refresh_needed = true;
-@@ -335,6 +339,7 @@ impl App {
+@@ -334,6 +338,7 @@ impl App {
              }
          }
  
@@ -4504,11 +4515,9 @@ index b6f78ed5..6fff5b77 100644
          if let Err(e) = self.home.save() {
              tracing::error!("Failed to save on quit: {}", e);
          }
-@@ -507,10 +512,8 @@ impl App {
-         } else {
-             !instance.expects_shell() && tmux_session.is_pane_running_shell()
-         };
-+
+@@ -508,9 +513,6 @@ impl App {
+             "attach_session: restart decision"
+         );
          if needs_restart {
 -            if tmux_session.exists() {
 -                let _ = tmux_session.kill();
@@ -4516,7 +4525,7 @@ index b6f78ed5..6fff5b77 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -526,17 +529,16 @@ impl App {
+@@ -526,17 +528,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4541,7 +4550,7 @@ index b6f78ed5..6fff5b77 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -546,17 +548,15 @@ impl App {
+@@ -546,17 +547,15 @@ impl App {
                  }
              }
  
@@ -4563,7 +4572,7 @@ index b6f78ed5..6fff5b77 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -566,6 +566,10 @@ impl App {
+@@ -566,6 +565,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4571,7 +4580,7 @@ index b6f78ed5..6fff5b77 100644
 +            Some(inst) => inst.tmux_session()?,
 +            None => return Ok(()),
 +        };
-         let attach_result = with_raw_mode_disabled(terminal, || tmux_session.attach())?;
+         let attach_result = self.with_raw_mode_disabled(terminal, || tmux_session.attach())?;
  
          self.needs_redraw = true;
 diff --git a/src/tui/dialogs/hooks_install.rs b/src/tui/dialogs/hooks_install.rs
@@ -4640,10 +4649,10 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 90240425..d0626e20 100644
+index 9482b925..c80bb6b6 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -295,6 +295,65 @@ impl HomeView {
+@@ -298,6 +298,65 @@ impl HomeView {
                  .unwrap_or(35),
          };
  
@@ -4709,7 +4718,7 @@ index 90240425..d0626e20 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -325,6 +384,14 @@ impl HomeView {
+@@ -328,6 +387,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4724,7 +4733,7 @@ index 90240425..d0626e20 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -438,6 +505,43 @@ impl HomeView {
+@@ -441,6 +508,43 @@ impl HomeView {
          false
      }
  
@@ -4768,7 +4777,7 @@ index 90240425..d0626e20 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      pub fn request_creation(
          &mut self,
-@@ -877,6 +981,15 @@ impl HomeView {
+@@ -880,6 +984,15 @@ impl HomeView {
          Ok(())
      }
  

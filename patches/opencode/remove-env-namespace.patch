@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/github.ts b/packages/opencode/src/cli/cmd/github.ts
-index 28a05512dee..dc2862ecf65 100644
+index 28a05512dee7..dc2862ecf651 100644
 --- a/packages/opencode/src/cli/cmd/github.ts
 +++ b/packages/opencode/src/cli/cmd/github.ts
 @@ -457,7 +457,7 @@ export const GithubRunCommand = cmd({
@@ -82,7 +82,7 @@ index 28a05512dee..dc2862ecf65 100644
            .map((m) => m.trim().toLowerCase())
            .filter(Boolean)
 diff --git a/packages/opencode/src/cli/cmd/tui/context/route.tsx b/packages/opencode/src/cli/cmd/tui/context/route.tsx
-index e9f463a13fb..bea8238c6fd 100644
+index e9f463a13fb3..bea8238c6fd4 100644
 --- a/packages/opencode/src/cli/cmd/tui/context/route.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/context/route.tsx
 @@ -25,8 +25,8 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
@@ -97,7 +97,7 @@ index e9f463a13fb..bea8238c6fd 100644
              type: "home",
            },
 diff --git a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
-index 87c0a63abc8..4deca03964b 100644
+index 87c0a63abc82..4deca03964b7 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/clipboard.ts
 @@ -17,7 +17,7 @@ function writeOsc52(text: string): void {
@@ -119,7 +119,7 @@ index 87c0a63abc8..4deca03964b 100644
          return async (text: string) => {
            const proc = Process.spawn(["wl-copy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" })
 diff --git a/packages/opencode/src/cli/cmd/tui/util/editor.ts b/packages/opencode/src/cli/cmd/tui/util/editor.ts
-index 9eaae99fce7..5587c0cb81b 100644
+index 9eaae99fce78..5587c0cb81bf 100644
 --- a/packages/opencode/src/cli/cmd/tui/util/editor.ts
 +++ b/packages/opencode/src/cli/cmd/tui/util/editor.ts
 @@ -8,7 +8,7 @@ import { Process } from "@/util/process"
@@ -132,7 +132,7 @@ index 9eaae99fce7..5587c0cb81b 100644
  
      const filepath = join(tmpdir(), `${Date.now()}.md`)
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index ecce8fb8f85..53d3209bb52 100644
+index 6aa79e3090dc..ce792ab948f2 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -10,7 +10,6 @@ import fsNode from "fs/promises"
@@ -143,7 +143,7 @@ index ecce8fb8f85..53d3209bb52 100644
  import {
    type ParseError as JsoncParseError,
    applyEdits,
-@@ -1451,8 +1450,7 @@ export namespace Config {
+@@ -1481,8 +1480,7 @@ export namespace Config {
                  { concurrency: 2 },
                )
                if (Option.isSome(tokenOpt)) {
@@ -155,7 +155,7 @@ index ecce8fb8f85..53d3209bb52 100644
                activeOrgName = activeOrg.org.name
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
 deleted file mode 100644
-index 003b59fc71c..00000000000
+index 003b59fc71c9..000000000000
 --- a/packages/opencode/src/env/index.ts
 +++ /dev/null
 @@ -1,28 +0,0 @@
@@ -188,7 +188,7 @@ index 003b59fc71c..00000000000
 -  }
 -}
 diff --git a/packages/opencode/src/flag/flag.ts b/packages/opencode/src/flag/flag.ts
-index f091fa02a98..e8093e4b027 100644
+index f091fa02a987..e8093e4b0278 100644
 --- a/packages/opencode/src/flag/flag.ts
 +++ b/packages/opencode/src/flag/flag.ts
 @@ -16,19 +16,19 @@ export namespace Flag {
@@ -289,7 +289,7 @@ index f091fa02a98..e8093e4b027 100644
    enumerable: true,
    configurable: false,
 diff --git a/packages/opencode/src/ide/index.ts b/packages/opencode/src/ide/index.ts
-index ce4128b906d..cc03e455d0a 100644
+index ce4128b906d7..cc03e455d0a5 100644
 --- a/packages/opencode/src/ide/index.ts
 +++ b/packages/opencode/src/ide/index.ts
 @@ -35,8 +35,8 @@ export namespace Ide {
@@ -313,7 +313,7 @@ index ce4128b906d..cc03e455d0a 100644
  
    export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {
 diff --git a/packages/opencode/src/lsp/server.ts b/packages/opencode/src/lsp/server.ts
-index abfb31ead0e..beb409bc11c 100644
+index abfb31ead0eb..beb409bc11ce 100644
 --- a/packages/opencode/src/lsp/server.ts
 +++ b/packages/opencode/src/lsp/server.ts
 @@ -441,7 +441,7 @@ export namespace LSPServer {
@@ -335,7 +335,7 @@ index abfb31ead0e..beb409bc11c 100644
        )
        for (const venvPath of potentialVenvPaths) {
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index ef822739dd5..366b43f173c 100644
+index bf27f090aba0..0c4a0df07845 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -12,7 +12,6 @@ import { NamedError } from "@opencode-ai/util/error"
@@ -510,26 +510,26 @@ index ef822739dd5..366b43f173c 100644
            if (envToken) return envToken
            if (auth?.type === "api") return auth.key
            return undefined
-@@ -1181,7 +1176,7 @@ export namespace Provider {
-           }
- 
-           // load env
--          const env = Env.all()
-+          const env = process.env
-           for (const [id, provider] of Object.entries(database)) {
-             const providerID = ProviderID.make(id)
-             if (disabled.has(providerID)) continue
-@@ -1389,7 +1384,7 @@ export namespace Provider {
+@@ -1190,7 +1185,7 @@ export namespace Provider {
              }
  
-             url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
--              const val = Env.get(String(key))
-+              const val = process.env[String(key)]
-               return val ?? item
-             })
-             return url
+             // load env
+-            const env = Env.all()
++            const env = process.env
+             for (const [id, provider] of Object.entries(database)) {
+               const providerID = ProviderID.make(id)
+               if (disabled.has(providerID)) continue
+@@ -1403,7 +1398,7 @@ export namespace Provider {
+               }
+ 
+               url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
+-                const val = Env.get(String(key))
++                const val = process.env[String(key)]
+                 return val ?? item
+               })
+               return url
 diff --git a/packages/opencode/src/share/share-next.ts b/packages/opencode/src/share/share-next.ts
-index ad247f54665..1b33565bd12 100644
+index ad247f546651..1b33565bd12e 100644
 --- a/packages/opencode/src/share/share-next.ts
 +++ b/packages/opencode/src/share/share-next.ts
 @@ -16,7 +16,7 @@ import { SessionShareTable } from "./share.sql"
@@ -542,13 +542,13 @@ index ad247f54665..1b33565bd12 100644
    export type Api = {
      create: string
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
-index afb19a468c0..411e873f67e 100644
+index d6daa87f5586..5fc68d0c7cc9 100644
 --- a/packages/opencode/src/tool/registry.ts
 +++ b/packages/opencode/src/tool/registry.ts
-@@ -37,7 +37,6 @@ import { Ripgrep } from "../file/ripgrep"
+@@ -36,7 +36,6 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+ import { Ripgrep } from "../file/ripgrep"
  import { Format } from "../format"
  import { InstanceState } from "@/effect/instance-state"
- import { makeRuntime } from "@/effect/run-service"
 -import { Env } from "../env"
  import { Question } from "../question"
  import { Todo } from "../session/todo"
@@ -563,7 +563,7 @@ index afb19a468c0..411e873f67e 100644
            if (tool.id === ApplyPatchTool.id) return usePatch
            if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 diff --git a/packages/opencode/src/util/network.ts b/packages/opencode/src/util/network.ts
-index 69e5d17588a..8ed608162a2 100644
+index 69e5d17588ac..8ed608162a2e 100644
 --- a/packages/opencode/src/util/network.ts
 +++ b/packages/opencode/src/util/network.ts
 @@ -5,5 +5,10 @@ export function online() {
@@ -579,10 +579,10 @@ index 69e5d17588a..8ed608162a2 100644
 +  )
  }
 diff --git a/packages/opencode/test/config/config.test.ts b/packages/opencode/test/config/config.test.ts
-index 0ac61aee717..2e3de62bde2 100644
+index ce3566a0c58d..9dbe9325f6ce 100644
 --- a/packages/opencode/test/config/config.test.ts
 +++ b/packages/opencode/test/config/config.test.ts
-@@ -204,8 +204,8 @@ test("jsonc overrides json in the same directory", async () => {
+@@ -227,8 +227,8 @@ test("jsonc overrides json in the same directory", async () => {
  })
  
  test("handles environment variable substitution", async () => {
@@ -593,7 +593,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -225,16 +225,16 @@ test("handles environment variable substitution", async () => {
+@@ -248,16 +248,16 @@ test("handles environment variable substitution", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -614,7 +614,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
    try {
      await using tmp = await tmpdir({
-@@ -263,9 +263,9 @@ test("preserves env variables when adding $schema to config", async () => {
+@@ -286,9 +286,9 @@ test("preserves env variables when adding $schema to config", async () => {
      })
    } finally {
      if (originalEnv !== undefined) {
@@ -626,7 +626,7 @@ index 0ac61aee717..2e3de62bde2 100644
      }
    }
  })
-@@ -2022,8 +2022,8 @@ describe("deduplicatePluginOrigins", () => {
+@@ -2051,8 +2051,8 @@ describe("deduplicatePluginOrigins", () => {
  
  describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
    test("skips project config files when flag is set", async () => {
@@ -637,7 +637,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -2050,16 +2050,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2079,16 +2079,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -658,7 +658,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
      try {
        await using tmp = await tmpdir({
-@@ -2081,16 +2081,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2110,16 +2110,16 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -679,7 +679,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
      try {
        await using tmp = await tmpdir()
-@@ -2105,21 +2105,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2134,21 +2134,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalEnv === undefined) {
@@ -707,7 +707,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
        await using tmp = await tmpdir({
          init: async (dir) => {
-@@ -2150,21 +2150,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2179,21 +2179,21 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -735,7 +735,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
      try {
        await using configDirTmp = await tmpdir({
-@@ -2193,8 +2193,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2222,8 +2222,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
          },
        })
  
@@ -746,7 +746,7 @@ index 0ac61aee717..2e3de62bde2 100644
  
        await Instance.provide({
          directory: projectTmp.path,
-@@ -2206,14 +2206,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2235,14 +2235,14 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
        })
      } finally {
        if (originalDisable === undefined) {
@@ -765,7 +765,7 @@ index 0ac61aee717..2e3de62bde2 100644
        }
      }
    })
-@@ -2221,10 +2221,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
+@@ -2250,10 +2250,10 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
  
  describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
    test("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", async () => {
@@ -780,7 +780,7 @@ index 0ac61aee717..2e3de62bde2 100644
        $schema: "https://opencode.ai/config.json",
        username: "{env:TEST_CONFIG_VAR}",
      })
-@@ -2240,26 +2240,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2269,26 +2269,26 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -813,7 +813,7 @@ index 0ac61aee717..2e3de62bde2 100644
              $schema: "https://opencode.ai/config.json",
              username: "{file:./api_key.txt}",
            })
-@@ -2274,9 +2274,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+@@ -2303,9 +2303,9 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
        })
      } finally {
        if (originalEnv !== undefined) {
@@ -826,7 +826,7 @@ index 0ac61aee717..2e3de62bde2 100644
      }
    })
 diff --git a/packages/opencode/test/ide/ide.test.ts b/packages/opencode/test/ide/ide.test.ts
-index e10700e80ff..c366bab0704 100644
+index e10700e80ffe..c366bab07044 100644
 --- a/packages/opencode/test/ide/ide.test.ts
 +++ b/packages/opencode/test/ide/ide.test.ts
 @@ -12,70 +12,70 @@ describe("ide", () => {
@@ -918,7 +918,7 @@ index e10700e80ff..c366bab0704 100644
      expect(Ide.alreadyInstalled()).toBe(false)
    })
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 0ddc797faf7..503e54e775c 100644
+index 0ddc797faf7f..503e54e775c5 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -4,7 +4,7 @@ import os from "os"
@@ -1043,7 +1043,7 @@ index 0ddc797faf7..503e54e775c 100644
 +  }
 +})
 diff --git a/packages/opencode/test/provider/amazon-bedrock.test.ts b/packages/opencode/test/provider/amazon-bedrock.test.ts
-index 3358e923000..2cbda3041f5 100644
+index 712f36086f9b..bb3edf398342 100644
 --- a/packages/opencode/test/provider/amazon-bedrock.test.ts
 +++ b/packages/opencode/test/provider/amazon-bedrock.test.ts
 @@ -6,7 +6,6 @@ import { ProviderID } from "../../src/provider/schema"
@@ -1053,8 +1053,8 @@ index 3358e923000..2cbda3041f5 100644
 -import { Env } from "../../src/env"
  import { Global } from "../../src/global"
  import { Filesystem } from "../../src/util/filesystem"
- 
-@@ -31,8 +30,8 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
+ import { Effect } from "effect"
+@@ -42,8 +41,8 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1064,8 +1064,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -56,8 +55,8 @@ test("Bedrock: falls back to AWS_REGION env var when no config region", async ()
+       const providers = await list()
+@@ -67,8 +66,8 @@ test("Bedrock: falls back to AWS_REGION env var when no config region", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1075,8 +1075,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -111,9 +110,9 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
+       const providers = await list()
+@@ -122,9 +121,9 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
      await Instance.provide({
        directory: tmp.path,
        init: async () => {
@@ -1088,8 +1088,8 @@ index 3358e923000..2cbda3041f5 100644
 +        process.env.AWS_BEARER_TOKEN_BEDROCK = ""
        },
        fn: async () => {
-         const providers = await Provider.list()
-@@ -157,8 +156,8 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async
+         const providers = await list()
+@@ -168,8 +167,8 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1099,8 +1099,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_ACCESS_KEY_ID = "test-key-id"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -189,7 +188,7 @@ test("Bedrock: includes custom endpoint in options when specified", async () =>
+       const providers = await list()
+@@ -200,7 +199,7 @@ test("Bedrock: includes custom endpoint in options when specified", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1108,8 +1108,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -222,10 +221,10 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async ()
+       const providers = await list()
+@@ -233,10 +232,10 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async ()
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1123,8 +1123,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_ACCESS_KEY_ID = ""
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -265,7 +264,7 @@ test("Bedrock: model with us. prefix should not be double-prefixed", async () =>
+       const providers = await list()
+@@ -276,7 +275,7 @@ test("Bedrock: model with us. prefix should not be double-prefixed", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1132,8 +1132,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -302,7 +301,7 @@ test("Bedrock: model with global. prefix should not be prefixed", async () => {
+       const providers = await list()
+@@ -313,7 +312,7 @@ test("Bedrock: model with global. prefix should not be prefixed", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1141,8 +1141,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -338,7 +337,7 @@ test("Bedrock: model with eu. prefix should not be double-prefixed", async () =>
+       const providers = await list()
+@@ -349,7 +348,7 @@ test("Bedrock: model with eu. prefix should not be double-prefixed", async () =>
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1150,8 +1150,8 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -374,7 +373,7 @@ test("Bedrock: model without prefix in US region should get us. prefix added", a
+       const providers = await list()
+@@ -385,7 +384,7 @@ test("Bedrock: model without prefix in US region should get us. prefix added", a
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1159,9 +1159,9 @@ index 3358e923000..2cbda3041f5 100644
 +      process.env.AWS_PROFILE = "default"
      },
      fn: async () => {
-       const providers = await Provider.list()
+       const providers = await list()
 diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
-index 9cadc391a1f..a5a4b6fa00b 100644
+index 73e77be5fd38..7ed36db13c84 100644
 --- a/packages/opencode/test/provider/provider.test.ts
 +++ b/packages/opencode/test/provider/provider.test.ts
 @@ -10,7 +10,6 @@ import { ModelsDev } from "../../src/provider/models"
@@ -1169,10 +1169,10 @@ index 9cadc391a1f..a5a4b6fa00b 100644
  import { ProviderID, ModelID } from "../../src/provider/schema"
  import { Filesystem } from "../../src/util/filesystem"
 -import { Env } from "../../src/env"
+ import { Effect } from "effect"
+ import { AppRuntime } from "../../src/effect/app-runtime"
  
- function paid(providers: Awaited<ReturnType<typeof Provider.list>>) {
-   const item = providers[ProviderID.make("opencode")]
-@@ -32,7 +31,7 @@ test("provider loaded from env variable", async () => {
+@@ -71,7 +70,7 @@ test("provider loaded from env variable", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1180,8 +1180,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -87,7 +86,7 @@ test("disabled_providers excludes provider", async () => {
+       const providers = await list()
+@@ -126,7 +125,7 @@ test("disabled_providers excludes provider", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1189,8 +1189,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -111,8 +110,8 @@ test("enabled_providers restricts to only listed providers", async () => {
+       const providers = await list()
+@@ -150,8 +149,8 @@ test("enabled_providers restricts to only listed providers", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1200,8 +1200,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -141,7 +140,7 @@ test("model whitelist filters models for provider", async () => {
+       const providers = await list()
+@@ -180,7 +179,7 @@ test("model whitelist filters models for provider", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1209,8 +1209,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -172,7 +171,7 @@ test("model blacklist excludes specific models", async () => {
+       const providers = await list()
+@@ -211,7 +210,7 @@ test("model blacklist excludes specific models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1218,8 +1218,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -207,7 +206,7 @@ test("custom model alias via config", async () => {
+       const providers = await list()
+@@ -246,7 +245,7 @@ test("custom model alias via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1227,8 +1227,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -283,7 +282,7 @@ test("env variable takes precedence, config merges options", async () => {
+       const providers = await list()
+@@ -322,7 +321,7 @@ test("env variable takes precedence, config merges options", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1236,8 +1236,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "env-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -309,7 +308,7 @@ test("getModel returns model for valid provider/model", async () => {
+       const providers = await list()
+@@ -348,7 +347,7 @@ test("getModel returns model for valid provider/model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1245,8 +1245,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const model = await Provider.getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
-@@ -336,7 +335,7 @@ test("getModel throws ModelNotFoundError for invalid model", async () => {
+       const model = await getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
+@@ -375,7 +374,7 @@ test("getModel throws ModelNotFoundError for invalid model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1254,8 +1254,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       expect(Provider.getModel(ProviderID.anthropic, ModelID.make("nonexistent-model"))).rejects.toThrow()
-@@ -389,7 +388,7 @@ test("defaultModel returns first available model when no config set", async () =
+       expect(getModel(ProviderID.anthropic, ModelID.make("nonexistent-model"))).rejects.toThrow()
+@@ -428,7 +427,7 @@ test("defaultModel returns first available model when no config set", async () =
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1263,8 +1263,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const model = await Provider.defaultModel()
-@@ -414,7 +413,7 @@ test("defaultModel respects config model setting", async () => {
+       const model = await defaultModel()
+@@ -453,7 +452,7 @@ test("defaultModel respects config model setting", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1272,8 +1272,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const model = await Provider.defaultModel()
-@@ -529,7 +528,7 @@ test("model options are merged from existing model", async () => {
+       const model = await defaultModel()
+@@ -568,7 +567,7 @@ test("model options are merged from existing model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1281,8 +1281,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -558,7 +557,7 @@ test("provider removed when all models filtered out", async () => {
+       const providers = await list()
+@@ -597,7 +596,7 @@ test("provider removed when all models filtered out", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1290,8 +1290,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -581,7 +580,7 @@ test("closest finds model by partial match", async () => {
+       const providers = await list()
+@@ -620,7 +619,7 @@ test("closest finds model by partial match", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1299,8 +1299,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const result = await Provider.closest(ProviderID.anthropic, ["sonnet-4"])
-@@ -636,7 +635,7 @@ test("getModel uses realIdByKey for aliased models", async () => {
+       const result = await closest(ProviderID.anthropic, ["sonnet-4"])
+@@ -675,7 +674,7 @@ test("getModel uses realIdByKey for aliased models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1308,8 +1308,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -751,7 +750,7 @@ test("model inherits properties from existing database model", async () => {
+       const providers = await list()
+@@ -790,7 +789,7 @@ test("model inherits properties from existing database model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1317,8 +1317,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -779,7 +778,7 @@ test("disabled_providers prevents loading even with env var", async () => {
+       const providers = await list()
+@@ -818,7 +817,7 @@ test("disabled_providers prevents loading even with env var", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1326,8 +1326,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -803,8 +802,8 @@ test("enabled_providers with empty array allows no providers", async () => {
+       const providers = await list()
+@@ -842,8 +841,8 @@ test("enabled_providers with empty array allows no providers", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1337,8 +1337,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -833,7 +832,7 @@ test("whitelist and blacklist can be combined", async () => {
+       const providers = await list()
+@@ -872,7 +871,7 @@ test("whitelist and blacklist can be combined", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1346,8 +1346,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -942,7 +941,7 @@ test("getSmallModel returns appropriate small model", async () => {
+       const providers = await list()
+@@ -981,7 +980,7 @@ test("getSmallModel returns appropriate small model", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1355,8 +1355,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const model = await Provider.getSmallModel(ProviderID.anthropic)
-@@ -967,7 +966,7 @@ test("getSmallModel respects config small_model override", async () => {
+       const model = await getSmallModel(ProviderID.anthropic)
+@@ -1006,7 +1005,7 @@ test("getSmallModel respects config small_model override", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1364,8 +1364,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const model = await Provider.getSmallModel(ProviderID.anthropic)
-@@ -1015,8 +1014,8 @@ test("multiple providers can be configured simultaneously", async () => {
+       const model = await getSmallModel(ProviderID.anthropic)
+@@ -1054,8 +1053,8 @@ test("multiple providers can be configured simultaneously", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1375,8 +1375,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1094,7 +1093,7 @@ test("model alias name defaults to alias key when id differs", async () => {
+       const providers = await list()
+@@ -1133,7 +1132,7 @@ test("model alias name defaults to alias key when id differs", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1384,8 +1384,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1134,7 +1133,7 @@ test("provider with multiple env var options only includes apiKey when single en
+       const providers = await list()
+@@ -1173,7 +1172,7 @@ test("provider with multiple env var options only includes apiKey when single en
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1393,8 +1393,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.MULTI_ENV_KEY_1 = "test-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1176,7 +1175,7 @@ test("provider with single env var includes apiKey automatically", async () => {
+       const providers = await list()
+@@ -1215,7 +1214,7 @@ test("provider with single env var includes apiKey automatically", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1402,8 +1402,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.SINGLE_ENV_KEY = "my-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1213,7 +1212,7 @@ test("model cost overrides existing cost values", async () => {
+       const providers = await list()
+@@ -1252,7 +1251,7 @@ test("model cost overrides existing cost values", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1411,8 +1411,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1292,9 +1291,9 @@ test("disabled_providers and enabled_providers interaction", async () => {
+       const providers = await list()
+@@ -1331,9 +1330,9 @@ test("disabled_providers and enabled_providers interaction", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1424,8 +1424,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.GOOGLE_GENERATIVE_AI_API_KEY = "test-google"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1451,7 +1450,7 @@ test("provider env fallback - second env var used if first missing", async () =>
+       const providers = await list()
+@@ -1490,7 +1489,7 @@ test("provider env fallback - second env var used if first missing", async () =>
      directory: tmp.path,
      init: async () => {
        // Only set fallback, not primary
@@ -1433,8 +1433,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.FALLBACK_KEY = "fallback-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1475,7 +1474,7 @@ test("getModel returns consistent results", async () => {
+       const providers = await list()
+@@ -1514,7 +1513,7 @@ test("getModel returns consistent results", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1442,17 +1442,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const model1 = await Provider.getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
-@@ -1536,7 +1535,7 @@ test("ModelNotFoundError includes suggestions for typos", async () => {
-   await Instance.provide({
-     directory: tmp.path,
-     init: async () => {
--      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-+      process.env.ANTHROPIC_API_KEY = "test-api-key"
-     },
-     fn: async () => {
-       try {
-@@ -1564,7 +1563,7 @@ test("ModelNotFoundError for provider includes suggestions", async () => {
+       const model1 = await getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
+@@ -1575,7 +1574,7 @@ test("ModelNotFoundError includes suggestions for typos", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1461,7 +1452,7 @@ index 9cadc391a1f..a5a4b6fa00b 100644
      },
      fn: async () => {
        try {
-@@ -1612,7 +1611,7 @@ test("getProvider returns provider info", async () => {
+@@ -1603,7 +1602,7 @@ test("ModelNotFoundError for provider includes suggestions", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1469,8 +1460,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const provider = await Provider.getProvider(ProviderID.anthropic)
-@@ -1636,7 +1635,7 @@ test("closest returns undefined when no partial match found", async () => {
+       try {
+@@ -1651,7 +1650,7 @@ test("getProvider returns provider info", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1478,8 +1469,17 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const result = await Provider.closest(ProviderID.anthropic, ["nonexistent-xyz-model"])
-@@ -1659,7 +1658,7 @@ test("closest checks multiple query terms in order", async () => {
+       const provider = await getProvider(ProviderID.anthropic)
+@@ -1675,7 +1674,7 @@ test("closest returns undefined when no partial match found", async () => {
+   await Instance.provide({
+     directory: tmp.path,
+     init: async () => {
+-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
++      process.env.ANTHROPIC_API_KEY = "test-api-key"
+     },
+     fn: async () => {
+       const result = await closest(ProviderID.anthropic, ["nonexistent-xyz-model"])
+@@ -1698,7 +1697,7 @@ test("closest checks multiple query terms in order", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1488,7 +1488,7 @@ index 9cadc391a1f..a5a4b6fa00b 100644
      },
      fn: async () => {
        // First term won't match, second will
-@@ -1731,7 +1730,7 @@ test("provider options are deeply merged", async () => {
+@@ -1770,7 +1769,7 @@ test("provider options are deeply merged", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1496,8 +1496,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1769,7 +1768,7 @@ test("custom model inherits npm package from models.dev provider config", async
+       const providers = await list()
+@@ -1808,7 +1807,7 @@ test("custom model inherits npm package from models.dev provider config", async
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1505,8 +1505,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1804,7 +1803,7 @@ test("custom model inherits api.url from models.dev provider", async () => {
+       const providers = await list()
+@@ -1843,7 +1842,7 @@ test("custom model inherits api.url from models.dev provider", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1514,8 +1514,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENROUTER_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1905,7 +1904,7 @@ test("model variants are generated for reasoning models", async () => {
+       const providers = await list()
+@@ -1944,7 +1943,7 @@ test("model variants are generated for reasoning models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1523,8 +1523,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1943,7 +1942,7 @@ test("model variants can be disabled via config", async () => {
+       const providers = await list()
+@@ -1982,7 +1981,7 @@ test("model variants can be disabled via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1532,8 +1532,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -1986,7 +1985,7 @@ test("model variants can be customized via config", async () => {
+       const providers = await list()
+@@ -2025,7 +2024,7 @@ test("model variants can be customized via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1541,8 +1541,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2025,7 +2024,7 @@ test("disabled key is stripped from variant config", async () => {
+       const providers = await list()
+@@ -2064,7 +2063,7 @@ test("disabled key is stripped from variant config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1550,8 +1550,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2063,7 +2062,7 @@ test("all variants can be disabled via config", async () => {
+       const providers = await list()
+@@ -2102,7 +2101,7 @@ test("all variants can be disabled via config", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1559,8 +1559,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2101,7 +2100,7 @@ test("variant config merges with generated variants", async () => {
+       const providers = await list()
+@@ -2140,7 +2139,7 @@ test("variant config merges with generated variants", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1568,8 +1568,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.ANTHROPIC_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2139,7 +2138,7 @@ test("variants filtered in second pass for database models", async () => {
+       const providers = await list()
+@@ -2178,7 +2177,7 @@ test("variants filtered in second pass for database models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1577,8 +1577,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-api-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2243,7 +2242,7 @@ test("Google Vertex: retains baseURL for custom proxy", async () => {
+       const providers = await list()
+@@ -2282,7 +2281,7 @@ test("Google Vertex: retains baseURL for custom proxy", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1586,8 +1586,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.GOOGLE_APPLICATION_CREDENTIALS = "test-creds"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2288,7 +2287,7 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
+       const providers = await list()
+@@ -2327,7 +2326,7 @@ test("Google Vertex: supports OpenAI compatible models", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1595,8 +1595,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.GOOGLE_APPLICATION_CREDENTIALS = "test-creds"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2314,9 +2313,9 @@ test("cloudflare-ai-gateway loads with env variables", async () => {
+       const providers = await list()
+@@ -2353,9 +2352,9 @@ test("cloudflare-ai-gateway loads with env variables", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1608,8 +1608,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.CLOUDFLARE_API_TOKEN = "test-token"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2346,9 +2345,9 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
+       const providers = await list()
+@@ -2385,9 +2384,9 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1621,8 +1621,8 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.CLOUDFLARE_API_TOKEN = "test-token"
      },
      fn: async () => {
-       const providers = await Provider.list()
-@@ -2441,8 +2440,8 @@ test("plugin config enabled and disabled providers are honored", async () => {
+       const providers = await list()
+@@ -2480,8 +2479,8 @@ test("plugin config enabled and disabled providers are honored", async () => {
    await Instance.provide({
      directory: tmp.path,
      init: async () => {
@@ -1632,12 +1632,12 @@ index 9cadc391a1f..a5a4b6fa00b 100644
 +      process.env.OPENAI_API_KEY = "test-openai-key"
      },
      fn: async () => {
-       const providers = await Provider.list()
+       const providers = await list()
 diff --git a/packages/opencode/test/session/instruction.test.ts b/packages/opencode/test/session/instruction.test.ts
-index 4ba3b78e420..3c78f977974 100644
+index c46bbd20bdf2..edd217805b70 100644
 --- a/packages/opencode/test/session/instruction.test.ts
 +++ b/packages/opencode/test/session/instruction.test.ts
-@@ -223,14 +223,14 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -276,14 +276,14 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
    let originalConfigDir: string | undefined
  
    beforeEach(() => {
@@ -1655,7 +1655,7 @@ index 4ba3b78e420..3c78f977974 100644
      }
    })
  
-@@ -247,7 +247,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -300,7 +300,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
      })
      await using projectTmp = await tmpdir()
  
@@ -1664,7 +1664,7 @@ index 4ba3b78e420..3c78f977974 100644
      const originalGlobalConfig = Global.Path.config
      ;(Global.Path as { config: string }).config = globalTmp.path
  
-@@ -279,7 +279,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -332,7 +332,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
      })
      await using projectTmp = await tmpdir()
  
@@ -1673,7 +1673,7 @@ index 4ba3b78e420..3c78f977974 100644
      const originalGlobalConfig = Global.Path.config
      ;(Global.Path as { config: string }).config = globalTmp.path
  
-@@ -310,7 +310,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
+@@ -363,7 +363,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
      })
      await using projectTmp = await tmpdir()
  
