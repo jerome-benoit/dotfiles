@@ -21,11 +21,9 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = [
-      pkgs.gemini-cli
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
-      pkgs.nixfmt
       pkgs.ollama
       pkgs.volta
       pkgs.whisper-cpp
@@ -57,8 +55,11 @@ in
     ++ lib.optionals isDesktop [
       pkgs.bruno
       pkgs.cloudfoundry-cli
+      pkgs.gemini-cli
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
+      pkgs.nil
+      pkgs.nixfmt
       pkgs.obsidian
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
