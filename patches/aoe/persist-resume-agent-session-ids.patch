@@ -169,10 +169,10 @@ index 3fb62751..17f1561d 100644
      },
  ];
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index dcbb044a..f46630bc 100644
+index b806aed8..1966260f 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
-@@ -214,9 +214,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
+@@ -224,9 +224,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
      if let Some(cmd) = &args.command {
          let tool_name = detect_tool(cmd)?;
          instance.tool = tool_name;
@@ -1830,10 +1830,10 @@ index 00000000..2434799c
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 45ceb8f4..d90eea58 100644
+index 2e74d8b8..9c7e7469 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
-@@ -463,7 +463,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
+@@ -476,7 +476,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
          return Ok(false);
      }
  
@@ -1841,7 +1841,7 @@ index 45ceb8f4..d90eea58 100644
      if dest.exists() {
          if let Ok(existing_content) = std::fs::read_to_string(dest) {
              if !should_overwrite_credential(&existing_content, trimmed) {
-@@ -566,14 +565,8 @@ pub(crate) fn compute_volume_paths(
+@@ -579,14 +578,8 @@ pub(crate) fn compute_volume_paths(
      project_path: &Path,
      project_path_str: &str,
  ) -> Result<(Vec<VolumeMount>, String)> {
@@ -1858,7 +1858,7 @@ index 45ceb8f4..d90eea58 100644
      if project_path.join(".git").exists() {
          if let Ok(main_repo) = GitWorktree::find_main_repo(project_path) {
              // Canonicalize paths for reliable comparison (handles symlinks like /tmp -> /private/tmp)
-@@ -589,8 +582,6 @@ pub(crate) fn compute_volume_paths(
+@@ -602,8 +595,6 @@ pub(crate) fn compute_volume_paths(
              // resolves correctly inside the container.
              if main_repo_canonical != project_canonical {
                  if project_canonical.starts_with(&main_repo_canonical) {
@@ -1867,7 +1867,7 @@ index 45ceb8f4..d90eea58 100644
                      let name = main_repo_canonical
                          .file_name()
                          .map(|n| n.to_string_lossy().to_string())
-@@ -615,11 +606,8 @@ pub(crate) fn compute_volume_paths(
+@@ -628,11 +619,8 @@ pub(crate) fn compute_volume_paths(
                          working_dir,
                      ));
                  } else {
@@ -1881,7 +1881,7 @@ index 45ceb8f4..d90eea58 100644
                      let common = common_ancestor(&main_repo_canonical, &project_canonical);
                      let repo_rel = main_repo_canonical
                          .strip_prefix(&common)
-@@ -651,7 +639,6 @@ pub(crate) fn compute_volume_paths(
+@@ -664,7 +652,6 @@ pub(crate) fn compute_volume_paths(
          }
      }
  
@@ -1889,7 +1889,7 @@ index 45ceb8f4..d90eea58 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -829,9 +816,7 @@ pub(crate) fn build_container_config(
+@@ -842,9 +829,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -1900,7 +1900,7 @@ index 45ceb8f4..d90eea58 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -859,8 +844,6 @@ pub(crate) fn build_container_config(
+@@ -872,8 +857,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
@@ -3132,7 +3132,7 @@ index 3f263289..f2fa3696 100644
      fn test_pane_has_agent_content_bare_shell() {
          assert!(!pane_has_agent_content("$ ", "opencode"));
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index fcad87aa..5b5a36fe 100644
+index 7b4ff999..bc5397a0 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -1,18 +1,21 @@
@@ -3156,7 +3156,7 @@ index fcad87aa..5b5a36fe 100644
 +pub(crate) use capture::is_valid_session_id;
  pub use config::{
      get_claude_config_dir, get_update_settings, load_config, save_config, ClaudeConfig, Config,
-     ContainerRuntimeName, DefaultTerminalMode, SandboxConfig, SessionConfig, ThemeConfig,
+     ContainerRuntimeName, DefaultTerminalMode, GroupByMode, SandboxConfig, SessionConfig,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
 index 00000000..937d3841
@@ -4667,10 +4667,10 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index f2097b8a..85c69f68 100644
+index 25a66e4b..ced23c1f 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -326,6 +326,65 @@ impl HomeView {
+@@ -370,6 +370,65 @@ impl HomeView {
              let _ = view.save();
          }
  
@@ -4736,7 +4736,7 @@ index f2097b8a..85c69f68 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -356,6 +415,14 @@ impl HomeView {
+@@ -400,6 +459,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4751,7 +4751,7 @@ index f2097b8a..85c69f68 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -480,6 +547,43 @@ impl HomeView {
+@@ -524,6 +591,43 @@ impl HomeView {
          false
      }
  
@@ -4795,7 +4795,7 @@ index f2097b8a..85c69f68 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      /// Creates a stub instance in the session list with Status::Creating so the user
      /// can see progress in the preview pane while continuing to use the TUI.
-@@ -1090,6 +1194,15 @@ impl HomeView {
+@@ -1186,6 +1290,15 @@ impl HomeView {
          Ok(())
      }
  
