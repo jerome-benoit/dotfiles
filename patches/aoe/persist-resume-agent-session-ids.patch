@@ -280,10 +280,10 @@ index 82a424b5..13df0e06 100644
  
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 00000000..6fdf14dd
+index 00000000..2434799c
 --- /dev/null
 +++ b/src/session/capture.rs
-@@ -0,0 +1,1544 @@
+@@ -0,0 +1,1545 @@
 +//! Session ID capture logic for all supported agent types.
 +
 +use std::collections::HashSet;
@@ -913,8 +913,9 @@ index 00000000..6fdf14dd
 +    candidates.sort_by(|a, b| b.1.cmp(&a.1));
 +
 +    candidates.retain(|(_, _, sid)| {
-+        let id = sid.as_deref().unwrap_or_default();
-+        !exclusion.contains(id)
++        sid.as_deref()
++            .map(|id| !id.is_empty() && !exclusion.contains(id))
++            .unwrap_or(false)
 +    });
 +
 +    candidates
@@ -1909,7 +1910,7 @@ index 45ceb8f4..d90eea58 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 36199412..40e7561c 100644
+index 3f263289..f2fa3696 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -1935,7 +1936,7 @@ index 36199412..40e7561c 100644
  
  #[derive(Debug, Clone, Serialize, Deserialize)]
  pub struct TerminalInfo {
-@@ -85,6 +94,15 @@ pub struct SandboxInfo {
+@@ -86,6 +95,15 @@ pub struct SandboxInfo {
      pub custom_instruction: Option<String>,
  }
  
@@ -1951,7 +1952,7 @@ index 36199412..40e7561c 100644
  #[derive(Debug, Clone, Serialize, Deserialize)]
  pub struct Instance {
      pub id: String,
-@@ -128,6 +146,14 @@ pub struct Instance {
+@@ -129,6 +147,14 @@ pub struct Instance {
      #[serde(default, skip_serializing_if = "Option::is_none")]
      pub terminal_info: Option<TerminalInfo>,
  
@@ -1966,7 +1967,7 @@ index 36199412..40e7561c 100644
      /// Runtime-only: which profile this instance was loaded from. Not persisted to disk.
      #[serde(default, skip_serializing)]
      pub source_profile: String,
-@@ -139,6 +165,157 @@ pub struct Instance {
+@@ -140,6 +166,157 @@ pub struct Instance {
      pub last_start_time: Option<std::time::Instant>,
      #[serde(skip)]
      pub last_error: Option<String>,
@@ -2124,7 +2125,7 @@ index 36199412..40e7561c 100644
  }
  
  impl Instance {
-@@ -161,10 +338,12 @@ impl Instance {
+@@ -162,10 +339,12 @@ impl Instance {
              workspace_info: None,
              sandbox_info: None,
              terminal_info: None,
@@ -2137,16 +2138,18 @@ index 36199412..40e7561c 100644
          }
      }
  
-@@ -184,6 +363,74 @@ impl Instance {
+@@ -185,6 +364,76 @@ impl Instance {
          self.yolo_mode
      }
  
 +    /// Whether this agent uses a session ID poller for live tracking.
 +    pub fn supports_session_poller(&self) -> bool {
-+        matches!(
-+            self.tool.as_str(),
-+            "claude" | "opencode" | "codex" | "gemini" | "vibe"
-+        )
++        crate::agents::get_agent(&self.tool).is_some_and(|a| {
++            !matches!(
++                a.resume_strategy,
++                crate::agents::ResumeStrategy::Unsupported
++            )
++        })
 +    }
 +
 +    /// Acquire a pre-launch session ID for the agent.
@@ -2212,7 +2215,7 @@ index 36199412..40e7561c 100644
      pub fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -281,7 +528,10 @@ impl Instance {
+@@ -282,7 +531,10 @@ impl Instance {
          }
  
          let container = self.get_container_for_instance()?;
@@ -2222,9 +2225,9 @@ index 36199412..40e7561c 100644
 +            .as_ref()
 +            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
  
-         let env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
-         let env_part = if env_args.is_empty() {
-@@ -370,204 +620,280 @@ impl Instance {
+         let env_info = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
+         let env_part = if env_info.docker_args.is_empty() {
+@@ -381,215 +633,285 @@ impl Instance {
              return Ok(());
          }
  
@@ -2372,8 +2375,6 @@ index 36199412..40e7561c 100644
 -                    ) {
 -                        tracing::warn!("on_launch hook failed in container: {}", e);
 -                    }
--                }
--            }
 +    /// Build the tmux command for a sandboxed (Docker) session.
 +    ///
 +    /// Runs on_launch hooks inside the container, constructs the tool command
@@ -2385,6 +2386,20 @@ index 36199412..40e7561c 100644
 +        on_launch_hooks: &Option<Vec<String>>,
 +    ) -> Result<Option<String>> {
 +        let container = self.get_container_for_instance()?;
++
++        // Run on_launch hooks inside the container
++        if let Some(ref hook_cmds) = on_launch_hooks {
++            if let Some(ref sandbox) = self.sandbox_info {
++                let workdir = self.container_workdir();
++                if let Err(e) = super::repo_config::execute_hooks_in_container(
++                    hook_cmds,
++                    &sandbox.container_name,
++                    &workdir,
++                ) {
++                    tracing::warn!("on_launch hook failed in container: {}", e);
+                 }
+             }
++        }
  
 -            let sandbox = self.sandbox_info.as_ref().unwrap();
 -            let base_cmd = if self.extra_args.is_empty() {
@@ -2414,41 +2429,13 @@ index 36199412..40e7561c 100644
 -                        let flag = flag_template.replace("{}", &escaped);
 -                        tool_cmd = format!("{} {}", tool_cmd, flag);
 -                    }
-+        // Run on_launch hooks inside the container
-+        if let Some(ref hook_cmds) = on_launch_hooks {
-+            if let Some(ref sandbox) = self.sandbox_info {
-+                let workdir = self.container_workdir();
-+                if let Err(e) = super::repo_config::execute_hooks_in_container(
-+                    hook_cmds,
-+                    &sandbox.container_name,
-+                    &workdir,
-+                ) {
-+                    tracing::warn!("on_launch hook failed in container: {}", e);
-                 }
-             }
-+        }
- 
--            let mut env_args =
--                build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
--            // Pass AOE_INSTANCE_ID into the container
--            env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
--            let env_part = format!("{} ", env_args);
--            Some(wrap_command_ignore_suspend(
--                &container.exec_command(Some(&env_part), &tool_cmd),
--            ))
 +        let sandbox = self
 +            .sandbox_info
 +            .as_ref()
 +            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
 +        let base_cmd = if self.extra_args.is_empty() {
 +            self.get_tool_command().to_string()
-         } else {
--            // Run on_launch hooks on host for non-sandboxed sessions
--            if let Some(ref hook_cmds) = on_launch_hooks {
--                if let Err(e) =
--                    super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
--                {
--                    tracing::warn!("on_launch hook failed: {}", e);
++        } else {
 +            format!("{} {}", self.get_tool_command(), self.extra_args)
 +        };
 +        let mut tool_cmd = base_cmd;
@@ -2467,6 +2454,66 @@ index 36199412..40e7561c 100644
              }
 +        }
  
+-            let env_info = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
+-            // AOE_INSTANCE_ID is not secret, goes directly in docker args
+-            let docker_args = format!("{} -e AOE_INSTANCE_ID={}", env_info.docker_args, self.id);
+-            let env_part = format!("{} ", docker_args);
+-            let wrapped =
+-                wrap_command_ignore_suspend(&container.exec_command(Some(&env_part), &tool_cmd));
+-            if env_info.exports.is_empty() {
+-                Some(wrapped)
+-            } else {
+-                // Prepend shell exports for secret env vars. The outer shell
+-                // runs the exports (builtins), then `exec` replaces it with
+-                // the wrapped command. This keeps secret values out of all
+-                // long-lived process argv: the outer shell's argv (which
+-                // contains the export values) disappears in milliseconds
+-                // when exec replaces the process image.
+-                let exports = env_info.exports.join("; ");
+-                Some(format!("{}; exec {}", exports, wrapped))
+-            }
++        let env_info = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
++        // AOE_INSTANCE_ID is not secret, goes directly in docker args
++        let docker_args = format!("{} -e AOE_INSTANCE_ID={}", env_info.docker_args, self.id);
++
++        self.apply_session_flags(&mut tool_cmd, "sandboxed");
++        let env_part = format!("{} ", docker_args);
++        let wrapped =
++            wrap_command_ignore_suspend(&container.exec_command(Some(&env_part), &tool_cmd));
++        if env_info.exports.is_empty() {
++            Ok(Some(wrapped))
+         } else {
+-            // Run on_launch hooks on host for non-sandboxed sessions
+-            if let Some(ref hook_cmds) = on_launch_hooks {
+-                if let Err(e) =
+-                    super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
+-                {
+-                    tracing::warn!("on_launch hook failed: {}", e);
+-                }
++            let exports = env_info.exports.join("; ");
++            Ok(Some(format!("{}; exec {}", exports, wrapped)))
++        }
++    }
++
++    /// Build the tmux command for a host (non-sandboxed) session.
++    ///
++    /// Runs on_launch hooks on the host, then constructs the command from either
++    /// the agent's default binary or a user-supplied custom command, applying
++    /// yolo mode, session flags, and the AOE_INSTANCE_ID env prefix.
++    fn build_host_command(
++        &mut self,
++        agent: Option<&'static crate::agents::AgentDef>,
++        on_launch_hooks: &Option<Vec<String>>,
++    ) -> Option<String> {
++        // Run on_launch hooks on host for non-sandboxed sessions
++        if let Some(ref hook_cmds) = on_launch_hooks {
++            if let Err(e) =
++                super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
++            {
++                tracing::warn!("on_launch hook failed: {}", e);
+             }
++        }
+ 
 -            // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
 -            // (either JSON-based hook_config or settl's TOML hooks)
 -            let has_hooks =
@@ -2476,9 +2523,15 @@ index 36199412..40e7561c 100644
 -            } else {
 -                String::new()
 -            };
-+        let mut env_args = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
-+        // Pass AOE_INSTANCE_ID into the container
-+        env_args = format!("{} -e AOE_INSTANCE_ID={}", env_args, self.id);
++        // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
++        // (either JSON-based hook_config or settl's TOML hooks)
++        let has_hooks =
++            agent.and_then(|a| a.hook_config.as_ref()).is_some() || self.tool == "settl";
++        let env_prefix = if has_hooks {
++            format!("AOE_INSTANCE_ID={} ", self.id)
++        } else {
++            String::new()
++        };
  
 -            if self.command.is_empty() {
 -                crate::agents::get_agent(&self.tool).map(|a| {
@@ -2503,42 +2556,6 @@ index 36199412..40e7561c 100644
 -                })
 -            } else {
 -                let mut cmd = self.command.clone();
-+        self.apply_session_flags(&mut tool_cmd, "sandboxed");
-+        let env_part = format!("{} ", env_args);
-+        Ok(Some(wrap_command_ignore_suspend(
-+            &container.exec_command(Some(&env_part), &tool_cmd),
-+        )))
-+    }
-+
-+    /// Build the tmux command for a host (non-sandboxed) session.
-+    ///
-+    /// Runs on_launch hooks on the host, then constructs the command from either
-+    /// the agent's default binary or a user-supplied custom command, applying
-+    /// yolo mode, session flags, and the AOE_INSTANCE_ID env prefix.
-+    fn build_host_command(
-+        &mut self,
-+        agent: Option<&'static crate::agents::AgentDef>,
-+        on_launch_hooks: &Option<Vec<String>>,
-+    ) -> Option<String> {
-+        // Run on_launch hooks on host for non-sandboxed sessions
-+        if let Some(ref hook_cmds) = on_launch_hooks {
-+            if let Err(e) =
-+                super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
-+            {
-+                tracing::warn!("on_launch hook failed: {}", e);
-+            }
-+        }
-+
-+        // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
-+        // (either JSON-based hook_config or settl's TOML hooks)
-+        let has_hooks =
-+            agent.and_then(|a| a.hook_config.as_ref()).is_some() || self.tool == "settl";
-+        let env_prefix = if has_hooks {
-+            format!("AOE_INSTANCE_ID={} ", self.id)
-+        } else {
-+            String::new()
-+        };
-+
 +        if self.command.is_empty() {
 +            crate::agents::get_agent(&self.tool).map(|a| {
 +                let mut cmd = a.binary.to_string();
@@ -2564,15 +2581,22 @@ index 36199412..40e7561c 100644
 -                    "{}{}",
 -                    env_prefix, cmd
 -                )))
+-            }
+-        };
+-
+-        tracing::debug!(
+-            "container cmd: {}",
+-            cmd.as_ref().map_or("none".to_string(), |v| {
+-                super::environment::redact_env_values(v)
 +                self.apply_session_flags(&mut cmd, "host agent");
 +                wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
-+            })
+             })
+-        );
 +        } else {
 +            let mut cmd = self.command.clone();
 +            if !self.extra_args.is_empty() {
 +                cmd = format!("{} {}", cmd, self.extra_args);
-             }
--        };
++            }
 +            if self.is_yolo_mode() {
 +                if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
 +                    apply_yolo_mode(&mut cmd, yolo, false);
@@ -2586,12 +2610,6 @@ index 36199412..40e7561c 100644
 +        }
 +    }
  
--        tracing::debug!(
--            "container cmd: {}",
--            cmd.as_ref().map_or("none".to_string(), |v| {
--                super::environment::redact_env_values(v)
--            })
--        );
 -        session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 +    /// Post-launch setup: persist state, start pollers, and apply tmux options.
 +    fn finalize_launch(&mut self, session_name: &str, profile: &str) {
@@ -2665,7 +2683,7 @@ index 36199412..40e7561c 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -616,9 +942,13 @@ impl Instance {
+@@ -638,9 +960,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2680,7 +2698,7 @@ index 36199412..40e7561c 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -626,24 +956,111 @@ impl Instance {
+@@ -648,24 +974,111 @@ impl Instance {
          )
      }
  
@@ -2796,7 +2814,7 @@ index 36199412..40e7561c 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1252,6 +1669,274 @@ mod tests {
+@@ -1278,6 +1691,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3071,7 +3089,7 @@ index 36199412..40e7561c 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1317,6 +2002,41 @@ mod tests {
+@@ -1343,6 +2024,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
@@ -4457,7 +4475,7 @@ index 00000000..5a312b3c
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index 768a7421..85c40bd6 100644
+index e273690a..996b26a1 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4493,7 +4511,7 @@ index 9aff9b8a..08de2d30 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index f463992e..2d985945 100644
+index 49f47b0b..6f8b0cee 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -301,6 +301,10 @@ impl App {
@@ -4512,10 +4530,10 @@ index f463992e..2d985945 100644
          }
  
 +        self.home.apply_session_id_updates();
+         self.home.cleanup_pending_creation();
+ 
          if let Err(e) = self.home.save() {
-             tracing::error!("Failed to save on quit: {}", e);
-         }
-@@ -508,9 +513,6 @@ impl App {
+@@ -522,9 +527,6 @@ impl App {
              "attach_session: restart decision"
          );
          if needs_restart {
@@ -4525,7 +4543,7 @@ index f463992e..2d985945 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -526,17 +528,16 @@ impl App {
+@@ -540,17 +542,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4550,7 +4568,7 @@ index f463992e..2d985945 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -546,17 +547,15 @@ impl App {
+@@ -560,17 +561,15 @@ impl App {
                  }
              }
  
@@ -4572,7 +4590,7 @@ index f463992e..2d985945 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -566,6 +565,10 @@ impl App {
+@@ -580,6 +579,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4649,12 +4667,12 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 9482b925..c80bb6b6 100644
+index f2097b8a..85c69f68 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -298,6 +298,65 @@ impl HomeView {
-                 .unwrap_or(35),
-         };
+@@ -326,6 +326,65 @@ impl HomeView {
+             let _ = view.save();
+         }
  
 +        // Synchronize tmux env with sessions.json so build_exclusion_set()
 +        // sees current data instead of stale values from previous runs.
@@ -4718,7 +4736,7 @@ index 9482b925..c80bb6b6 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -328,6 +387,14 @@ impl HomeView {
+@@ -356,6 +415,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4733,7 +4751,7 @@ index 9482b925..c80bb6b6 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -441,6 +508,43 @@ impl HomeView {
+@@ -480,6 +547,43 @@ impl HomeView {
          false
      }
  
@@ -4775,9 +4793,9 @@ index 9482b925..c80bb6b6 100644
 +    }
 +
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
-     pub fn request_creation(
-         &mut self,
-@@ -880,6 +984,15 @@ impl HomeView {
+     /// Creates a stub instance in the session list with Status::Creating so the user
+     /// can see progress in the preview pane while continuing to use the TUI.
+@@ -1090,6 +1194,15 @@ impl HomeView {
          Ok(())
      }
  
