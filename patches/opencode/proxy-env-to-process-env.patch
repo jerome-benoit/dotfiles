@@ -1,14 +1,14 @@
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
-index b9efb68520fa..9199baf6ab9d 100644
+index 930287899cc5..4f4053874eca 100644
 --- a/packages/opencode/src/env/index.ts
 +++ b/packages/opencode/src/env/index.ts
 @@ -1,5 +1,4 @@
  import { Context, Effect, Layer } from "effect"
 -import { InstanceState } from "@/effect/instance-state"
+ import { makeRuntime } from "@/effect/run-service"
  
  export namespace Env {
-   type State = Record<string, string | undefined>
-@@ -13,23 +12,21 @@ export namespace Env {
+@@ -14,23 +13,21 @@ export namespace Env {
  
    export class Service extends Context.Service<Service, Interface>()("@opencode/Env") {}
  
@@ -47,7 +47,7 @@ index b9efb68520fa..9199baf6ab9d 100644
    )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 9ec5dfc6b50b..553f90fd3375 100644
+index 84f074d42ddf..266cb5f38d57 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -287,8 +287,6 @@ export namespace Provider {
