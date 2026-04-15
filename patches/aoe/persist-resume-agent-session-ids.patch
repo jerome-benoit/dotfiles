@@ -1910,7 +1910,7 @@ index 2e74d8b8..9c7e7469 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 3f263289..f2fa3696 100644
+index 84e7cd3f..2e464703 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2814,7 +2814,7 @@ index 3f263289..f2fa3696 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1278,6 +1691,274 @@ mod tests {
+@@ -1363,6 +1776,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3089,7 +3089,7 @@ index 3f263289..f2fa3696 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1343,6 +2024,41 @@ mod tests {
+@@ -1428,6 +2109,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
@@ -4667,10 +4667,10 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 25a66e4b..ced23c1f 100644
+index dbac63a0..856b259f 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -370,6 +370,65 @@ impl HomeView {
+@@ -376,6 +376,65 @@ impl HomeView {
              let _ = view.save();
          }
  
@@ -4736,7 +4736,7 @@ index 25a66e4b..ced23c1f 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -400,6 +459,14 @@ impl HomeView {
+@@ -406,6 +465,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4751,7 +4751,7 @@ index 25a66e4b..ced23c1f 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -524,6 +591,43 @@ impl HomeView {
+@@ -530,6 +597,43 @@ impl HomeView {
          false
      }
  
@@ -4795,7 +4795,7 @@ index 25a66e4b..ced23c1f 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      /// Creates a stub instance in the session list with Status::Creating so the user
      /// can see progress in the preview pane while continuing to use the TUI.
-@@ -1186,6 +1290,15 @@ impl HomeView {
+@@ -1206,6 +1310,15 @@ impl HomeView {
          Ok(())
      }
  

@@ -104,7 +104,7 @@ in
         pkgs.ruff
         pkgs.rustup
         pkgs.uv
-        # pkgs.vscode
+        pkgs.vscode
         pkgs.yq
         pkgs.zed-editor
         pkgs.zoom-us

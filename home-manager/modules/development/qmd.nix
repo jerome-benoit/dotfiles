@@ -3,11 +3,38 @@
   lib,
   pkgs,
   inputs,
+  self,
   ...
 }:
 let
   cfg = config.modules.development.qmd;
   system = pkgs.stdenv.hostPlatform.system;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
+
+  baseQmdPackage = inputs.qmd.packages.${system}.default or null;
+
+  # https://github.com/tobi/qmd/pull/574
+  qmdPackage =
+    if baseQmdPackage != null then
+      baseQmdPackage.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          (self + "/patches/qmd/fix-nixos-llama-build.patch")
+        ];
+
+        postFixup =
+          (old.postFixup or "")
+          + lib.optionalString isLinux ''
+            wrapProgram $out/bin/qmd \
+              --suffix LD_LIBRARY_PATH : "${
+                lib.makeLibraryPath [
+                  pkgs.stdenv.cc.libc
+                  pkgs.stdenv.cc.cc.lib
+                ]
+              }"
+          '';
+      })
+    else
+      null;
 in
 {
   options.modules.development.qmd = {
@@ -15,10 +42,9 @@ in
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = inputs.qmd.packages.${system}.default or null;
+      default = qmdPackage;
       defaultText = lib.literalExpression "inputs.qmd.packages.\${system}.default";
       description = "QMD CLI package";
-      example = lib.literalExpression "inputs.qmd.packages.\${system}.default";
     };
   };
 
