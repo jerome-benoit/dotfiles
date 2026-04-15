@@ -20,24 +20,6 @@ let
         patches = (old.patches or [ ]) ++ [
           (self + "/patches/qmd/fix-nixos-llama-build.patch")
         ];
-
-        nativeBuildInputs =
-          (old.nativeBuildInputs or [ ])
-          ++ lib.optionals isLinux [
-            pkgs.makeWrapper
-          ];
-
-        postFixup =
-          (old.postFixup or "")
-          + lib.optionalString isLinux ''
-            wrapProgram $out/bin/qmd \
-              --suffix LD_LIBRARY_PATH : "${
-                lib.makeLibraryPath [
-                  pkgs.stdenv.cc.libc
-                  pkgs.stdenv.cc.cc.lib
-                ]
-              }"
-          '';
       })
     else
       null;
