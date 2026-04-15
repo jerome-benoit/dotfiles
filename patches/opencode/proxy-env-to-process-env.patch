@@ -47,7 +47,7 @@ index 930287899cc5..4f4053874eca 100644
    )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 31d88f1f9ac6..c94f22c7b180 100644
+index 84f074d42ddf..266cb5f38d57 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -287,8 +287,6 @@ export namespace Provider {

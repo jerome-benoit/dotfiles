@@ -41,11 +41,11 @@
     "agtx": {
       "flake": false,
       "locked": {
-        "lastModified": 1776116712,
-        "narHash": "sha256-Qw7tSgtR/4PlnGPlahckygrTR8yOGTo+ByXARqD/0cY=",
+        "lastModified": 1776201262,
+        "narHash": "sha256-1skL8GRenCVMfyDE98w4+1cfBQxnlMamtGlhPe1uD3s=",
         "owner": "fynnfluegge",
         "repo": "agtx",
-        "rev": "89bb21f9e86cdf060cf6547ca72520566561cb94",
+        "rev": "0c087d7abd5b1eddaf1aba19a672ce0ee31245b8",
         "type": "github"
       },
       "original": {
@@ -212,11 +212,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1776200315,
-        "narHash": "sha256-vwU4Z6YUYEZIpqxDHFLQ1L1SOAC5UUKXWxvoEqZx56U=",
+        "lastModified": 1776238176,
+        "narHash": "sha256-zqb9Hlx/caYrHNuZtdXaHeC9I4cKZHt4VUPxgvM/LUw=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "4ed3afea84b13b400f8e4304d673ff8bd751e469",
+        "rev": "c98f61638535c9cc57a2b710decc780f7289fc2f",
         "type": "github"
       },
       "original": {
