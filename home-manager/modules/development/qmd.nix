@@ -9,7 +9,6 @@
 let
   cfg = config.modules.development.qmd;
   system = pkgs.stdenv.hostPlatform.system;
-  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 
   baseQmdPackage = inputs.qmd.packages.${system}.default or null;
 
