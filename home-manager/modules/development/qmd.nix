@@ -21,6 +21,12 @@ let
           (self + "/patches/qmd/fix-nixos-llama-build.patch")
         ];
 
+        nativeBuildInputs =
+          (old.nativeBuildInputs or [ ])
+          ++ lib.optionals isLinux [
+            pkgs.makeWrapper
+          ];
+
         postFixup =
           (old.postFixup or "")
           + lib.optionalString isLinux ''
