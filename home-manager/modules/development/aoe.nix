@@ -11,7 +11,9 @@ let
   cfg = config.modules.development.aoe;
   system = pkgs.stdenv.hostPlatform.system;
 
-  baseAoePackage = inputs.agent-of-empires.packages.${system}.default or null;
+  aoePackages = inputs.agent-of-empires.packages.${system} or { };
+  baseAoePackage =
+    if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
 
   aoePackage =
     if baseAoePackage != null then
@@ -36,10 +38,16 @@ in
   options.modules.development.aoe = {
     enable = lib.mkEnableOption "agent-of-empires (aoe) configuration";
 
+    enableWeb = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Build with embedded web dashboard (aoe-with-web)";
+    };
+
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = aoePackage;
-      defaultText = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";
+      defaultText = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default or .aoe-with-web";
       description = "Agent of Empires package";
       example = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";
     };

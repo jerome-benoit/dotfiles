@@ -22,7 +22,10 @@ let
     development = {
       agentDeck = true;
       agtx = true;
-      aoe = true;
+      aoe = {
+        enable = true;
+        enableWeb = true;
+      };
       bun = true;
       claudeCode = true;
       gh = true;
@@ -76,7 +79,10 @@ let
     development = {
       agentDeck = false;
       agtx = false;
-      aoe = false;
+      aoe = {
+        enable = false;
+        enableWeb = false;
+      };
       bun = false;
       claudeCode = false;
       gh = false;
@@ -149,13 +155,19 @@ in
                     };
                     enableDesktop = lib.mkOption {
                       type = lib.types.bool;
+                      default = false;
                       description = "Whether to enable the desktop variant";
+                    };
+                    enableWeb = lib.mkOption {
+                      type = lib.types.bool;
+                      default = false;
+                      description = "Whether to enable the web variant";
                     };
                   };
                 })
               ]
             );
-            description = "Development module enable flags (bool or { enable, enableDesktop })";
+            description = "Development module enable flags (bool or { enable, enableDesktop, enableWeb })";
           };
           programs = lib.mkOption {
             type = lib.types.attrsOf lib.types.bool;

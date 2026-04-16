@@ -109,7 +109,10 @@ in
   modules.development = {
     agent-deck.enable = profileModules.development.agentDeck;
     agtx.enable = profileModules.development.agtx;
-    aoe.enable = profileModules.development.aoe;
+    aoe = {
+      enable = profileModules.development.aoe.enable;
+      enableWeb = profileModules.development.aoe.enableWeb;
+    };
     bun.enable = bunSupported && profileModules.development.bun;
     claudeCode.enable = profileModules.development.claudeCode;
     gh.enable = profileModules.development.gh;
