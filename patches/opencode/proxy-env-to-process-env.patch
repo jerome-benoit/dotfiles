@@ -1,7 +1,7 @@
-diff --git a/packages/opencode/src/env/env.ts b/packages/opencode/src/env/env.ts
-index 618ae3268466..0ed6edffc5b8 100644
---- a/packages/opencode/src/env/env.ts
-+++ b/packages/opencode/src/env/env.ts
+diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
+index a53d96def25..56acf3dcbb4 100644
+--- a/packages/opencode/src/env/index.ts
++++ b/packages/opencode/src/env/index.ts
 @@ -1,5 +1,4 @@
  import { Context, Effect, Layer } from "effect"
 -import { InstanceState } from "@/effect"
@@ -47,7 +47,7 @@ index 618ae3268466..0ed6edffc5b8 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 43ae9a5e9f64..9e61fc8204f2 100644
+index a7297634e72..87847820597 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -256,8 +256,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
@@ -69,25 +69,34 @@ index 43ae9a5e9f64..9e61fc8204f2 100644
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index a2592286ad31..804771755ff7 100644
+index a2592286ad3..543dac7bc7d 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
-@@ -61,6 +61,8 @@ delete process.env["AWS_ACCESS_KEY_ID"]
+@@ -61,6 +61,10 @@ delete process.env["AWS_ACCESS_KEY_ID"]
  delete process.env["AWS_PROFILE"]
  delete process.env["AWS_REGION"]
  delete process.env["AWS_BEARER_TOKEN_BEDROCK"]
 +delete process.env["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]
 +delete process.env["AWS_CONTAINER_CREDENTIALS_FULL_URI"]
++delete process.env["AWS_WEB_IDENTITY_TOKEN_FILE"]
++delete process.env["AWS_ROLE_ARN"]
  delete process.env["OPENROUTER_API_KEY"]
  delete process.env["GROQ_API_KEY"]
  delete process.env["MISTRAL_API_KEY"]
-@@ -71,6 +73,9 @@ delete process.env["DEEPSEEK_API_KEY"]
+@@ -71,6 +75,16 @@ delete process.env["DEEPSEEK_API_KEY"]
  delete process.env["FIREWORKS_API_KEY"]
  delete process.env["CEREBRAS_API_KEY"]
  delete process.env["SAMBANOVA_API_KEY"]
 +delete process.env["AICORE_SERVICE_KEY"]
 +delete process.env["AICORE_DEPLOYMENT_ID"]
 +delete process.env["AICORE_RESOURCE_GROUP"]
++delete process.env["GOOGLE_APPLICATION_CREDENTIALS"]
++delete process.env["CLOUDFLARE_ACCOUNT_ID"]
++delete process.env["CLOUDFLARE_GATEWAY_ID"]
++delete process.env["CLOUDFLARE_API_TOKEN"]
++delete process.env["SINGLE_ENV_KEY"]
++delete process.env["MULTI_ENV_KEY_1"]
++delete process.env["FALLBACK_KEY"]
  delete process.env["OPENCODE_SERVER_PASSWORD"]
  delete process.env["OPENCODE_SERVER_USERNAME"]
  

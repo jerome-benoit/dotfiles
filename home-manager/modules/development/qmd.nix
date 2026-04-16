@@ -19,6 +19,14 @@ let
         patches = (old.patches or [ ]) ++ [
           (self + "/patches/qmd/fix-nixos-llama-build.patch")
         ];
+        # Upstream sets dontFixup=true, so postFixup is skipped.
+        # Extend LD_LIBRARY_PATH in postInstall for NixOS (glibc + libstdc++).
+        postInstall =
+          (old.postInstall or "")
+          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            wrapProgram "$out/bin/qmd" \
+              --prefix LD_LIBRARY_PATH : "${pkgs.stdenv.cc.libc.out}/lib:${pkgs.stdenv.cc.cc.lib}/lib"
+          '';
       })
     else
       null;
