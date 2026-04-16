@@ -185,7 +185,7 @@ index b806aed8..1966260f 100644
              instance.command = cmd.clone();
          }
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index 672e9c99..cfcf79da 100644
+index 672e9c99..170f9678 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -31,6 +31,9 @@ pub enum SessionCommands {
@@ -221,7 +221,7 @@ index 672e9c99..cfcf79da 100644
      }
  }
  
-@@ -474,3 +486,42 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
+@@ -474,3 +486,53 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
  
      bail!("Current tmux session is not an Agent of Empires session")
  }
@@ -259,7 +259,18 @@ index 672e9c99..cfcf79da 100644
 +    storage.save_with_groups(&instances, &group_tree)?;
 +
 +    match new_id {
-+        Some(id) => println!("✓ Set session ID for '{}': {}", title, id),
++        Some(ref id) => {
++            println!("✓ Set session ID for '{}': {}", title, id);
++            let tool = &instances[idx].tool;
++            if let Some(agent) = crate::agents::get_agent(tool) {
++                if matches!(
++                    agent.resume_strategy,
++                    crate::agents::ResumeStrategy::Unsupported
++                ) {
++                    eprintln!("Warning: {} does not support session resume; this ID will be stored but not used.", tool);
++                }
++            }
++        }
 +        None => println!("✓ Cleared session ID for '{}'", title),
 +    }
 +    Ok(())
@@ -280,21 +291,18 @@ index 82a424b5..13df0e06 100644
  
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 00000000..2434799c
+index 00000000..9c34fd63
 --- /dev/null
 +++ b/src/session/capture.rs
-@@ -0,0 +1,1545 @@
+@@ -0,0 +1,1548 @@
 +//! Session ID capture logic for all supported agent types.
 +
 +use std::collections::HashSet;
 +use std::path::{Path, PathBuf};
 +use std::process::Stdio;
-+use std::sync::mpsc;
 +use std::time::Duration;
 +
 +use anyhow::{Context, Result};
-+use nix::sys::signal::Signal;
-+use nix::unistd::Pid;
 +use uuid::Uuid;
 +
 +/// Iterate directory entries, silently skipping unreadable ones.
@@ -383,9 +391,16 @@ index 00000000..2434799c
 +        }
 +    }
 +
-+    // Source 2: lastSessionId from ~/.claude.json
++    // Source 2: lastSessionId from ~/.claude.json (same staleness threshold)
 +    if let Some(id) = read_claude_json_session_id(&canonical) {
-+        if Uuid::parse_str(&id).is_ok() && !exclusion.contains(&id) {
++        let claude_json = dirs::home_dir()
++            .map(|h| h.join(".claude.json"))
++            .and_then(|p| std::fs::metadata(&p).ok())
++            .and_then(|m| m.modified().ok());
++        let is_fresh = claude_json
++            .and_then(|t| t.elapsed().ok())
++            .is_some_and(|age| age <= Duration::from_secs(5 * 60));
++        if is_fresh && Uuid::parse_str(&id).is_ok() && !exclusion.contains(&id) {
 +            return Ok(id);
 +        }
 +    }
@@ -654,37 +669,46 @@ index 00000000..2434799c
 +    exclusion: &HashSet<String>,
 +    launch_time_ms: f64,
 +) -> Result<String> {
-+    let child = std::process::Command::new("opencode")
++    let mut child = std::process::Command::new("opencode")
 +        .args(["session", "list", "--format", "json"])
 +        .current_dir(project_path)
 +        .stdout(Stdio::piped())
-+        .stderr(Stdio::piped())
++        .stderr(Stdio::null())
 +        .spawn()
 +        .context("Failed to spawn 'opencode session list'")?;
 +
-+    let child_id = child.id();
-+    let (tx, rx) = mpsc::channel();
-+
-+    std::thread::spawn(move || {
-+        let _ = tx.send(child.wait_with_output());
++    let stdout_pipe = child.stdout.take();
++    let stdout_handle = std::thread::spawn(move || {
++        stdout_pipe.map(|mut r| {
++            let mut buf = Vec::new();
++            std::io::Read::read_to_end(&mut r, &mut buf).ok();
++            buf
++        })
 +    });
 +
-+    let output = match rx.recv_timeout(Duration::from_secs(OPENCODE_COMMAND_TIMEOUT_SECS)) {
-+        Ok(Ok(out)) => out,
-+        Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to execute opencode: {}", e)),
-+        Err(_) => {
-+            tracing::debug!("OpenCode session list timed out");
-+            // Safety: PIDs fit in i32 on all supported platforms (Linux/macOS).
-+            let _ = nix::sys::signal::kill(Pid::from_raw(child_id as i32), Signal::SIGKILL);
-+            return Err(anyhow::anyhow!("OpenCode session list timed out"));
++    let deadline = std::time::Instant::now() + Duration::from_secs(OPENCODE_COMMAND_TIMEOUT_SECS);
++    let status = loop {
++        match child.try_wait() {
++            Ok(Some(s)) => break s,
++            Ok(None) => {
++                if std::time::Instant::now() >= deadline {
++                    let _ = child.kill();
++                    let _ = child.wait();
++                    return Err(anyhow::anyhow!("OpenCode session list timed out"));
++                }
++                std::thread::sleep(Duration::from_millis(50));
++            }
++            Err(e) => return Err(anyhow::anyhow!("Failed to wait on opencode: {}", e)),
 +        }
 +    };
 +
-+    if !output.status.success() {
++    let stdout_bytes = stdout_handle.join().ok().flatten().unwrap_or_default();
++
++    if !status.success() {
 +        anyhow::bail!("OpenCode session list command failed");
 +    }
 +
-+    let stdout = String::from_utf8_lossy(&output.stdout);
++    let stdout = String::from_utf8_lossy(&stdout_bytes);
 +    let trimmed = stdout.trim();
 +    if trimmed.is_empty() {
 +        anyhow::bail!("No OpenCode sessions found");
@@ -765,13 +789,9 @@ index 00000000..2434799c
 +/// (e.g. `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
 +pub(crate) fn extract_codex_uuid_from_filename(path: &std::path::Path) -> Option<String> {
 +    let stem = path.file_stem()?.to_str()?;
-+    // Pattern: rollout-YYYY-MM-DDThh-mm-ss-<uuid>
-+    // The UUID is always 36 chars (8-4-4-4-12) at the end of the stem
 +    if stem.len() >= 36 {
 +        let candidate = &stem[stem.len() - 36..];
-+        if candidate.chars().filter(|&c| c == '-').count() == 4
-+            && candidate.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-+        {
++        if Uuid::parse_str(candidate).is_ok() {
 +            return Some(candidate.to_string());
 +        }
 +    }
@@ -1115,10 +1135,7 @@ index 00000000..2434799c
 +            None,
 +        );
 +
-+        let session = matching
-+            .first()
-+            .copied()
-+            .or_else(|| session_entries.first());
++        let session = matching.first().copied();
 +        let id = session.and_then(|s| s["id"].as_str()).unwrap();
 +
 +        assert_eq!(id, "correct-session");
@@ -1398,10 +1415,7 @@ index 00000000..2434799c
 +        let matching =
 +            filter_agent_sessions(&session_entries, Some("/tmp/my-project"), &exclusion, None);
 +
-+        let session = matching
-+            .first()
-+            .copied()
-+            .or_else(|| session_entries.first());
++        let session = matching.first().copied();
 +        let id = session.and_then(|s| s["id"].as_str()).unwrap();
 +        assert_eq!(id, "second-best");
 +    }
@@ -3159,10 +3173,10 @@ index 7b4ff999..bc5397a0 100644
      ContainerRuntimeName, DefaultTerminalMode, GroupByMode, SandboxConfig, SessionConfig,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
-index 00000000..937d3841
+index 00000000..23a854bd
 --- /dev/null
 +++ b/src/session/poller.rs
-@@ -0,0 +1,847 @@
+@@ -0,0 +1,848 @@
 +//! Adaptive polling interval and command channel for session monitoring
 +
 +use std::sync::atomic::{AtomicU32, Ordering};
@@ -3224,6 +3238,7 @@ index 00000000..937d3841
 +///
 +/// Ensures capture completes before polling starts, avoiding concurrent storage writes.
 +/// The capture thread calls [`CaptureGate::complete`]; the poller calls [`CaptureGate::wait`].
++#[allow(dead_code)]
 +pub struct CaptureGate {
 +    inner: Mutex<CaptureGateState>,
 +    cond: Condvar,
@@ -4012,10 +4027,10 @@ index 00000000..937d3841
 +}
 diff --git a/src/tmux/env.rs b/src/tmux/env.rs
 new file mode 100644
-index 00000000..5a312b3c
+index 00000000..2e3fbad9
 --- /dev/null
 +++ b/src/tmux/env.rs
-@@ -0,0 +1,458 @@
+@@ -0,0 +1,463 @@
 +//! Hidden environment variable helpers for tmux sessions
 +//!
 +//! This module provides utilities to get and set hidden environment variables
@@ -4032,9 +4047,10 @@ index 00000000..5a312b3c
 +pub const AOE_CAPTURED_SESSION_ID_KEY: &str = "AOE_CAPTURED_SESSION_ID";
 +
 +const ENV_CACHE_TTL: Duration = Duration::from_secs(30);
++const ENV_NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(5);
 +
 +struct EnvCacheEntry {
-+    value: String,
++    value: Option<String>,
 +    fetched_at: Instant,
 +}
 +
@@ -4061,18 +4077,24 @@ index 00000000..5a312b3c
 +    Ok(())
 +}
 +
-+/// Get a hidden environment variable from a tmux session
++/// Get a hidden environment variable from a tmux session.
 +///
-+/// Cached for [`ENV_CACHE_TTL`] to reduce subprocess spawns. Positive hits
-+/// cached; misses always go through tmux for freshness.
++/// Both hits and misses are cached to reduce subprocess spawns: positive
++/// results use [`ENV_CACHE_TTL`] (30s), negative results (var not set)
++/// use [`ENV_NEGATIVE_CACHE_TTL`] (5s).
 +pub fn get_hidden_env(session_name: &str, key: &str) -> Option<String> {
 +    let cache_key = (session_name.to_string(), key.to_string());
 +
 +    if let Ok(cache) = ENV_CACHE.read() {
 +        if let Some(entries) = &cache.entries {
 +            if let Some(entry) = entries.get(&cache_key) {
-+                if entry.fetched_at.elapsed() < ENV_CACHE_TTL {
-+                    return Some(entry.value.clone());
++                let ttl = if entry.value.is_some() {
++                    ENV_CACHE_TTL
++                } else {
++                    ENV_NEGATIVE_CACHE_TTL
++                };
++                if entry.fetched_at.elapsed() < ttl {
++                    return entry.value.clone();
 +                }
 +            }
 +        }
@@ -4084,7 +4106,7 @@ index 00000000..5a312b3c
 +        }
 +    }
 +
-+    let value = fetch_hidden_env(session_name, key)?;
++    let value = fetch_hidden_env(session_name, key);
 +
 +    if let Ok(mut cache) = ENV_CACHE.write() {
 +        let entries = cache.entries.get_or_insert_with(HashMap::new);
@@ -4097,7 +4119,7 @@ index 00000000..5a312b3c
 +        );
 +    }
 +
-+    Some(value)
++    value
 +}
 +
 +fn fetch_hidden_env(session_name: &str, key: &str) -> Option<String> {
@@ -4270,15 +4292,13 @@ index 00000000..5a312b3c
 +        let entries = cache.entries.get_or_insert_with(HashMap::new);
 +        let now = Instant::now();
 +        for (session_name, value) in &results {
-+            if let Some(v) = value {
-+                entries.insert(
-+                    (session_name.clone(), key.to_string()),
-+                    EnvCacheEntry {
-+                        value: v.clone(),
-+                        fetched_at: now,
-+                    },
-+                );
-+            }
++            entries.insert(
++                (session_name.clone(), key.to_string()),
++                EnvCacheEntry {
++                    value: value.clone(),
++                    fetched_at: now,
++                },
++            );
 +        }
 +    }
 +
@@ -4338,7 +4358,7 @@ index 00000000..5a312b3c
 +            entries.insert(
 +                key.clone(),
 +                EnvCacheEntry {
-+                    value: "cached_val".to_string(),
++                    value: Some("cached_val".to_string()),
 +                    fetched_at: Instant::now(),
 +                },
 +            );
@@ -4349,7 +4369,7 @@ index 00000000..5a312b3c
 +                .as_ref()?
 +                .get(&key)
 +                .filter(|e| e.fetched_at.elapsed() < ENV_CACHE_TTL)
-+                .map(|e| e.value.clone())
++                .and_then(|e| e.value.clone())
 +        });
 +        assert_eq!(hit, Some("cached_val".to_string()));
 +        clear_env_cache();
@@ -4366,7 +4386,7 @@ index 00000000..5a312b3c
 +            entries.insert(
 +                key.clone(),
 +                EnvCacheEntry {
-+                    value: "old_val".to_string(),
++                    value: Some("old_val".to_string()),
 +                    fetched_at: Instant::now() - Duration::from_secs(60),
 +                },
 +            );
@@ -4377,7 +4397,7 @@ index 00000000..5a312b3c
 +                .as_ref()?
 +                .get(&key)
 +                .filter(|e| e.fetched_at.elapsed() < ENV_CACHE_TTL)
-+                .map(|e| e.value.clone())
++                .and_then(|e| e.value.clone())
 +        });
 +        assert_eq!(hit, None);
 +        clear_env_cache();
@@ -4395,7 +4415,7 @@ index 00000000..5a312b3c
 +            entries.insert(
 +                (session.to_string(), key.to_string()),
 +                EnvCacheEntry {
-+                    value: "val".to_string(),
++                    value: Some("val".to_string()),
 +                    fetched_at: Instant::now(),
 +                },
 +            );
@@ -4475,7 +4495,7 @@ index 00000000..5a312b3c
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index e273690a..996b26a1 100644
+index 6aae288c..cf31d1e8 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4485,8 +4505,21 @@ index e273690a..996b26a1 100644
  mod session;
  pub mod status_bar;
  pub(crate) mod status_detection;
+@@ -427,6 +428,12 @@ aoe_proj_c_ghi11111|0|1|bash\n";
+                 &compound_cmd,
+                 ";",
+                 "set-option",
++                "-t",
++                &session_name,
++                "pane-base-index",
++                "0",
++                ";",
++                "set-option",
+                 "-p",
+                 "-t",
+                 &session_name,
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index 9ff3c1af..04ef7812 100644
+index 1aedaf39..1998ea48 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -38,6 +38,10 @@ impl Session {
@@ -4501,7 +4534,7 @@ index 9ff3c1af..04ef7812 100644
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index 9aff9b8a..08de2d30 100644
+index 30e0f0d2..2d190fad 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -1,4 +1,4 @@
@@ -4511,7 +4544,7 @@ index 9aff9b8a..08de2d30 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 49f47b0b..6f8b0cee 100644
+index 06d166b7..972d2add 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -301,6 +301,10 @@ impl App {
@@ -4533,7 +4566,7 @@ index 49f47b0b..6f8b0cee 100644
          self.home.cleanup_pending_creation();
  
          if let Err(e) = self.home.save() {
-@@ -522,9 +527,6 @@ impl App {
+@@ -520,9 +525,6 @@ impl App {
              "attach_session: restart decision"
          );
          if needs_restart {
@@ -4543,7 +4576,7 @@ index 49f47b0b..6f8b0cee 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -540,17 +542,16 @@ impl App {
+@@ -538,17 +540,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4568,7 +4601,7 @@ index 49f47b0b..6f8b0cee 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -560,17 +561,15 @@ impl App {
+@@ -558,17 +559,15 @@ impl App {
                  }
              }
  
@@ -4590,7 +4623,7 @@ index 49f47b0b..6f8b0cee 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -580,6 +579,10 @@ impl App {
+@@ -578,6 +577,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4667,7 +4700,7 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index dbac63a0..856b259f 100644
+index d7337b14..86586abb 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -376,6 +376,65 @@ impl HomeView {
@@ -4751,7 +4784,7 @@ index dbac63a0..856b259f 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -530,6 +597,43 @@ impl HomeView {
+@@ -557,6 +624,57 @@ impl HomeView {
          false
      }
  
@@ -4780,6 +4813,14 @@ index dbac63a0..856b259f 100644
 +        }
 +
 +        if !updates.is_empty() {
++            let prev: Vec<(String, Option<String>)> = updates
++                .iter()
++                .filter_map(|(id, _)| {
++                    self.get_instance(id)
++                        .map(|inst| (id.clone(), inst.agent_session_id.clone()))
++                })
++                .collect();
++
 +            for (id, session_id) in &updates {
 +                self.mutate_instance(id, |inst| {
 +                    inst.agent_session_id = Some(session_id.clone());
@@ -4787,6 +4828,12 @@ index dbac63a0..856b259f 100644
 +            }
 +            if let Err(e) = self.save() {
 +                tracing::error!("Failed to save after session ID update: {}", e);
++                for (id, old_val) in &prev {
++                    self.mutate_instance(id, |inst| {
++                        inst.agent_session_id = old_val.clone();
++                    });
++                }
++                return false;
 +            }
 +        }
 +        !updates.is_empty()
@@ -4795,7 +4842,7 @@ index dbac63a0..856b259f 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      /// Creates a stub instance in the session list with Status::Creating so the user
      /// can see progress in the preview pane while continuing to use the TUI.
-@@ -1206,6 +1310,15 @@ impl HomeView {
+@@ -1233,6 +1351,15 @@ impl HomeView {
          Ok(())
      }
  
