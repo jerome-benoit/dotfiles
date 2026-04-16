@@ -1,0 +1,12 @@
+diff --git a/packages/shared/package.json b/packages/shared/package.json
+index bdfca12a93e2..4d10a30a363e 100644
+--- a/packages/shared/package.json
++++ b/packages/shared/package.json
+@@ -26,6 +26,7 @@
+     "@effect/platform-node": "catalog:",
+     "@npmcli/arborist": "catalog:",
+     "effect": "catalog:",
++    "glob": "13.0.5",
+     "mime-types": "3.0.2",
+     "minimatch": "10.2.5",
+     "semver": "catalog:",
