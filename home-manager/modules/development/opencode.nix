@@ -19,8 +19,6 @@ let
           (self + "/patches/opencode/relax-bun-version-check.patch")
           # https://github.com/anomalyco/opencode/pull/12822
           (self + "/patches/opencode/proxy-env-to-process-env.patch")
-          # https://github.com/anomalyco/opencode/pull/22868
-          (self + "/patches/opencode/shared-add-missing-glob-dep.patch")
         ];
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =
