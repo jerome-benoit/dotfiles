@@ -56,6 +56,7 @@ in
       pkgs.bruno
       pkgs.cloudfoundry-cli
       pkgs.gemini-cli
+      pkgs.lazyssh
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nil
@@ -130,7 +131,6 @@ in
         cask "ghostty"
         cask "gpg-suite@nightly"
         cask "jordanbaird-ice"
-        cask "shuttle"
         cask "moltenbits/tap/growlrrr"
         brew "hai"
         brew "mole"
