@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
-index a53d96def25..56acf3dcbb4 100644
+index a53d96def259..56acf3dcbb4b 100644
 --- a/packages/opencode/src/env/index.ts
 +++ b/packages/opencode/src/env/index.ts
 @@ -1,5 +1,4 @@
@@ -47,7 +47,7 @@ index a53d96def25..56acf3dcbb4 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 711481d80ac..d31536c7f65 100644
+index 558bcb75a5e2..ef4fa4b89e46 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -258,8 +258,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
@@ -59,7 +59,7 @@ index 711481d80ac..d31536c7f65 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -476,8 +474,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
+@@ -487,8 +485,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
      }),
      "sap-ai-core": Effect.fnUntraced(function* () {
        const auth = yield* dep.auth("sap-ai-core")
@@ -69,7 +69,7 @@ index 711481d80ac..d31536c7f65 100644
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index a2592286ad3..543dac7bc7d 100644
+index 58dc2b0b48c5..0684e7b826f4 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -61,6 +61,10 @@ delete process.env["AWS_ACCESS_KEY_ID"]
@@ -81,9 +81,9 @@ index a2592286ad3..543dac7bc7d 100644
 +delete process.env["AWS_WEB_IDENTITY_TOKEN_FILE"]
 +delete process.env["AWS_ROLE_ARN"]
  delete process.env["OPENROUTER_API_KEY"]
+ delete process.env["LLM_GATEWAY_API_KEY"]
  delete process.env["GROQ_API_KEY"]
- delete process.env["MISTRAL_API_KEY"]
-@@ -71,6 +75,16 @@ delete process.env["DEEPSEEK_API_KEY"]
+@@ -72,6 +76,16 @@ delete process.env["DEEPSEEK_API_KEY"]
  delete process.env["FIREWORKS_API_KEY"]
  delete process.env["CEREBRAS_API_KEY"]
  delete process.env["SAMBANOVA_API_KEY"]
