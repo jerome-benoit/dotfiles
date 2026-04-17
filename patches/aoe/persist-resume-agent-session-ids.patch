@@ -3146,10 +3146,10 @@ index 84e7cd3f..2e464703 100644
      fn test_pane_has_agent_content_bare_shell() {
          assert!(!pane_has_agent_content("$ ", "opencode"));
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index 7b4ff999..bc5397a0 100644
+index cda68e49..a7433647 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
-@@ -1,18 +1,21 @@
+@@ -1,6 +1,7 @@
  //! Session management module
  
  pub mod builder;
@@ -3157,6 +3157,7 @@ index 7b4ff999..bc5397a0 100644
  pub mod civilizations;
  pub mod config;
  pub(crate) mod container_config;
+@@ -8,12 +9,14 @@ pub mod deletion;
  pub(crate) mod environment;
  mod groups;
  mod instance;
