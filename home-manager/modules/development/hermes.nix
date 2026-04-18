@@ -83,27 +83,34 @@ in
         EnvironmentVariables = {
           HOME = homeDir;
           HERMES_HOME = configDir;
-          PATH = lib.makeBinPath [ cfg.package pkgs.coreutils ] + ":/usr/bin:/bin";
+          PATH =
+            lib.makeBinPath [
+              cfg.package
+              pkgs.coreutils
+            ]
+            + ":/usr/bin:/bin";
         };
         WorkingDirectory = configDir;
       };
     };
 
-    systemd.user.services.hermes-gateway = lib.mkIf (cfg.enableGateway && !isDarwin && cfg.package != null) {
-      Unit = {
-        Description = "Hermes Agent Gateway";
-        After = [ "network.target" ];
-      };
-      Service = {
-        ExecStart = "${cfg.package}/bin/hermes gateway";
-        Restart = "on-failure";
-        RestartSec = 5;
-        Environment = [
-          "HERMES_HOME=${configDir}"
-        ];
-        WorkingDirectory = configDir;
-      };
-      Install.WantedBy = [ "default.target" ];
-    };
+    systemd.user.services.hermes-gateway =
+      lib.mkIf (cfg.enableGateway && !isDarwin && cfg.package != null)
+        {
+          Unit = {
+            Description = "Hermes Agent Gateway";
+            After = [ "network.target" ];
+          };
+          Service = {
+            ExecStart = "${cfg.package}/bin/hermes gateway";
+            Restart = "on-failure";
+            RestartSec = 5;
+            Environment = [
+              "HERMES_HOME=${configDir}"
+            ];
+            WorkingDirectory = configDir;
+          };
+          Install.WantedBy = [ "default.target" ];
+        };
   };
 }
