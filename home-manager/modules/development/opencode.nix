@@ -19,6 +19,8 @@ let
           (self + "/patches/opencode/relax-bun-version-check.patch")
           # https://github.com/anomalyco/opencode/pull/12822
           (self + "/patches/opencode/proxy-env-to-process-env.patch")
+          # Revert 357301991624ae6c361350c1c1aca222268a6d5d
+          (self + "/patches/opencode/revert-prettier-generate.patch")
         ];
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =
