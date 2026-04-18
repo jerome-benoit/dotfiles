@@ -136,6 +136,7 @@ in
     glow.enable = profileModules.programs.glow;
     himalaya.enable = profileModules.programs.himalaya;
     lazydocker.enable = profileModules.programs.lazydocker;
+    sway.enable = pkgs.stdenv.hostPlatform.isLinux && profileModules.programs.sway;
     ssh.enable = profileModules.programs.ssh;
     syncthing.enable = pkgs.stdenv.hostPlatform.isDarwin && profileModules.programs.syncthing;
     tmux.enable = profileModules.programs.tmux;

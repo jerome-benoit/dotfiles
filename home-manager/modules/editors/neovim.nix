@@ -109,7 +109,7 @@ let
       terminal = { enabled = true }, words = { enabled = true },
     })
     ${nvimThemeSetup.${theme.family}}
-    vim.cmd.colorscheme "${theme.name}"
+    vim.cmd.colorscheme "${theme.neovimName}"
 
     -- File Management
     require("neo-tree").setup({

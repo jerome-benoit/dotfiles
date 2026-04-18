@@ -23,6 +23,10 @@ let
         type = lib.types.str;
         description = "Theme file name without extension (e.g. tokyo_night_storm)";
       };
+      neovimName = lib.mkOption {
+        type = lib.types.str;
+        description = "Canonical Neovim colorscheme identifier for this theme.";
+      };
       colors = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
         description = "Hex color palette keyed by role (e.g. bg, fg, blue)";
@@ -45,6 +49,7 @@ in
       name = "tokyo-night";
       altName = "TokyoNight";
       fileName = "tokyo_night";
+      neovimName = "tokyonight-night";
       style = "night";
       colors = {
         bg = "#1a1b26";
@@ -72,6 +77,7 @@ in
       name = "tokyo-night-storm";
       altName = "TokyoNight Storm";
       fileName = "tokyo_night_storm";
+      neovimName = "tokyonight-storm";
       style = "storm";
       colors = {
         bg = "#24283b";
@@ -99,6 +105,7 @@ in
       name = "tokyo-night-light";
       altName = "TokyoNight Light";
       fileName = "tokyo_night_light";
+      neovimName = "tokyonight-day";
       style = "day";
       colors = {
         bg = "#e6e7ed";
@@ -126,6 +133,7 @@ in
       name = "catppuccin-mocha";
       altName = "Catppuccin Mocha";
       fileName = "catppuccin_mocha";
+      neovimName = "catppuccin-mocha";
       style = "mocha";
       colors = {
         bg = "#1e1e2e";
@@ -153,6 +161,7 @@ in
       name = "catppuccin-macchiato";
       altName = "Catppuccin Macchiato";
       fileName = "catppuccin_macchiato";
+      neovimName = "catppuccin-macchiato";
       style = "macchiato";
       colors = {
         bg = "#24273a";
@@ -180,6 +189,7 @@ in
       name = "catppuccin-frappe";
       altName = "Catppuccin Frappe";
       fileName = "catppuccin_frappe";
+      neovimName = "catppuccin-frappe";
       style = "frappe";
       colors = {
         bg = "#303446";
@@ -207,6 +217,7 @@ in
       name = "catppuccin-latte";
       altName = "Catppuccin Latte";
       fileName = "catppuccin_latte";
+      neovimName = "catppuccin-latte";
       style = "latte";
       colors = {
         bg = "#eff1f5";

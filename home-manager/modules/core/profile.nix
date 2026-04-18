@@ -49,6 +49,7 @@ let
       glow = true;
       himalaya = true;
       lazydocker = true;
+      sway = true;
       ssh = true;
       syncthing = true;
       tmux = true;
@@ -107,6 +108,7 @@ let
       glow = true;
       himalaya = false;
       lazydocker = true;
+      sway = false;
       ssh = true;
       syncthing = false;
       tmux = true;

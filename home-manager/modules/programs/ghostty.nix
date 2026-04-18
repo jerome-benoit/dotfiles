@@ -63,19 +63,18 @@ in
         # Performance
         resize-overlay = "never";
 
-        # Quick Terminal
-        keybind = "global:ctrl+grave_accent=toggle_quick_terminal";
-        quick-terminal-position = "center";
-        quick-terminal-animation-duration = 0;
-
         # Updates
         auto-update = "off";
 
         # Bell
         bell-features = "system";
+        theme = theme.altName or theme.name;
       }
       // lib.optionalAttrs isDarwin {
-        theme = theme.altName or theme.name;
+        # Quick Terminal
+        keybind = "global:ctrl+grave_accent=toggle_quick_terminal";
+        quick-terminal-position = "center";
+        quick-terminal-animation-duration = 0;
         macos-option-as-alt = true;
       };
     };
