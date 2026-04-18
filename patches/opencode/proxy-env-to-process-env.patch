@@ -47,10 +47,10 @@ index a53d96def259..56acf3dcbb4b 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 558bcb75a5e2..ef4fa4b89e46 100644
+index 8f6e1556ada3..4bb195381918 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
-@@ -258,8 +258,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
+@@ -257,8 +257,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
  
        const awsAccessKeyId = env["AWS_ACCESS_KEY_ID"]
  
@@ -59,7 +59,7 @@ index 558bcb75a5e2..ef4fa4b89e46 100644
        const awsBearerToken = iife(() => {
          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
          if (envToken) return envToken
-@@ -487,8 +485,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
+@@ -486,8 +484,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
      }),
      "sap-ai-core": Effect.fnUntraced(function* () {
        const auth = yield* dep.auth("sap-ai-core")

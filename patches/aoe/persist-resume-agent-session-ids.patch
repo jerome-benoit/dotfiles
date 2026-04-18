@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 3fb62751..17f1561d 100644
+index 3fb627517..17f1561d9 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -169,7 +169,7 @@ index 3fb62751..17f1561d 100644
      },
  ];
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index b806aed8..1966260f 100644
+index b806aed82..1966260f9 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
 @@ -224,9 +224,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
@@ -185,7 +185,7 @@ index b806aed8..1966260f 100644
              instance.command = cmd.clone();
          }
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index 672e9c99..170f9678 100644
+index 672e9c990..170f96785 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -31,6 +31,9 @@ pub enum SessionCommands {
@@ -276,7 +276,7 @@ index 672e9c99..170f9678 100644
 +    Ok(())
 +}
 diff --git a/src/hooks/mod.rs b/src/hooks/mod.rs
-index 82a424b5..13df0e06 100644
+index 82a424b54..13df0e06f 100644
 --- a/src/hooks/mod.rs
 +++ b/src/hooks/mod.rs
 @@ -373,6 +373,9 @@ mod tests {
@@ -291,7 +291,7 @@ index 82a424b5..13df0e06 100644
  
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 00000000..9c34fd63
+index 000000000..9c34fd63a
 --- /dev/null
 +++ b/src/session/capture.rs
 @@ -0,0 +1,1548 @@
@@ -1844,7 +1844,7 @@ index 00000000..9c34fd63
 +    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 2e74d8b8..9c7e7469 100644
+index 2e74d8b82..9c7e74697 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
 @@ -476,7 +476,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
@@ -1924,7 +1924,7 @@ index 2e74d8b8..9c7e7469 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 84e7cd3f..2e464703 100644
+index 84e7cd3f8..2e4647033 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -3146,7 +3146,7 @@ index 84e7cd3f..2e464703 100644
      fn test_pane_has_agent_content_bare_shell() {
          assert!(!pane_has_agent_content("$ ", "opencode"));
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index cda68e49..a7433647 100644
+index cda68e495..a74336479 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -1,6 +1,7 @@
@@ -3174,7 +3174,7 @@ index cda68e49..a7433647 100644
      ContainerRuntimeName, DefaultTerminalMode, GroupByMode, SandboxConfig, SessionConfig,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
-index 00000000..23a854bd
+index 000000000..23a854bd0
 --- /dev/null
 +++ b/src/session/poller.rs
 @@ -0,0 +1,848 @@
@@ -4028,7 +4028,7 @@ index 00000000..23a854bd
 +}
 diff --git a/src/tmux/env.rs b/src/tmux/env.rs
 new file mode 100644
-index 00000000..2e3fbad9
+index 000000000..2e3fbad9a
 --- /dev/null
 +++ b/src/tmux/env.rs
 @@ -0,0 +1,463 @@
@@ -4496,7 +4496,7 @@ index 00000000..2e3fbad9
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index 6aae288c..cf31d1e8 100644
+index 6aae288c9..cf31d1e8f 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4520,7 +4520,7 @@ index 6aae288c..cf31d1e8 100644
                  "-t",
                  &session_name,
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index 1aedaf39..1998ea48 100644
+index 1aedaf39f..1998ea483 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -38,6 +38,10 @@ impl Session {
@@ -4535,7 +4535,7 @@ index 1aedaf39..1998ea48 100644
          if let Some(exists) = session_exists_from_cache(&self.name) {
              return exists;
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index 30e0f0d2..2d190fad 100644
+index 30e0f0d24..2d190fad5 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -1,4 +1,4 @@
@@ -4545,7 +4545,7 @@ index 30e0f0d2..2d190fad 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 06d166b7..972d2add 100644
+index 06d166b74..972d2addf 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
 @@ -301,6 +301,10 @@ impl App {
@@ -4636,7 +4636,7 @@ index 06d166b7..972d2add 100644
  
          self.needs_redraw = true;
 diff --git a/src/tui/dialogs/hooks_install.rs b/src/tui/dialogs/hooks_install.rs
-index 5eff08a8..49befa1a 100644
+index 5eff08a8b..49befa1ac 100644
 --- a/src/tui/dialogs/hooks_install.rs
 +++ b/src/tui/dialogs/hooks_install.rs
 @@ -104,7 +104,9 @@ impl HooksInstallDialog {
@@ -4660,7 +4660,7 @@ index 5eff08a8..49befa1a 100644
  
      #[test]
 diff --git a/src/tui/dialogs/profile_picker.rs b/src/tui/dialogs/profile_picker.rs
-index a1ce7c0f..ab6715b7 100644
+index a1ce7c0fb..ab6715b77 100644
 --- a/src/tui/dialogs/profile_picker.rs
 +++ b/src/tui/dialogs/profile_picker.rs
 @@ -9,24 +9,18 @@ use tui_input::Input;
@@ -4701,7 +4701,7 @@ index a1ce7c0f..ab6715b7 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index d7337b14..86586abb 100644
+index d7337b140..86586abb0 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -376,6 +376,65 @@ impl HomeView {
@@ -4861,7 +4861,7 @@ index d7337b14..86586abb 100644
              if let Item::Session { id, .. } = item {
 diff --git a/tests/parallel_capture.rs b/tests/parallel_capture.rs
 new file mode 100644
-index 00000000..aa813fdf
+index 000000000..aa813fdf1
 --- /dev/null
 +++ b/tests/parallel_capture.rs
 @@ -0,0 +1,280 @@
