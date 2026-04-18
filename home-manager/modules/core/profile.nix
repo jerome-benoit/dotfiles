@@ -30,6 +30,7 @@ let
       claudeCode = true;
       gh = true;
       git = true;
+      hermes = true;
       lazygit = true;
       opencode = {
         enable = true;
@@ -87,6 +88,7 @@ let
       claudeCode = false;
       gh = false;
       git = true;
+      hermes = false;
       lazygit = true;
       opencode = {
         enable = false;

@@ -34,6 +34,8 @@
     flake-utils.url = "github:numtide/flake-utils";
     nix-steipete-tools.url = "github:openclaw/nix-steipete-tools";
     nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
+    hermes-agent.url = "github:NousResearch/hermes-agent";
+    hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -51,6 +53,7 @@
       flake-utils,
       nix-openclaw,
       nix-steipete-tools,
+      hermes-agent,
     }@inputs:
     let
       constants = import ./constants.nix;

@@ -117,6 +117,7 @@ in
     claudeCode.enable = profileModules.development.claudeCode;
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
+    hermes.enable = profileModules.development.hermes;
     lazygit.enable = profileModules.development.lazygit;
     opencode = {
       enable = bunSupported && profileModules.development.opencode.enable;
