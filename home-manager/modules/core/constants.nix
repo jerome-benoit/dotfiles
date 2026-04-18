@@ -105,6 +105,7 @@ in
       type = lib.types.attrsOf lib.types.str;
       default = {
         rigel = "rigel";
+        zeus = "zeus";
         ns3108029 = "ns3108029.ip-54-37-87.eu";
       };
       description = "Hostnames";

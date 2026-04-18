@@ -16,6 +16,8 @@ let
 
   bunSupported = hostname != config.modules.core.constants.hosts.rigel;
 
+  isSway = hostname == config.modules.core.constants.hosts.zeus;
+
   nvidiaVersion =
     if builtins.pathExists /proc/driver/nvidia/version then
       let
@@ -136,7 +138,7 @@ in
     glow.enable = profileModules.programs.glow;
     himalaya.enable = profileModules.programs.himalaya;
     lazydocker.enable = profileModules.programs.lazydocker;
-    sway.enable = pkgs.stdenv.hostPlatform.isLinux && profileModules.programs.sway;
+    sway.enable = isSway && profileModules.programs.sway;
     ssh.enable = profileModules.programs.ssh;
     syncthing.enable = pkgs.stdenv.hostPlatform.isDarwin && profileModules.programs.syncthing;
     tmux.enable = profileModules.programs.tmux;
