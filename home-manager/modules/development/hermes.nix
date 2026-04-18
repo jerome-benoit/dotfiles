@@ -16,6 +16,7 @@ let
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-config.yaml" cfg.settings;
+  configDir = "${homeDir}/.hermes";
 in
 {
   options.modules.development.hermes = {
@@ -46,19 +47,21 @@ in
 
     warnings = lib.optional (cfg.package == null) "hermes: package not available for system ${system}";
 
-    home.activation.hermesConfig = lib.mkIf (cfg.package != null && cfg.settings != { }) (
-      let
-        configDir = "${homeDir}/.hermes";
-      in
+    home.activation.hermesBootstrap = lib.mkIf (cfg.package != null) (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run mkdir -p "${configDir}"
-        if [[ ! -f "${configDir}/config.yaml" ]]; then
-          run cp "${managedConfig}" "${configDir}/config.yaml"
-          run chmod 644 "${configDir}/config.yaml"
-        fi
         if [[ ! -f "${configDir}/.env" ]]; then
           run touch "${configDir}/.env"
           run chmod 600 "${configDir}/.env"
+        fi
+      ''
+    );
+
+    home.activation.hermesConfig = lib.mkIf (cfg.package != null && cfg.settings != { }) (
+      lib.hm.dag.entryAfter [ "hermesBootstrap" ] ''
+        if [[ ! -f "${configDir}/config.yaml" ]]; then
+          run cp "${managedConfig}" "${configDir}/config.yaml"
+          run chmod 644 "${configDir}/config.yaml"
         fi
       ''
     );
@@ -70,18 +73,19 @@ in
         ProgramArguments = [
           "${cfg.package}/bin/hermes"
           "gateway"
-          "run"
         ];
-        KeepAlive = true;
+        KeepAlive = {
+          SuccessfulExit = false;
+        };
         RunAtLoad = true;
-        StandardOutPath = "${homeDir}/.hermes/gateway.log";
-        StandardErrorPath = "${homeDir}/.hermes/gateway.err.log";
+        StandardOutPath = "${configDir}/gateway.log";
+        StandardErrorPath = "${configDir}/gateway.err.log";
         EnvironmentVariables = {
           HOME = homeDir;
-          HERMES_HOME = "${homeDir}/.hermes";
+          HERMES_HOME = configDir;
           PATH = lib.makeBinPath [ cfg.package pkgs.coreutils ] + ":/usr/bin:/bin";
         };
-        WorkingDirectory = "${homeDir}/.hermes";
+        WorkingDirectory = configDir;
       };
     };
 
@@ -91,13 +95,13 @@ in
         After = [ "network.target" ];
       };
       Service = {
-        ExecStart = "${cfg.package}/bin/hermes gateway run";
+        ExecStart = "${cfg.package}/bin/hermes gateway";
         Restart = "on-failure";
         RestartSec = 5;
         Environment = [
-          "HERMES_HOME=${homeDir}/.hermes"
+          "HERMES_HOME=${configDir}"
         ];
-        WorkingDirectory = "${homeDir}/.hermes";
+        WorkingDirectory = configDir;
       };
       Install.WantedBy = [ "default.target" ];
     };
