@@ -9,6 +9,7 @@ let
   cfg = config.modules.programs.sway;
   theme = config.modules.themes.current;
   constants = config.modules.core.constants;
+  mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = constants.fontFamily;
   hex = color: lib.removePrefix "#" color;
   bg = theme.colors.bg;
@@ -94,6 +95,7 @@ in
 
     programs.waybar = {
       enable = true;
+      package = mkSystemPackage "waybar" { };
       settings = [
         {
           include = [ "/etc/xdg/waybar/config.jsonc" ];
@@ -285,7 +287,7 @@ in
 
     programs.rofi = {
       enable = true;
-      package = pkgs.rofi-wayland;
+      package = mkSystemPackage "rofi" { };
       terminal = "foot";
       font = "${fontFamily} 12";
       theme =
@@ -444,6 +446,7 @@ in
 
     programs.swaylock = {
       enable = true;
+      package = mkSystemPackage "swaylock" { };
       settings = {
         image = "/usr/share/backgrounds/default.jxl";
         scaling = "fill";
@@ -480,6 +483,7 @@ in
 
     programs.foot = {
       enable = true;
+      package = mkSystemPackage "foot" { };
       server.enable = true;
       settings = {
         main = {
