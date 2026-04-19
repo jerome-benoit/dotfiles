@@ -25,7 +25,7 @@ let
       };
       neovimName = lib.mkOption {
         type = lib.types.str;
-        description = "Canonical Neovim colorscheme identifier for this theme.";
+        description = "Canonical Neovim colorscheme identifier (e.g. tokyonight-night)";
       };
       colors = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;

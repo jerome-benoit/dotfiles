@@ -22,14 +22,14 @@ let
   magenta = theme.colors.magenta;
   cyan = theme.colors.cyan;
   white = theme.colors.white;
-  brightBlack = theme.colors.brightBlack;
+  brightBlack = theme.colors.brightBlack or black;
   brightRed = theme.colors.brightRed or red;
   brightGreen = theme.colors.brightGreen or green;
   brightYellow = theme.colors.brightYellow or yellow;
   brightBlue = theme.colors.brightBlue or blue;
   brightMagenta = theme.colors.brightMagenta or magenta;
   brightCyan = theme.colors.brightCyan or cyan;
-  brightWhite = theme.colors.brightWhite;
+  brightWhite = theme.colors.brightWhite or white;
   isLinuxDesktop =
     pkgs.stdenv.hostPlatform.isLinux && config.modules.core.profile.name == constants.profiles.desktop;
 in
