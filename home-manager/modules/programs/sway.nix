@@ -30,6 +30,10 @@ let
   brightMagenta = theme.colors.brightMagenta or magenta;
   brightCyan = theme.colors.brightCyan or cyan;
   brightWhite = theme.colors.brightWhite or white;
+  isLightTheme = builtins.elem theme.style [
+    "day"
+    "latte"
+  ];
   isLinuxDesktop =
     pkgs.stdenv.hostPlatform.isLinux && config.modules.core.profile.name == constants.profiles.desktop;
 in
@@ -46,7 +50,7 @@ in
         size = 11;
       };
       theme = {
-        name = "Adwaita-dark";
+        name = if isLightTheme then "Adwaita" else "Adwaita-dark";
         package = pkgs.gnome-themes-extra;
       };
       iconTheme = {
@@ -60,7 +64,7 @@ in
     };
 
     dconf.settings."org/gnome/desktop/interface" = {
-      color-scheme = "prefer-dark";
+      color-scheme = if isLightTheme then "prefer-light" else "prefer-dark";
     };
 
     xdg.configFile."sway/config.d/20-keyboard-and-lock.conf".text = ''
