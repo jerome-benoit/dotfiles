@@ -532,7 +532,7 @@ in
           bright7 = hex brightWhite;
           selection-foreground = hex fg;
           selection-background = hex brightBlack;
-          cursor = "${hex fg} ${hex bg}";
+          cursor = "${hex bg} ${hex fg}";
         };
         cursor = {
           style = "block";
