@@ -11,6 +11,7 @@ let
   constants = config.modules.core.constants;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = constants.fontFamily;
+  wallpaper = if isLightTheme then "/usr/share/backgrounds/default.jxl" else "/usr/share/backgrounds/default-dark.jxl";
   hex = color: lib.removePrefix "#" color;
   bg = theme.colors.bg;
   fg = theme.colors.fg;
@@ -45,10 +46,6 @@ in
   config = lib.mkIf (cfg.enable && isLinuxDesktop) {
     gtk = {
       enable = true;
-      font = {
-        name = fontFamily;
-        size = 11;
-      };
       theme = {
         name = if isLightTheme then "Adwaita" else "Adwaita-dark";
         package = pkgs.gnome-themes-extra;
@@ -97,6 +94,12 @@ in
       title_align center
     '';
 
+    xdg.configFile."sway/config.d/50-background.conf".text = ''
+      # Generated from Home Manager theme registry.
+
+      output * bg ${wallpaper} fill
+    '';
+
     programs.waybar = {
       enable = true;
       package = mkSystemPackage "waybar" { };
@@ -107,8 +110,6 @@ in
       ];
       style = ''
         * {
-            font-family: "${fontFamily}", "Noto Sans Mono", "Font Awesome 6 Free", "Font Awesome 6 Brands", monospace;
-            font-size: 13px;
             min-height: 0;
         }
 
@@ -293,7 +294,6 @@ in
       enable = true;
       package = mkSystemPackage "rofi" { };
       terminal = "foot";
-      font = "${fontFamily} 12";
       theme =
         let
           inherit (config.lib.formats.rasi) mkLiteral;
@@ -315,7 +315,6 @@ in
             urgent-bg = mkLiteral red;
             urgent-fg = mkLiteral bg;
             border-radius = mkLiteral "14px";
-            font = "${fontFamily} 12";
           };
 
           window = {
@@ -338,6 +337,7 @@ in
             children = map mkLiteral [
               "prompt"
               "entry"
+              "case-indicator"
             ];
             spacing = mkLiteral "10px";
             padding = mkLiteral "12px 14px";
@@ -359,9 +359,23 @@ in
             border-radius = mkLiteral "12px";
             background-color = mkLiteral "@bg-alt";
             padding = mkLiteral "10px 14px";
+            text-color = mkLiteral "@fg";
           };
 
           textbox.text-color = mkLiteral "@fg-dim";
+          overlay.text-color = mkLiteral "@fg-dim";
+          "case-indicator".text-color = mkLiteral "@fg-dim";
+          "num-rows".text-color = mkLiteral "@fg-dim";
+          "num-filtered-rows".text-color = mkLiteral "@fg-dim";
+          "textbox-current-entry".text-color = mkLiteral "@fg";
+
+          "error-message" = {
+            background-color = mkLiteral "@bg-alt";
+            border-radius = mkLiteral "12px";
+            border = 0;
+            padding = mkLiteral "12px";
+            text-color = mkLiteral "@fg";
+          };
 
           listview = {
             lines = 10;
@@ -452,9 +466,8 @@ in
       enable = true;
       package = mkSystemPackage "swaylock" { };
       settings = {
-        image = "/usr/share/backgrounds/default.jxl";
+        image = wallpaper;
         scaling = "fill";
-        font = fontFamily;
         show-failed-attempts = true;
         indicator-idle-visible = true;
         indicator-radius = 110;
