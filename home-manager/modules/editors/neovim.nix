@@ -12,7 +12,7 @@ let
   theme = config.modules.themes.current;
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
     pname = "opencode-nvim";
-    version = "unstable-${inputs.opencode-nvim.shortRev}";
+    version = "unstable+${inputs.opencode-nvim.shortRev}";
     src = inputs.opencode-nvim;
     meta = with lib; {
       homepage = "https://github.com/NickvanDyke/opencode.nvim";

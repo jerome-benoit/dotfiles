@@ -125,7 +125,7 @@ let
 
   agentDeckPackage = pkgs.buildGoModule (finalAttrs: {
     pname = "agent-deck";
-    version = "unstable-${inputs.agent-deck.shortRev}";
+    version = "unstable+${inputs.agent-deck.shortRev}";
     src = inputs.agent-deck;
 
     vendorHash = "sha256-aH32Up3redCpeyjZkjcjiVN0tfYpF+GFB2WVAGm3J2I=";
