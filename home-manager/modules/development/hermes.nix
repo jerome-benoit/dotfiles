@@ -17,6 +17,56 @@ let
 
   managedConfig = yamlFormat.generate "hermes-config.yaml" cfg.settings;
   configDir = "${homeDir}/.hermes";
+
+  launchdEnv = {
+    HOME = homeDir;
+    HERMES_HOME = configDir;
+    PATH = "/usr/bin:/bin";
+  };
+
+  mkLaunchdService =
+    {
+      label,
+      args,
+      logPrefix,
+    }:
+    {
+      enable = true;
+      config = {
+        Label = label;
+        ProgramArguments = args;
+        KeepAlive = {
+          SuccessfulExit = false;
+        };
+        RunAtLoad = true;
+        StandardOutPath = "${configDir}/${logPrefix}.log";
+        StandardErrorPath = "${configDir}/${logPrefix}.err.log";
+        EnvironmentVariables = launchdEnv;
+        WorkingDirectory = configDir;
+      };
+    };
+
+  mkSystemdService =
+    {
+      description,
+      execStart,
+    }:
+    {
+      Unit = {
+        Description = description;
+        After = [ "network.target" ];
+      };
+      Service = {
+        ExecStart = execStart;
+        Restart = "on-failure";
+        RestartSec = 5;
+        Environment = [
+          "HERMES_HOME=${configDir}"
+        ];
+        WorkingDirectory = configDir;
+      };
+      Install.WantedBy = [ "default.target" ];
+    };
 in
 {
   options.modules.development.hermes = {
@@ -26,6 +76,18 @@ in
       type = lib.types.bool;
       default = true;
       description = "Run hermes gateway as a background service";
+    };
+
+    enableDashboard = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Run hermes web dashboard as a background service";
+    };
+
+    dashboardPort = lib.mkOption {
+      type = lib.types.port;
+      default = 9119;
+      description = "Port for the web dashboard";
     };
 
     package = lib.mkOption {
@@ -66,46 +128,43 @@ in
       ''
     );
 
-    launchd.agents.hermes-gateway = lib.mkIf (cfg.enableGateway && isDarwin && cfg.package != null) {
-      enable = true;
-      config = {
-        Label = "com.nousresearch.hermes-gateway";
-        ProgramArguments = [
-          "${cfg.package}/bin/hermes"
-          "gateway"
-        ];
-        KeepAlive = {
-          SuccessfulExit = false;
-        };
-        RunAtLoad = true;
-        StandardOutPath = "${configDir}/gateway.log";
-        StandardErrorPath = "${configDir}/gateway.err.log";
-        EnvironmentVariables = {
-          HOME = homeDir;
-          HERMES_HOME = configDir;
-          PATH = "/usr/bin:/bin";
-        };
-        WorkingDirectory = configDir;
-      };
-    };
+    launchd.agents.hermes-gateway =
+      lib.mkIf (cfg.enableGateway && isDarwin && cfg.package != null)
+        (mkLaunchdService {
+          label = "com.nousresearch.hermes-gateway";
+          args = [
+            "${cfg.package}/bin/hermes"
+            "gateway"
+          ];
+          logPrefix = "gateway";
+        });
+
+    launchd.agents.hermes-dashboard =
+      lib.mkIf (cfg.enableDashboard && isDarwin && cfg.package != null)
+        (mkLaunchdService {
+          label = "com.nousresearch.hermes-dashboard";
+          args = [
+            "${cfg.package}/bin/hermes"
+            "dashboard"
+            "--no-open"
+            "--port"
+            (toString cfg.dashboardPort)
+          ];
+          logPrefix = "dashboard";
+        });
 
     systemd.user.services.hermes-gateway =
       lib.mkIf (cfg.enableGateway && !isDarwin && cfg.package != null)
-        {
-          Unit = {
-            Description = "Hermes Agent Gateway";
-            After = [ "network.target" ];
-          };
-          Service = {
-            ExecStart = "${cfg.package}/bin/hermes gateway";
-            Restart = "on-failure";
-            RestartSec = 5;
-            Environment = [
-              "HERMES_HOME=${configDir}"
-            ];
-            WorkingDirectory = configDir;
-          };
-          Install.WantedBy = [ "default.target" ];
-        };
+        (mkSystemdService {
+          description = "Hermes Agent Gateway";
+          execStart = "${cfg.package}/bin/hermes gateway";
+        });
+
+    systemd.user.services.hermes-dashboard =
+      lib.mkIf (cfg.enableDashboard && !isDarwin && cfg.package != null)
+        (mkSystemdService {
+          description = "Hermes Agent Web Dashboard";
+          execStart = "${cfg.package}/bin/hermes dashboard --no-open --port ${toString cfg.dashboardPort}";
+        });
   };
 }
