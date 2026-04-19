@@ -11,7 +11,11 @@ let
   constants = config.modules.core.constants;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
   fontFamily = constants.fontFamily;
-  wallpaper = if isLightTheme then "/usr/share/backgrounds/default.jxl" else "/usr/share/backgrounds/default-dark.jxl";
+  wallpaper =
+    if isLightTheme then
+      "/usr/share/backgrounds/default.jxl"
+    else
+      "/usr/share/backgrounds/default-dark.jxl";
   hex = color: lib.removePrefix "#" color;
   bg = theme.colors.bg;
   fg = theme.colors.fg;

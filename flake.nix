@@ -39,10 +39,18 @@
     hermes-agent.url = "github:NousResearch/hermes-agent";
     hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
     hermes-agent.inputs.flake-parts.follows = "flake-parts";
-    hermes-agent.inputs.pyproject-build-systems.inputs.pyproject-nix.follows =
-      "hermes-agent/pyproject-nix";
-    hermes-agent.inputs.pyproject-build-systems.inputs.uv2nix.follows = "hermes-agent/uv2nix";
-    hermes-agent.inputs.uv2nix.inputs.pyproject-nix.follows = "hermes-agent/pyproject-nix";
+    hermes-agent.inputs.pyproject-nix.follows = "pyproject-nix";
+    hermes-agent.inputs.uv2nix.follows = "uv2nix";
+    hermes-agent.inputs.pyproject-build-systems.follows = "pyproject-build-systems";
+    pyproject-nix.url = "github:pyproject-nix/pyproject.nix";
+    pyproject-nix.inputs.nixpkgs.follows = "nixpkgs";
+    uv2nix.url = "github:pyproject-nix/uv2nix";
+    uv2nix.inputs.nixpkgs.follows = "nixpkgs";
+    uv2nix.inputs.pyproject-nix.follows = "pyproject-nix";
+    pyproject-build-systems.url = "github:pyproject-nix/build-system-pkgs";
+    pyproject-build-systems.inputs.nixpkgs.follows = "nixpkgs";
+    pyproject-build-systems.inputs.pyproject-nix.follows = "pyproject-nix";
+    pyproject-build-systems.inputs.uv2nix.follows = "uv2nix";
   };
 
   outputs =
@@ -62,6 +70,9 @@
       nix-openclaw,
       nix-steipete-tools,
       hermes-agent,
+      pyproject-nix,
+      uv2nix,
+      pyproject-build-systems,
     }@inputs:
     let
       constants = import ./constants.nix;
