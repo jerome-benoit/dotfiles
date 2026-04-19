@@ -74,13 +74,13 @@ in
 
     enableGateway = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = false;
       description = "Run hermes gateway as a background service";
     };
 
     enableDashboard = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = false;
       description = "Run hermes web dashboard as a background service";
     };
 

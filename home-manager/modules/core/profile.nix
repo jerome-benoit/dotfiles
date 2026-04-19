@@ -30,7 +30,11 @@ let
       claudeCode = true;
       gh = true;
       git = true;
-      hermes = true;
+      hermes = {
+        enable = true;
+        enableDashboard = true;
+        enableGateway = true;
+      };
       lazygit = true;
       opencode = {
         enable = true;
@@ -89,7 +93,11 @@ let
       claudeCode = false;
       gh = false;
       git = true;
-      hermes = false;
+      hermes = {
+        enable = false;
+        enableDashboard = false;
+        enableGateway = false;
+      };
       lazygit = true;
       opencode = {
         enable = false;
@@ -157,10 +165,20 @@ in
                       type = lib.types.bool;
                       description = "Whether to enable this development module";
                     };
+                    enableDashboard = lib.mkOption {
+                      type = lib.types.bool;
+                      default = false;
+                      description = "Whether to enable the dashboard variant";
+                    };
                     enableDesktop = lib.mkOption {
                       type = lib.types.bool;
                       default = false;
                       description = "Whether to enable the desktop variant";
+                    };
+                    enableGateway = lib.mkOption {
+                      type = lib.types.bool;
+                      default = false;
+                      description = "Whether to enable the gateway variant";
                     };
                     enableWeb = lib.mkOption {
                       type = lib.types.bool;
@@ -171,7 +189,7 @@ in
                 })
               ]
             );
-            description = "Development module enable flags (bool or { enable, enableDesktop, enableWeb })";
+            description = "Development module enable flags (bool or { enable, enableDashboard, enableDesktop, enableGateway, enableWeb })";
           };
           programs = lib.mkOption {
             type = lib.types.attrsOf lib.types.bool;
