@@ -83,12 +83,7 @@ in
         EnvironmentVariables = {
           HOME = homeDir;
           HERMES_HOME = configDir;
-          PATH =
-            lib.makeBinPath [
-              cfg.package
-              pkgs.coreutils
-            ]
-            + ":/usr/bin:/bin";
+          PATH = "/usr/bin:/bin";
         };
         WorkingDirectory = configDir;
       };
