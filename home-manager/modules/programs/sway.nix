@@ -505,7 +505,7 @@ in
     programs.foot = {
       enable = true;
       package = mkSystemPackage "foot" { };
-      server.enable = true;
+      server.enable = false;
       settings = {
         main = {
           font = "${fontFamily}:size=12";
