@@ -39,6 +39,10 @@
     hermes-agent.url = "github:NousResearch/hermes-agent";
     hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
     hermes-agent.inputs.flake-parts.follows = "flake-parts";
+    hermes-agent.inputs.pyproject-build-systems.inputs.pyproject-nix.follows =
+      "hermes-agent/pyproject-nix";
+    hermes-agent.inputs.pyproject-build-systems.inputs.uv2nix.follows = "hermes-agent/uv2nix";
+    hermes-agent.inputs.uv2nix.inputs.pyproject-nix.follows = "hermes-agent/pyproject-nix";
   };
 
   outputs =
