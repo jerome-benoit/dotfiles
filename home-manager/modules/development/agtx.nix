@@ -11,7 +11,7 @@ let
 
   agtxPackage = pkgs.rustPlatform.buildRustPackage {
     pname = "agtx";
-    version = "unstable+${inputs.agtx.shortRev}";
+    version = config.modules.core.lib.mkUnstableVersion inputs.agtx;
     src = inputs.agtx;
 
     cargoLock.lockFile = "${inputs.agtx}/Cargo.lock";

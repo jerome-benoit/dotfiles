@@ -49,5 +49,26 @@
       '';
       readOnly = true;
     };
+
+    mkUnstableVersion = lib.mkOption {
+      type = lib.types.functionTo lib.types.str;
+      default =
+        input:
+        let
+          date = input.lastModifiedDate or "19700101000000";
+          fmtDate = "${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}";
+        in
+        "0-unstable-${fmtDate}+${input.shortRev}";
+      description = ''
+        Generates a nixpkgs-convention version string for packages built from
+        a flake input tracking a development branch.
+
+        Format: 0-unstable-YYYY-MM-DD+shortRev
+
+        Usage:
+          version = mkUnstableVersion inputs.my-package;  # "0-unstable-2026-04-20+abc1234"
+      '';
+      readOnly = true;
+    };
   };
 }
