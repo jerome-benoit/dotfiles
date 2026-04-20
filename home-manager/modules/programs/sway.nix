@@ -348,7 +348,6 @@ in
             border = 0;
             border-radius = mkLiteral "12px";
             background-color = mkLiteral "@bg-alt";
-            text-color = mkLiteral "@fg";
           };
 
           prompt.text-color = mkLiteral "@accent";
@@ -397,38 +396,35 @@ in
             border = 0;
             border-radius = mkLiteral "12px";
             background-color = mkLiteral "transparent";
-            text-color = mkLiteral "@fg";
           };
 
           "element normal.normal" = {
             background-color = mkLiteral "transparent";
-            text-color = mkLiteral "@fg";
           };
 
           "element alternate.normal" = {
             background-color = mkLiteral "transparent";
-            text-color = mkLiteral "@fg";
           };
 
-          "element normal.active".text-color = mkLiteral "@ok";
-          "element alternate.active".text-color = mkLiteral "@ok";
-          "element normal.urgent".text-color = mkLiteral "@err";
-          "element alternate.urgent".text-color = mkLiteral "@err";
+          "element-text normal.active".text-color = mkLiteral "@ok";
+          "element-text alternate.active".text-color = mkLiteral "@ok";
+          "element-text normal.urgent".text-color = mkLiteral "@err";
+          "element-text alternate.urgent".text-color = mkLiteral "@err";
 
           "element selected.normal" = {
             background-color = mkLiteral "@sel-bg";
-            text-color = mkLiteral "@sel-fg";
           };
+          "element-text selected.normal".text-color = mkLiteral "@sel-fg";
 
           "element selected.active" = {
             background-color = mkLiteral "@accent";
-            text-color = mkLiteral "@bg";
           };
+          "element-text selected.active".text-color = mkLiteral "@bg";
 
           "element selected.urgent" = {
             background-color = mkLiteral "@urgent-bg";
-            text-color = mkLiteral "@urgent-fg";
           };
+          "element-text selected.urgent".text-color = mkLiteral "@urgent-fg";
 
           "element-icon" = {
             size = mkLiteral "1.1em";
@@ -436,7 +432,7 @@ in
           };
 
           "element-text" = {
-            text-color = mkLiteral "inherit";
+            text-color = mkLiteral "@fg";
             vertical-align = mkLiteral "0.5";
           };
 
@@ -532,9 +528,9 @@ in
           bright7 = hex brightWhite;
           selection-foreground = hex fg;
           selection-background = hex brightBlack;
-          cursor = "${hex bg} ${hex fg}";
         };
         cursor = {
+          color = "${hex bg} ${hex fg}";
           style = "block";
           blink = true;
         };
