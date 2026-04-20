@@ -5,6 +5,78 @@
 }:
 
 let
+  hexColorType = lib.types.strMatching "^#[0-9A-Fa-f]{6}$";
+
+  colorPaletteType = lib.types.submodule (
+    { config, ... }:
+    {
+      options = {
+        bg = lib.mkOption {
+          type = hexColorType;
+        };
+        fg = lib.mkOption {
+          type = hexColorType;
+        };
+        black = lib.mkOption {
+          type = hexColorType;
+        };
+        red = lib.mkOption {
+          type = hexColorType;
+        };
+        green = lib.mkOption {
+          type = hexColorType;
+        };
+        yellow = lib.mkOption {
+          type = hexColorType;
+        };
+        blue = lib.mkOption {
+          type = hexColorType;
+        };
+        magenta = lib.mkOption {
+          type = hexColorType;
+        };
+        cyan = lib.mkOption {
+          type = hexColorType;
+        };
+        white = lib.mkOption {
+          type = hexColorType;
+        };
+        brightBlack = lib.mkOption {
+          type = hexColorType;
+          default = config.black;
+        };
+        brightRed = lib.mkOption {
+          type = hexColorType;
+          default = config.red;
+        };
+        brightGreen = lib.mkOption {
+          type = hexColorType;
+          default = config.green;
+        };
+        brightYellow = lib.mkOption {
+          type = hexColorType;
+          default = config.yellow;
+        };
+        brightBlue = lib.mkOption {
+          type = hexColorType;
+          default = config.blue;
+        };
+        brightMagenta = lib.mkOption {
+          type = hexColorType;
+          default = config.magenta;
+        };
+        brightCyan = lib.mkOption {
+          type = hexColorType;
+          default = config.cyan;
+        };
+        brightWhite = lib.mkOption {
+          type = hexColorType;
+          default = config.white;
+        };
+      };
+    }
+  );
+
   themeSubmoduleType = lib.types.submodule {
     options = {
       family = lib.mkOption {
@@ -28,7 +100,7 @@ let
         description = "Canonical Neovim colorscheme identifier (e.g. tokyonight-night)";
       };
       colors = lib.mkOption {
-        type = lib.types.attrsOf lib.types.str;
+        type = colorPaletteType;
         description = "Hex color palette keyed by role (e.g. bg, fg, blue)";
       };
       style = lib.mkOption {
