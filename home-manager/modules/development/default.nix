@@ -7,7 +7,7 @@
     ./claude-code.nix
     ./gh.nix
     ./git.nix
-    ./hermes.nix
+    ./hermes-agent.nix
     ./lazygit.nix
     ./openclaw.nix
     ./opencode.nix

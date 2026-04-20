@@ -30,7 +30,7 @@ let
       claudeCode = true;
       gh = true;
       git = true;
-      hermes = {
+      hermesAgent = {
         enable = true;
         enableDashboard = true;
         enableGateway = true;
@@ -93,7 +93,7 @@ let
       claudeCode = false;
       gh = false;
       git = true;
-      hermes = {
+      hermesAgent = {
         enable = false;
         enableDashboard = false;
         enableGateway = false;
