@@ -1924,7 +1924,7 @@ index 2e74d8b82..9c7e74697 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index f1f6170c6..9188dbb64 100644
+index f5e8d9488..4f176b9bf 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2831,7 +2831,7 @@ index f1f6170c6..9188dbb64 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1379,6 +1792,274 @@ mod tests {
+@@ -1443,6 +1856,274 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3106,7 +3106,7 @@ index f1f6170c6..9188dbb64 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1444,6 +2125,41 @@ mod tests {
+@@ -1508,6 +2189,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
