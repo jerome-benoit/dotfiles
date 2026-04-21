@@ -19,6 +19,7 @@ let
       baseHermesAgentPackage.overrideAttrs (old: {
         postInstall = (old.postInstall or "") + ''
           # https://github.com/NousResearch/hermes-agent/pull/12729
+          chmod -R u+w $out/share/hermes-agent/skills/productivity/google-workspace/scripts
           ${pkgs.patch}/bin/patch -d $out/share/hermes-agent/skills -p2 < ${
             self + "/patches/hermes-agent/fix-google-workspace-hermes-constants.patch"
           }
