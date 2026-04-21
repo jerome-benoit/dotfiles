@@ -35,17 +35,35 @@
     mkPlatformPackage = lib.mkOption {
       type = lib.types.functionTo (lib.types.functionTo lib.types.package);
       default =
-        name: args:
-        if pkgs.stdenv.hostPlatform.isDarwin then
-          pkgs.${name} # args only apply to system stub on Linux
+        name:
+        {
+          mainProgram ? name,
+          version ? "0.0.0",
+          nixOn ? "darwin",
+        }:
+        let
+          useNix =
+            if nixOn == "darwin" then
+              pkgs.stdenv.hostPlatform.isDarwin
+            else if nixOn == "linux" then
+              pkgs.stdenv.hostPlatform.isLinux
+            else if nixOn == "all" then
+              true
+            else
+              builtins.throw "mkPlatformPackage: invalid nixOn value '${nixOn}', expected: darwin, linux, all";
+        in
+        if useNix then
+          pkgs.${name}
         else
-          config.modules.core.lib.mkSystemPackage name args;
+          config.modules.core.lib.mkSystemPackage name { inherit mainProgram version; };
       description = ''
-        Selects the real Nix package on Darwin or a system placeholder on Linux.
+        Selects the real Nix package or a system placeholder based on platform.
 
         Usage:
-          mkPlatformPackage "eza" { }                                 # pkgs.eza on Darwin, system stub on Linux
+          mkPlatformPackage "eza" { }                                 # pkgs.eza on Darwin, system stub on Linux (default)
           mkPlatformPackage "ripgrep" { mainProgram = "rg"; }         # pkgs.ripgrep on Darwin, system stub on Linux
+          mkPlatformPackage "ghostty" { nixOn = "linux"; }            # pkgs.ghostty on Linux, system stub on Darwin
+          mkPlatformPackage "bat" { nixOn = "all"; }                  # pkgs.bat everywhere
       '';
       readOnly = true;
     };
