@@ -185,7 +185,7 @@ index 61f4ae5bc..fb0eee5e1 100644
              instance.command = cmd.clone();
          }
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index 672e9c990..170f96785 100644
+index 195bdb915..26b080a65 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -31,6 +31,9 @@ pub enum SessionCommands {
@@ -3149,7 +3149,7 @@ index a25d8eb14..6d7b8dbfb 100644
      fn test_pane_has_agent_content_bare_shell() {
          assert!(!pane_has_agent_content("$ ", "opencode"));
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index cda68e495..a74336479 100644
+index b07fda125..c120cc8c7 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -1,6 +1,7 @@
@@ -4548,10 +4548,10 @@ index cabef3e71..75fc551f3 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 4c0a44669..5fb7c0c2e 100644
+index d5ca4c26a..e221d5a00 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -314,6 +314,10 @@ impl App {
+@@ -320,6 +320,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4562,7 +4562,7 @@ index 4c0a44669..5fb7c0c2e 100644
              if let Some(session_id) = self.home.apply_creation_results() {
                  self.attach_session(&session_id, terminal)?;
                  refresh_needed = true;
-@@ -347,6 +351,7 @@ impl App {
+@@ -358,6 +362,7 @@ impl App {
              }
          }
  
@@ -4570,7 +4570,7 @@ index 4c0a44669..5fb7c0c2e 100644
          self.home.cleanup_pending_creation();
  
          if let Err(e) = self.home.save() {
-@@ -533,9 +538,6 @@ impl App {
+@@ -544,9 +549,6 @@ impl App {
              "attach_session: restart decision"
          );
          if needs_restart {
@@ -4580,7 +4580,7 @@ index 4c0a44669..5fb7c0c2e 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -551,17 +553,16 @@ impl App {
+@@ -562,17 +564,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4605,7 +4605,7 @@ index 4c0a44669..5fb7c0c2e 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -571,17 +572,15 @@ impl App {
+@@ -582,17 +583,15 @@ impl App {
                  }
              }
  
@@ -4627,7 +4627,7 @@ index 4c0a44669..5fb7c0c2e 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -591,6 +590,10 @@ impl App {
+@@ -602,6 +601,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  

@@ -27,11 +27,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1776846201,
-        "narHash": "sha256-q5PKV/nIzTOk5KzfTSdO5xCWNzUXB4XFYHjyioDd8ro=",
+        "lastModified": 1776854874,
+        "narHash": "sha256-cUFsnW1Ngv7r1e4Z14qlLMOAH39BwXtqcQ/u+0E94qQ=",
         "owner": "njbrake",
         "repo": "agent-of-empires",
-        "rev": "ed44287e0339ee112805298b1d42d8fcf903c907",
+        "rev": "22d5fe931fc90aef9373243b09cae6c2c0f1951c",
         "type": "github"
       },
       "original": {
@@ -127,11 +127,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1776751538,
-        "narHash": "sha256-t6ZXtExffXQLMpzpJR2TDVTuwp4PhqqDp0rvZJtWVhQ=",
+        "lastModified": 1776862451,
+        "narHash": "sha256-sWRMEom6E38HXFV9qm/655fJff9t5ueKL+pARypeqEI=",
         "owner": "NousResearch",
         "repo": "hermes-agent",
-        "rev": "feddb86dbdaaa567d2e31457ea48884359ea4472",
+        "rev": "3e652f75b27baef94dbf9dc13ec16c49271f37a4",
         "type": "github"
       },
       "original": {
@@ -268,11 +268,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1776845924,
-        "narHash": "sha256-dbSKx4K9H7aumQ/CKMedS/dqxk+30pjaaqNAKIeCX6Q=",
+        "lastModified": 1776856024,
+        "narHash": "sha256-T9s84Gu10HYulDuuokgwOahj+tperfL0wb1/2CORsyE=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "6aa475fcac39cacda4730142314985c64b200bb5",
+        "rev": "266e965572ccc499b585e4a3558b93e56625e10d",
         "type": "github"
       },
       "original": {
