@@ -67,6 +67,7 @@ in
       [
         pkgs.autoconf
         pkgs.automake
+        pkgs.bashInteractive
         pkgs.bat
         pkgs.chroma
         pkgs.cmake
