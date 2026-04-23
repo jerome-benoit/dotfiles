@@ -55,8 +55,13 @@ in
 
       config = {
         gateway = {
+          port = 18789;
           mode = "local";
           bind = "loopback";
+          controlUi.allowedOrigins = [
+            "http://localhost:18789"
+            "http://127.0.0.1:18789"
+          ];
           auth = {
             mode = "token";
             token = {
@@ -64,6 +69,10 @@ in
               provider = "filemain";
               id = "/gateway/auth/token";
             };
+          };
+          tailscale = {
+            mode = "off";
+            resetOnExit = false;
           };
         };
 
@@ -93,17 +102,22 @@ in
             approvers = [ constants.telegramUserId ];
             target = "dm";
           };
+          streaming.block.enabled = true;
         };
 
         agents.defaults = {
           model = {
             primary = "github-copilot/gpt-5.4";
-            fallbacks = [ "github-copilot/claude-opus-4.6" ];
+            fallbacks = [ "opencode-go/glm-5" ];
           };
           models = {
+            "google/gemini-3.1-pro-preview".alias = "Gemini";
+            "opencode-go/glm-5".alias = "GLM";
+            "opencode-go/kimi-k2.5".alias = "Kimi";
             "github-copilot/gpt-5.4".alias = "GPT";
             "github-copilot/claude-opus-4.6".alias = "Opus";
             "github-copilot/claude-sonnet-4.6".alias = "Sonnet";
+            "opencode-go/minimax-m2.5".alias = "MiniMax";
           };
           thinkingDefault = "high";
           maxConcurrent = 4;
@@ -114,31 +128,36 @@ in
         plugins.entries = {
           telegram.enabled = true;
           github-copilot.enabled = true;
+          opencode-go.enabled = true;
+          google.enabled = true;
           memory-core.config.dreaming.enabled = true;
         };
 
         env.shellEnv.enabled = true;
+        env.vars.WHISPER_CPP_MODEL = "${homeDir}/.local/share/whisper-cpp/models/ggml-small.bin";
         update.channel = "stable";
 
-        tools.exec = {
-          security = "allowlist";
-          ask = "on-miss";
-          strictInlineEval = true;
-          safeBins = [
-            "cut"
-            "sort"
-            "uniq"
-            "head"
-            "tail"
-            "tr"
-            "wc"
-          ];
-          safeBinTrustedDirs = [
-            "/bin"
-            "/usr/bin"
-            "~/.nix-profile/bin"
-          ]
-          ++ lib.optionals isDarwin [ "/opt/homebrew/bin" ];
+        tools = {
+          exec = {
+            security = "allowlist";
+            ask = "on-miss";
+            strictInlineEval = true;
+            safeBins = [
+              "cut"
+              "sort"
+              "uniq"
+              "head"
+              "tail"
+              "tr"
+              "wc"
+            ];
+            safeBinTrustedDirs = [
+              "/bin"
+              "/usr/bin"
+              "~/.nix-profile/bin"
+            ]
+            ++ lib.optionals isDarwin [ "/opt/homebrew/bin" ];
+          };
         };
 
         hooks.internal = {

@@ -58,21 +58,7 @@
       self,
       nixpkgs,
       home-manager,
-      opencode,
-      opencode-nvim,
-      agent-of-empires,
-      agent-deck,
-      agtx,
-      openspec,
-      qmd,
-      flake-utils,
-      flake-parts,
-      nix-openclaw,
-      nix-steipete-tools,
-      hermes-agent,
-      pyproject-nix,
-      uv2nix,
-      pyproject-build-systems,
+      ...
     }@inputs:
     let
       constants = import ./constants.nix;
