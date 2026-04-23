@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 8a315ec70..870c052ab 100644
+index 2e932c280..64742bb8e 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -56,7 +56,7 @@ index 8a315ec70..870c052ab 100644
      /// If true, this agent can only run on the host (no sandbox/worktree support).
      /// The new-session dialog hides sandbox and worktree options for these agents.
      pub host_only: bool,
-@@ -101,6 +125,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
+@@ -103,6 +127,16 @@ const CLAUDE_CURSOR_HOOK_EVENTS: &[HookEvent] = &[
          matcher: Some("permission_prompt|elicitation_dialog"),
          status: Some("waiting"),
      },
@@ -73,7 +73,7 @@ index 8a315ec70..870c052ab 100644
      HookEvent {
          name: "ElicitationResult",
          matcher: None,
-@@ -123,6 +157,10 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -125,6 +159,10 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".claude/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
@@ -83,24 +83,24 @@ index 8a315ec70..870c052ab 100644
 +        },
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -137,6 +175,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "npm install -g @anthropic-ai/claude-code",
+@@ -140,6 +178,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_opencode_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Flag("--session"),
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -151,6 +190,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "curl -fsSL https://opencode.ai/install | bash",
+@@ -155,6 +194,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_vibe_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Flag("--resume"),
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -167,6 +207,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "pip install vibe-tool",
+@@ -172,6 +212,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
          hook_config: None,
@@ -108,7 +108,7 @@ index 8a315ec70..870c052ab 100644
          host_only: false,
          // Codex has paste-burst detection with a 120ms Enter-suppression window;
          // Enter keys arriving within that window after a character stream are
-@@ -206,8 +247,19 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -212,8 +253,19 @@ pub const AGENTS: &[AgentDef] = &[
                      matcher: Some("ToolPermission"),
                      status: Some("waiting"),
                  },
@@ -127,54 +127,54 @@ index 8a315ec70..870c052ab 100644
 +        resume_strategy: ResumeStrategy::Flag("--resume"),
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -225,6 +277,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "npm install -g @google/gemini-cli",
+@@ -232,6 +284,7 @@ pub const AGENTS: &[AgentDef] = &[
              settings_rel_path: ".cursor/settings.json",
              events: CLAUDE_CURSOR_HOOK_EVENTS,
          }),
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -239,6 +292,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "see https://docs.cursor.com/cli",
+@@ -247,6 +300,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_copilot_status,
          container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -254,6 +308,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "see https://docs.github.com/en/copilot/github-copilot-in-the-cli",
+@@ -263,6 +317,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -268,6 +323,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "pip install pi-agent",
+@@ -278,6 +333,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_droid_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: false,
          send_keys_enter_delay_ms: 0,
-     },
-@@ -282,6 +338,7 @@ pub const AGENTS: &[AgentDef] = &[
+         install_hint: "npm install -g @anthropic-ai/droid",
+@@ -293,6 +349,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_settl_status,
          container_env: &[],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: true,
          send_keys_enter_delay_ms: 0,
-     },
+         install_hint: "see https://settl.dev/docs/install",
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index 61f4ae5bc..fb0eee5e1 100644
+index b0902cff8..cbaa59284 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
-@@ -224,9 +224,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
-     if let Some(cmd) = &args.command {
-         let tool_name = detect_tool(cmd)?;
+@@ -236,9 +236,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
+             }
+         }
          instance.tool = tool_name;
 -        // Only store a custom command when the user passed extra args
 -        // (e.g. "claude --resume xyz"). A bare tool name/alias should resolve
@@ -4499,7 +4499,7 @@ index 000000000..2e3fbad9a
 +    }
 +}
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index 6aae288c9..cf31d1e8f 100644
+index c6a6284ce..c9b392ba9 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -1,5 +1,6 @@
@@ -4548,10 +4548,10 @@ index cabef3e71..75fc551f3 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index d5ca4c26a..e221d5a00 100644
+index bd206809c..c44c50087 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -320,6 +320,10 @@ impl App {
+@@ -324,6 +324,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4562,7 +4562,7 @@ index d5ca4c26a..e221d5a00 100644
              if let Some(session_id) = self.home.apply_creation_results() {
                  self.attach_session(&session_id, terminal)?;
                  refresh_needed = true;
-@@ -358,6 +362,7 @@ impl App {
+@@ -362,6 +366,7 @@ impl App {
              }
          }
  
@@ -4570,7 +4570,7 @@ index d5ca4c26a..e221d5a00 100644
          self.home.cleanup_pending_creation();
  
          if let Err(e) = self.home.save() {
-@@ -544,9 +549,6 @@ impl App {
+@@ -548,9 +553,6 @@ impl App {
              "attach_session: restart decision"
          );
          if needs_restart {
@@ -4580,7 +4580,7 @@ index d5ca4c26a..e221d5a00 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -562,17 +564,16 @@ impl App {
+@@ -566,17 +568,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4605,7 +4605,7 @@ index d5ca4c26a..e221d5a00 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -582,17 +583,15 @@ impl App {
+@@ -586,17 +587,15 @@ impl App {
                  }
              }
  
@@ -4627,7 +4627,7 @@ index d5ca4c26a..e221d5a00 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -602,6 +601,10 @@ impl App {
+@@ -606,6 +605,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4704,10 +4704,10 @@ index a1ce7c0fb..ab6715b77 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index e4b0ade5b..50b4666d3 100644
+index 50b94c3f5..3905523f8 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
-@@ -385,6 +385,65 @@ impl HomeView {
+@@ -387,6 +387,65 @@ impl HomeView {
              let _ = view.save();
          }
  
@@ -4773,7 +4773,7 @@ index e4b0ade5b..50b4666d3 100644
          view.flat_items = view.build_flat_items();
          view.update_selected();
          Ok(view)
-@@ -415,6 +474,14 @@ impl HomeView {
+@@ -417,6 +476,14 @@ impl HomeView {
                      inst.last_error = prev.last_error.clone();
                      inst.last_error_check = prev.last_error_check;
                      inst.last_start_time = prev.last_start_time;
@@ -4788,7 +4788,7 @@ index e4b0ade5b..50b4666d3 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -566,6 +633,57 @@ impl HomeView {
+@@ -568,6 +635,57 @@ impl HomeView {
          false
      }
  
@@ -4846,7 +4846,7 @@ index e4b0ade5b..50b4666d3 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      /// Creates a stub instance in the session list with Status::Creating so the user
      /// can see progress in the preview pane while continuing to use the TUI.
-@@ -1247,6 +1365,15 @@ impl HomeView {
+@@ -1259,6 +1377,15 @@ impl HomeView {
          Ok(())
      }
  
