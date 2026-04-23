@@ -4704,7 +4704,7 @@ index a1ce7c0fb..ab6715b77 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index b0c8a33a9..dd7e66670 100644
+index e4b0ade5b..50b4666d3 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -385,6 +385,65 @@ impl HomeView {
