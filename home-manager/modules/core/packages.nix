@@ -39,7 +39,7 @@ in
         if isLinux then
           steipeteTools.summarize.overrideAttrs (old: {
             env = old.env // {
-              npm_config_nodedir = "${pkgs.nodejs_22}";
+              npm_config_nodedir = "${pkgs.nodejs}";
             };
           })
         else
