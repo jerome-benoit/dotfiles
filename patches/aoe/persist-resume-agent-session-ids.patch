@@ -4548,10 +4548,10 @@ index cabef3e71..75fc551f3 100644
  use std::process::Command;
  
 diff --git a/src/tui/app.rs b/src/tui/app.rs
-index 023709637..6d7f2b27a 100644
+index 443415f78..1a33a93f4 100644
 --- a/src/tui/app.rs
 +++ b/src/tui/app.rs
-@@ -343,6 +343,10 @@ impl App {
+@@ -379,6 +379,10 @@ impl App {
                  refresh_needed = true;
              }
  
@@ -4562,7 +4562,7 @@ index 023709637..6d7f2b27a 100644
              if let Some(session_id) = self.home.apply_creation_results() {
                  self.attach_session(&session_id, terminal)?;
                  refresh_needed = true;
-@@ -381,6 +385,7 @@ impl App {
+@@ -417,6 +421,7 @@ impl App {
              }
          }
  
@@ -4570,7 +4570,7 @@ index 023709637..6d7f2b27a 100644
          self.home.cleanup_pending_creation();
  
          if let Err(e) = self.home.save() {
-@@ -567,9 +572,6 @@ impl App {
+@@ -603,9 +608,6 @@ impl App {
              "attach_session: restart decision"
          );
          if needs_restart {
@@ -4580,7 +4580,7 @@ index 023709637..6d7f2b27a 100644
              // Show warning (once) if custom instruction is configured for an unsupported agent
              if instance.is_sandboxed() {
                  let has_instruction = instance
-@@ -585,17 +587,16 @@ impl App {
+@@ -621,17 +623,16 @@ impl App {
                      let config = load_config()?.unwrap_or_default();
                      if !config.app_state.has_seen_custom_instruction_warning {
                          self.home.info_dialog = Some(
@@ -4605,7 +4605,7 @@ index 023709637..6d7f2b27a 100644
                          let mut config = config;
                          config.app_state.has_seen_custom_instruction_warning = true;
                          save_config(&config)?;
-@@ -605,17 +606,15 @@ impl App {
+@@ -641,17 +642,15 @@ impl App {
                  }
              }
  
@@ -4627,7 +4627,7 @@ index 023709637..6d7f2b27a 100644
                  self.home
                      .set_instance_error(session_id, Some(e.to_string()));
                  self.home
-@@ -625,6 +624,10 @@ impl App {
+@@ -661,6 +660,10 @@ impl App {
              self.home.set_instance_error(session_id, None);
          }
  
@@ -4704,7 +4704,7 @@ index a1ce7c0fb..ab6715b77 100644
  }
  
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 09f176ac4..2a4f2efab 100644
+index d65523fe0..708c76fce 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -403,6 +403,65 @@ impl HomeView {
@@ -4846,7 +4846,7 @@ index 09f176ac4..2a4f2efab 100644
      /// Request background session creation. Used for sandbox sessions to avoid blocking UI.
      /// Creates a stub instance in the session list with Status::Creating so the user
      /// can see progress in the preview pane while continuing to use the TUI.
-@@ -1276,6 +1394,15 @@ impl HomeView {
+@@ -1295,6 +1413,15 @@ impl HomeView {
          Ok(())
      }
  
