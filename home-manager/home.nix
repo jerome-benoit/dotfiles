@@ -120,7 +120,8 @@ in
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
     hermesAgent = {
-      enable = profileModules.development.hermesAgent.enable;
+      # https://github.com/NixOS/nixpkgs/issues/511265
+      enable = !pkgs.stdenv.hostPlatform.isDarwin && profileModules.development.hermesAgent.enable;
       enableDashboard = profileModules.development.hermesAgent.enableDashboard;
       enableGateway = profileModules.development.hermesAgent.enableGateway;
     };
