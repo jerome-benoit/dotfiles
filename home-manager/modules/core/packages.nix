@@ -91,6 +91,7 @@ in
         pkgs.mitmproxy
         pkgs.nheko
         pkgs.ninja
+        pkgs.pandoc
         pkgs.pass
         pkgs.pipenv
         pkgs.pkg-config
