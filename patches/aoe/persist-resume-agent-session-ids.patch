@@ -2563,7 +2563,7 @@ index 3c19cfc71..fc165e6ce 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index 3da83cb14..be6a144cd 100644
+index 10eb35229..7a12c4fe0 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -2996,19 +2996,9 @@ index 3da83cb14..be6a144cd 100644
              let env_info = build_docker_env_args(
                  &self.source_profile,
                  sandbox,
-@@ -526,104 +734,213 @@ impl Instance {
-             if env_info.exports.is_empty() {
-                 Some(wrapped)
-             } else {
--                // Prepend shell exports for secret env vars. The outer shell
--                // runs the exports (builtins), then `exec` replaces it with
--                // the wrapped command. This keeps secret values out of all
--                // long-lived process argv: the outer shell's argv (which
--                // contains the export values) disappears in milliseconds
--                // when exec replaces the process image.
-                 let exports = env_info.exports.join("; ");
-                 Some(format!("{}; exec {}", exports, wrapped))
-             }
+@@ -525,94 +733,209 @@ impl Instance {
+                 wrap_command_ignore_suspend(&container.exec_command(Some(&env_part), &tool_cmd));
+             Some(prepend_exports(&env_info.exports, wrapped))
          } else {
 -            // Run on_launch hooks on host for non-sandboxed sessions
 -            if let Some(ref hook_cmds) = on_launch_hooks {
@@ -3283,7 +3273,7 @@ index 3da83cb14..be6a144cd 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -671,9 +988,13 @@ impl Instance {
+@@ -660,9 +983,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -3298,7 +3288,7 @@ index 3da83cb14..be6a144cd 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -682,24 +1003,112 @@ impl Instance {
+@@ -671,24 +998,112 @@ impl Instance {
          )
      }
  
@@ -3415,7 +3405,7 @@ index 3da83cb14..be6a144cd 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1493,6 +1902,285 @@ mod tests {
+@@ -1535,6 +1950,285 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3701,7 +3691,7 @@ index 3da83cb14..be6a144cd 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1558,6 +2246,41 @@ mod tests {
+@@ -1600,6 +2294,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
