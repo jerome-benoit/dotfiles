@@ -35,18 +35,8 @@ in
       steipeteTools.goplaces
       steipeteTools.sag
       steipeteTools.sonoscli
+      steipeteTools.summarize
       steipeteTools.wacrawl
-      # https://github.com/openclaw/nix-steipete-tools/issues/9
-      (
-        if isLinux then
-          steipeteTools.summarize.overrideAttrs (old: {
-            env = old.env // {
-              npm_config_nodedir = "${pkgs.nodejs}";
-            };
-          })
-        else
-          steipeteTools.summarize
-      )
     ]
     ++ lib.optionals isServer [
       pkgs.delta
