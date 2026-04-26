@@ -107,10 +107,7 @@ in
       ++ lib.optionals (!openclawEnabled) [
         steipeteTools.imsg
         steipeteTools.peekaboo
-        # https://github.com/openclaw/nix-steipete-tools/issues/11
-        (steipeteTools.poltergeist.overrideAttrs (_: {
-          propagatedBuildInputs = [ ];
-        }))
+        steipeteTools.poltergeist
       ]
     )
     ++ lib.optionals (isDesktop && isLinux) [

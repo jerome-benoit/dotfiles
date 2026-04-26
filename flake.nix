@@ -36,7 +36,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     nix-steipete-tools.url = "github:openclaw/nix-steipete-tools";
     nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
-    # https://github.com/NousResearch/hermes-agent/pull/15777
+    # https://github.com/NousResearch/hermes-agent/pull/16080
     hermes-agent.url = "github:jerome-benoit/hermes-agent/fix/darwin-av-codesigning";
     hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
     hermes-agent.inputs.flake-parts.follows = "flake-parts";

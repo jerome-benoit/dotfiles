@@ -44,7 +44,6 @@ in
         # wacrawl.enable = true;
         peekaboo.enable = isDarwin;
         poltergeist.enable = isDarwin;
-        # https://github.com/openclaw/nix-steipete-tools/issues/6
         bird.enable = false;
         imsg.enable = isDarwin;
       };
