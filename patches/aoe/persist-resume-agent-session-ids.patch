@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 2e932c280..64742bb8e 100644
+index 2e932c280..ba46864cc 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -144,14 +144,18 @@ index 2e932c280..64742bb8e 100644
          host_only: false,
          send_keys_enter_delay_ms: 0,
          install_hint: "see https://docs.github.com/en/copilot/github-copilot-in-the-cli",
-@@ -263,6 +317,7 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -263,9 +317,10 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
-+        resume_strategy: ResumeStrategy::Unsupported,
++        resume_strategy: ResumeStrategy::Flag("--session"),
          host_only: false,
          send_keys_enter_delay_ms: 0,
-         install_hint: "pip install pi-agent",
+-        install_hint: "pip install pi-agent",
++        install_hint: "npm install -g @mariozechner/pi-coding-agent",
+     },
+     AgentDef {
+         name: "droid",
 @@ -278,6 +333,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_droid_status,
          container_env: &[],
@@ -169,10 +173,10 @@ index 2e932c280..64742bb8e 100644
          send_keys_enter_delay_ms: 0,
          install_hint: "see https://settl.dev/docs/install",
 diff --git a/src/cli/add.rs b/src/cli/add.rs
-index b0902cff8..cbaa59284 100644
+index a296ea8fd..b58eaa664 100644
 --- a/src/cli/add.rs
 +++ b/src/cli/add.rs
-@@ -236,9 +236,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
+@@ -237,9 +237,8 @@ pub async fn run(profile: &str, args: AddArgs) -> Result<()> {
              }
          }
          instance.tool = tool_name;
@@ -185,7 +189,7 @@ index b0902cff8..cbaa59284 100644
              instance.command = cmd.clone();
          }
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index 195bdb915..26b080a65 100644
+index f41cd6db8..370607298 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -31,6 +31,9 @@ pub enum SessionCommands {
@@ -221,7 +225,7 @@ index 195bdb915..26b080a65 100644
      }
  }
  
-@@ -474,3 +486,53 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
+@@ -478,3 +490,53 @@ async fn current_session(args: CurrentArgs) -> Result<()> {
  
      bail!("Current tmux session is not an Agent of Empires session")
  }
@@ -291,10 +295,10 @@ index 82a424b54..13df0e06f 100644
  
 diff --git a/src/session/capture.rs b/src/session/capture.rs
 new file mode 100644
-index 000000000..9c34fd63a
+index 000000000..039608378
 --- /dev/null
 +++ b/src/session/capture.rs
-@@ -0,0 +1,1548 @@
+@@ -0,0 +1,2183 @@
 +//! Session ID capture logic for all supported agent types.
 +
 +use std::collections::HashSet;
@@ -1073,6 +1077,191 @@ index 000000000..9c34fd63a
 +        .map(String::from)
 +}
 +
++/// Encode a project path into Pi's directory naming convention.
++///
++/// Replicates Pi's `getDefaultSessionDir` encoding from
++/// [`session-manager.ts#L428-L435`](https://github.com/badlogic/pi-mono/blob/main/packages/pi/src/session-manager.ts#L428-L435):
++/// ```typescript
++/// const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
++/// ```
++pub(crate) fn encode_pi_project_path(cwd: &str) -> String {
++    let stripped = cwd
++        .strip_prefix('/')
++        .or_else(|| cwd.strip_prefix('\\'))
++        .unwrap_or(cwd);
++
++    let encoded: String = stripped
++        .chars()
++        .map(|c| match c {
++            '/' | '\\' | ':' => '-',
++            _ => c,
++        })
++        .collect();
++
++    format!("--{encoded}--")
++}
++
++/// Read a Pi session JSONL header once and return both session ID and CWD.
++fn extract_pi_header_fields(path: &Path) -> Option<(Option<String>, Option<String>)> {
++    let file = std::fs::File::open(path).ok()?;
++    let reader = std::io::BufReader::new(file);
++    let first_line = std::io::BufRead::lines(reader).next()?.ok()?;
++    let parsed: serde_json::Value = serde_json::from_str(&first_line).ok()?;
++    if parsed.get("type")?.as_str()? != "session" {
++        return None;
++    }
++    let session_id = parsed.get("id").and_then(|v| v.as_str()).map(String::from);
++    let cwd = parsed
++        .get("cwd")
++        .and_then(|v| v.as_str())
++        .filter(|s| !s.is_empty())
++        .map(String::from);
++    Some((session_id, cwd))
++}
++
++/// Extract the session ID from the first line of a Pi `.jsonl` session file.
++///
++/// The first line must be a JSON object with `"type": "session"` and an `"id"` field.
++/// Returns `None` if the file is empty, unreadable, or the header doesn't match.
++pub(crate) fn extract_pi_session_id_from_header(path: &Path) -> Option<String> {
++    extract_pi_header_fields(path).and_then(|(id, _)| id)
++}
++
++/// Extract the working directory from the first line of a Pi `.jsonl` session file.
++///
++/// The first line must be a JSON object with `"type": "session"` and a `"cwd"` field.
++/// Returns `None` if missing or empty.
++#[cfg(test)]
++pub(crate) fn extract_pi_cwd_from_header(path: &Path) -> Option<String> {
++    extract_pi_header_fields(path).and_then(|(_, cwd)| cwd)
++}
++
++/// Extract a UUID from a Pi session filename.
++///
++/// Pi filenames follow the pattern `2024-12-03T14-00-00-000Z_<uuid>.jsonl`.
++/// The UUID is the substring after the last `_`, before `.jsonl`.
++#[cfg(test)]
++pub(crate) fn extract_pi_uuid_from_filename(path: &Path) -> Option<String> {
++    let stem = path.file_stem()?.to_str()?;
++    let uuid_part = stem.rsplit('_').next()?;
++    Uuid::parse_str(uuid_part).ok()?;
++    Some(uuid_part.to_string())
++}
++
++/// Capture Pi session ID by scanning the Pi agent sessions directory.
++///
++/// Looks for `.jsonl` session files under `~/.pi/agent/sessions/` (or
++/// `$PI_CODING_AGENT_DIR/sessions/`). The primary lookup uses the encoded
++/// project path as a directory name. Falls back to scanning all session
++/// directories and matching via the `cwd` header field. Session IDs present
++/// in `exclusion` are skipped.
++pub(crate) fn capture_pi_session_id(
++    project_path: &str,
++    exclusion: &HashSet<String>,
++) -> Result<String> {
++    let pi_home = resolve_agent_home(Some("PI_CODING_AGENT_DIR"), ".pi/agent")?;
++    let sessions_dir = pi_home.join("sessions");
++
++    if !sessions_dir.exists() {
++        anyhow::bail!(
++            "Pi sessions directory not found: {}",
++            sessions_dir.display()
++        );
++    }
++
++    let encoded_name = encode_pi_project_path(project_path);
++    let project_dir = sessions_dir.join(&encoded_name);
++
++    // Primary path: scan the encoded project directory
++    if project_dir.is_dir() {
++        let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
++
++        for entry in resilient_read_dir(&project_dir)? {
++            let path = entry.path();
++            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
++                continue;
++            }
++            let session_id = match extract_pi_session_id_from_header(&path) {
++                Some(id) if !id.is_empty() && !exclusion.contains(&id) => id,
++                _ => continue,
++            };
++            let modified = entry
++                .metadata()
++                .and_then(|m| m.modified())
++                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
++            candidates.push((session_id, modified));
++        }
++
++        candidates.sort_by(|a, b| b.1.cmp(&a.1));
++
++        if let Some((id, _)) = candidates.first() {
++            return Ok(id.clone());
++        }
++
++        anyhow::bail!("No Pi session found matching project path");
++    }
++
++    // Fallback: scan all subdirectories and match via CWD header
++    let canonical_project = canonicalize_or_raw(project_path);
++    let mut fallback_candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
++
++    for subdir_entry in resilient_read_dir(&sessions_dir)? {
++        let subdir_path = subdir_entry.path();
++        if !subdir_path.is_dir() {
++            continue;
++        }
++        for file_entry in resilient_read_dir(&subdir_path)? {
++            let file_path = file_entry.path();
++            if file_path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
++                continue;
++            }
++            let fields = match extract_pi_header_fields(&file_path) {
++                Some(f) => f,
++                None => continue,
++            };
++            let cwd = match fields.1 {
++                Some(c) if !c.is_empty() => c,
++                _ => continue,
++            };
++            let canonical_cwd = canonicalize_or_raw(&cwd);
++            if canonical_cwd != canonical_project {
++                continue;
++            }
++            let session_id = match fields.0 {
++                Some(id) if !id.is_empty() && !exclusion.contains(&id) => id,
++                _ => continue,
++            };
++            let modified = file_entry
++                .metadata()
++                .and_then(|m| m.modified())
++                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
++            fallback_candidates.push((session_id, modified));
++        }
++    }
++
++    fallback_candidates.sort_by(|a, b| b.1.cmp(&a.1));
++
++    if let Some((id, _)) = fallback_candidates.first() {
++        return Ok(id.clone());
++    }
++
++    anyhow::bail!("No Pi session found matching project path")
++}
++
++/// Polling closure for Pi session tracking.
++pub(crate) fn pi_poll_fn(
++    project_path: String,
++    instance_id: String,
++) -> impl Fn() -> Option<String> + Send + 'static {
++    move || {
++        let exclusion = build_exclusion_set(&instance_id);
++        capture_pi_session_id(&project_path, &exclusion)
++            .map_err(|e| tracing::debug!("Pi poll capture failed: {}", e))
++            .ok()
++            .and_then(validated_session_id)
++    }
++}
++
 +pub(crate) fn is_valid_session_id(id: &str) -> bool {
 +    !id.is_empty()
 +        && id.len() <= 256
@@ -1842,9 +2031,459 @@ index 000000000..9c34fd63a
 +            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
 +        }
 +    }
++
++    #[test]
++    fn test_encode_pi_project_path_basic() {
++        assert_eq!(
++            encode_pi_project_path("/home/user/project"),
++            "--home-user-project--"
++        );
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_with_dashes() {
++        assert_eq!(
++            encode_pi_project_path("/home/user/my-project"),
++            "--home-user-my-project--"
++        );
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_trailing_slash() {
++        assert_eq!(
++            encode_pi_project_path("/home/user/project/"),
++            "--home-user-project---"
++        );
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_double_slash() {
++        assert_eq!(
++            encode_pi_project_path("/a//double/slash"),
++            "--a--double-slash--"
++        );
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_spaces() {
++        assert_eq!(
++            encode_pi_project_path("/path/with spaces"),
++            "--path-with spaces--"
++        );
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_windows_backslash() {
++        assert_eq!(
++            encode_pi_project_path("C:\\Users\\bob\\proj"),
++            "--C--Users-bob-proj--"
++        );
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_colon() {
++        assert_eq!(encode_pi_project_path("C:/Users/bob"), "--C--Users-bob--");
++    }
++
++    #[test]
++    fn test_encode_pi_project_path_root() {
++        assert_eq!(encode_pi_project_path("/"), "----");
++    }
++
++    #[test]
++    fn test_extract_pi_session_id_from_header_valid() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.jsonl");
++        std::fs::write(
++            &path,
++            r#"{"type":"session","id":"019342ab-1234-7def-8901-abcdef012345","cwd":"/tmp"}"#,
++        )
++        .unwrap();
++        assert_eq!(
++            extract_pi_session_id_from_header(&path),
++            Some("019342ab-1234-7def-8901-abcdef012345".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_pi_session_id_from_header_missing_id() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.jsonl");
++        std::fs::write(&path, r#"{"type":"session","cwd":"/tmp"}"#).unwrap();
++        assert_eq!(extract_pi_session_id_from_header(&path), None);
++    }
++
++    #[test]
++    fn test_extract_pi_session_id_from_header_invalid_json() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.jsonl");
++        std::fs::write(&path, "not valid json at all").unwrap();
++        assert_eq!(extract_pi_session_id_from_header(&path), None);
++    }
++
++    #[test]
++    fn test_extract_pi_session_id_from_header_empty_file() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.jsonl");
++        std::fs::write(&path, "").unwrap();
++        assert_eq!(extract_pi_session_id_from_header(&path), None);
++    }
++
++    #[test]
++    fn test_extract_pi_cwd_from_header() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("session.jsonl");
++        std::fs::write(
++            &path,
++            r#"{"type":"session","id":"aaa","cwd":"/home/user/project"}"#,
++        )
++        .unwrap();
++        assert_eq!(
++            extract_pi_cwd_from_header(&path),
++            Some("/home/user/project".to_string())
++        );
++    }
++
++    #[test]
++    fn test_extract_pi_uuid_from_filename() {
++        let path =
++            PathBuf::from("2024-12-03T14-00-00-000Z_019342ab-1234-7def-8901-abcdef012345.jsonl");
++        assert_eq!(
++            extract_pi_uuid_from_filename(&path),
++            Some("019342ab-1234-7def-8901-abcdef012345".to_string())
++        );
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_basic() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        let uuid = "019342ab-1234-7def-8901-abcdef012345";
++        std::fs::write(
++            project_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result.is_ok());
++        assert_eq!(result.unwrap(), uuid);
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_most_recent_wins() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        let uuid_old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        let uuid_new = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++
++        std::fs::write(
++            project_dir.join(format!("2024-12-01T10-00-00-000Z_{uuid_old}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_old}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++        std::thread::sleep(std::time::Duration::from_millis(50));
++        std::fs::write(
++            project_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid_new}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_new}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result.is_ok());
++        assert_eq!(result.unwrap(), uuid_new);
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_exclusion() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        let uuid_excluded = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        let uuid_kept = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++
++        std::fs::write(
++            project_dir.join(format!("2024-12-01T10-00-00-000Z_{uuid_excluded}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_excluded}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++        std::fs::write(
++            project_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid_kept}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_kept}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let mut exclusion = HashSet::new();
++        exclusion.insert(uuid_excluded.to_string());
++
++        let result = capture_pi_session_id("/home/user/project", &exclusion);
++        assert!(result.is_ok());
++        assert_eq!(result.unwrap(), uuid_kept);
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_all_excluded() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        let uuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        std::fs::write(
++            project_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let mut exclusion = HashSet::new();
++        exclusion.insert(uuid.to_string());
++
++        let result = capture_pi_session_id("/home/user/project", &exclusion);
++        assert!(result.is_err());
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_empty_dir() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result.is_err());
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_no_matching_project() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let other_encoded = encode_pi_project_path("/home/user/other-project");
++        let other_dir = sessions_dir.join(&other_encoded);
++        std::fs::create_dir_all(&other_dir).unwrap();
++
++        let uuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        std::fs::write(
++            other_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid}","cwd":"/home/user/other-project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/my-project", &HashSet::new());
++        assert!(result.is_err());
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_invalid_jsonl_skipped() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        std::fs::write(
++            project_dir.join("2024-12-01T10-00-00-000Z_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"),
++            "this is not valid json",
++        )
++        .unwrap();
++
++        let uuid_valid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++        std::fs::write(
++            project_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid_valid}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_valid}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result.is_ok());
++        assert_eq!(result.unwrap(), uuid_valid);
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_respects_env_var() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++        let project_encoded = encode_pi_project_path("/home/user/project");
++        let project_dir = sessions_dir.join(&project_encoded);
++        std::fs::create_dir_all(&project_dir).unwrap();
++
++        let uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc";
++        std::fs::write(
++            project_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result.is_ok());
++        assert_eq!(result.unwrap(), uuid);
++
++        std::env::remove_var("PI_CODING_AGENT_DIR");
++        let result_without_env = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result_without_env.is_err());
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_cwd_fallback_most_recent_wins() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++
++        let uuid_old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        let uuid_new = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
++
++        // Two sessions in DIFFERENT wrongly-encoded subdirs, both with CWD
++        // matching our project. The fallback must pick the most recent.
++        let dir_a = sessions_dir.join("--wrong-name-a--");
++        std::fs::create_dir_all(&dir_a).unwrap();
++        std::fs::write(
++            dir_a.join(format!("2024-12-01T10-00-00-000Z_{uuid_old}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_old}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        std::thread::sleep(std::time::Duration::from_millis(50));
++
++        let dir_b = sessions_dir.join("--wrong-name-b--");
++        std::fs::create_dir_all(&dir_b).unwrap();
++        std::fs::write(
++            dir_b.join(format!("2024-12-03T14-00-00-000Z_{uuid_new}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid_new}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(
++            result.is_ok(),
++            "Fallback should find sessions via CWD header"
++        );
++        assert_eq!(result.unwrap(), uuid_new);
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
++
++    #[test]
++    #[serial]
++    fn test_capture_pi_session_id_cwd_fallback_succeeds() {
++        let tmp = tempfile::tempdir().unwrap();
++        let sessions_dir = tmp.path().join("sessions");
++
++        let wrong_encoded = "--some-other-name--";
++        let wrong_dir = sessions_dir.join(wrong_encoded);
++        std::fs::create_dir_all(&wrong_dir).unwrap();
++
++        let uuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
++        std::fs::write(
++            wrong_dir.join(format!("2024-12-03T14-00-00-000Z_{uuid}.jsonl")),
++            format!(r#"{{"type":"session","id":"{uuid}","cwd":"/home/user/project"}}"#),
++        )
++        .unwrap();
++
++        let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
++        std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
++
++        let result = capture_pi_session_id("/home/user/project", &HashSet::new());
++        assert!(result.is_ok(), "Fallback CWD scan should find the session");
++        assert_eq!(result.unwrap(), uuid);
++
++        match old_val {
++            Some(v) => std::env::set_var("PI_CODING_AGENT_DIR", v),
++            None => std::env::remove_var("PI_CODING_AGENT_DIR"),
++        }
++    }
 +}
 diff --git a/src/session/container_config.rs b/src/session/container_config.rs
-index 38942d912..021245461 100644
+index 3c19cfc71..fc165e6ce 100644
 --- a/src/session/container_config.rs
 +++ b/src/session/container_config.rs
 @@ -476,7 +476,6 @@ fn extract_keychain_credential(service: &str, dest: &Path) -> Result<bool> {
@@ -1903,7 +2542,7 @@ index 38942d912..021245461 100644
      let dir_name = project_path
          .file_name()
          .map(|n| n.to_string_lossy().to_string())
-@@ -842,9 +829,7 @@ pub(crate) fn build_container_config(
+@@ -847,9 +834,7 @@ pub(crate) fn build_container_config(
          }
      }
  
@@ -1914,7 +2553,7 @@ index 38942d912..021245461 100644
      for mount in AGENT_CONFIG_MOUNTS.iter().filter(|m| m.tool_name == tool) {
          let container_path = format!("{}/{}", CONTAINER_HOME, mount.container_suffix);
  
-@@ -872,8 +857,6 @@ pub(crate) fn build_container_config(
+@@ -877,8 +862,6 @@ pub(crate) fn build_container_config(
              read_only: false,
          });
  
@@ -1924,7 +2563,7 @@ index 38942d912..021245461 100644
              let file_path = sandbox_dir.join(filename);
              if file_path.exists() {
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index a25d8eb14..6d7b8dbfb 100644
+index 3da83cb14..be6a144cd 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -1,6 +1,7 @@
@@ -1943,8 +2582,8 @@ index a25d8eb14..6d7b8dbfb 100644
 +
 +use crate::session::capture::{
 +    build_exclusion_set, capture_codex_session_id, capture_gemini_session_id,
-+    capture_vibe_session_id, claude_poll_fn, codex_poll_fn, gemini_poll_fn,
-+    generate_claude_session_id, is_valid_session_id, opencode_poll_fn,
++    capture_pi_session_id, capture_vibe_session_id, claude_poll_fn, codex_poll_fn, gemini_poll_fn,
++    generate_claude_session_id, is_valid_session_id, opencode_poll_fn, pi_poll_fn,
 +    try_capture_opencode_session_id, validated_session_id, vibe_poll_fn,
 +};
  
@@ -2155,7 +2794,7 @@ index a25d8eb14..6d7b8dbfb 100644
          }
      }
  
-@@ -204,6 +383,76 @@ impl Instance {
+@@ -211,6 +390,77 @@ impl Instance {
          self.yolo_mode
      }
  
@@ -2219,6 +2858,7 @@ index a25d8eb14..6d7b8dbfb 100644
 +            "codex" => capture_codex_session_id(&self.project_path, &exclusion).ok(),
 +            "gemini" => capture_gemini_session_id(&self.project_path, &exclusion).ok(),
 +            "vibe" => capture_vibe_session_id(&self.project_path, &exclusion).ok(),
++            "pi" => capture_pi_session_id(&self.project_path, &exclusion).ok(),
 +            _ => None,
 +        };
 +        result.and_then(validated_session_id)
@@ -2232,7 +2872,7 @@ index a25d8eb14..6d7b8dbfb 100644
      pub fn has_custom_command(&self) -> bool {
          if !self.extra_args.is_empty() {
              return true;
-@@ -298,7 +547,10 @@ impl Instance {
+@@ -305,7 +555,10 @@ impl Instance {
          }
  
          let container = self.get_container_for_instance()?;
@@ -2242,9 +2882,9 @@ index a25d8eb14..6d7b8dbfb 100644
 +            .as_ref()
 +            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
  
-         let env_info = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
-         let env_part = if env_info.docker_args.is_empty() {
-@@ -397,215 +649,285 @@ impl Instance {
+         let env_info = build_docker_env_args(
+             &self.source_profile,
+@@ -408,67 +661,14 @@ impl Instance {
              return Ok(());
          }
  
@@ -2252,17 +2892,12 @@ index a25d8eb14..6d7b8dbfb 100644
 -        // Repo hooks go through trust verification; global/profile hooks are implicitly trusted.
 -        let on_launch_hooks = if skip_on_launch {
 -            None
-+        let profile = super::config::resolve_default_profile();
-+        let on_launch_hooks = self.resolve_on_launch_hooks(skip_on_launch, &profile);
-+
-+        let agent = crate::agents::get_agent(&self.tool);
-+        self.install_agent_status_hooks(agent);
-+
-+        let cmd = if self.is_sandboxed() {
-+            self.build_sandboxed_command(agent, &on_launch_hooks)?
-         } else {
--            // Start with global+profile hooks as the base
--            let profile = super::config::resolve_default_profile();
+-        } else {
+-            // Start with global+profile hooks as the base. Use the instance's
+-            // source_profile so profile-specific on_launch hooks fire for sessions
+-            // created under that profile, not just whichever profile is currently
+-            // set as the global default.
+-            let profile = self.effective_profile();
 -            let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
 -                .map(|c| c.hooks.on_launch)
 -                .unwrap_or_default();
@@ -2276,13 +2911,115 @@ index a25d8eb14..6d7b8dbfb 100644
 -                }
 -                _ => {}
 -            }
-+            self.build_host_command(agent, &on_launch_hooks)
-+        };
- 
+-
 -            if resolved_on_launch.is_empty() {
 -                None
 -            } else {
 -                Some(resolved_on_launch)
+-            }
+-        };
++        let profile = self.effective_profile();
++        let on_launch_hooks = self.resolve_on_launch_hooks(skip_on_launch, &profile);
+ 
+-        // Install status-detection hooks for agents that support them
+         let agent = crate::agents::get_agent(&self.tool);
+-        let hooks_enabled = crate::session::config::Config::load()
+-            .map(|c| c.session.agent_status_hooks)
+-            .unwrap_or(true);
+-        if hooks_enabled {
+-            if self.tool == "settl" {
+-                // settl uses TOML config, not JSON settings
+-                if let Err(e) = crate::hooks::install_settl_hooks() {
+-                    tracing::warn!("Failed to install settl hooks: {}", e);
+-                }
+-            } else if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
+-                if self.is_sandboxed() {
+-                    // For sandboxed sessions, hooks are installed via build_container_config
+-                } else {
+-                    // Install hooks in the user's home directory settings
+-                    if let Some(home) = dirs::home_dir() {
+-                        let settings_path = home.join(hook_cfg.settings_rel_path);
+-                        if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events)
+-                        {
+-                            tracing::warn!("Failed to install agent hooks: {}", e);
+-                        }
+-                    }
+-                }
+-            }
+-        }
++        self.install_agent_status_hooks(agent);
+ 
+         let cmd = if self.is_sandboxed() {
+             let container = self.get_container_for_instance()?;
+-            // Run on_launch hooks inside the container
+             if let Some(ref hook_cmds) = on_launch_hooks {
+                 if let Some(ref sandbox) = self.sandbox_info {
+                     let workdir = self.container_workdir();
+@@ -482,7 +682,6 @@ impl Instance {
+                 }
+             }
+ 
+-            let sandbox = self.sandbox_info.as_ref().unwrap();
+             let base_cmd = if self.extra_args.is_empty() {
+                 self.get_tool_command().to_string()
+             } else {
+@@ -503,16 +702,25 @@ impl Instance {
+             } else {
+                 base_cmd
+             };
+-            if let Some(ref instruction) = sandbox.custom_instruction {
+-                if !instruction.is_empty() {
+-                    if let Some(flag_template) = agent.and_then(|a| a.instruction_flag) {
+-                        let escaped = shell_escape(instruction);
+-                        let flag = flag_template.replace("{}", &escaped);
+-                        tool_cmd = format!("{} {}", tool_cmd, flag);
+-                    }
++            if let Some(instruction) = self
++                .sandbox_info
++                .as_ref()
++                .and_then(|s| s.custom_instruction.as_ref())
++                .filter(|s| !s.is_empty())
++            {
++                if let Some(flag_template) = agent.and_then(|a| a.instruction_flag) {
++                    let escaped = shell_escape(instruction);
++                    let flag = flag_template.replace("{}", &escaped);
++                    tool_cmd = format!("{} {}", tool_cmd, flag);
+                 }
+             }
+ 
++            self.apply_session_flags(&mut tool_cmd, "sandboxed");
++
++            let sandbox = self
++                .sandbox_info
++                .as_ref()
++                .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed instance"))?;
+             let env_info = build_docker_env_args(
+                 &self.source_profile,
+                 sandbox,
+@@ -526,104 +734,213 @@ impl Instance {
+             if env_info.exports.is_empty() {
+                 Some(wrapped)
+             } else {
+-                // Prepend shell exports for secret env vars. The outer shell
+-                // runs the exports (builtins), then `exec` replaces it with
+-                // the wrapped command. This keeps secret values out of all
+-                // long-lived process argv: the outer shell's argv (which
+-                // contains the export values) disappears in milliseconds
+-                // when exec replaces the process image.
+                 let exports = env_info.exports.join("; ");
+                 Some(format!("{}; exec {}", exports, wrapped))
+             }
+         } else {
+-            // Run on_launch hooks on host for non-sandboxed sessions
+-            if let Some(ref hook_cmds) = on_launch_hooks {
+-                if let Err(e) =
+-                    super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
+-                {
+-                    tracing::warn!("on_launch hook failed: {}", e);
+-                }
++            self.build_host_command(agent, &on_launch_hooks)
++        };
++
 +        tracing::debug!(
 +            "container cmd: {}",
 +            cmd.as_ref().map_or("none".to_string(), |v| {
@@ -2317,218 +3054,7 @@ index a25d8eb14..6d7b8dbfb 100644
 +            {
 +                resolved_on_launch = hooks.on_launch.clone();
              }
--        };
 +            _ => {}
-+        }
- 
--        // Install status-detection hooks for agents that support them
--        let agent = crate::agents::get_agent(&self.tool);
-+        if resolved_on_launch.is_empty() {
-+            None
-+        } else {
-+            Some(resolved_on_launch)
-+        }
-+    }
-+
-+    /// Install status-detection hooks for agents that support them.
-+    ///
-+    /// For sandboxed sessions hooks are installed via `build_container_config`,
-+    /// so this only acts on host sessions by writing to the user's home directory.
-+    /// Respects the `agent_status_hooks` config setting.
-+    fn install_agent_status_hooks(&self, agent: Option<&'static crate::agents::AgentDef>) {
-         let hooks_enabled = crate::session::config::Config::load()
-             .map(|c| c.session.agent_status_hooks)
-             .unwrap_or(true);
--        if hooks_enabled {
--            if self.tool == "settl" {
--                // settl uses TOML config, not JSON settings
--                if let Err(e) = crate::hooks::install_settl_hooks() {
--                    tracing::warn!("Failed to install settl hooks: {}", e);
--                }
--            } else if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
--                if self.is_sandboxed() {
--                    // For sandboxed sessions, hooks are installed via build_container_config
--                } else {
--                    // Install hooks in the user's home directory settings
--                    if let Some(home) = dirs::home_dir() {
--                        let settings_path = home.join(hook_cfg.settings_rel_path);
--                        if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events)
--                        {
--                            tracing::warn!("Failed to install agent hooks: {}", e);
--                        }
-+        if !hooks_enabled {
-+            return;
-+        }
-+        if self.tool == "settl" {
-+            // settl uses TOML config, not JSON settings
-+            if let Err(e) = crate::hooks::install_settl_hooks() {
-+                tracing::warn!("Failed to install settl hooks: {}", e);
-+            }
-+        } else if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
-+            if self.is_sandboxed() {
-+                // For sandboxed sessions, hooks are installed via build_container_config
-+            } else {
-+                // Install hooks in the user's home directory settings
-+                if let Some(home) = dirs::home_dir() {
-+                    let settings_path = home.join(hook_cfg.settings_rel_path);
-+                    if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events) {
-+                        tracing::warn!("Failed to install agent hooks: {}", e);
-                     }
-                 }
-             }
-         }
-+    }
- 
--        let cmd = if self.is_sandboxed() {
--            let container = self.get_container_for_instance()?;
--            // Run on_launch hooks inside the container
--            if let Some(ref hook_cmds) = on_launch_hooks {
--                if let Some(ref sandbox) = self.sandbox_info {
--                    let workdir = self.container_workdir();
--                    if let Err(e) = super::repo_config::execute_hooks_in_container(
--                        hook_cmds,
--                        &sandbox.container_name,
--                        &workdir,
--                    ) {
--                        tracing::warn!("on_launch hook failed in container: {}", e);
--                    }
-+    /// Build the tmux command for a sandboxed (Docker) session.
-+    ///
-+    /// Runs on_launch hooks inside the container, constructs the tool command
-+    /// with yolo mode / custom instructions / session flags, and wraps it in a
-+    /// `docker exec` invocation.
-+    fn build_sandboxed_command(
-+        &mut self,
-+        agent: Option<&'static crate::agents::AgentDef>,
-+        on_launch_hooks: &Option<Vec<String>>,
-+    ) -> Result<Option<String>> {
-+        let container = self.get_container_for_instance()?;
-+
-+        // Run on_launch hooks inside the container
-+        if let Some(ref hook_cmds) = on_launch_hooks {
-+            if let Some(ref sandbox) = self.sandbox_info {
-+                let workdir = self.container_workdir();
-+                if let Err(e) = super::repo_config::execute_hooks_in_container(
-+                    hook_cmds,
-+                    &sandbox.container_name,
-+                    &workdir,
-+                ) {
-+                    tracing::warn!("on_launch hook failed in container: {}", e);
-                 }
-             }
-+        }
- 
--            let sandbox = self.sandbox_info.as_ref().unwrap();
--            let base_cmd = if self.extra_args.is_empty() {
--                self.get_tool_command().to_string()
--            } else {
--                format!("{} {}", self.get_tool_command(), self.extra_args)
--            };
--            let mut tool_cmd = if self.is_yolo_mode() {
--                if let Some(ref yolo) = agent.and_then(|a| a.yolo.as_ref()) {
--                    match yolo {
--                        crate::agents::YoloMode::CliFlag(flag) => {
--                            format!("{} {}", base_cmd, flag)
--                        }
--                        crate::agents::YoloMode::EnvVar(..)
--                        | crate::agents::YoloMode::AlwaysYolo => base_cmd,
--                    }
--                } else {
--                    base_cmd
--                }
--            } else {
--                base_cmd
--            };
--            if let Some(ref instruction) = sandbox.custom_instruction {
--                if !instruction.is_empty() {
--                    if let Some(flag_template) = agent.and_then(|a| a.instruction_flag) {
--                        let escaped = shell_escape(instruction);
--                        let flag = flag_template.replace("{}", &escaped);
--                        tool_cmd = format!("{} {}", tool_cmd, flag);
--                    }
-+        let sandbox = self
-+            .sandbox_info
-+            .as_ref()
-+            .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed session"))?;
-+        let base_cmd = if self.extra_args.is_empty() {
-+            self.get_tool_command().to_string()
-+        } else {
-+            format!("{} {}", self.get_tool_command(), self.extra_args)
-+        };
-+        let mut tool_cmd = base_cmd;
-+        if self.is_yolo_mode() {
-+            if let Some(yolo) = agent.and_then(|a| a.yolo.as_ref()) {
-+                apply_yolo_mode(&mut tool_cmd, yolo, true);
-+            }
-+        }
-+        if let Some(ref instruction) = sandbox.custom_instruction {
-+            if !instruction.is_empty() {
-+                if let Some(flag_template) = agent.and_then(|a| a.instruction_flag) {
-+                    let escaped = shell_escape(instruction);
-+                    let flag = flag_template.replace("{}", &escaped);
-+                    tool_cmd = format!("{} {}", tool_cmd, flag);
-                 }
-             }
-+        }
- 
--            let env_info = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
--            // AOE_INSTANCE_ID is not secret, goes directly in docker args
--            let docker_args = format!("{} -e AOE_INSTANCE_ID={}", env_info.docker_args, self.id);
--            let env_part = format!("{} ", docker_args);
--            let wrapped =
--                wrap_command_ignore_suspend(&container.exec_command(Some(&env_part), &tool_cmd));
--            if env_info.exports.is_empty() {
--                Some(wrapped)
--            } else {
--                // Prepend shell exports for secret env vars. The outer shell
--                // runs the exports (builtins), then `exec` replaces it with
--                // the wrapped command. This keeps secret values out of all
--                // long-lived process argv: the outer shell's argv (which
--                // contains the export values) disappears in milliseconds
--                // when exec replaces the process image.
--                let exports = env_info.exports.join("; ");
--                Some(format!("{}; exec {}", exports, wrapped))
--            }
-+        let env_info = build_docker_env_args(sandbox, std::path::Path::new(&self.project_path));
-+        // AOE_INSTANCE_ID is not secret, goes directly in docker args
-+        let docker_args = format!("{} -e AOE_INSTANCE_ID={}", env_info.docker_args, self.id);
-+
-+        self.apply_session_flags(&mut tool_cmd, "sandboxed");
-+        let env_part = format!("{} ", docker_args);
-+        let wrapped =
-+            wrap_command_ignore_suspend(&container.exec_command(Some(&env_part), &tool_cmd));
-+        if env_info.exports.is_empty() {
-+            Ok(Some(wrapped))
-         } else {
--            // Run on_launch hooks on host for non-sandboxed sessions
--            if let Some(ref hook_cmds) = on_launch_hooks {
--                if let Err(e) =
--                    super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
--                {
--                    tracing::warn!("on_launch hook failed: {}", e);
--                }
-+            let exports = env_info.exports.join("; ");
-+            Ok(Some(format!("{}; exec {}", exports, wrapped)))
-+        }
-+    }
-+
-+    /// Build the tmux command for a host (non-sandboxed) session.
-+    ///
-+    /// Runs on_launch hooks on the host, then constructs the command from either
-+    /// the agent's default binary or a user-supplied custom command, applying
-+    /// yolo mode, session flags, and the AOE_INSTANCE_ID env prefix.
-+    fn build_host_command(
-+        &mut self,
-+        agent: Option<&'static crate::agents::AgentDef>,
-+        on_launch_hooks: &Option<Vec<String>>,
-+    ) -> Option<String> {
-+        // Run on_launch hooks on host for non-sandboxed sessions
-+        if let Some(ref hook_cmds) = on_launch_hooks {
-+            if let Err(e) =
-+                super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
-+            {
-+                tracing::warn!("on_launch hook failed: {}", e);
-             }
 +        }
  
 -            // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
@@ -2540,15 +3066,12 @@ index a25d8eb14..6d7b8dbfb 100644
 -            } else {
 -                String::new()
 -            };
-+        // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
-+        // (either JSON-based hook_config or settl's TOML hooks)
-+        let has_hooks =
-+            agent.and_then(|a| a.hook_config.as_ref()).is_some() || self.tool == "settl";
-+        let env_prefix = if has_hooks {
-+            format!("AOE_INSTANCE_ID={} ", self.id)
++        if resolved_on_launch.is_empty() {
++            None
 +        } else {
-+            String::new()
-+        };
++            Some(resolved_on_launch)
++        }
++    }
  
 -            if self.command.is_empty() {
 -                crate::agents::get_agent(&self.tool).map(|a| {
@@ -2571,8 +3094,68 @@ index a25d8eb14..6d7b8dbfb 100644
 -                    }
 -                    wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
 -                })
--            } else {
++    /// Install status-detection hooks for agents that support them.
++    ///
++    /// For sandboxed sessions hooks are installed via `build_container_config`,
++    /// so this only acts on host sessions by writing to the user's home directory.
++    /// Respects the `agent_status_hooks` config setting.
++    fn install_agent_status_hooks(&self, agent: Option<&'static crate::agents::AgentDef>) {
++        let hooks_enabled = crate::session::config::Config::load()
++            .map(|c| c.session.agent_status_hooks)
++            .unwrap_or(true);
++        if !hooks_enabled {
++            return;
++        }
++        if self.tool == "settl" {
++            // settl uses TOML config, not JSON settings
++            if let Err(e) = crate::hooks::install_settl_hooks() {
++                tracing::warn!("Failed to install settl hooks: {}", e);
++            }
++        } else if let Some(hook_cfg) = agent.and_then(|a| a.hook_config.as_ref()) {
++            if self.is_sandboxed() {
++                // For sandboxed sessions, hooks are installed via build_container_config
+             } else {
 -                let mut cmd = self.command.clone();
++                // Install hooks in the user's home directory settings
++                if let Some(home) = dirs::home_dir() {
++                    let settings_path = home.join(hook_cfg.settings_rel_path);
++                    if let Err(e) = crate::hooks::install_hooks(&settings_path, hook_cfg.events) {
++                        tracing::warn!("Failed to install agent hooks: {}", e);
++                    }
++                }
++            }
++        }
++    }
++
++    /// Build the tmux command for a host (non-sandboxed) session.
++    ///
++    /// Runs on_launch hooks on the host, then constructs the command from either
++    /// the agent's default binary or a user-supplied custom command, applying
++    /// yolo mode, session flags, and the AOE_INSTANCE_ID env prefix.
++    fn build_host_command(
++        &mut self,
++        agent: Option<&'static crate::agents::AgentDef>,
++        on_launch_hooks: &Option<Vec<String>>,
++    ) -> Option<String> {
++        // Run on_launch hooks on host for non-sandboxed sessions
++        if let Some(ref hook_cmds) = on_launch_hooks {
++            if let Err(e) =
++                super::repo_config::execute_hooks(hook_cmds, Path::new(&self.project_path))
++            {
++                tracing::warn!("on_launch hook failed: {}", e);
++            }
++        }
++
++        // Prepend AOE_INSTANCE_ID env var if this agent supports hooks
++        // (either JSON-based hook_config or settl's TOML hooks)
++        let has_hooks =
++            agent.and_then(|a| a.hook_config.as_ref()).is_some() || self.tool == "settl";
++        let env_prefix = if has_hooks {
++            format!("AOE_INSTANCE_ID={} ", self.id)
++        } else {
++            String::new()
++        };
++
 +        if self.command.is_empty() {
 +            crate::agents::get_agent(&self.tool).map(|a| {
 +                let mut cmd = a.binary.to_string();
@@ -2700,7 +3283,7 @@ index a25d8eb14..6d7b8dbfb 100644
      fn apply_terminal_tmux_options(&self) {
          let name = tmux::TerminalSession::generate_name(&self.id, &self.title);
          self.apply_session_tmux_options(&name, &format!("{} (terminal)", self.title));
-@@ -653,9 +975,13 @@ impl Instance {
+@@ -671,9 +988,13 @@ impl Instance {
      }
  
      fn build_container_config(&self) -> Result<crate::containers::ContainerConfig> {
@@ -2715,7 +3298,7 @@ index a25d8eb14..6d7b8dbfb 100644
              &self.tool,
              self.is_yolo_mode(),
              &self.id,
-@@ -663,24 +989,111 @@ impl Instance {
+@@ -682,24 +1003,112 @@ impl Instance {
          )
      }
  
@@ -2751,6 +3334,7 @@ index a25d8eb14..6d7b8dbfb 100644
 +            "claude" => Box::new(claude_poll_fn(self.project_path.clone(), self.id.clone())),
 +            "codex" => Box::new(codex_poll_fn(self.project_path.clone(), self.id.clone())),
 +            "gemini" => Box::new(gemini_poll_fn(self.project_path.clone(), self.id.clone())),
++            "pi" => Box::new(pi_poll_fn(self.project_path.clone(), self.id.clone())),
 +            "vibe" => Box::new(vibe_poll_fn(self.project_path.clone(), self.id.clone())),
 +            "opencode" => Box::new(opencode_poll_fn(
 +                self.project_path.clone(),
@@ -2831,7 +3415,7 @@ index a25d8eb14..6d7b8dbfb 100644
          let session = self.tmux_session()?;
          if session.exists() {
              session.kill()?;
-@@ -1474,6 +1887,274 @@ mod tests {
+@@ -1493,6 +1902,285 @@ mod tests {
          assert!(!inst.has_terminal());
      }
  
@@ -3084,6 +3668,17 @@ index a25d8eb14..6d7b8dbfb 100644
 +    }
 +
 +    #[test]
++    fn test_build_pi_resume_flags() {
++        // Pi uses Flag("--session") strategy
++        let flags = build_resume_flags("pi", "019342ab-1234-7def-8901-abcdef012345", true);
++        assert_eq!(flags, "--session 019342ab-1234-7def-8901-abcdef012345");
++
++        // Flag variant doesn't distinguish existing vs new sessions
++        let flags_new = build_resume_flags("pi", "019342ab-1234-7def-8901-abcdef012345", false);
++        assert_eq!(flags_new, "--session 019342ab-1234-7def-8901-abcdef012345");
++    }
++
++    #[test]
 +    fn test_build_unknown_tool_resume_flags() {
 +        let flags = build_resume_flags("mistral", "session-123", false);
 +        assert!(flags.is_empty());
@@ -3106,7 +3701,7 @@ index a25d8eb14..6d7b8dbfb 100644
      #[test]
      fn test_has_custom_command_empty() {
          let inst = Instance::new("test", "/tmp/test");
-@@ -1539,6 +2220,41 @@ mod tests {
+@@ -1558,6 +2246,41 @@ mod tests {
          assert_eq!(deserialized, Status::Unknown);
      }
  
@@ -3177,16 +3772,15 @@ index b07fda125..c120cc8c7 100644
      ContainerRuntimeName, DefaultTerminalMode, GroupByMode, SandboxConfig, SessionConfig,
 diff --git a/src/session/poller.rs b/src/session/poller.rs
 new file mode 100644
-index 000000000..23a854bd0
+index 000000000..627a10e9c
 --- /dev/null
 +++ b/src/session/poller.rs
-@@ -0,0 +1,848 @@
+@@ -0,0 +1,845 @@
 +//! Adaptive polling interval and command channel for session monitoring
 +
 +use std::sync::atomic::{AtomicU32, Ordering};
 +use std::sync::mpsc;
 +use std::sync::mpsc::RecvTimeoutError;
-+use std::sync::{Condvar, Mutex};
 +use std::thread::JoinHandle;
 +use std::time::Duration;
 +
@@ -3235,32 +3829,34 @@ index 000000000..23a854bd0
 +const POLL_STABLE_THRESHOLD: u32 = 3;
 +
 +/// Timeout for deferred capture completion, with margin for retry delays.
-+#[allow(dead_code)]
++#[cfg(test)]
 +const CAPTURE_GATE_TIMEOUT: Duration = Duration::from_secs(120);
 +
 +/// Synchronization gate between deferred capture and polling threads.
 +///
 +/// Ensures capture completes before polling starts, avoiding concurrent storage writes.
 +/// The capture thread calls [`CaptureGate::complete`]; the poller calls [`CaptureGate::wait`].
-+#[allow(dead_code)]
++#[cfg(test)]
 +pub struct CaptureGate {
-+    inner: Mutex<CaptureGateState>,
-+    cond: Condvar,
++    inner: std::sync::Mutex<CaptureGateState>,
++    cond: std::sync::Condvar,
 +}
 +
++#[cfg(test)]
 +struct CaptureGateState {
 +    done: bool,
 +    captured_id: Option<String>,
 +}
 +
++#[cfg(test)]
 +impl CaptureGate {
 +    pub fn new() -> Self {
 +        Self {
-+            inner: Mutex::new(CaptureGateState {
++            inner: std::sync::Mutex::new(CaptureGateState {
 +                done: false,
 +                captured_id: None,
 +            }),
-+            cond: Condvar::new(),
++            cond: std::sync::Condvar::new(),
 +        }
 +    }
 +
@@ -3311,12 +3907,14 @@ index 000000000..23a854bd0
 +    }
 +}
 +
++#[cfg(test)]
 +impl Default for CaptureGate {
 +    fn default() -> Self {
 +        Self::new()
 +    }
 +}
 +
++#[cfg(test)]
 +impl std::fmt::Debug for CaptureGate {
 +    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 +        let state = self.inner.lock().ok();
@@ -3592,7 +4190,7 @@ index 000000000..23a854bd0
 +mod tests {
 +    use super::*;
 +    use serial_test::serial;
-+    use std::sync::Arc;
++    use std::sync::{Arc, Mutex};
 +
 +    #[test]
 +    fn test_adaptive_interval_initial() {
@@ -3734,8 +4332,6 @@ index 000000000..23a854bd0
 +
 +    #[test]
 +    fn test_poller_detects_change() {
-+        use std::sync::{Arc, Mutex};
-+
 +        let call_count = Arc::new(Mutex::new(0u32));
 +        let call_count_clone = call_count.clone();
 +
@@ -3785,8 +4381,6 @@ index 000000000..23a854bd0
 +
 +    #[test]
 +    fn test_poll_now_triggers_poll() {
-+        use std::sync::{Arc, Mutex};
-+
 +        let poll_count = Arc::new(Mutex::new(0u32));
 +        let poll_count_clone = poll_count.clone();
 +
@@ -3863,8 +4457,6 @@ index 000000000..23a854bd0
 +    #[test]
 +    #[serial]
 +    fn test_poller_cleanup_decrements_counter() {
-+        use std::sync::{Arc, Mutex};
-+
 +        let entered = Arc::new(Mutex::new(false));
 +        let entered_clone = entered.clone();
 +
