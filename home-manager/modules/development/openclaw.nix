@@ -37,9 +37,11 @@ in
         summarize.enable = true;
         sag.enable = true;
         camsnap.enable = true;
+        # discrawl.enable = true;
         gogcli.enable = true;
         goplaces.enable = true;
         sonoscli.enable = true;
+        # wacrawl.enable = true;
         peekaboo.enable = isDarwin;
         poltergeist.enable = isDarwin;
         # https://github.com/openclaw/nix-steipete-tools/issues/6

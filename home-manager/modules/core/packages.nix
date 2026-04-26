@@ -30,10 +30,12 @@ in
     ]
     ++ lib.optionals (!openclawEnabled) [
       steipeteTools.camsnap
+      steipeteTools.discrawl
       steipeteTools.gogcli
       steipeteTools.goplaces
       steipeteTools.sag
       steipeteTools.sonoscli
+      steipeteTools.wacrawl
       # https://github.com/openclaw/nix-steipete-tools/issues/9
       (
         if isLinux then
