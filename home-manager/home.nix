@@ -61,22 +61,6 @@ in
   nixpkgs = {
     overlays = [
       inputs.nix-openclaw.overlays.default
-      # https://github.com/NixOS/nix/pull/15638
-      (_final: prev:
-        if prev.stdenv.hostPlatform.system == "aarch64-darwin" then {
-          python312 = prev.python312.override {
-            packageOverrides = _pyFinal: pyPrev: {
-              av = pyPrev.av.overrideAttrs {
-                dontUsePytestCheck = true;
-                dontUsePythonImportsCheck = true;
-              };
-              faster-whisper = pyPrev.faster-whisper.overrideAttrs {
-                dontUsePythonImportsCheck = true;
-              };
-            };
-          };
-        } else { }
-      )
       inputs.hermes-agent.overlays.default
       # https://github.com/openclaw/nix-openclaw/issues/80
       (_final: prev: {
