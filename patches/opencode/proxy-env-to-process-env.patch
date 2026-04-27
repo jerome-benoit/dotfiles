@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 1b6b58500707..69c9279ecb19 100644
+index 817f8c3e3870..2f8e180b2147 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -603,7 +603,6 @@ export const layer = Layer.effect(
@@ -11,12 +11,12 @@ index 1b6b58500707..69c9279ecb19 100644
              }
  
 diff --git a/packages/opencode/src/env/index.ts b/packages/opencode/src/env/index.ts
-index a53d96def259..56acf3dcbb4b 100644
+index e7af61422b43..56acf3dcbb4b 100644
 --- a/packages/opencode/src/env/index.ts
 +++ b/packages/opencode/src/env/index.ts
 @@ -1,5 +1,4 @@
  import { Context, Effect, Layer } from "effect"
--import { InstanceState } from "@/effect"
+-import { InstanceState } from "@/effect/instance-state"
  
  type State = Record<string, string | undefined>
  
@@ -59,7 +59,7 @@ index a53d96def259..56acf3dcbb4b 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 9aa1b6304c12..b3568501cd53 100644
+index 841fd97f082e..554b443f60b7 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -257,8 +257,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
@@ -81,7 +81,7 @@ index 9aa1b6304c12..b3568501cd53 100644
          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
          if (envAICoreServiceKey) return envAICoreServiceKey
 diff --git a/packages/opencode/test/preload.ts b/packages/opencode/test/preload.ts
-index 58dc2b0b48c5..0684e7b826f4 100644
+index 479da7f518a6..83a538f2ede7 100644
 --- a/packages/opencode/test/preload.ts
 +++ b/packages/opencode/test/preload.ts
 @@ -61,6 +61,10 @@ delete process.env["AWS_ACCESS_KEY_ID"]
