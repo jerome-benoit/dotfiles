@@ -11,7 +11,6 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  # Use pkgs.hermes-agent from overlay (overridable via .override{})
   hermesAgentPackage = pkgs.hermes-agent or null;
   yamlFormat = pkgs.formats.yaml { };
 
