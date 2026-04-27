@@ -62,15 +62,18 @@ in
     overlays = [
       inputs.nix-openclaw.overlays.default
       inputs.hermes-agent.overlays.default
-      # https://github.com/NixOS/nix/pull/15638 — nix daemon RewritingSink corrupts
-      # Mach-O ad-hoc code signatures on aarch64-darwin, causing pythonImportsCheck
-      # to fail with Killed: 9 on packages that load ffmpeg (av, faster-whisper).
+      # https://github.com/NixOS/nix/pull/15638
       (_final: prev:
         if prev.stdenv.hostPlatform.system == "aarch64-darwin" then {
           python312 = prev.python312.override {
             packageOverrides = _pyFinal: pyPrev: {
-              av = pyPrev.av.overrideAttrs { dontUsePythonImportsCheck = true; };
-              faster-whisper = pyPrev.faster-whisper.overrideAttrs { dontUsePythonImportsCheck = true; };
+              av = pyPrev.av.overrideAttrs {
+                dontUsePytestCheck = true;
+                dontUsePythonImportsCheck = true;
+              };
+              faster-whisper = pyPrev.faster-whisper.overrideAttrs {
+                dontUsePythonImportsCheck = true;
+              };
             };
           };
         } else { }
