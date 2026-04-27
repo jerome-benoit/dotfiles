@@ -127,11 +127,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1777327993,
-        "narHash": "sha256-gzMSuYqzB3ovw8UHpdT0MqRFdO0B6qx87plrikVnUFY=",
+        "lastModified": 1777330909,
+        "narHash": "sha256-b/x5HkXKMhoUPMBno8qLp2dqUXSQGMn6s4VnIjGQauk=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "7d88bf60c1dee114ca82d295c4ffc72d61825d32",
+        "rev": "e06b2d7a3c7d3509a151b4d0af5badc535178bc2",
         "type": "github"
       },
       "original": {

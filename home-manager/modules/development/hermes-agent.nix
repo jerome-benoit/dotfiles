@@ -11,28 +11,7 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  # https://github.com/NixOS/nix/pull/15638
-  avDarwin = pkgs.python312.pkgs.av.overrideAttrs {
-    dontUsePytestCheck = true;
-    dontUsePythonImportsCheck = true;
-  };
-  fasterWhisperDarwin = (pkgs.python312.pkgs.faster-whisper.override { av = avDarwin; }).overrideAttrs {
-    dontUsePythonImportsCheck = true;
-  };
-
-  baseHermesAgentPackage = pkgs.hermes-agent or null;
-  hermesAgentPackage =
-    if baseHermesAgentPackage != null && isDarwin then
-      baseHermesAgentPackage.override {
-        python312 = pkgs.python312.override {
-          packageOverrides = _pyFinal: _pyPrev: {
-            av = avDarwin;
-            faster-whisper = fasterWhisperDarwin;
-          };
-        };
-      }
-    else
-      baseHermesAgentPackage;
+  hermesAgentPackage = pkgs.hermes-agent or null;
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
