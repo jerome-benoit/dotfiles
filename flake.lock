@@ -136,7 +136,7 @@
       },
       "original": {
         "owner": "jerome-benoit",
-        "ref": "nix-patched",
+        "ref": "main-patched",
         "repo": "hermes-agent",
         "type": "github"
       }
