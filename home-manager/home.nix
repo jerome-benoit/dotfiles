@@ -61,7 +61,6 @@ in
   nixpkgs = {
     overlays = [
       inputs.nix-openclaw.overlays.default
-      inputs.hermes-agent.overlays.default
       # https://github.com/NixOS/nix/pull/15638
       (_final: prev:
         if prev.stdenv.hostPlatform.system == "aarch64-darwin" then {
@@ -78,6 +77,7 @@ in
           };
         } else { }
       )
+      inputs.hermes-agent.overlays.default
       # https://github.com/openclaw/nix-openclaw/issues/80
       (_final: prev: {
         openclaw-gateway = prev.openclaw-gateway.overrideAttrs (old: {
