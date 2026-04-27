@@ -3,6 +3,7 @@
   lib,
   pkgs,
   inputs,
+  self,
   ...
 }:
 
@@ -13,7 +14,16 @@ let
   homeDir = config.home.homeDirectory;
 
   baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default or null;
-  hermesAgentPackage = baseHermesAgentPackage;
+  hermesAgentPackage =
+    if baseHermesAgentPackage != null then
+      baseHermesAgentPackage.overrideAttrs (oldAttrs: {
+        patches = (oldAttrs.patches or [ ]) ++ [
+          # https://github.com/NousResearch/hermes-agent/pull/13567
+          (self + "/patches/hermes-agent/fix-delegate-transport-heuristics.patch")
+        ];
+      })
+    else
+      null;
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;

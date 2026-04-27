@@ -1,0 +1,80 @@
+diff --git a/tests/tools/test_delegate.py b/tests/tools/test_delegate.py
+index 762654a2596..7462f54b908 100644
+--- a/tests/tools/test_delegate.py
++++ b/tests/tools/test_delegate.py
+@@ -659,6 +659,45 @@ def test_direct_endpoint_does_not_fall_back_to_openrouter_api_key_env(self):
+                 _resolve_delegation_credentials(cfg, parent)
+         self.assertIn("OPENAI_API_KEY", str(ctx.exception))
+ 
++    def test_direct_openai_endpoint_uses_codex_responses_api_mode(self):
++        parent = _make_mock_parent(depth=0)
++        cfg = {
++            "model": "gpt-5-mini",
++            "base_url": "https://api.openai.com/v1",
++            "api_key": "openai-key",
++        }
++
++        creds = _resolve_delegation_credentials(cfg, parent)
++
++        self.assertEqual(creds["provider"], "custom")
++        self.assertEqual(creds["api_mode"], "codex_responses")
++
++    def test_direct_xai_endpoint_uses_codex_responses_api_mode(self):
++        parent = _make_mock_parent(depth=0)
++        cfg = {
++            "model": "grok-code-fast",
++            "base_url": "https://api.x.ai/v1",
++            "api_key": "xai-key",
++        }
++
++        creds = _resolve_delegation_credentials(cfg, parent)
++
++        self.assertEqual(creds["provider"], "custom")
++        self.assertEqual(creds["api_mode"], "codex_responses")
++
++    def test_direct_anthropic_proxy_suffix_uses_anthropic_messages(self):
++        parent = _make_mock_parent(depth=0)
++        cfg = {
++            "model": "claude-sonnet-4",
++            "base_url": "https://proxy.example.com/anthropic",
++            "api_key": "proxy-key",
++        }
++
++        creds = _resolve_delegation_credentials(cfg, parent)
++
++        self.assertEqual(creds["provider"], "custom")
++        self.assertEqual(creds["api_mode"], "anthropic_messages")
++
+     @patch("hermes_cli.runtime_provider.resolve_runtime_provider")
+     def test_nous_provider_resolves_nous_credentials(self, mock_resolve):
+         """Nous provider resolves Nous Portal base_url and api_key."""
+diff --git a/tools/delegate_tool.py b/tools/delegate_tool.py
+index 7065e129aca..253b2e3b60c 100644
+--- a/tools/delegate_tool.py
++++ b/tools/delegate_tool.py
+@@ -54,6 +54,16 @@
+ MAX_DEPTH = 2  # parent (0) -> child (1) -> grandchild rejected (2)
+ 
+ 
++def _detect_direct_endpoint_api_mode(base_url: str) -> Optional[str]:
++    normalized = (base_url or "").strip().lower().rstrip("/")
++    hostname = base_url_hostname(base_url)
++    if hostname in {"api.openai.com", "api.x.ai"}:
++        return "codex_responses"
++    if normalized.endswith("/anthropic"):
++        return "anthropic_messages"
++    return None
++
++
+ def _get_max_concurrent_children() -> int:
+     """Read delegation.max_concurrent_children from config, falling back to
+     DELEGATION_MAX_CONCURRENT_CHILDREN env var, then the default (3).
+@@ -1024,7 +1034,7 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
+ 
+         base_lower = configured_base_url.lower()
+         provider = "custom"
+-        api_mode = "chat_completions"
++        api_mode = _detect_direct_endpoint_api_mode(configured_base_url) or "chat_completions"
+         if (
+             base_url_hostname(configured_base_url) == "chatgpt.com"
+             and "/backend-api/codex" in base_lower
