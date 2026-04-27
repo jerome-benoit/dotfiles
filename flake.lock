@@ -127,16 +127,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1777315358,
-        "narHash": "sha256-E0zuIvOpGClA1y5At997f0X3+LeveeWuxjHZTYV8BMw=",
+        "lastModified": 1777319440,
+        "narHash": "sha256-S4fkkBsBD/ist1xoM3eyQC2QwOFH7wV3g4ANSiSNahM=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "312e67cf14c191b3cfb540fd36425f740b8979ec",
+        "rev": "f34e7fbaf4ace66442c921193f3b9935baf30752",
         "type": "github"
       },
       "original": {
         "owner": "jerome-benoit",
-        "ref": "nix-patched",
+        "ref": "main-patched",
         "repo": "hermes-agent",
         "type": "github"
       }
