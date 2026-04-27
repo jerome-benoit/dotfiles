@@ -1,5 +1,5 @@
 diff --git a/src/agents.rs b/src/agents.rs
-index 2e932c280..ba46864cc 100644
+index c0eae0150..6826c310d 100644
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -24,6 +24,26 @@ pub enum YoloMode {
@@ -99,7 +99,7 @@ index 2e932c280..ba46864cc 100644
 +        resume_strategy: ResumeStrategy::Flag("--resume"),
          host_only: false,
          send_keys_enter_delay_ms: 0,
-         install_hint: "pip install vibe-tool",
+         install_hint: "pip install mistral-vibe",
 @@ -172,6 +212,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_codex_status,
          container_env: &[],
@@ -144,18 +144,14 @@ index 2e932c280..ba46864cc 100644
          host_only: false,
          send_keys_enter_delay_ms: 0,
          install_hint: "see https://docs.github.com/en/copilot/github-copilot-in-the-cli",
-@@ -263,9 +317,10 @@ pub const AGENTS: &[AgentDef] = &[
+@@ -263,6 +317,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_pi_status,
          container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
          hook_config: None,
 +        resume_strategy: ResumeStrategy::Flag("--session"),
          host_only: false,
          send_keys_enter_delay_ms: 0,
--        install_hint: "pip install pi-agent",
-+        install_hint: "npm install -g @mariozechner/pi-coding-agent",
-     },
-     AgentDef {
-         name: "droid",
+         install_hint: "npm install -g @mariozechner/pi-coding-agent",
 @@ -278,6 +333,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_droid_status,
          container_env: &[],
@@ -163,7 +159,7 @@ index 2e932c280..ba46864cc 100644
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: false,
          send_keys_enter_delay_ms: 0,
-         install_hint: "npm install -g @anthropic-ai/droid",
+         install_hint: "npm install -g droid",
 @@ -293,6 +349,7 @@ pub const AGENTS: &[AgentDef] = &[
          detect_status: status_detection::detect_settl_status,
          container_env: &[],
@@ -171,7 +167,7 @@ index 2e932c280..ba46864cc 100644
 +        resume_strategy: ResumeStrategy::Unsupported,
          host_only: true,
          send_keys_enter_delay_ms: 0,
-         install_hint: "see https://settl.dev/docs/install",
+         install_hint: "brew install --cask mozilla-ai/tap/settl",
 diff --git a/src/cli/add.rs b/src/cli/add.rs
 index a296ea8fd..b58eaa664 100644
 --- a/src/cli/add.rs
