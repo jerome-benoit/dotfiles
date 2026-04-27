@@ -12,8 +12,7 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default or null;
-  hermesAgentPackage = baseHermesAgentPackage;
+  hermesAgentPackage = inputs.hermes-agent.packages.${system}.default or null;
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
