@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  inputs,
   ...
 }:
 
@@ -12,7 +11,8 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  hermesAgentPackage = inputs.hermes-agent.packages.${system}.default or null;
+  # Use pkgs.hermes-agent from overlay (overridable via .override{})
+  hermesAgentPackage = pkgs.hermes-agent or null;
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
@@ -93,7 +93,7 @@ in
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = hermesAgentPackage;
-      defaultText = lib.literalExpression "inputs.hermes-agent.packages.\${system}.default";
+      defaultText = lib.literalExpression "pkgs.hermes-agent";
       description = "hermes-agent package";
     };
 

@@ -61,6 +61,7 @@ in
   nixpkgs = {
     overlays = [
       inputs.nix-openclaw.overlays.default
+      inputs.hermes-agent.overlays.default
       # https://github.com/openclaw/nix-openclaw/issues/80
       (_final: prev: {
         openclaw-gateway = prev.openclaw-gateway.overrideAttrs (old: {
