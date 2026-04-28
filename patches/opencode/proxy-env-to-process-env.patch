@@ -59,7 +59,7 @@ index e7af61422b43..56acf3dcbb4b 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index 841fd97f082e..554b443f60b7 100644
+index c05d05319353..d72e938efd12 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -257,8 +257,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
