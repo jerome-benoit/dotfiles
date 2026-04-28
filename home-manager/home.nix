@@ -117,7 +117,7 @@ in
       enableWeb = profileModules.development.aoe.enableWeb;
     };
     bun.enable = bunSupported && profileModules.development.bun;
-    claudeCode.enable = profileModules.development.claudeCode;
+    claudeCode.enable = bunSupported && profileModules.development.claudeCode;
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
     hermesAgent = {
