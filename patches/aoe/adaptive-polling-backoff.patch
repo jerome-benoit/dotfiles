@@ -1,5 +1,5 @@
 diff --git a/src/session/poller.rs b/src/session/poller.rs
-index 68255967..cc456206 100644
+index 68255967..c38b1e27 100644
 --- a/src/session/poller.rs
 +++ b/src/session/poller.rs
 @@ -1,28 +1,124 @@
@@ -57,7 +57,7 @@ index 68255967..cc456206 100644
 +        }
 +    }
 +}
-+
+ 
 +impl Drop for PollerCountGuard {
 +    fn drop(&mut self) {
 +        ACTIVE_POLLER_COUNT.fetch_sub(1, Ordering::SeqCst);
@@ -68,7 +68,7 @@ index 68255967..cc456206 100644
 +const POLL_MAX_INTERVAL: Duration = Duration::from_secs(60);
 +const POLL_BACKOFF_FACTOR: f64 = 1.5;
 +const POLL_STABLE_THRESHOLD: u32 = 3;
- 
++
 +/// Manages adaptive polling intervals that back off when no changes are detected
  #[derive(Debug)]
 +struct AdaptiveInterval {
@@ -173,7 +173,7 @@ index 68255967..cc456206 100644
 +            None => {
 +                tracing::warn!(
 +                    "Poller thread budget exhausted ({}/{}), skipping poller for {}",
-+                    ACTIVE_POLLER_COUNT.load(Ordering::Relaxed),
++                    ACTIVE_POLLER_COUNT.load(Ordering::SeqCst),
 +                    MAX_POLLER_THREADS,
 +                    instance_id
 +                );
@@ -185,36 +185,48 @@ index 68255967..cc456206 100644
          let session_name = self.session_name.clone();
          let thread_label = format!("aoe-poller/{}", instance_id);
          let result_tx = self.result_tx.clone();
-@@ -83,22 +196,30 @@ impl SessionPoller {
+@@ -83,22 +196,39 @@ impl SessionPoller {
              .name(thread_label.clone())
              .stack_size(128 * 1024)
              .spawn(move || {
-+                // Move the guard into the thread so it decrements on exit (including panic)
++                // Rebind so the closure captures `_guard` and the counter only
++                // decrements when the thread exits (including via panic). Without
++                // this, `move` would not capture an unreferenced binding and the
++                // counter would decrement as soon as `start()` returned.
 +                let _guard = _guard;
 +
                  let mut last_known = initial_known;
- 
--                let mut report = |new_id: String| {
 +                let mut interval = AdaptiveInterval::new(
 +                    POLL_INITIAL_INTERVAL,
 +                    POLL_MAX_INTERVAL,
 +                    POLL_BACKOFF_FACTOR,
 +                    POLL_STABLE_THRESHOLD,
 +                );
-+
-+                // Immediate first poll (e.g. pre-existing sessions loaded from disk)
-+                if let Some(new_id) = poll_fn() {
-                     if last_known.as_deref() != Some(&new_id) {
-                         on_change(&new_id);
-                         let _ = result_tx.send((instance_id.clone(), new_id.clone()));
-                         last_known = Some(new_id);
-+                        interval.record_change();
+ 
+-                let mut report = |new_id: String| {
+-                    if last_known.as_deref() != Some(&new_id) {
+-                        on_change(&new_id);
+-                        let _ = result_tx.send((instance_id.clone(), new_id.clone()));
+-                        last_known = Some(new_id);
++                let report = |new_id_opt: Option<String>,
++                              last: &mut Option<String>,
++                              interval: &mut AdaptiveInterval| {
++                    match new_id_opt {
++                        Some(new_id) if last.as_deref() != Some(&new_id) => {
++                            on_change(&new_id);
++                            let _ = result_tx.send((instance_id.clone(), new_id.clone()));
++                            *last = Some(new_id);
++                            interval.record_change();
++                        }
++                        _ => interval.record_no_change(),
                      }
--                };
--
+                 };
+ 
 -                if let Some(new_id) = poll_fn() {
 -                    report(new_id);
-                 }
+-                }
++                // Immediate first poll (e.g. pre-existing sessions loaded from disk).
++                report(poll_fn(), &mut last_known, &mut interval);
  
                  loop {
 -                    match cmd_rx.recv_timeout(POLL_INTERVAL) {
@@ -222,26 +234,18 @@ index 68255967..cc456206 100644
                          Ok(PollCommand::Stop) => break,
                          Err(RecvTimeoutError::Timeout) => {}
                          Err(RecvTimeoutError::Disconnected) => break,
-@@ -110,7 +231,17 @@ impl SessionPoller {
+@@ -109,9 +239,7 @@ impl SessionPoller {
+                         break;
                      }
  
-                     if let Some(new_id) = poll_fn() {
+-                    if let Some(new_id) = poll_fn() {
 -                        report(new_id);
-+                        let changed = last_known.as_deref() != Some(&new_id);
-+                        if changed {
-+                            on_change(&new_id);
-+                            let _ = result_tx.send((instance_id.clone(), new_id.clone()));
-+                            last_known = Some(new_id);
-+                            interval.record_change();
-+                        } else {
-+                            interval.record_no_change();
-+                        }
-+                    } else {
-+                        interval.record_no_change();
-                     }
+-                    }
++                    report(poll_fn(), &mut last_known, &mut interval);
                  }
              });
-@@ -122,6 +253,13 @@ impl SessionPoller {
+ 
+@@ -122,6 +250,13 @@ impl SessionPoller {
              }
              Err(e) => {
                  tracing::warn!("Failed to spawn poller thread {}: {}", thread_label, e);
@@ -255,7 +259,7 @@ index 68255967..cc456206 100644
                  false
              }
          }
-@@ -132,7 +270,7 @@ impl SessionPoller {
+@@ -132,7 +267,7 @@ impl SessionPoller {
          self.result_rx.as_ref()?.try_recv().ok()
      }
  
@@ -264,7 +268,7 @@ index 68255967..cc456206 100644
      pub fn stop(&mut self) {
          let _ = self.cmd_tx.send(PollCommand::Stop);
          if let Some(handle) = self.handle.take() {
-@@ -142,6 +280,7 @@ impl SessionPoller {
+@@ -142,6 +277,7 @@ impl SessionPoller {
          }
      }
  
@@ -272,7 +276,7 @@ index 68255967..cc456206 100644
      pub fn is_running(&self) -> bool {
          match &self.handle {
              Some(handle) => !handle.is_finished(),
-@@ -159,86 +298,342 @@ impl Default for SessionPoller {
+@@ -159,86 +295,342 @@ impl Default for SessionPoller {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -441,14 +445,14 @@ index 68255967..cc456206 100644
 +                Some("id-2".to_string())
 +            }
 +        });
-+
+ 
 +        let changed_ids: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 +        let changed_ids_clone = changed_ids.clone();
 +
 +        let on_change: Box<dyn Fn(&str) + Send + 'static> = Box::new(move |id: &str| {
 +            changed_ids_clone.lock().unwrap().push(id.to_string());
 +        });
- 
++
 +        let mut poller = SessionPoller::new("test-session".to_string());
          poller.start(
 -            "inst-2".to_string(),
