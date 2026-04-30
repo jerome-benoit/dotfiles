@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  self,
   inputs,
   ...
 }:
@@ -15,16 +14,7 @@ let
   baseAoePackage =
     if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
 
-  aoePackage =
-    if baseAoePackage != null then
-      baseAoePackage.overrideAttrs (oldAttrs: {
-        patches = (oldAttrs.patches or [ ]) ++ [
-          # https://github.com/njbrake/agent-of-empires/pull/866
-          (self + "/patches/aoe/hermes-session-resume.patch")
-        ];
-      })
-    else
-      null;
+  aoePackage = baseAoePackage;
 
   aoeConfig = ''
     [theme]
