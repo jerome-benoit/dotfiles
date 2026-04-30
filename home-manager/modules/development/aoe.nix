@@ -19,8 +19,6 @@ let
     if baseAoePackage != null then
       baseAoePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
-          # https://github.com/njbrake/agent-of-empires/pull/860
-          (self + "/patches/aoe/adaptive-polling-backoff.patch")
           # https://github.com/njbrake/agent-of-empires/pull/866
           (self + "/patches/aoe/hermes-session-resume.patch")
         ];
