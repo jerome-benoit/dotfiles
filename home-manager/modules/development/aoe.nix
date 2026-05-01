@@ -62,6 +62,8 @@ in
           "vibe"
           "codex"
           "gemini"
+          "hermes"
+          "pi"
         ]
       );
       default = "opencode";

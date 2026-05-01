@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 817f8c3e3870..2f8e180b2147 100644
+index 44841fe6fcd4..5075d4f5827b 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
-@@ -603,7 +603,6 @@ export const layer = Layer.effect(
+@@ -606,7 +606,6 @@ export const layer = Layer.effect(
                { concurrency: 2 },
              )
              if (Option.isSome(tokenOpt)) {
@@ -59,7 +59,7 @@ index e7af61422b43..56acf3dcbb4b 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index fc835cf5ee00..115de603dbd9 100644
+index 7d9806d1391e..5cd4fc8553f4 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -276,8 +276,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
