@@ -43,11 +43,11 @@
     "agtx": {
       "flake": false,
       "locked": {
-        "lastModified": 1777578792,
-        "narHash": "sha256-vVq33duMpu0Qu2a/8q+eFfl1s5rsMpbGQ1l26xkoQYM=",
+        "lastModified": 1777720757,
+        "narHash": "sha256-pmL6bDxj5aeD0BgnoVud3uQMhzVZ+Ijs0JPdHdvw4VA=",
         "owner": "fynnfluegge",
         "repo": "agtx",
-        "rev": "58b939195a34ab8cebdf8f1769696fe5b149ddf4",
+        "rev": "ae46f93cab455268230416dbfeaf3a37f71d9f40",
         "type": "github"
       },
       "original": {
@@ -127,11 +127,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1777697669,
-        "narHash": "sha256-jS0MdlgP9SMj42cgu4F/sOwma9sgFc2PO1JIqg8qOpQ=",
+        "lastModified": 1777724479,
+        "narHash": "sha256-Abvw7fooaNmGFyDmlBrUHvENE0bCqNQ/BTq9arFz9Ys=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "e6385328e48414a106c63e8c687447ed4e20d13e",
+        "rev": "c5f83d6ebbbf7af1d6a2d465aa13135ca407387d",
         "type": "github"
       },
       "original": {
