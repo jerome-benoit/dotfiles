@@ -1,8 +1,8 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index c6557360bb2c..fcc2eb7a5809 100644
+index 3a933f81e967..85b496758264 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
-@@ -610,7 +610,6 @@ export const layer = Layer.effect(
+@@ -602,7 +602,6 @@ export const layer = Layer.effect(
                { concurrency: 2 },
              )
              if (Option.isSome(tokenOpt)) {
