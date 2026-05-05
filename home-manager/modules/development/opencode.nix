@@ -31,21 +31,18 @@ let
     else
       null;
 
-  desktopPackage =
-    if cfg.enableDesktop then
-      let
-        desktop = inputs.opencode.packages.${system}.desktop or null;
-        outputHashes = import ./opencode-hashes.nix;
-      in
-      if desktop != null then
-        (desktop.override { opencode = opencodePackage; }).overrideAttrs (_: {
-          cargoDeps = pkgs.rustPlatform.importCargoLock {
-            lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
-            inherit outputHashes;
-          };
-        })
-      else
-        null
+  mkDesktopPackage =
+    let
+      desktop = inputs.opencode.packages.${system}.desktop or null;
+      outputHashes = import ./opencode-hashes.nix;
+    in
+    if desktop != null then
+      (desktop.override { opencode = opencodePackage; }).overrideAttrs (_: {
+        cargoDeps = pkgs.rustPlatform.importCargoLock {
+          lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
+          inherit outputHashes;
+        };
+      })
     else
       null;
 in
@@ -56,7 +53,7 @@ in
     enableDesktop = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "OpenCode Desktop integration";
+      description = "Whether to enable the OpenCode Desktop application";
     };
 
     opencodePackage = lib.mkOption {
@@ -69,14 +66,15 @@ in
 
     desktopPackage = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = desktopPackage;
-      defaultText = lib.literalExpression "inputs.opencode.packages.\${system}.desktop";
+      default = null;
+      defaultText = lib.literalExpression "null";
       description = "OpenCode Desktop package";
-      example = lib.literalExpression "inputs.opencode.packages.\${system}.desktop";
     };
   };
 
   config = lib.mkIf cfg.enable {
+    modules.development.opencode.desktopPackage = lib.mkIf cfg.enableDesktop mkDesktopPackage;
+
     home.packages =
       lib.optional (cfg.opencodePackage != null) cfg.opencodePackage
       ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;

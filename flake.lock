@@ -169,7 +169,7 @@
         "home-manager": [
           "home-manager"
         ],
-        "nix-steipete-tools": [
+        "nix-openclaw-tools": [
           "nix-openclaw-tools"
         ],
         "nixpkgs": [
@@ -177,11 +177,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1777971579,
-        "narHash": "sha256-DWhqvPIemclsSF/YIBuIUfRCuI1e72rAtI6rFwhgeKk=",
+        "lastModified": 1777979268,
+        "narHash": "sha256-hOHdOR399mhiio345nQr92kgUdJ9iCDqw46bh7ug1tU=",
         "owner": "openclaw",
         "repo": "nix-openclaw",
-        "rev": "ecfb1dc936a5592f9696985fe5ae3dbc46213578",
+        "rev": "8b24b5d51525dc800e45b1dd184dff5418ed7267",
         "type": "github"
       },
       "original": {

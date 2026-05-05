@@ -35,7 +35,6 @@ in
         # wacrawl.enable = true;
         peekaboo.enable = isDarwin;
         poltergeist.enable = isDarwin;
-        bird.enable = false;
         imsg.enable = isDarwin;
       };
 
