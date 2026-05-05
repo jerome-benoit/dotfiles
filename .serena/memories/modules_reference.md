@@ -53,7 +53,7 @@ Common packages for all platforms:
 - **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta, whisper-cpp
 - **Linux server**: delta, grc (only on server profile)
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
-- **steipete tools** (via `nix-steipete-tools` flake input): peekaboo, poltergeist, imsg, camsnap, sag (macOS) + summarize, gogcli, goplaces, sonoscli (all platforms)
+- **openclaw tools** (via `nix-openclaw-tools` flake input): peekaboo, poltergeist, imsg, camsnap, sag (macOS) + summarize, gogcli, goplaces, sonoscli, discrawl, wacrawl (all platforms)
 - **Homebrew**: .Brewfile with taps (hAIperspace/hai, moltenbits) and packages (docker-desktop, ferdium, ghostty, gpg-suite@nightly, jordanbaird-ice, shuttle, growlrrr, hai, mole)
 
 ### profile.nix
@@ -221,7 +221,7 @@ Agent of Empires session manager:
 OpenClaw AI gateway:
 
 - Uses `programs.openclaw` HM module from `nix-openclaw` flake input
-- Bundled plugins: summarize, sag, camsnap, gogcli, goplaces, sonoscli + macOS-only: peekaboo, poltergeist, imsg (bird disabled — upstream repo deleted, nix-steipete-tools#6)
+- Bundled plugins: summarize, sag, camsnap, gogcli, goplaces, sonoscli + macOS-only: peekaboo, poltergeist, imsg
 - Service: launchd on macOS, systemd on Linux
 - Config: gateway (local/loopback), Telegram channel, agent defaults (model fallbacks, auth profiles, secrets defaults), exec security allowlist
 - Activation: injects `$include` for local overrides, seeds `openclaw.local.json`

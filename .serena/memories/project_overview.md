@@ -22,8 +22,16 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `agent-of-empires`   | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake)                                     |
 | `agent-deck`         | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)                                      |
 | `openspec`           | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                            |
-| `nix-openclaw`       | `github:openclaw/nix-openclaw`              | OpenClaw AI gateway, follows nixpkgs + home-manager + nix-steipete-tools |
-| `nix-steipete-tools` | `github:openclaw/nix-steipete-tools`        | Steipete tool binaries, follows nixpkgs                                  |
+| `nix-openclaw`       | `github:openclaw/nix-openclaw`              | OpenClaw AI gateway, follows nixpkgs + home-manager + flake-utils + nix-openclaw-tools |
+| `nix-openclaw-tools` | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                  |
+| `hermes-agent`       | `github:jerome-benoit/hermes-agent/main-patched` | Hermes Agent (fork with darwin fixes), follows nixpkgs + flake-parts + pyproject-nix + uv2nix + pyproject-build-systems |
+| `qmd`                | `github:tobi/qmd`                           | QMD CLI, follows nixpkgs + flake-utils                                   |
+| `agtx`               | `github:fynnfluegge/agtx`                   | Agtx terminal agent (non-flake)                                          |
+| `flake-utils`        | `github:numtide/flake-utils`                | Flake utilities                                                          |
+| `flake-parts`        | `github:hercules-ci/flake-parts`            | Flake composition                                                        |
+| `pyproject-nix`      | `github:pyproject-nix/pyproject.nix`        | Python packaging for Nix, follows nixpkgs                                |
+| `uv2nix`             | `github:pyproject-nix/uv2nix`               | uv lockfile to Nix, follows nixpkgs + pyproject-nix                      |
+| `pyproject-build-systems` | `github:pyproject-nix/build-system-pkgs` | Python build systems, follows nixpkgs + pyproject-nix + uv2nix          |
 
 ## Supported Platforms
 
@@ -89,7 +97,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── ripgrep.nix      # Fast grep replacement
 │       │   ├── zoxide.nix       # Smart cd command
 │       │   └── zsh.nix          # Shell config with oh-my-zsh
-│       ├── development/         # Dev tools (12 files)
+│       ├── development/         # Dev tools (16 files)
 │       │   ├── agent-deck.nix   # AI agent command center TUI
 │       │   ├── aoe.nix          # Agent of Empires session manager
 │       │   ├── bun.nix          # JavaScript runtime
@@ -99,8 +107,12 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── lazygit.nix      # Git TUI with conventional commits
 │       │   ├── openclaw.nix     # OpenClaw AI gateway
 │       │   ├── opencode.nix     # OpenCode AI assistant
-│       │   ├── opencode-hashes.nix # OpenCode package hashes
-│       │   └── openspec.nix     # OpenSpec CLI
+│       │   ├── opencode-hashes.nix # OpenCode desktop Cargo hashes
+│       │   ├── openspec.nix     # OpenSpec CLI
+│       │   ├── hermes-agent.nix # Hermes Agent (gateway + dashboard services)
+│       │   ├── agtx.nix         # Agtx terminal agent
+│       │   ├── pi.nix           # Pi coding agent
+│       │   └── qmd.nix          # QMD CLI
 │       ├── programs/            # Applications (9 files)
 │       │   ├── alacritty.nix    # Terminal emulator with theme
 │       │   ├── btop.nix         # System monitor
@@ -119,7 +131,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 ├── statix.toml                  # Statix linter configuration
 ├── patches/                     # Upstream PR patches
 │   ├── opencode/                # Patches for anomalyco/opencode
-│   └── aoe/                     # Patches for njbrake/agent-of-empires
+│   └── qmd/                     # Patches for tobi/qmd
 ├── checks/                      # Flake checks (5 files)
 │   ├── default.nix              # Check aggregator
 │   ├── formatting.nix           # Nix formatting check (nixfmt)
