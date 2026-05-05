@@ -8,7 +8,7 @@
 let
   cfg = config.modules.core.packages;
   openclawEnabled = config.modules.development.openclaw.enable or false;
-  steipeteTools = inputs.nix-steipete-tools.packages.${pkgs.system};
+  openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.system};
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
   isServer = config.modules.core.profile.name == config.modules.core.constants.profiles.server;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
@@ -29,14 +29,14 @@ in
       pkgs.whisper-cpp
     ]
     ++ lib.optionals (!openclawEnabled) [
-      steipeteTools.camsnap
-      steipeteTools.discrawl
-      steipeteTools.gogcli
-      steipeteTools.goplaces
-      steipeteTools.sag
-      steipeteTools.sonoscli
-      steipeteTools.summarize
-      steipeteTools.wacrawl
+      openclawTools.camsnap
+      openclawTools.discrawl
+      openclawTools.gogcli
+      openclawTools.goplaces
+      openclawTools.sag
+      openclawTools.sonoscli
+      openclawTools.summarize
+      openclawTools.wacrawl
     ]
     ++ lib.optionals isServer [
       pkgs.delta
@@ -105,9 +105,9 @@ in
         pkgs.zoom-us
       ]
       ++ lib.optionals (!openclawEnabled) [
-        steipeteTools.imsg
-        steipeteTools.peekaboo
-        steipeteTools.poltergeist
+        openclawTools.imsg
+        openclawTools.peekaboo
+        openclawTools.poltergeist
       ]
     )
     ++ lib.optionals (isDesktop && isLinux) [

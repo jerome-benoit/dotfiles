@@ -31,11 +31,11 @@
     nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
     nix-openclaw.inputs.home-manager.follows = "home-manager";
     nix-openclaw.inputs.flake-utils.follows = "flake-utils";
-    nix-openclaw.inputs.nix-steipete-tools.follows = "nix-steipete-tools";
+    nix-openclaw.inputs.nix-steipete-tools.follows = "nix-openclaw-tools";
     flake-utils.url = "github:numtide/flake-utils";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix-steipete-tools.url = "github:openclaw/nix-steipete-tools";
-    nix-steipete-tools.inputs.nixpkgs.follows = "nixpkgs";
+    nix-openclaw-tools.url = "github:openclaw/nix-openclaw-tools";
+    nix-openclaw-tools.inputs.nixpkgs.follows = "nixpkgs";
     # https://github.com/NousResearch/hermes-agent/pull/13567
     hermes-agent.url = "github:jerome-benoit/hermes-agent/main-patched";
     hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
