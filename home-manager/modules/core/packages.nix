@@ -47,6 +47,7 @@ in
     ++ lib.optionals isDesktop [
       pkgs.bruno
       pkgs.cloudfoundry-cli
+      pkgs.codex
       pkgs.gemini-cli
       pkgs.lazyssh
       pkgs.lychee
