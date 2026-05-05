@@ -23,6 +23,7 @@ in
       workspaceDir = "${homeDir}/.openclaw/workspace";
       installApp = isDarwin;
       exposePluginPackages = false;
+      excludeTools = [ "qmd" ];
 
       bundledPlugins = {
         summarize.enable = true;
