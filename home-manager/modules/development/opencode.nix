@@ -31,8 +31,23 @@ let
     else
       null;
 
-  # upstream nix/desktop.nix broken: Tauri→Electron migration left stale Cargo.lock ref
-  desktopPackage = null;
+  desktopPackage =
+    if cfg.enableDesktop then
+      let
+        desktop = inputs.opencode.packages.${system}.desktop or null;
+        outputHashes = import ./opencode-hashes.nix;
+      in
+      if desktop != null then
+        (desktop.override { opencode = opencodePackage; }).overrideAttrs (_: {
+          cargoDeps = pkgs.rustPlatform.importCargoLock {
+            lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
+            inherit outputHashes;
+          };
+        })
+      else
+        null
+    else
+      null;
 in
 {
   options.modules.development.opencode = {
