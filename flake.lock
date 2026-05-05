@@ -174,14 +174,17 @@
         ],
         "nixpkgs": [
           "nixpkgs"
+        ],
+        "qmd": [
+          "qmd"
         ]
       },
       "locked": {
-        "lastModified": 1778001770,
-        "narHash": "sha256-47RQW9wNZjEql+l6ONkB+qB6vVGsC5r+Pi+5uCdSdQg=",
+        "lastModified": 1778005465,
+        "narHash": "sha256-AYJW30MkyZQ8Dz1B3W0QmY47YW/70INATQvAOO8pcH8=",
         "owner": "openclaw",
         "repo": "nix-openclaw",
-        "rev": "4a918c46eeecb052d827a3ffb50fb47d2a78c163",
+        "rev": "3abd2d14cb152cad51dcea039c396b713f432090",
         "type": "github"
       },
       "original": {
