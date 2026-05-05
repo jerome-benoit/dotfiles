@@ -105,7 +105,6 @@ in
         pkgs.zoom-us
       ]
       ++ lib.optionals (!openclawEnabled) [
-        steipeteTools.codexbar-app
         steipeteTools.imsg
         steipeteTools.peekaboo
         steipeteTools.poltergeist

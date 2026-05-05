@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  self,
   ...
 }:
 
@@ -11,13 +10,6 @@ let
   constants = config.modules.core.constants;
   homeDir = config.home.homeDirectory;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-
-  openclawPackage = pkgs.openclaw.overrideAttrs (oldAttrs: {
-    patches = (oldAttrs.patches or [ ]) ++ [
-      # https://github.com/openclaw/openclaw/pull/59935
-      (self + "/patches/openclaw/nix-home-manager-path-support.patch")
-    ];
-  });
 in
 {
   options.modules.development.openclaw = {
@@ -27,7 +19,6 @@ in
   config = lib.mkIf cfg.enable {
     programs.openclaw = {
       enable = true;
-      package = openclawPackage;
       stateDir = "${homeDir}/.openclaw";
       workspaceDir = "${homeDir}/.openclaw/workspace";
       installApp = isDarwin;
