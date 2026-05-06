@@ -62,18 +62,6 @@ in
     overlays = [
       inputs.nix-openclaw.overlays.default
       inputs.hermes-agent.overlays.default
-      # https://github.com/openclaw/nix-openclaw/issues/80
-      (_final: prev: {
-        openclaw-gateway = prev.openclaw-gateway.overrideAttrs (old: {
-          postPatch = (old.postPatch or "") + ''
-            if [ -f scripts/stage-bundled-plugin-runtime-deps.mjs ]; then
-              sed -i '/const result = spawnSync(npmRunner\.command/i\
-              console.warn(`[nix] skipping npm install for ''${pluginId}`); return;' \
-                scripts/stage-bundled-plugin-runtime-deps.mjs
-            fi
-          '';
-        });
-      })
     ];
     config = {
       allowUnfree = true;
