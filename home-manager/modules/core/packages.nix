@@ -48,6 +48,7 @@ in
       pkgs.bruno
       pkgs.cloudfoundry-cli
       pkgs.codex
+      pkgs.crush
       pkgs.gemini-cli
       pkgs.lazyssh
       pkgs.lychee
