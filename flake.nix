@@ -32,7 +32,6 @@
     nix-openclaw.inputs.home-manager.follows = "home-manager";
     nix-openclaw.inputs.flake-utils.follows = "flake-utils";
     nix-openclaw.inputs.nix-openclaw-tools.follows = "nix-openclaw-tools";
-    nix-openclaw.inputs.qmd.follows = "qmd";
     flake-utils.url = "github:numtide/flake-utils";
     flake-parts.url = "github:hercules-ci/flake-parts";
     nix-openclaw-tools.url = "github:openclaw/nix-openclaw-tools";
