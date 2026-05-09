@@ -69,11 +69,35 @@ diff patches/<project>/<name>.patch /tmp/filtered.patch
 - If identical → no change needed
 - If different → `cp /tmp/filtered.patch patches/<project>/<name>.patch`
 
-### 5. Verify patch applies (MUST actually build)
+### 5. Verify patch applies
 ```bash
-# --dry-run only checks evaluation, NOT patch application.
-# Must do a real build to verify patches apply cleanly:
-nix build .#homeConfigurations.I339261.activationPackage
+# `srcOnly` runs unpackPhase + patchPhase only (no compile/install).
+# This is the lightest validation that guarantees patches apply cleanly.
+# Unlike --dry-run (evaluation-only, never invokes a builder), srcOnly
+# actually executes `patch -p1` against fetched source.
+nix build --impure --expr '
+  let flake = builtins.getFlake "path:/Users/I339261/.nix";
+      system = builtins.currentSystem;
+      pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
+  in {
+    # Validates ALL patches apply together (including local/exempt ones).
+    # Only PR-sourced patches need refreshing; the full set is tested for coherence.
+    opencode = pkgs.srcOnly (flake.inputs.opencode.packages.${system}.default.overrideAttrs (old: {
+      patches = (old.patches or []) ++ [
+        /Users/I339261/.nix/patches/opencode/proxy-env-to-process-env.patch
+        /Users/I339261/.nix/patches/opencode/relax-bun-version-check.patch
+      ];
+    }));
+    qmd = pkgs.srcOnly (flake.inputs.qmd.packages.${system}.default.overrideAttrs (old: {
+      patches = (old.patches or []) ++ [
+        /Users/I339261/.nix/patches/qmd/fix-nixos-llama-build.patch
+      ];
+    }));
+  }'
+# Full build is only needed when:
+# - Conflict resolution changed patched code semantically (not just offsets)
+# - Upstream altered assumptions affecting postFixup/installPhase
+# In that case: nix build .#homeConfigurations.I339261.activationPackage
 ```
 
 ### 6. Commit
@@ -85,7 +109,7 @@ git commit -m "chore: refresh <project> PR #<N> patch"
 ## Failure Modes
 - **Patch conflict (not just offset drift)**: PR code overlaps with changes in locked rev. Manual resolution needed — inspect the diff, adjust hunks by hand.
 - **PR force-pushed**: `gh pr diff` gives latest head. Patch may change semantically. Always re-filter and compare.
-- **Patch applies but breaks build**: Upstream changed assumptions. May need to update patch logic, not just offsets.
+- **Patch applies but breaks build**: Upstream changed assumptions affecting postFixup/installPhase. Run full build to diagnose: `nix build .#homeConfigurations.I339261.activationPackage`.
 - **Empty filterdiff output**: Pattern wrong or PR no longer touches expected files. Investigate before proceeding.
 
 ## Key Rules

@@ -18,7 +18,7 @@ git clone --filter=blob:none https://github.com/jerome-benoit/hermes-agent.git "
 cd "$_workdir/h"
 git remote add upstream https://github.com/NousResearch/hermes-agent.git
 git fetch upstream main --filter=blob:none
-git rebase upstream/main
+git rebase --empty=drop upstream/main
 ```
 
 ### 2. Validate rebase result
@@ -41,13 +41,15 @@ git push --force-with-lease origin main-patched
 cd /  # avoid dangling CWD before cleanup
 rm -rf "$_workdir"
 nix flake update hermes-agent --flake /Users/I339261/.nix
+# If fetch fails: GitHub CDN propagation delay after force-push. Retry after 30-60s.
 ```
 
 ### 5. Verify
 ```bash
-# --dry-run is acceptable here (unlike patch refresh process) because there are no nix patches
-# to apply. The fixes live as commits in the fork source. --dry-run verifies evaluation
-# (valid rev, no missing attrs). A full build is optional but recommended after conflict resolution.
+# --dry-run is acceptable here (unlike patch refresh process, which uses srcOnly to
+# execute patchPhase) because there are no nix patches to apply. The fixes live as
+# commits in the fork source. --dry-run verifies evaluation (valid rev, no missing attrs).
+# A full build is optional but recommended after conflict resolution.
 nix build /Users/I339261/.nix#homeConfigurations.I339261.activationPackage --dry-run
 ```
 
@@ -60,7 +62,7 @@ git -C /Users/I339261/.nix push
 
 ## One-liner (when no conflicts expected)
 ```bash
-_workdir=$(mktemp -d) && git clone --filter=blob:none https://github.com/jerome-benoit/hermes-agent.git "$_workdir/h" -b main-patched && cd "$_workdir/h" && git remote add upstream https://github.com/NousResearch/hermes-agent.git && git fetch upstream main --filter=blob:none && git rebase upstream/main && echo "Commits: $(git rev-list --count upstream/main..HEAD)" && git push --force-with-lease origin main-patched && cd / && rm -rf "$_workdir"
+_workdir=$(mktemp -d) && git clone --filter=blob:none https://github.com/jerome-benoit/hermes-agent.git "$_workdir/h" -b main-patched && cd "$_workdir/h" && git remote add upstream https://github.com/NousResearch/hermes-agent.git && git fetch upstream main --filter=blob:none && git rebase --empty=drop upstream/main && [[ $(git rev-list --count upstream/main..HEAD) -ge 1 ]] || { echo "ERROR: 0 commits ahead"; exit 1; } && git push --force-with-lease origin main-patched && cd / && rm -rf "$_workdir"
 ```
 Then:
 ```bash
