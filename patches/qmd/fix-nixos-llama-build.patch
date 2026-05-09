@@ -1,10 +1,10 @@
 diff --git a/src/llm.ts b/src/llm.ts
-index 7cccc3fa..366ada89 100644
+index d469d360..dc7bbc76 100644
 --- a/src/llm.ts
 +++ b/src/llm.ts
-@@ -15,8 +15,9 @@ import {
-   type Token as LlamaToken,
- } from "node-llama-cpp";
+@@ -27,8 +27,9 @@ async function loadNodeLlamaCpp(): Promise<NodeLlamaCppModule> {
+ }
+ 
  import { homedir } from "os";
 -import { join } from "path";
 -import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "fs";
@@ -14,7 +14,7 @@ index 7cccc3fa..366ada89 100644
  
  // =============================================================================
  // Embedding Formatting Functions
-@@ -57,6 +58,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
+@@ -69,6 +70,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
    return `title: ${title || "none"} | text: ${text}`;
  }
  
@@ -38,12 +38,13 @@ index 7cccc3fa..366ada89 100644
  // =============================================================================
  // Types
  // =============================================================================
-@@ -618,13 +636,14 @@ export class LlamaCpp implements LLM {
+@@ -665,14 +683,15 @@ export class LlamaCpp implements LLM {
    private async ensureLlama(allowBuild = true): Promise<Llama> {
      if (!this.llama) {
        const gpuMode = resolveLlamaGpuMode();
 +      const buildMode = allowBuild && canWriteLlamaDir() ? "autoAttempt" : "never";
  
+       const { getLlama, LlamaLogLevel } = await loadNodeLlamaCpp();
        const loadLlama = async (gpu: LlamaGpuMode) =>
          await getLlama({
 -          build: allowBuild ? "autoAttempt" : "never",

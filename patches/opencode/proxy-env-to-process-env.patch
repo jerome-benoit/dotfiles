@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 5b7aa16ff11f..4b116953bc3b 100644
+index 073001e1916e..b49c49c732a6 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -657,7 +657,6 @@ export const layer = Layer.effect(
@@ -59,7 +59,7 @@ index e7af61422b43..56acf3dcbb4b 100644
  )
  
 diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
-index d9b7fac2fa0a..24f6da7a3721 100644
+index 18974ea64609..7cc3904348ba 100644
 --- a/packages/opencode/src/provider/provider.ts
 +++ b/packages/opencode/src/provider/provider.ts
 @@ -274,8 +274,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
