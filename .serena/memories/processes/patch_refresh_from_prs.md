@@ -71,28 +71,30 @@ diff patches/<project>/<name>.patch /tmp/filtered.patch
 
 ### 5. Verify patch applies
 ```bash
-# `srcOnly` runs unpackPhase + patchPhase only (no compile/install).
-# This is the lightest validation that guarantees patches apply cleanly.
-# Unlike --dry-run (evaluation-only, never invokes a builder), srcOnly
-# actually executes `patch -p1` against fetched source.
+# `applyPatches` unpacks src and runs `patch -p1` for each patch — nothing else.
+# Unlike `srcOnly` (which inherits nativeBuildInputs and may trigger npm/cargo fetches),
+# `applyPatches` only needs the source tarball + patch files → near-instant.
+# Unlike --dry-run (evaluation-only, never invokes a builder), this actually executes patches.
 nix build --impure --expr '
-  let flake = builtins.getFlake "path:/Users/I339261/.nix";
+  let flake = builtins.getFlake "git+file:///Users/I339261/.nix";
       system = builtins.currentSystem;
       pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
   in {
     # Validates ALL patches apply together (including local/exempt ones).
     # Only PR-sourced patches need refreshing; the full set is tested for coherence.
-    opencode = pkgs.srcOnly (flake.inputs.opencode.packages.${system}.default.overrideAttrs (old: {
-      patches = (old.patches or []) ++ [
+    opencode = pkgs.applyPatches {
+      src = flake.inputs.opencode.packages.${system}.default.src;
+      patches = [
         /Users/I339261/.nix/patches/opencode/proxy-env-to-process-env.patch
         /Users/I339261/.nix/patches/opencode/relax-bun-version-check.patch
       ];
-    }));
-    qmd = pkgs.srcOnly (flake.inputs.qmd.packages.${system}.default.overrideAttrs (old: {
-      patches = (old.patches or []) ++ [
+    };
+    qmd = pkgs.applyPatches {
+      src = flake.inputs.qmd.packages.${system}.default.src;
+      patches = [
         /Users/I339261/.nix/patches/qmd/fix-nixos-llama-build.patch
       ];
-    }));
+    };
   }'
 # Full build is only needed when:
 # - Conflict resolution changed patched code semantically (not just offsets)

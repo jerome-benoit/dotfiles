@@ -46,7 +46,7 @@ nix flake update hermes-agent --flake /Users/I339261/.nix
 
 ### 5. Verify
 ```bash
-# --dry-run is acceptable here (unlike patch refresh process, which uses srcOnly to
+# --dry-run is acceptable here (unlike patch refresh process, which uses applyPatches to
 # execute patchPhase) because there are no nix patches to apply. The fixes live as
 # commits in the fork source. --dry-run verifies evaluation (valid rev, no missing attrs).
 # A full build is optional but recommended after conflict resolution.
