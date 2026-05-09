@@ -27,11 +27,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1778333132,
-        "narHash": "sha256-wVS6ecSoKW/W1I5hrf1sNie7DIWHb/dtRv9g+ukdIRU=",
+        "lastModified": 1778336825,
+        "narHash": "sha256-QkLtM/LJ/ycaYsGawdvOJj7mE1qJOlpEjENcVg15l7c=",
         "owner": "njbrake",
         "repo": "agent-of-empires",
-        "rev": "6717e094fcb4e494086b99d6f09964a8864ea12a",
+        "rev": "32bd2d9ae5e045b931f7d3c37d79ebb62632c9ed",
         "type": "github"
       },
       "original": {
