@@ -5,6 +5,8 @@ Patches in `patches/<project>/*.patch` come from unmerged upstream PRs.
 Applied via `overrideAttrs` adding to `patches` list (see `opencode.nix`, `qmd.nix`).
 When the locked input advances, patch line offsets drift → must refresh.
 
+**Prerequisites**: Flake lock must be current (`nix flake update <input>` already done). If running both processes, run `hermes_agent_sync_main_patched` FIRST (it affects the lock).
+
 ## Current Patches
 - `patches/opencode/proxy-env-to-process-env.patch` — PR #12822 (anomalyco/opencode)
 - `patches/opencode/relax-bun-version-check.patch` — local, NOT from a PR (exempt from this process)
@@ -110,11 +112,12 @@ nix log <drv-path> 2>&1 | grep -E "(offset|fuzz|FAILED)"
 # The .drv path is printed by step 5's `nix build` output.
 ```
 
-### 7. Commit and verify
+### 7. Commit, push, and verify
 ```bash
 git add patches/<project>/<name>.patch
 git commit -m "chore: refresh <project> PR #<N> patch"
-# MANDATORY: verify commit actually landed
+git push
+# MANDATORY: verify
 git status  # must show "nothing to commit, working tree clean"
 git log --oneline -1  # must show the commit just made
 ```

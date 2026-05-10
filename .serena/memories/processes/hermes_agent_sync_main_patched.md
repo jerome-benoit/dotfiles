@@ -46,8 +46,8 @@ nix flake update hermes-agent --flake /Users/I339261/.nix
 
 ### 5. Verify
 ```bash
-# --dry-run is acceptable here (unlike patch refresh process, which uses applyPatches to
-# execute patchPhase) because there are no nix patches to apply. The fixes live as
+# --dry-run is acceptable here (unlike patch refresh process, which uses applyPatches
+# to apply patches via a standalone build) because there are no nix patches to apply. The fixes live as
 # commits in the fork source. --dry-run verifies evaluation (valid rev, no missing attrs).
 # A full build is optional but recommended after conflict resolution.
 nix build /Users/I339261/.nix#homeConfigurations.I339261.activationPackage --dry-run
@@ -71,7 +71,7 @@ _workdir=$(mktemp -d) && git clone --filter=blob:none https://github.com/jerome-
 ```
 Then:
 ```bash
-nix flake update hermes-agent --flake /Users/I339261/.nix && git -C /Users/I339261/.nix add flake.lock && git -C /Users/I339261/.nix commit -m "chore: update hermes-agent lock" && git -C /Users/I339261/.nix push
+nix flake update hermes-agent --flake /Users/I339261/.nix && git -C /Users/I339261/.nix add flake.lock && git -C /Users/I339261/.nix commit -m "chore: update hermes-agent lock" && git -C /Users/I339261/.nix push && git -C /Users/I339261/.nix status
 ```
 
 ## When to sync
@@ -87,5 +87,5 @@ nix flake update hermes-agent --flake /Users/I339261/.nix && git -C /Users/I3392
 ## Key Rules
 - PREFER `--force-with-lease` (catches unexpected pushes from another machine). If rejected due to stale ref from same-session push, use `--force` after verifying commit count is correct.
 - If commits drop to 0 → fork identical to upstream → switch input back to `github:NousResearch/hermes-agent`
-- Commit message in dotfiles: `chore: update hermes-agent lock`
-- If a commit drops, note in message: `chore: update hermes-agent lock (drop <desc>, now upstream)`
+- Commit message: `chore: update hermes-agent lock` (or `chore: update hermes-agent lock (drop <desc>, now upstream)` if a commit dropped)
+- **Ordering**: This process runs BEFORE patch refresh — hermes sync affects the lock, and patch refresh must verify against the current lock.
