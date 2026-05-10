@@ -8,6 +8,10 @@
 let
   cfg = config.modules.programs.ssh;
   mkSystemPackage = config.modules.core.lib.mkSystemPackage;
+  homeDir = config.home.homeDirectory;
+
+  # sshm manages hosts in this mutable file; SSH reads it via Include.
+  hostsFile = "${homeDir}/.ssh/hosts.local";
 in
 {
   options.modules.programs.ssh = {
@@ -20,6 +24,7 @@ in
         enable = true;
         enableDefaultConfig = false;
         package = mkSystemPackage "ssh" { };
+        includes = [ hostsFile ];
         matchBlocks = {
           "*" = {
             addKeysToAgent = "yes";
@@ -38,5 +43,17 @@ in
         };
       })
     ];
+
+    # Seed the mutable hosts file if absent.
+    home.activation.sshHostsFile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [[ ! -f "${hostsFile}" ]]; then
+        run touch "${hostsFile}"
+        run chmod 600 "${hostsFile}"
+      fi
+    '';
+
+    # Shell alias so sshm always targets the mutable file.
+    programs.bash.shellAliases.sshm = "sshm -c ${hostsFile}";
+    programs.zsh.shellAliases.sshm = "sshm -c ${hostsFile}";
   };
 }
