@@ -111,7 +111,7 @@ in
             "github-copilot/claude-sonnet-4.6".alias = "Sonnet";
             "opencode-go/minimax-m2.7".alias = "MiniMax";
           };
-          thinkingDefault = "high";
+          thinkingDefault = "medium";
           maxConcurrent = 4;
           compaction.mode = "safeguard";
           subagents.maxConcurrent = 8;
