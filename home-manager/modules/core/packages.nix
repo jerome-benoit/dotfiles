@@ -50,7 +50,7 @@ in
       pkgs.codex
       pkgs.crush
       pkgs.gemini-cli
-      pkgs.lazyssh
+      pkgs.sshm
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nil
