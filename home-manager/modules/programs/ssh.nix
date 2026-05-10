@@ -52,8 +52,5 @@ in
       fi
     '';
 
-    # Shell alias so sshm always targets the mutable file.
-    programs.bash.shellAliases.sshm = "sshm -c ${hostsFile}";
-    programs.zsh.shellAliases.sshm = "sshm -c ${hostsFile}";
   };
 }
