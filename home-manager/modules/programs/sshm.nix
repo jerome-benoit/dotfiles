@@ -18,10 +18,8 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ pkgs.sshm ];
 
-    # Include mutable hosts file in SSH config.
     programs.ssh.includes = [ hostsFile ];
 
-    # Seed the mutable hosts file if absent.
     home.activation.sshHostsFile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       if [[ ! -f "${hostsFile}" ]]; then
         run touch "${hostsFile}"
