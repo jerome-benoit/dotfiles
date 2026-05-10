@@ -65,12 +65,6 @@ let
           "HOME=${homeDir}"
           "HERMES_HOME=${configDir}"
           "HERMES_MANAGED=true"
-          "PATH=${lib.makeBinPath [
-            cfg.package
-            pkgs.git
-            pkgs.bash
-            pkgs.coreutils
-          ]}"
         ];
         WorkingDirectory = configDir;
       };
