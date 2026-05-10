@@ -16,6 +16,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = config.programs.ssh.enable;
+        message = "modules.programs.sshm requires programs.ssh to be enabled";
+      }
+    ];
+
     home.packages = [ pkgs.sshm ];
 
     programs.ssh.includes = [ hostsFile ];
