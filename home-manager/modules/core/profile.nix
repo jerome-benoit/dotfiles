@@ -55,6 +55,7 @@ let
       lazydocker = true;
       sway = true;
       ssh = true;
+      sshm = true;
       syncthing = true;
       tmux = true;
       zellij = true;
@@ -118,6 +119,7 @@ let
       lazydocker = true;
       sway = false;
       ssh = true;
+      sshm = true;
       syncthing = false;
       tmux = true;
       zellij = false;

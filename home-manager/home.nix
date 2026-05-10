@@ -133,6 +133,7 @@ in
     lazydocker.enable = profileModules.programs.lazydocker;
     sway.enable = isSway && profileModules.programs.sway;
     ssh.enable = profileModules.programs.ssh;
+    sshm.enable = profileModules.programs.sshm;
     syncthing.enable = pkgs.stdenv.hostPlatform.isDarwin && profileModules.programs.syncthing;
     tmux.enable = profileModules.programs.tmux;
     zellij.enable = profileModules.programs.zellij;

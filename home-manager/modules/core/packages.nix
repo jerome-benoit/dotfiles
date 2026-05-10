@@ -55,7 +55,6 @@ in
       pkgs.nil
       pkgs.nixfmt
       pkgs.obsidian
-      pkgs.sshm
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [

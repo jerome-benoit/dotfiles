@@ -6,8 +6,9 @@
     ./glow.nix
     ./himalaya.nix
     ./lazydocker.nix
-    ./sway.nix
     ./ssh.nix
+    ./sshm.nix
+    ./sway.nix
     ./syncthing.nix
     ./tmux.nix
     ./zellij.nix
