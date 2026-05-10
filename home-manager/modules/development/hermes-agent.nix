@@ -20,7 +20,13 @@ let
   launchdEnv = {
     HOME = homeDir;
     HERMES_HOME = configDir;
-    PATH = "/usr/bin:/bin";
+    HERMES_MANAGED = "true";
+    PATH = lib.makeBinPath [
+      cfg.package
+      pkgs.git
+      pkgs.bash
+      pkgs.coreutils
+    ] + ":/usr/bin:/bin";
   };
 
   mkLaunchdService =
@@ -34,10 +40,7 @@ let
       config = {
         Label = label;
         ProgramArguments = args;
-        KeepAlive = {
-          SuccessfulExit = false;
-        };
-        RunAtLoad = true;
+        KeepAlive = true;
         StandardOutPath = "${configDir}/${logPrefix}.log";
         StandardErrorPath = "${configDir}/${logPrefix}.err.log";
         EnvironmentVariables = launchdEnv;
@@ -53,14 +56,21 @@ let
     {
       Unit = {
         Description = description;
-        After = [ "network.target" ];
       };
       Service = {
         ExecStart = execStart;
-        Restart = "on-failure";
+        Restart = "always";
         RestartSec = 5;
         Environment = [
+          "HOME=${homeDir}"
           "HERMES_HOME=${configDir}"
+          "HERMES_MANAGED=true"
+          "PATH=${lib.makeBinPath [
+            cfg.package
+            pkgs.git
+            pkgs.bash
+            pkgs.coreutils
+          ]}"
         ];
         WorkingDirectory = configDir;
       };
