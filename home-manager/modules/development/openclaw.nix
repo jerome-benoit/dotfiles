@@ -100,16 +100,16 @@ in
         agents.defaults = {
           model = {
             primary = "github-copilot/gpt-5.4";
-            fallbacks = [ "opencode-go/glm-5" ];
+            fallbacks = [ "opencode-go/glm-5.1" ];
           };
           models = {
             "google/gemini-3.1-pro-preview".alias = "Gemini";
-            "opencode-go/glm-5".alias = "GLM";
-            "opencode-go/kimi-k2.5".alias = "Kimi";
+            "opencode-go/glm-5.1".alias = "GLM";
+            "opencode-go/kimi-k2.6".alias = "Kimi";
             "github-copilot/gpt-5.4".alias = "GPT";
             "github-copilot/claude-opus-4.6".alias = "Opus";
             "github-copilot/claude-sonnet-4.6".alias = "Sonnet";
-            "opencode-go/minimax-m2.5".alias = "MiniMax";
+            "opencode-go/minimax-m2.7".alias = "MiniMax";
           };
           thinkingDefault = "high";
           maxConcurrent = 4;
