@@ -50,12 +50,12 @@ in
       pkgs.codex
       pkgs.crush
       pkgs.gemini-cli
-      pkgs.sshm
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nil
       pkgs.nixfmt
       pkgs.obsidian
+      pkgs.sshm
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [
