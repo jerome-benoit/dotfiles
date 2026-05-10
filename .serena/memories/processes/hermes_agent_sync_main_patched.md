@@ -53,11 +53,16 @@ nix flake update hermes-agent --flake /Users/I339261/.nix
 nix build /Users/I339261/.nix#homeConfigurations.I339261.activationPackage --dry-run
 ```
 
-### 6. Commit and push
+### 6. Commit, push, and verify
 ```bash
 git -C /Users/I339261/.nix add flake.lock
 git -C /Users/I339261/.nix commit -m "chore: update hermes-agent lock"
 git -C /Users/I339261/.nix push
+# MANDATORY: verify
+git -C /Users/I339261/.nix status  # "nothing to commit, working tree clean"
+echo "lock: $(jq -r '.nodes["hermes-agent"].locked.rev' /Users/I339261/.nix/flake.lock)"
+echo "fork: $(git ls-remote https://github.com/jerome-benoit/hermes-agent.git refs/heads/main-patched | cut -f1)"
+# Both must match.
 ```
 
 ## One-liner (when no conflicts expected)

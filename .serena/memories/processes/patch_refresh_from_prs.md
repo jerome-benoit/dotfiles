@@ -102,10 +102,21 @@ nix build --impure --expr '
 # In that case: nix build .#homeConfigurations.I339261.activationPackage
 ```
 
-### 6. Commit
+### 6. Check for offset/fuzz warnings
+```bash
+# A patch that applies with fuzz/offset today will FAIL tomorrow. Treat warnings as errors.
+nix log <drv-path> 2>&1 | grep -E "(offset|fuzz|FAILED)"
+# If any output → patch line numbers are drifting. Investigate and re-generate patch.
+# The .drv path is printed by step 5's `nix build` output.
+```
+
+### 7. Commit and verify
 ```bash
 git add patches/<project>/<name>.patch
 git commit -m "chore: refresh <project> PR #<N> patch"
+# MANDATORY: verify commit actually landed
+git status  # must show "nothing to commit, working tree clean"
+git log --oneline -1  # must show the commit just made
 ```
 
 ## Failure Modes
@@ -117,4 +128,7 @@ git commit -m "chore: refresh <project> PR #<N> patch"
 ## Key Rules
 - NEVER include doc/changelog/lock/CI hunks — they cause needless offset drift without affecting builds
 - ALWAYS verify against the LOCKED rev, not upstream HEAD
+- `gh pr diff` gives diff against the PR's TARGET branch HEAD — if our locked rev lags behind, line numbers diverge and patches fail. When this happens: update the lock first (`nix flake update <input>`), re-download the diff, then retry.
+- Treat fuzz/offset warnings as errors — a patch drifting today breaks tomorrow
+- ALWAYS `git status` after commit to confirm it landed (truncated output can hide failures)
 - Commit message format: `chore: refresh <project> PR #<N> patch`
