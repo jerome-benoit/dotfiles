@@ -85,6 +85,24 @@ in
       description = "Telegram user ID for bot integrations";
       readOnly = true;
     };
+    nickname = lib.mkOption {
+      type = lib.types.str;
+      default = personalSecrets.nickname;
+      description = "The user's online nickname/brand name";
+      readOnly = true;
+    };
+    primaryDomain = lib.mkOption {
+      type = lib.types.str;
+      default = personalSecrets.primaryDomain;
+      description = "The user's primary web domain";
+      readOnly = true;
+    };
+    primaryAccountName = lib.mkOption {
+      type = lib.types.str;
+      default = personalSecrets.primaryAccountName;
+      description = "The user's primary account label for email clients";
+      readOnly = true;
+    };
     historySize = lib.mkOption {
       type = lib.types.ints.positive;
       default = 50000;

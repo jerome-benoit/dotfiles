@@ -1,5 +1,4 @@
 # SOPS Secrets Management
-# GPG key: B799BBF68EC8911BB8D7CDBCC3B192C627B535D3
 SOPS := nix run nixpkgs\#sops --
 FLAKE := .
 

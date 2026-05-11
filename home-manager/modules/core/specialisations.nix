@@ -85,7 +85,7 @@ in
         email = constants.primaryEmail;
         signature = ''
           ${constants.username} aka fraggle
-          Piment Noir - https://piment-noir.org
+          ${constants.nickname} - https://${constants.primaryDomain}
         '';
         theme = "tokyoNightStorm";
       };
