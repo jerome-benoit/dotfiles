@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
-index 41ccac749246..f0e82775f912 100644
+index 114a38803652..10010127ebdb 100644
 --- a/packages/opencode/src/config/config.ts
 +++ b/packages/opencode/src/config/config.ts
 @@ -661,7 +661,6 @@ export const layer = Layer.effect(
