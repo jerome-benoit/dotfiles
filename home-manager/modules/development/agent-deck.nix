@@ -215,18 +215,14 @@ in
         if [[ -z "$TELEGRAM_TOKEN" && -z "$SLACK_BOT_TOKEN" && -z "$SLACK_APP_TOKEN" ]]; then
           echo "sops: conductor tokens unavailable — skipping injection" >&2
         elif [[ -f "${configFile}" ]]; then
-          # Perl flip-flop (..) includes both boundary lines in the true range.
-          # The end-line (next section header) won't match s/^\s*token\s*=/ so no
-          # incorrect substitution occurs, but the semantics are intentional.
-          # IMPORTANT: [tmux] (or any trailing section) is load-bearing — it
-          # terminates the [conductor.slack] flip-flop. If removed while
-          # [conductor.slack] is the last section, the range never closes.
+          # Perl flip-flop (..) scoped per-section; `eof` ensures the range
+          # closes even when the target section is last in the file.
           ${pkgs.perl}/bin/perl -pi -e '
             sub toml_escape { my $v = shift; $v =~ s/([\\"])/\\$1/g; return $v; }
-            if (/^\s*\[conductor\.telegram\]/ .. /^\s*\[(?!conductor\.telegram)/) {
+            if (/^\s*\[conductor\.telegram\]/ .. (eof || /^\s*\[(?!conductor\.telegram)/)) {
               s/^(\s*token\s*=\s*).*/$1"@{[toml_escape($ENV{TELEGRAM_TOKEN})]}"/ if $ENV{TELEGRAM_TOKEN} ne "";
             }
-            if (/^\s*\[conductor\.slack\]/ .. /^\s*\[(?!conductor\.slack)/) {
+            if (/^\s*\[conductor\.slack\]/ .. (eof || /^\s*\[(?!conductor\.slack)/)) {
               s/^(\s*bot_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_BOT_TOKEN})]}"/ if $ENV{SLACK_BOT_TOKEN} ne "";
               s/^(\s*app_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_APP_TOKEN})]}"/ if $ENV{SLACK_APP_TOKEN} ne "";
             }

@@ -7,9 +7,10 @@ FLAKE := .
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-decrypt: ## Decrypt personal secrets to JSON (required before home-manager build)
+decrypt: ## Decrypt personal secrets to JSON (cleaned up automatically by build/switch)
 	@umask 077 && $(SOPS) decrypt --output-type json --output secrets/personal.dec.json.tmp secrets/personal.enc.yaml
 	@mv secrets/personal.dec.json.tmp secrets/personal.dec.json
+	@echo "⚠ secrets/personal.dec.json created — run 'make clean' when done"
 
 encrypt: ## Re-encrypt personal secrets from JSON (after manual editing)
 	@$(SOPS) encrypt --input-type json --output-type yaml --output secrets/personal.enc.yaml.tmp secrets/personal.dec.json
