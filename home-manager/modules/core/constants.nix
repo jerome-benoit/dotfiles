@@ -87,19 +87,19 @@ in
     };
     nickname = lib.mkOption {
       type = lib.types.str;
-      default = personalSecrets.nickname;
+      default = "Piment Noir";
       description = "The user's online nickname/brand name";
       readOnly = true;
     };
     primaryDomain = lib.mkOption {
       type = lib.types.str;
-      default = personalSecrets.primaryDomain;
+      default = "piment-noir.org";
       description = "The user's primary web domain";
       readOnly = true;
     };
     primaryAccountName = lib.mkOption {
       type = lib.types.str;
-      default = personalSecrets.primaryAccountName;
+      default = "piment-noir";
       description = "The user's primary account label for email clients";
       readOnly = true;
     };

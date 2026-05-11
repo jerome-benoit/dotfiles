@@ -52,7 +52,7 @@ in
     };
 
     accounts.email.accounts = {
-      "${constants.primaryAccountName}" = {
+      piment-noir = {
         primary = true;
         address = constants.primaryEmail;
         userName = constants.primaryEmail;
