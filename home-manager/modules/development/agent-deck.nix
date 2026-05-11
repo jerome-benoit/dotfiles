@@ -218,7 +218,7 @@ in
           # Perl flip-flop (..) scoped per-section; `eof` ensures the range
           # closes even when the target section is last in the file.
           ${pkgs.perl}/bin/perl -pi -e '
-            sub toml_escape { my $v = shift; $v =~ s/([\\"])/\\$1/g; return $v; }
+            sub toml_escape { my $v = shift; $v =~ s/([\\\"\b\f\n\r\t])/\\$1/g; return $v; }
             if (/^\s*\[conductor\.telegram\]/ .. (eof || /^\s*\[(?!conductor\.telegram)/)) {
               s/^(\s*token\s*=\s*).*/$1"@{[toml_escape($ENV{TELEGRAM_TOKEN})]}"/ if $ENV{TELEGRAM_TOKEN} ne "";
             }
