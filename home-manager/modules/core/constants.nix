@@ -46,8 +46,6 @@ in
     # These WILL appear in Nix store derivations (e.g., .gitconfig, .signature)
     # since programs like git require them — the goal is keeping them out of the
     # git repository, not the local Nix store.
-    # Organization constants (organization, primaryDomain, primaryAccountName) below
-    # are public identifiers and intentionally remain hardcoded.
     username = lib.mkOption {
       type = lib.types.str;
       default = personalSecrets.username;
@@ -90,24 +88,6 @@ in
       type = lib.types.strMatching "^[0-9]+$";
       default = personalSecrets.telegram.userId;
       description = "Telegram user ID for bot integrations";
-      readOnly = true;
-    };
-    organization = lib.mkOption {
-      type = lib.types.str;
-      default = "Piment Noir";
-      description = "Primary organization or project name";
-      readOnly = true;
-    };
-    primaryDomain = lib.mkOption {
-      type = lib.types.str;
-      default = "piment-noir.org";
-      description = "Primary organization web domain";
-      readOnly = true;
-    };
-    primaryAccountName = lib.mkOption {
-      type = lib.types.str;
-      default = "piment-noir";
-      description = "Primary account label for email clients";
       readOnly = true;
     };
     historySize = lib.mkOption {
