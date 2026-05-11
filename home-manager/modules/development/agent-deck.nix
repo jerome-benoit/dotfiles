@@ -216,12 +216,13 @@ in
           echo "sops: conductor tokens unavailable — skipping injection" >&2
         elif [[ -f "${configFile}" ]]; then
           ${pkgs.perl}/bin/perl -pi -e '
+            sub toml_escape { my $v = shift; $v =~ s/([\\"])/\\$1/g; return $v; }
             if (/^\s*\[conductor\.telegram\]/ .. /^\s*\[(?!conductor\.telegram)/) {
-              s/^(\s*token\s*=\s*).*/$1"$ENV{TELEGRAM_TOKEN}"/ if $ENV{TELEGRAM_TOKEN} ne "";
+              s/^(\s*token\s*=\s*).*/$1"@{[toml_escape($ENV{TELEGRAM_TOKEN})]}"/ if $ENV{TELEGRAM_TOKEN} ne "";
             }
             if (/^\s*\[conductor\.slack\]/ .. /^\s*\[(?!conductor\.slack)/) {
-              s/^(\s*bot_token\s*=\s*).*/$1"$ENV{SLACK_BOT_TOKEN}"/ if $ENV{SLACK_BOT_TOKEN} ne "";
-              s/^(\s*app_token\s*=\s*).*/$1"$ENV{SLACK_APP_TOKEN}"/ if $ENV{SLACK_APP_TOKEN} ne "";
+              s/^(\s*bot_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_BOT_TOKEN})]}"/ if $ENV{SLACK_BOT_TOKEN} ne "";
+              s/^(\s*app_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_APP_TOKEN})]}"/ if $ENV{SLACK_APP_TOKEN} ne "";
             }
           ' "${configFile}"
         fi
