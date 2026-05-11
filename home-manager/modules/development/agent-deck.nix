@@ -207,7 +207,6 @@ in
         ${agentDeckConfig}
         EOF
         fi
-        # Inject conductor tokens from sops-managed secrets
         export TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null | tr -d '\n' || true)
         export SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
         export SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
@@ -227,7 +226,6 @@ in
               s/^(\s*app_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_APP_TOKEN})]}"/ if $ENV{SLACK_APP_TOKEN} ne "";
             }
           ' "${configFile}"
-          # Warn if tokens were available but target sections not found
           if [[ -n "$TELEGRAM_TOKEN" ]] && ! grep -q '^\s*\[conductor\.telegram\]' "${configFile}"; then
             echo "warning: TELEGRAM_TOKEN set but [conductor.telegram] section missing in config" >&2
           fi

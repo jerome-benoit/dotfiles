@@ -7,11 +7,9 @@ let
   homeDir = config.home.homeDirectory;
 in
 {
-  # Configure sops-nix to use GPG
   sops.gnupg.home = "${homeDir}/.gnupg";
   sops.gnupg.sshKeyPaths = [];
 
-  # Default secrets file for runtime tokens
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
 
   # openclaw secrets — placed at the paths openclaw expects
