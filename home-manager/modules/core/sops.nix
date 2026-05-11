@@ -38,18 +38,22 @@ in
   # agent-deck conductor tokens
   sops.secrets."agentdeck-telegram-token" = {
     key = "agentDeck/telegramToken";
+    mode = "0600";
   };
 
   sops.secrets."agentdeck-slack-bot-token" = {
     key = "agentDeck/slackBotToken";
+    mode = "0600";
   };
 
   sops.secrets."agentdeck-slack-app-token" = {
     key = "agentDeck/slackAppToken";
+    mode = "0600";
   };
 
   # shell secrets — sourced in zsh instead of $HOME/.secrets
   sops.secrets."shell-secrets" = {
     key = "shell/secrets";
+    mode = "0600";
   };
 }

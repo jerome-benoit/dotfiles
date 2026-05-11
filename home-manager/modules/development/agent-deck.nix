@@ -208,22 +208,17 @@ in
         EOF
         fi
         # Inject conductor tokens from sops-managed secrets
-        TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null | tr -d '\n' || echo "")
-        SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || echo "")
-        SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || echo "")
-        # Escape special sed characters in token values
-        escape_sed() { printf '%s\n' "$1" | ${pkgs.gnused}/bin/sed 's/[&/\\|]/\\&/g'; }
-        if [[ -n "$TELEGRAM_TOKEN" ]]; then
-          ESCAPED=$(escape_sed "$TELEGRAM_TOKEN")
-          run ${pkgs.gnused}/bin/sed -i "s|^    token = \".*\"$|    token = \"$ESCAPED\"|" "${configFile}"
-        fi
-        if [[ -n "$SLACK_BOT_TOKEN" ]]; then
-          ESCAPED=$(escape_sed "$SLACK_BOT_TOKEN")
-          run ${pkgs.gnused}/bin/sed -i "s|^    bot_token = \".*\"$|    bot_token = \"$ESCAPED\"|" "${configFile}"
-        fi
-        if [[ -n "$SLACK_APP_TOKEN" ]]; then
-          ESCAPED=$(escape_sed "$SLACK_APP_TOKEN")
-          run ${pkgs.gnused}/bin/sed -i "s|^    app_token = \".*\"$|    app_token = \"$ESCAPED\"|" "${configFile}"
+        TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null | tr -d '\n' || true)
+        SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
+        SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
+
+        # Rewrite conductor token sections (idempotent — always reflects current secrets)
+        if [[ -f "${configFile}" ]]; then
+          ${pkgs.gnused}/bin/sed -i \
+            -e "/^\[conductor\.telegram\]/,/^\[/{s|^    token = .*|    token = \"$TELEGRAM_TOKEN\"|}" \
+            -e "/^\[conductor\.slack\]/,/^\[/{s|^    bot_token = .*|    bot_token = \"$SLACK_BOT_TOKEN\"|}" \
+            -e "/^\[conductor\.slack\]/,/^\[/{s|^    app_token = .*|    app_token = \"$SLACK_APP_TOKEN\"|}" \
+            "${configFile}"
         fi
       '';
   };
