@@ -66,6 +66,7 @@
     }@inputs:
     let
       constants = import ./constants.nix;
+      personalSecrets = import ./secrets/default.nix;
       forAllSystems = nixpkgs.lib.genAttrs (
         builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
       );
@@ -82,6 +83,7 @@
               inputs
               username
               constants
+              personalSecrets
               self
               ;
           };
