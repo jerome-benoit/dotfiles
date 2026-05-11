@@ -1,6 +1,7 @@
 {
   lib,
   constants,
+  personalSecrets,
   ...
 }:
 
@@ -42,45 +43,45 @@ in
     };
     username = lib.mkOption {
       type = lib.types.str;
-      default = "Jérôme Benoit";
+      default = personalSecrets.username;
       description = "The user's full name";
       readOnly = true;
     };
     primaryEmail = lib.mkOption {
       type = lib.types.strMatching emailRegex;
-      default = "jerome.benoit@piment-noir.org";
+      default = personalSecrets.primaryEmail;
       description = "The user's primary email address";
       readOnly = true;
     };
     secondaryEmail = lib.mkOption {
       type = lib.types.strMatching emailRegex;
-      default = "jbenoit100@gmail.com";
+      default = personalSecrets.secondaryEmail;
       description = "The user's secondary email address";
       readOnly = true;
     };
     workEmail = lib.mkOption {
       type = lib.types.strMatching emailRegex;
-      default = "jerome.benoit@sap.com";
+      default = personalSecrets.workEmail;
       description = "The user's work email address";
       readOnly = true;
     };
     gpg = {
       keyId = lib.mkOption {
         type = lib.types.strMatching "^([0-9A-Fa-f]{8}|[0-9A-Fa-f]{16})$";
-        default = "27B535D3";
+        default = personalSecrets.gpg.keyId;
         description = "The user's GPG key ID";
         readOnly = true;
       };
       fingerprint = lib.mkOption {
         type = lib.types.strMatching "^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{4}([ :]?[0-9A-Fa-f]{4}){9})$";
-        default = "B799 BBF6 8EC8 911B B8D7 CDBC C3B1 92C6 27B5 35D3";
+        default = personalSecrets.gpg.fingerprint;
         description = "The user's GPG key fingerprint";
         readOnly = true;
       };
     };
     telegramUserId = lib.mkOption {
       type = lib.types.strMatching "^[0-9]+$";
-      default = "7563526558";
+      default = personalSecrets.telegram.userId;
       description = "Telegram user ID for bot integrations";
       readOnly = true;
     };
