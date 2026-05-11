@@ -5,6 +5,8 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    sops-nix.url = "github:Mic92/sops-nix";
+    sops-nix.inputs.nixpkgs.follows = "nixpkgs";
     opencode.url = "github:anomalyco/opencode";
     opencode.inputs.nixpkgs.follows = "nixpkgs";
     opencode-nvim = {
@@ -85,6 +87,7 @@
           };
           modules = [
             inputs.nix-openclaw.homeManagerModules.openclaw
+            inputs.sops-nix.homeManagerModules.sops
             ./home-manager/home.nix
           ];
         };
