@@ -21,11 +21,13 @@ let
     HOME = homeDir;
     HERMES_HOME = configDir;
     HERMES_MANAGED = "true";
-    PATH = lib.makeBinPath [
-      cfg.package
-      pkgs.bash
-      pkgs.coreutils
-    ] + ":/usr/bin:/bin";
+    PATH =
+      lib.makeBinPath [
+        cfg.package
+        pkgs.bash
+        pkgs.coreutils
+      ]
+      + ":/usr/bin:/bin";
   };
 
   mkLaunchdService =

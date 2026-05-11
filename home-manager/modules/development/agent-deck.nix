@@ -207,9 +207,15 @@ in
         ${agentDeckConfig}
         EOF
         fi
-        export TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null | tr -d '\n' || true)
-        export SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
-        export SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
+        export TELEGRAM_TOKEN=$(cat "${
+          config.sops.secrets."agentdeck-telegram-token".path
+        }" 2>/dev/null | tr -d '\n' || true)
+        export SLACK_BOT_TOKEN=$(cat "${
+          config.sops.secrets."agentdeck-slack-bot-token".path
+        }" 2>/dev/null | tr -d '\n' || true)
+        export SLACK_APP_TOKEN=$(cat "${
+          config.sops.secrets."agentdeck-slack-app-token".path
+        }" 2>/dev/null | tr -d '\n' || true)
 
         if [[ -z "$TELEGRAM_TOKEN" && -z "$SLACK_BOT_TOKEN" && -z "$SLACK_APP_TOKEN" ]]; then
           echo "sops: conductor tokens unavailable — skipping injection" >&2

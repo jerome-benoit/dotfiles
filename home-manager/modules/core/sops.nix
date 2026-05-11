@@ -8,7 +8,7 @@ let
 in
 {
   sops.gnupg.home = "${homeDir}/.gnupg";
-  sops.gnupg.sshKeyPaths = [];
+  sops.gnupg.sshKeyPaths = [ ];
 
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
 

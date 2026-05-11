@@ -59,12 +59,12 @@ in
         realName = constants.username;
         passwordCommand = mkPasswordCommand constants.primaryEmail;
         imap = {
-          host = "ssl0.ovh.net";
+          host = constants.mail.imapHost;
           port = 993;
           tls.enable = true;
         };
         smtp = {
-          host = "ssl0.ovh.net";
+          host = constants.mail.smtpHost;
           port = 465;
           tls.enable = true;
         };

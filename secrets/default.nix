@@ -15,10 +15,25 @@ let
     telegram = {
       userId = "0";
     };
+    nickname = "ci-user";
+    personalDomain = "personal.ci-placeholder.invalid";
+    work = {
+      employer = "ci-placeholder";
+      jobTitle = "ci-placeholder";
+      gheHostname = "ghe.ci-placeholder.invalid";
+    };
+    mail = {
+      imapHost = "mail.ci-placeholder.invalid";
+      smtpHost = "mail.ci-placeholder.invalid";
+    };
+    hosts = {
+      server = "server.ci-placeholder.invalid";
+    };
   };
 in
-if home != "" && builtins.pathExists decFile
-then builtins.fromJSON (builtins.readFile decFile)
-else if home == ""
-then placeholder
-else builtins.abort "Personal secrets not decrypted. Run 'make decrypt' first."
+if home != "" && builtins.pathExists decFile then
+  builtins.fromJSON (builtins.readFile decFile)
+else if home == "" then
+  placeholder
+else
+  builtins.abort "Personal secrets not decrypted. Run 'make decrypt' first."

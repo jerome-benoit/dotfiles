@@ -85,6 +85,52 @@ in
       description = "Telegram user ID for bot integrations";
       readOnly = true;
     };
+    nickname = lib.mkOption {
+      type = lib.types.strMatching "^[a-z_][a-z0-9_-]*$";
+      default = personalSecrets.nickname;
+      description = "The user's nickname / unix username on local machines";
+      readOnly = true;
+    };
+    personalDomain = lib.mkOption {
+      type = lib.types.str;
+      default = personalSecrets.personalDomain;
+      description = "The user's personal domain (bare, no scheme)";
+      readOnly = true;
+    };
+    work = {
+      employer = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.work.employer;
+        description = "The user's employer name";
+        readOnly = true;
+      };
+      jobTitle = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.work.jobTitle;
+        description = "The user's job title";
+        readOnly = true;
+      };
+      gheHostname = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.work.gheHostname;
+        description = "GitHub Enterprise hostname (bare, no scheme)";
+        readOnly = true;
+      };
+    };
+    mail = {
+      imapHost = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.mail.imapHost;
+        description = "IMAP server hostname";
+        readOnly = true;
+      };
+      smtpHost = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.mail.smtpHost;
+        description = "SMTP server hostname";
+        readOnly = true;
+      };
+    };
     historySize = lib.mkOption {
       type = lib.types.ints.positive;
       default = 50000;
@@ -106,7 +152,7 @@ in
       default = {
         rigel = "rigel";
         zeus = "zeus";
-        ns3108029 = "ns3108029.ip-54-37-87.eu";
+        ns3108029 = personalSecrets.hosts.server;
       };
       description = "Hostnames";
       readOnly = true;

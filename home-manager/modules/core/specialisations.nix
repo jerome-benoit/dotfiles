@@ -69,13 +69,13 @@ in
         name = "work";
         email = constants.workEmail;
         signature = ''
-          ${constants.username} - R&D Software Engineer
-          SAP Labs France
+          ${constants.username} - ${constants.work.jobTitle}
+          ${constants.work.employer}
         '';
         theme = "tokyoNightStorm";
         sshMatchBlocks = {
           "*.local" = {
-            user = "fraggle";
+            user = constants.nickname;
           };
         };
       };
@@ -84,8 +84,8 @@ in
         name = "personal";
         email = constants.primaryEmail;
         signature = ''
-          ${constants.username} aka fraggle
-          Piment Noir - https://piment-noir.org
+          ${constants.username} aka ${constants.nickname}
+          Piment Noir - https://${constants.personalDomain}
         '';
         theme = "tokyoNightStorm";
       };
