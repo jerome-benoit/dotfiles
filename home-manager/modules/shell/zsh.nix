@@ -145,13 +145,8 @@ in
         [[ -f "$DVM_DIR/dvm.sh" ]] && source "$DVM_DIR/dvm.sh"
         [[ -f "$DVM_DIR/bash_completion" ]] && source "$DVM_DIR/bash_completion"
 
-        if [[ -f "$HOME/.secrets" ]]; then
-          if [[ -z "$(find "$HOME/.secrets" -perm 600)" ]]; then
-            echo "\033[1;31mWARNING: $HOME/.secrets has insecure permissions!\033[0m"
-            echo "Please run: chmod 600 $HOME/.secrets"
-          else
-            source "$HOME/.secrets"
-          fi
+        if [[ -f "${config.sops.secrets."shell-secrets".path}" ]]; then
+          source "${config.sops.secrets."shell-secrets".path}"
         fi
       '';
 

@@ -207,6 +207,19 @@ in
         ${agentDeckConfig}
         EOF
         fi
+        # Inject conductor tokens from sops-managed secrets
+        TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null || echo "")
+        SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null || echo "")
+        SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null || echo "")
+        if [[ -n "$TELEGRAM_TOKEN" ]]; then
+          run ${pkgs.gnused}/bin/sed -i "s|^    token = \"\"$|    token = \"$TELEGRAM_TOKEN\"|" "${configFile}"
+        fi
+        if [[ -n "$SLACK_BOT_TOKEN" ]]; then
+          run ${pkgs.gnused}/bin/sed -i "s|^    bot_token = \"\"$|    bot_token = \"$SLACK_BOT_TOKEN\"|" "${configFile}"
+        fi
+        if [[ -n "$SLACK_APP_TOKEN" ]]; then
+          run ${pkgs.gnused}/bin/sed -i "s|^    app_token = \"\"$|    app_token = \"$SLACK_APP_TOKEN\"|" "${configFile}"
+        fi
       '';
   };
 }
