@@ -8,7 +8,8 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 decrypt: ## Decrypt personal secrets to JSON (required before home-manager build)
-	$(SOPS) -d --output-type json secrets/personal.enc.yaml > secrets/personal.dec.json
+	$(SOPS) -d --output-type json secrets/personal.enc.yaml > secrets/personal.dec.json.tmp
+	@mv secrets/personal.dec.json.tmp secrets/personal.dec.json
 
 encrypt: ## Re-encrypt personal secrets from JSON (after manual editing)
 	$(SOPS) --encrypt --input-type json --output-type yaml secrets/personal.dec.json > secrets/personal.enc.yaml

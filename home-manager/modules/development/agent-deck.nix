@@ -212,12 +212,15 @@ in
         SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
         SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
 
+        # Escape sed metacharacters in token values
+        esc() { printf '%s\n' "$1" | ${pkgs.gnused}/bin/sed 's/[|&\\]/\\&/g'; }
+
         # Rewrite conductor token sections (idempotent — always reflects current secrets)
         if [[ -f "${configFile}" ]]; then
           ${pkgs.gnused}/bin/sed -i \
-            -e "/^[[:space:]]*\[conductor\.telegram\]/,/^[[:space:]]*\[/{s|^[[:space:]]*token = .*|    token = \"$TELEGRAM_TOKEN\"|}" \
-            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*bot_token = .*|    bot_token = \"$SLACK_BOT_TOKEN\"|}" \
-            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*app_token = .*|    app_token = \"$SLACK_APP_TOKEN\"|}" \
+            -e "/^[[:space:]]*\[conductor\.telegram\]/,/^[[:space:]]*\[/{s|^[[:space:]]*token = .*|    token = \"$(esc "$TELEGRAM_TOKEN")\"|}" \
+            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*bot_token = .*|    bot_token = \"$(esc "$SLACK_BOT_TOKEN")\"|}" \
+            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*app_token = .*|    app_token = \"$(esc "$SLACK_APP_TOKEN")\"|}" \
             "${configFile}"
         fi
       '';
