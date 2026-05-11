@@ -208,21 +208,22 @@ in
         EOF
         fi
         # Inject conductor tokens from sops-managed secrets
-        TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null | tr -d '\n' || true)
-        SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
-        SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
-
-        # Escape sed metacharacters and double quotes in token values
-        esc() { printf '%s\n' "$1" | ${pkgs.gnused}/bin/sed -e 's/[|&\\]/\\&/g' -e 's/"/\\"/g'; }
+        export TELEGRAM_TOKEN=$(cat "${config.sops.secrets."agentdeck-telegram-token".path}" 2>/dev/null | tr -d '\n' || true)
+        export SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
+        export SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
 
         if [[ -z "$TELEGRAM_TOKEN" && -z "$SLACK_BOT_TOKEN" && -z "$SLACK_APP_TOKEN" ]]; then
           echo "sops: conductor tokens unavailable — skipping injection" >&2
         elif [[ -f "${configFile}" ]]; then
-          ${pkgs.gnused}/bin/sed -i \
-            -e "/^[[:space:]]*\[conductor\.telegram\]/,/^[[:space:]]*\[/{s|^[[:space:]]*token = .*|    token = \"$(esc "$TELEGRAM_TOKEN")\"|}" \
-            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*bot_token = .*|    bot_token = \"$(esc "$SLACK_BOT_TOKEN")\"|}" \
-            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*app_token = .*|    app_token = \"$(esc "$SLACK_APP_TOKEN")\"|}" \
-            "${configFile}"
+          ${pkgs.perl}/bin/perl -pi -e '
+            if (/^\s*\[conductor\.telegram\]/ .. /^\s*\[(?!conductor\.telegram)/) {
+              s/^(\s*token\s*=\s*).*/$1"$ENV{TELEGRAM_TOKEN}"/;
+            }
+            if (/^\s*\[conductor\.slack\]/ .. /^\s*\[(?!conductor\.slack)/) {
+              s/^(\s*bot_token\s*=\s*).*/$1"$ENV{SLACK_BOT_TOKEN}"/;
+              s/^(\s*app_token\s*=\s*).*/$1"$ENV{SLACK_APP_TOKEN}"/;
+            }
+          ' "${configFile}"
         fi
       '';
   };
