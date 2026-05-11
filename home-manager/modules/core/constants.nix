@@ -41,10 +41,13 @@ in
       description = "Supported GNU/Linux distributions";
       readOnly = true;
     };
-    # NOTE: Values below come from personalSecrets (SOPS-encrypted, decrypted at eval-time).
-    # These values WILL appear in Nix store derivations (e.g., .gitconfig, .signature files)
-    # since programs like git require them at build time. This is an accepted trade-off:
-    # the goal is to keep them out of the git repository, not out of the local Nix store.
+    # NOTE: Personal identity values (username through telegramUserId) come from
+    # personalSecrets (SOPS-encrypted, decrypted at eval-time via `make decrypt`).
+    # These WILL appear in Nix store derivations (e.g., .gitconfig, .signature)
+    # since programs like git require them — the goal is keeping them out of the
+    # git repository, not the local Nix store.
+    # Organization constants (nickname, primaryDomain, primaryAccountName) below
+    # are public identifiers and intentionally remain hardcoded.
     username = lib.mkOption {
       type = lib.types.str;
       default = personalSecrets.username;
