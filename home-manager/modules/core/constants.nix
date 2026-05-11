@@ -41,11 +41,6 @@ in
       description = "Supported GNU/Linux distributions";
       readOnly = true;
     };
-    # NOTE: Personal identity values (username through telegramUserId) come from
-    # personalSecrets (SOPS-encrypted, decrypted at eval-time via `make decrypt`).
-    # These WILL appear in Nix store derivations (e.g., .gitconfig, .signature)
-    # since programs like git require them — the goal is keeping them out of the
-    # git repository, not the local Nix store.
     username = lib.mkOption {
       type = lib.types.str;
       default = personalSecrets.username;
