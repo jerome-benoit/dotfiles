@@ -200,7 +200,7 @@ in
         configDir = "${config.home.homeDirectory}/.agent-deck";
         configFile = "${configDir}/config.toml";
       in
-      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
         run mkdir -p "${configDir}"
         if [[ ! -f "${configFile}" ]]; then
           run cat > "${configFile}" << 'EOF'

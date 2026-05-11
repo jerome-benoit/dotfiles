@@ -114,7 +114,7 @@ in
     ) "hermesAgent: package not available for system ${system}";
 
     home.activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
-      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
         run mkdir -p "${configDir}"
         run ln -sf "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
       ''
