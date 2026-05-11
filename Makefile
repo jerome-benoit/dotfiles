@@ -22,10 +22,10 @@ edit-tokens: ## Edit application tokens interactively via SOPS
 	@$(SOPS) secrets/tokens.enc.yaml
 
 build: decrypt ## Decrypt then build home-manager configuration (--impure required)
-	@home-manager build --flake $(FLAKE) --impure; _rc=$$?; rm -f secrets/personal.dec.json; exit $$_rc
+	@trap 'rm -f secrets/personal.dec.json' EXIT; home-manager build --flake $(FLAKE) --impure
 
 switch: decrypt ## Decrypt then switch home-manager configuration (--impure required)
-	@home-manager switch --flake $(FLAKE) --impure; _rc=$$?; rm -f secrets/personal.dec.json; exit $$_rc
+	@trap 'rm -f secrets/personal.dec.json' EXIT; home-manager switch --flake $(FLAKE) --impure
 
 clean: ## Remove decrypted secrets and temporary files from disk
 	@rm -f secrets/*.dec.* secrets/*.tmp

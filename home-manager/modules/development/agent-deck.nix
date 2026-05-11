@@ -215,6 +215,9 @@ in
         if [[ -z "$TELEGRAM_TOKEN" && -z "$SLACK_BOT_TOKEN" && -z "$SLACK_APP_TOKEN" ]]; then
           echo "sops: conductor tokens unavailable — skipping injection" >&2
         elif [[ -f "${configFile}" ]]; then
+          # Perl flip-flop (..) includes both boundary lines in the true range.
+          # The end-line (next section header) won't match s/^\s*token\s*=/ so no
+          # incorrect substitution occurs, but the semantics are intentional.
           ${pkgs.perl}/bin/perl -pi -e '
             sub toml_escape { my $v = shift; $v =~ s/([\\"])/\\$1/g; return $v; }
             if (/^\s*\[conductor\.telegram\]/ .. /^\s*\[(?!conductor\.telegram)/) {
