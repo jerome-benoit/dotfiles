@@ -66,7 +66,6 @@
     }@inputs:
     let
       constants = import ./constants.nix;
-      personalSecrets = import ./secrets/default.nix;
       forAllSystems = nixpkgs.lib.genAttrs (
         builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
       );
@@ -76,6 +75,9 @@
           arch,
           username,
         }:
+        let
+          personalSecrets = import ./secrets/default.nix;
+        in
         home-manager.lib.homeManagerConfiguration {
           pkgs = nixpkgs.legacyPackages.${arch};
           extraSpecialArgs = {
