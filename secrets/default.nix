@@ -23,4 +23,6 @@ let
 in
 if home != "" && builtins.pathExists decFile
 then builtins.fromJSON (builtins.readFile decFile)
-else placeholder
+else if home == ""
+then placeholder
+else builtins.abort "Personal secrets not decrypted. Run 'make decrypt' first."
