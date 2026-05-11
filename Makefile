@@ -2,7 +2,7 @@
 SOPS := nix run nixpkgs\#sops --
 FLAKE := .
 
-.PHONY: help decrypt encrypt edit-personal edit-tokens build switch
+.PHONY: help decrypt encrypt edit-personal edit-tokens build switch clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -21,6 +21,11 @@ edit-tokens: ## Edit application tokens interactively via SOPS
 
 build: decrypt ## Decrypt then build home-manager configuration (--impure required)
 	home-manager build --flake $(FLAKE) --impure
+	@rm -f secrets/personal.dec.json
 
 switch: decrypt ## Decrypt then switch home-manager configuration (--impure required)
 	home-manager switch --flake $(FLAKE) --impure
+	@rm -f secrets/personal.dec.json
+
+clean: ## Remove decrypted secrets from disk
+	@rm -f secrets/personal.dec.json

@@ -41,6 +41,10 @@ in
       description = "Supported GNU/Linux distributions";
       readOnly = true;
     };
+    # NOTE: Values below come from personalSecrets (SOPS-encrypted, decrypted at eval-time).
+    # These values WILL appear in Nix store derivations (e.g., .gitconfig, .signature files)
+    # since programs like git require them at build time. This is an accepted trade-off:
+    # the goal is to keep them out of the git repository, not out of the local Nix store.
     username = lib.mkOption {
       type = lib.types.str;
       default = personalSecrets.username;
