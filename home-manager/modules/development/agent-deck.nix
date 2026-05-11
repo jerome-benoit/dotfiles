@@ -227,6 +227,13 @@ in
               s/^(\s*app_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_APP_TOKEN})]}"/ if $ENV{SLACK_APP_TOKEN} ne "";
             }
           ' "${configFile}"
+          # Warn if tokens were available but target sections not found
+          if [[ -n "$TELEGRAM_TOKEN" ]] && ! grep -q '^\s*\[conductor\.telegram\]' "${configFile}"; then
+            echo "warning: TELEGRAM_TOKEN set but [conductor.telegram] section missing in config" >&2
+          fi
+          if [[ -n "$SLACK_BOT_TOKEN" || -n "$SLACK_APP_TOKEN" ]] && ! grep -q '^\s*\[conductor\.slack\]' "${configFile}"; then
+            echo "warning: Slack tokens set but [conductor.slack] section missing in config" >&2
+          fi
         fi
       '';
   };
