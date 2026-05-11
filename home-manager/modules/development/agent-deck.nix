@@ -215,9 +215,9 @@ in
         # Rewrite conductor token sections (idempotent — always reflects current secrets)
         if [[ -f "${configFile}" ]]; then
           ${pkgs.gnused}/bin/sed -i \
-            -e "/^\[conductor\.telegram\]/,/^\[/{s|^    token = .*|    token = \"$TELEGRAM_TOKEN\"|}" \
-            -e "/^\[conductor\.slack\]/,/^\[/{s|^    bot_token = .*|    bot_token = \"$SLACK_BOT_TOKEN\"|}" \
-            -e "/^\[conductor\.slack\]/,/^\[/{s|^    app_token = .*|    app_token = \"$SLACK_APP_TOKEN\"|}" \
+            -e "/^[[:space:]]*\[conductor\.telegram\]/,/^[[:space:]]*\[/{s|^[[:space:]]*token = .*|    token = \"$TELEGRAM_TOKEN\"|}" \
+            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*bot_token = .*|    bot_token = \"$SLACK_BOT_TOKEN\"|}" \
+            -e "/^[[:space:]]*\[conductor\.slack\]/,/^[[:space:]]*\[/{s|^[[:space:]]*app_token = .*|    app_token = \"$SLACK_APP_TOKEN\"|}" \
             "${configFile}"
         fi
       '';
