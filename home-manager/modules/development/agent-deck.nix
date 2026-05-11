@@ -214,8 +214,7 @@ in
         if [[ -z "$TELEGRAM_TOKEN" && -z "$SLACK_BOT_TOKEN" && -z "$SLACK_APP_TOKEN" ]]; then
           echo "sops: conductor tokens unavailable — skipping injection" >&2
         elif [[ -f "${configFile}" ]]; then
-          # Perl flip-flop (..) scoped per-section; `eof` ensures the range
-          # closes even when the target section is last in the file.
+          # flip-flop + eof: scope substitution to each TOML section
           ${pkgs.perl}/bin/perl -pi -e '
             sub toml_escape { my $v = shift; my %m = ("\\"=>"\\\\", "\""=>"\\\"", "\n"=>"\\n", "\r"=>"\\r", "\t"=>"\\t", "\x08"=>"\\b", "\x0c"=>"\\f"); $v =~ s/([\\\"\n\r\t\x08\x0c])/$m{$1}/g; return $v; }
             if (/^\s*\[conductor\.telegram\]/ .. (eof || /^\s*\[(?!conductor\.telegram)/)) {
