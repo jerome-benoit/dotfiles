@@ -218,6 +218,9 @@ in
           # Perl flip-flop (..) includes both boundary lines in the true range.
           # The end-line (next section header) won't match s/^\s*token\s*=/ so no
           # incorrect substitution occurs, but the semantics are intentional.
+          # IMPORTANT: [tmux] (or any trailing section) is load-bearing — it
+          # terminates the [conductor.slack] flip-flop. If removed while
+          # [conductor.slack] is the last section, the range never closes.
           ${pkgs.perl}/bin/perl -pi -e '
             sub toml_escape { my $v = shift; $v =~ s/([\\"])/\\$1/g; return $v; }
             if (/^\s*\[conductor\.telegram\]/ .. /^\s*\[(?!conductor\.telegram)/) {
