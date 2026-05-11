@@ -12,7 +12,8 @@ decrypt: ## Decrypt personal secrets to JSON (required before home-manager build
 	@mv secrets/personal.dec.json.tmp secrets/personal.dec.json
 
 encrypt: ## Re-encrypt personal secrets from JSON (after manual editing)
-	$(SOPS) --encrypt --input-type json --output-type yaml secrets/personal.dec.json > secrets/personal.enc.yaml
+	$(SOPS) --encrypt --input-type json --output-type yaml secrets/personal.dec.json > secrets/personal.enc.yaml.tmp
+	@mv secrets/personal.enc.yaml.tmp secrets/personal.enc.yaml
 
 edit-personal: ## Edit personal secrets interactively via SOPS
 	$(SOPS) secrets/personal.enc.yaml

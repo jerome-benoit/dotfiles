@@ -212,8 +212,8 @@ in
         SLACK_BOT_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-bot-token".path}" 2>/dev/null | tr -d '\n' || true)
         SLACK_APP_TOKEN=$(cat "${config.sops.secrets."agentdeck-slack-app-token".path}" 2>/dev/null | tr -d '\n' || true)
 
-        # Escape sed metacharacters in token values
-        esc() { printf '%s\n' "$1" | ${pkgs.gnused}/bin/sed 's/[|&\\]/\\&/g'; }
+        # Escape sed metacharacters and double quotes in token values
+        esc() { printf '%s\n' "$1" | ${pkgs.gnused}/bin/sed -e 's/[|&\\]/\\&/g' -e 's/"/\\"/g'; }
 
         # Rewrite conductor token sections (idempotent — always reflects current secrets)
         if [[ -f "${configFile}" ]]; then
