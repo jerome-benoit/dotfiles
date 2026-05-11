@@ -217,11 +217,11 @@ in
         elif [[ -f "${configFile}" ]]; then
           ${pkgs.perl}/bin/perl -pi -e '
             if (/^\s*\[conductor\.telegram\]/ .. /^\s*\[(?!conductor\.telegram)/) {
-              s/^(\s*token\s*=\s*).*/$1"$ENV{TELEGRAM_TOKEN}"/;
+              s/^(\s*token\s*=\s*).*/$1"$ENV{TELEGRAM_TOKEN}"/ if $ENV{TELEGRAM_TOKEN} ne "";
             }
             if (/^\s*\[conductor\.slack\]/ .. /^\s*\[(?!conductor\.slack)/) {
-              s/^(\s*bot_token\s*=\s*).*/$1"$ENV{SLACK_BOT_TOKEN}"/;
-              s/^(\s*app_token\s*=\s*).*/$1"$ENV{SLACK_APP_TOKEN}"/;
+              s/^(\s*bot_token\s*=\s*).*/$1"$ENV{SLACK_BOT_TOKEN}"/ if $ENV{SLACK_BOT_TOKEN} ne "";
+              s/^(\s*app_token\s*=\s*).*/$1"$ENV{SLACK_APP_TOKEN}"/ if $ENV{SLACK_APP_TOKEN} ne "";
             }
           ' "${configFile}"
         fi
