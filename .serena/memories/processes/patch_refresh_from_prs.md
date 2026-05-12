@@ -89,23 +89,25 @@ diff patches/<project>/<name>.patch /tmp/filtered.patch
 # `applyPatches` only needs the source tarball + patch files → near-instant.
 # Unlike --dry-run (evaluation-only, never invokes a builder), this actually executes patches.
 nix build --impure --expr '
-  let flake = builtins.getFlake "git+file://$HOME/.nix";
+  let home = builtins.getEnv "HOME";
+      flake = builtins.getFlake "git+file://${home}/.nix";
       system = builtins.currentSystem;
       pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
+      patchDir = /. + "${home}/.nix/patches";
   in {
     # Validates ALL patches apply together (including local/exempt ones).
     # Only PR-sourced patches need refreshing; the full set is tested for coherence.
     opencode = pkgs.applyPatches {
       src = flake.inputs.opencode.packages.${system}.default.src;
       patches = [
-        $HOME/.nix/patches/opencode/proxy-env-to-process-env.patch
-        $HOME/.nix/patches/opencode/relax-bun-version-check.patch
+        (patchDir + "/opencode/proxy-env-to-process-env.patch")
+        (patchDir + "/opencode/relax-bun-version-check.patch")
       ];
     };
     qmd = pkgs.applyPatches {
       src = flake.inputs.qmd.packages.${system}.default.src;
       patches = [
-        $HOME/.nix/patches/qmd/fix-nixos-llama-build.patch
+        (patchDir + "/qmd/fix-nixos-llama-build.patch")
       ];
     };
   }'

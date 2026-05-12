@@ -75,8 +75,33 @@ Common packages for all platforms:
 
 ### profile.nix
 
-Profile system defining which modules are enabled per profile (desktop vs server).
-See `project_overview` memory for the full enable/disable table.
+Profile system defining which modules are enabled per profile:
+
+| Category    | Module     | Desktop | Server |
+| ----------- | ---------- | ------- | ------ |
+| shell       | direnv     | ✓       | ✗      |
+| shell       | eza        | ✓       | ✗      |
+| shell       | fd         | ✓       | ✓      |
+| shell       | fzf        | ✓       | ✓      |
+| shell       | ripgrep    | ✓       | ✓      |
+| shell       | zoxide     | ✓       | ✗      |
+| shell       | zsh        | ✓       | ✓      |
+| development | bun        | ✓       | ✗      |
+| development | gh         | ✓       | ✗      |
+| development | git        | ✓       | ✓      |
+| development | lazygit    | ✓       | ✓      |
+| development | opencode   | ✓       | ✗      |
+| development | agentDeck  | ✓       | ✗      |
+| development | claudeCode | ✓       | ✗      |
+| programs    | alacritty  | ✓       | ✗      |
+| programs    | btop       | ✓       | ✓      |
+| programs    | ghostty    | ✓       | ✗      |
+| programs    | glow       | ✓       | ✓      |
+| programs    | lazydocker | ✓       | ✓      |
+| programs    | ssh        | ✓       | ✓      |
+| programs    | tmux       | ✓       | ✓      |
+| editors     | neovim     | ✓       | ✗      |
+| editors     | vim        | ✓       | ✓      |
 
 ### specialisations.nix
 
