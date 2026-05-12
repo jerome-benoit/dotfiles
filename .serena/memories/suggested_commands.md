@@ -17,14 +17,14 @@
 git clone <repository-url> ~/.nix
 cd ~/.nix
 
-# Import GPG key (required for sops decryption)
+# Ensure age key file exists (required for sops decryption)
+# ~/.config/sops/age/keys.txt must exist on each machine (0600, outside repo)
+
+# Import GPG key (required for commit signing only — NOT needed for sops decryption)
 gpg --import gpg-public.asc
 gpg --import gpg-private.asc
 gpg --edit-key <KEY_ID> trust  # → 5 (ultimate) → quit
 # KEY_ID is the GPG key fingerprint from personalSecrets.identity.gpg.keyId
-
-# Ensure GPG can prompt for passphrase (SSH sessions)
-export GPG_TTY=$(tty)
 
 # Bootstrap (with specialisation)
 make bootstrap SPEC=work      # or SPEC=personal, or omit SPEC for base

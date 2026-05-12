@@ -33,9 +33,10 @@ Personal data comes from `personalSecrets` (SOPS-encrypted), non-secret constant
 
 SOPS secrets management via `sops-nix` home-manager module:
 
-- **Decryption**: GPG key (`~/.gnupg`)
+- **Decryption**: age key file (`~/.config/sops/age/keys.txt`, 0600, outside repo)
 - **Default sops file**: `secrets/tokens.enc.yaml`
-- **Activation ordering fix**: Mic92/sops-nix#581 (entryBetween reloadSystemd → sops-nix, Linux only)
+- **Activation ordering fix (Linux)**: Mic92/sops-nix#581 (entryBetween reloadSystemd → sops-nix)
+- **Activation ordering fix (macOS)**: Mic92/sops-nix#910 (entryAfter setupLaunchAgents, guarded plist existence)
 - **App secrets**: hermes-env, agentdeck tokens, shell-secrets (from tokens.enc.yaml)
 - **SSH key**: `secrets/ssh/id_rsa` (format=binary, deployed to `~/.ssh/id_rsa`)
 - **SSH pubkey**: `secrets/ssh/id_rsa.pub` (via home.file, plaintext)
