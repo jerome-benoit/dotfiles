@@ -1,6 +1,8 @@
 creation_rules:
   - path_regex: secrets/ssh/.*
     pgp: B799BBF68EC8911BB8D7CDBCC3B192C627B535D3
+    age: age1g6v6fzlyf3mzuvtuedqpyhz8e6ec9g07d3g8nkjv3jjnwdt3vg0qn9q60y
   - path_regex: secrets/.*\.(enc\.yaml|dec\.json)$
     pgp: B799BBF68EC8911BB8D7CDBCC3B192C627B535D3
+    age: age1g6v6fzlyf3mzuvtuedqpyhz8e6ec9g07d3g8nkjv3jjnwdt3vg0qn9q60y
     encrypted_regex: ".*"
