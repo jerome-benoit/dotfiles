@@ -9,28 +9,11 @@ let
   homeDir = config.home.homeDirectory;
 in
 {
-  sops.gnupg.home = "${homeDir}/.gnupg";
-  sops.gnupg.sshKeyPaths = [ ];
+  sops.age.keyFile = "${homeDir}/.config/sops/age/keys.txt";
 
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
 
-  # --- Platform-specific sops-nix activation workarounds ---
-
-  # Linux: upstream defaults to graphical-session-pre.target when using GPG,
-  # which never triggers on headless/SSH-only machines. Use default.target instead.
-  systemd.user.services.sops-nix.Install.WantedBy = lib.mkIf pkgs.stdenv.isLinux (
-    lib.mkForce [ "default.target" ]
-  );
-
-  # Linux: GPG agent/passphrase may not be ready at boot (GNOME Keyring unlocks later).
-  # Retry until decryption succeeds, with no restart limit.
-  systemd.user.services.sops-nix.Service = lib.mkIf pkgs.stdenv.isLinux {
-    Restart = "on-failure";
-    RestartSec = 5;
-  };
-  systemd.user.services.sops-nix.Unit = lib.mkIf pkgs.stdenv.isLinux {
-    StartLimitIntervalSec = 0;
-  };
+  # --- sops-nix activation ordering fixes ---
 
   # Linux: ensure sops-nix activation runs after systemd daemon-reload (Mic92/sops-nix#581)
   home.activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.isLinux (
@@ -39,13 +22,15 @@ in
 
   # macOS: ensure sops-nix activation runs after plist is installed (Mic92/sops-nix#910)
   home.activation.sops-nix = lib.mkIf pkgs.stdenv.isDarwin (
-    lib.mkForce (lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
-      /bin/launchctl bootout gui/$(id -u ${config.home.username})/org.nix-community.home.sops-nix || true
-      PLIST="${homeDir}/Library/LaunchAgents/org.nix-community.home.sops-nix.plist"
-      if [ -f "$PLIST" ]; then
-        /bin/launchctl bootstrap gui/$(id -u ${config.home.username}) "$PLIST"
-      fi
-    '')
+    lib.mkForce (
+      lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
+        /bin/launchctl bootout gui/$(id -u ${config.home.username})/org.nix-community.home.sops-nix || true
+        PLIST="${homeDir}/Library/LaunchAgents/org.nix-community.home.sops-nix.plist"
+        if [ -f "$PLIST" ]; then
+          /bin/launchctl bootstrap gui/$(id -u ${config.home.username}) "$PLIST"
+        fi
+      ''
+    )
   );
 
   # --- Secrets declarations ---
