@@ -93,7 +93,7 @@ in
         ''}
 
         _hm_switch() {
-            local nix_dir="''${NH_FLAKE:-$HOME/.nix}"
+            local nix_dir="$HOME/.nix"
             local dec_file="$nix_dir/secrets/personal.dec.json"
             local enc_file="$nix_dir/secrets/personal.enc.yaml"
 
@@ -102,18 +102,14 @@ in
                 return 1
             fi
 
-            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM
+            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' EXIT INT TERM
 
             nix run nixpkgs#sops -- decrypt --output-type json \
-                --output "''${dec_file}.tmp" "$enc_file" || { rm -f "''${dec_file}.tmp"; trap - INT TERM; return 1; }
+                --output "''${dec_file}.tmp" "$enc_file" || return 1
             chmod 600 "''${dec_file}.tmp"
             mv "''${dec_file}.tmp" "$dec_file"
 
             nh home switch --impure "$@"
-            local rc=$?
-            trap - INT TERM
-            rm -f "$dec_file"
-            return $rc
         }
 
         ${lib.optionalString (profileModules.development.opencode.enable && profileModules.programs.tmux) ''
