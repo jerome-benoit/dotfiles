@@ -79,7 +79,7 @@ in
         theme = "tokyoNightStorm";
         sshMatchBlocks = {
           "*.local" = {
-            user = constants.identity.nickname;
+            user = constants.identity.username;
           };
         };
         sopsOverrides = {
@@ -91,7 +91,7 @@ in
         name = "personal";
         email = constants.personal.email;
         signature = ''
-          ${constants.identity.fullName} aka ${constants.identity.nickname}
+          ${constants.identity.fullName} aka ${constants.identity.username}
           Piment Noir - https://${constants.personal.domain}
         '';
         theme = "tokyoNightStorm";

@@ -48,10 +48,10 @@ in
         description = "The user's full name";
         readOnly = true;
       };
-      nickname = lib.mkOption {
+      username = lib.mkOption {
         type = lib.types.strMatching "^[a-z_][a-z0-9_-]{0,30}$";
-        default = personalSecrets.identity.nickname;
-        description = "The user's nickname";
+        default = personalSecrets.identity.username;
+        description = "Personal machine username";
         readOnly = true;
       };
       gpg = {
@@ -134,6 +134,12 @@ in
         type = lib.types.str;
         default = personalSecrets.work.gheHostname;
         description = "GitHub Enterprise hostname";
+        readOnly = true;
+      };
+      username = lib.mkOption {
+        type = lib.types.strMatching "^[A-Za-z][A-Za-z0-9_-]{0,30}$";
+        default = personalSecrets.work.username;
+        description = "Work machine username";
         readOnly = true;
       };
     };

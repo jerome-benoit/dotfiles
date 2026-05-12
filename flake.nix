@@ -66,6 +66,7 @@
     }@inputs:
     let
       constants = import ./constants.nix;
+      personalSecrets = import ./secrets/default.nix;
       forAllSystems = nixpkgs.lib.genAttrs (
         builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
       );
@@ -75,9 +76,6 @@
           arch,
           username,
         }:
-        let
-          personalSecrets = import ./secrets/default.nix;
-        in
         home-manager.lib.homeManagerConfiguration {
           pkgs = nixpkgs.legacyPackages.${arch};
           extraSpecialArgs = {
@@ -98,17 +96,17 @@
     in
     {
       homeConfigurations = {
-        "fraggle" = mkHomeConfiguration {
+        "${personalSecrets.identity.username}" = mkHomeConfiguration {
           arch = constants.systems.linux.arch;
-          username = "fraggle";
+          username = personalSecrets.identity.username;
         };
         "almalinux" = mkHomeConfiguration {
           arch = constants.systems.linux.arch;
           username = "almalinux";
         };
-        "I339261" = mkHomeConfiguration {
+        "${personalSecrets.work.username}" = mkHomeConfiguration {
           arch = constants.systems.darwin.arch;
-          username = "I339261";
+          username = personalSecrets.work.username;
         };
       };
 
@@ -133,12 +131,14 @@
           homeConfigChecks =
             if arch == "x86_64-linux" then
               {
-                home-fraggle = self.homeConfigurations.fraggle.activationPackage;
+                "home-${personalSecrets.identity.username}" =
+                  self.homeConfigurations.${personalSecrets.identity.username}.activationPackage;
                 home-almalinux = self.homeConfigurations.almalinux.activationPackage;
               }
             else if arch == "aarch64-darwin" then
               {
-                home-I339261 = self.homeConfigurations.I339261.activationPackage;
+                "home-${personalSecrets.work.username}" =
+                  self.homeConfigurations.${personalSecrets.work.username}.activationPackage;
               }
             else
               { };

@@ -6,7 +6,7 @@ let
   placeholder = {
     identity = {
       fullName = "ci-placeholder";
-      nickname = "ci-user";
+      username = "ci-user";
       gpg = {
         keyId = "0000000000000000";
         fingerprint = "0000000000000000000000000000000000000000";
@@ -29,6 +29,7 @@ let
       employer = "ci-placeholder";
       jobTitle = "ci-placeholder";
       gheHostname = "ghe.ci-placeholder.invalid";
+      username = "ci-user";
     };
     hosts = {
       server = "server.ci-placeholder.invalid";
