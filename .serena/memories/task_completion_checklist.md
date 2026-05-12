@@ -2,6 +2,12 @@
 
 ## Before Committing Any Changes
 
+### 0. Decrypt Secrets (if needed for eval)
+
+```bash
+make decrypt          # or just make decrypt-personal for lighter eval
+```
+
 ### 1. Format Code
 
 ```bash
@@ -11,7 +17,7 @@ nix fmt
 ### 2. Run All Checks
 
 ```bash
-nix flake check
+nix flake check       # requires --impure if secrets are involved
 ```
 
 This validates:
@@ -20,12 +26,20 @@ This validates:
 - [ ] No broken symlinks in build output
 - [ ] statix lint passes (configured via statix.toml)
 - [ ] deadnix passes (no dead code)
-- [ ] All home configurations build successfully (fraggle, almalinux, I339261)
+- [ ] All home configurations build successfully (personal, almalinux, work)
 
 ### 3. Test Changes Locally
 
 ```bash
-hm  # Apply changes with home-manager
+hm                    # Apply changes (from within a specialisation)
+# or
+make switch SPEC=work # Apply with explicit specialisation
+```
+
+### 4. Clean Secrets
+
+```bash
+make clean            # Remove decrypted plaintext from disk
 ```
 
 ## Code Quality Checklist

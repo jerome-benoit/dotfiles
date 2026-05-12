@@ -8,37 +8,38 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 - **Nix Flakes** - Declarative package management and system configuration
 - **Home Manager** - User environment management for Nix
+- **SOPS** - Encrypted secrets management (GPG-based, via sops-nix home-manager module)
 - **Language**: Nix expression language
 - **Renovate** - Automated dependency updates
 
 ## Flake Inputs
 
-| Input                | Source                                      | Description                                                              |
-| -------------------- | ------------------------------------------- | ------------------------------------------------------------------------ |
-| `nixpkgs`            | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)                                                  |
-| `home-manager`       | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs                                            |
-| `opencode`           | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop                                                 |
-| `opencode-nvim`      | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)                                                |
-| `agent-of-empires`   | `github:njbrake/agent-of-empires`           | AI agent session manager (non-flake)                                     |
-| `agent-deck`         | `github:asheshgoplani/agent-deck`           | AI agent command center (non-flake)                                      |
-| `openspec`           | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                            |
-| `nix-openclaw`       | `github:openclaw/nix-openclaw`              | OpenClaw AI gateway, follows nixpkgs + home-manager + flake-utils + nix-openclaw-tools |
-| `nix-openclaw-tools` | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                  |
-| `hermes-agent`       | `github:jerome-benoit/hermes-agent/main-patched` | Hermes Agent (fork with darwin fixes), follows nixpkgs + flake-parts + pyproject-nix + uv2nix + pyproject-build-systems |
-| `qmd`                | `github:tobi/qmd`                           | QMD CLI, follows nixpkgs + flake-utils                                   |
-| `agtx`               | `github:fynnfluegge/agtx`                   | Agtx terminal agent (non-flake)                                          |
-| `flake-utils`        | `github:numtide/flake-utils`                | Flake utilities                                                          |
-| `flake-parts`        | `github:hercules-ci/flake-parts`            | Flake composition                                                        |
-| `pyproject-nix`      | `github:pyproject-nix/pyproject.nix`        | Python packaging for Nix, follows nixpkgs                                |
-| `uv2nix`             | `github:pyproject-nix/uv2nix`               | uv lockfile to Nix, follows nixpkgs + pyproject-nix                      |
-| `pyproject-build-systems` | `github:pyproject-nix/build-system-pkgs` | Python build systems, follows nixpkgs + pyproject-nix + uv2nix          |
+| Input                     | Source                                           | Description                                                                                                             |
+| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `nixpkgs`                 | `github:nixos/nixpkgs?ref=nixpkgs-unstable`      | Nix packages (unstable)                                                                                                 |
+| `home-manager`            | `github:nix-community/home-manager`              | Home Manager, follows nixpkgs                                                                                           |
+| `opencode`                | `github:anomalyco/opencode`                      | OpenCode TUI/CLI/Desktop                                                                                                |
+| `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`               | Neovim plugin (non-flake)                                                                                               |
+| `agent-of-empires`        | `github:njbrake/agent-of-empires`                | AI agent session manager (non-flake)                                                                                    |
+| `agent-deck`              | `github:asheshgoplani/agent-deck`                | AI agent command center (non-flake)                                                                                     |
+| `openspec`                | `github:Fission-AI/OpenSpec`                     | OpenSpec CLI, follows nixpkgs                                                                                           |
+| `nix-openclaw`            | `github:openclaw/nix-openclaw`                   | OpenClaw AI gateway, follows nixpkgs + home-manager + flake-utils + nix-openclaw-tools                                  |
+| `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`             | OpenClaw tool binaries, follows nixpkgs                                                                                 |
+| `hermes-agent`            | `github:jerome-benoit/hermes-agent/main-patched` | Hermes Agent (fork with darwin fixes), follows nixpkgs + flake-parts + pyproject-nix + uv2nix + pyproject-build-systems |
+| `qmd`                     | `github:tobi/qmd`                                | QMD CLI, follows nixpkgs + flake-utils                                                                                  |
+| `agtx`                    | `github:fynnfluegge/agtx`                        | Agtx terminal agent (non-flake)                                                                                         |
+| `flake-utils`             | `github:numtide/flake-utils`                     | Flake utilities                                                                                                         |
+| `flake-parts`             | `github:hercules-ci/flake-parts`                 | Flake composition                                                                                                       |
+| `pyproject-nix`           | `github:pyproject-nix/pyproject.nix`             | Python packaging for Nix, follows nixpkgs                                                                               |
+| `uv2nix`                  | `github:pyproject-nix/uv2nix`                    | uv lockfile to Nix, follows nixpkgs + pyproject-nix                                                                     |
+| `pyproject-build-systems` | `github:pyproject-nix/build-system-pkgs`         | Python build systems, follows nixpkgs + pyproject-nix + uv2nix                                                          |
 
 ## Supported Platforms
 
-| Platform | Architecture     | Users                  |
-| -------- | ---------------- | ---------------------- |
-| Linux    | `x86_64-linux`   | `fraggle`, `almalinux` |
-| macOS    | `aarch64-darwin` | `I339261`              |
+| Platform | Architecture     | Users                                     |
+| -------- | ---------------- | ----------------------------------------- |
+| Linux    | `x86_64-linux`   | identity.username (personal), `almalinux` |
+| macOS    | `aarch64-darwin` | work.username                             |
 
 ## Profiles
 
@@ -49,17 +50,19 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 ## Specialisations
 
-| Name       | Email                  | Signature       |
-| ---------- | ---------------------- | --------------- |
-| `work`     | constants.workEmail    | SAP Labs France |
-| `personal` | constants.primaryEmail | Piment Noir     |
+| Name       | Email source                   | Signature source              |
+| ---------- | ------------------------------ | ----------------------------- |
+| `work`     | personalSecrets.work.email     | work.jobTitle + work.employer |
+| `personal` | personalSecrets.personal.email | identity + personal.domain    |
+
+Specialisation switching: `hmw` / `hmp` aliases (available only from within a specialisation), or `make switch SPEC=work`.
 
 ## Known Hosts
 
-| Hostname                   | Profile | Notes             |
-| -------------------------- | ------- | ----------------- |
-| `rigel`                    | desktop | Bun not supported |
-| `ns3108029.ip-54-37-87.eu` | server  | Remote server     |
+Hostnames are defined in `personalSecrets.hosts`. Two profiles exist:
+
+- One desktop host (bun not supported on this specific one)
+- One remote server
 
 ## Supported Linux Distros
 
@@ -71,7 +74,9 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 ~/.nix/
 ├── flake.nix                    # Main flake definition
 ├── flake.lock                   # Locked dependencies
-├── constants.nix                # Global constants (systems, profiles, distros)
+├── constants.nix                # Global constants (systems, profiles, distros — non-secret)
+├── Makefile                     # SOPS workflow (decrypt, encrypt, bootstrap, switch)
+├── .sops.yaml                   # SOPS encryption rules (PGP key, path patterns)
 ├── .editorconfig                # Editor formatting rules
 ├── renovate.json                # Renovate bot configuration
 ├── README.md                    # Documentation
@@ -129,6 +134,13 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       └── themes/              # Color themes (1 file)
 │           └── default.nix      # Theme registry with mkTheme factory (7 themes)
 ├── statix.toml                  # Statix linter configuration
+├── secrets/
+│   ├── default.nix              # Secret loader (impure: reads decrypted JSON, pure: placeholder)
+│   ├── personal.enc.yaml        # Encrypted personal data (identity, work, hosts)
+│   ├── tokens.enc.yaml          # Encrypted app tokens (hermes, agentdeck, shell)
+│   └── ssh/
+│       ├── id_rsa               # Encrypted SSH private key (sops binary format)
+│       └── id_rsa.pub           # SSH public key (plaintext)
 ├── patches/                     # Upstream PR patches
 │   ├── opencode/                # Patches for anomalyco/opencode
 │   └── qmd/                     # Patches for tobi/qmd
@@ -145,12 +157,14 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 
 ## Configuration Flow
 
-1. `flake.nix` defines inputs and creates `homeConfigurations` per user
-2. `mkHomeConfiguration` passes `arch`, `username`, `constants`, `inputs` to modules
-3. `home.nix` detects hostname → determines profile → enables modules accordingly
-4. Profile system (`profile.nix`) defines which modules are enabled per profile
-5. Specialisations allow runtime switching between work/personal contexts
-6. Each module follows `options` + `config = lib.mkIf cfg.enable { ... }` pattern
+1. `flake.nix` defines inputs and creates `homeConfigurations` per user (dynamic names from `personalSecrets`)
+2. `mkHomeConfiguration` passes `arch`, `username`, `constants`, `personalSecrets`, `inputs`, `self` to modules via `extraSpecialArgs`
+3. `secrets/default.nix` loads personal data: (a) impure + file exists → decrypted JSON, (b) pure/CI (`HOME=""`) → placeholder, (c) impure + file missing → `builtins.abort` with "Run 'make decrypt' first"
+4. `home.nix` detects hostname → determines profile → enables modules accordingly
+5. Profile system (`profile.nix`) defines which modules are enabled per profile
+6. Specialisations allow runtime switching between work/personal contexts
+7. Each module follows `options` + `config = lib.mkIf cfg.enable { ... }` pattern
+8. SOPS decrypts app tokens (`tokens.enc.yaml`) at runtime via systemd service (Linux) or launchd (macOS). Personal data (`personal.enc.yaml`) is decrypted at build-time only (by `_hm_switch` / Makefile), then cleaned up.
 
 ## Key Design Patterns
 

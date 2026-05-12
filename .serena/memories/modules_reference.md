@@ -4,24 +4,41 @@
 
 ### constants.nix
 
-Defines user-level constants accessible via `config.modules.core.constants`:
+Defines user-level constants accessible via `config.modules.core.constants`.
+Personal data comes from `personalSecrets` (SOPS-encrypted), non-secret constants are inline.
 
 - `systems` - System architectures (readonly, from root constants.nix)
 - `profiles` - Profile names: desktop, server (readonly)
 - `distros` - Supported distros: almalinux, debian, fedora, ubuntu (readonly)
-- `username` - "Jérôme Benoit" (readonly)
-- `primaryEmail` - Personal email (readonly)
-- `secondaryEmail` - Secondary email (readonly)
-- `workEmail` - Work email (readonly)
-- `gpg.keyId` - GPG key ID (readonly)
-- `gpg.fingerprint` - GPG fingerprint (readonly)
+- `identity.fullName` - Full name (from personalSecrets)
+- `identity.username` - Username (from personalSecrets)
+- `identity.gpg.keyId` - GPG key ID (from personalSecrets)
+- `identity.gpg.fingerprint` - GPG fingerprint (from personalSecrets)
+- `identity.telegram.userId` - Telegram user ID (from personalSecrets)
+- `personal.email` - Personal email (from personalSecrets)
+- `personal.secondaryEmail` - Secondary email (from personalSecrets)
+- `personal.domain` - Personal domain (from personalSecrets)
+- `work.email` - Work email (from personalSecrets)
+- `work.employer` - Employer name (from personalSecrets)
+- `work.jobTitle` - Job title (from personalSecrets)
+- `work.gheHostname` - GitHub Enterprise hostname (from personalSecrets)
+- `hosts` - Known hostnames (from personalSecrets)
 - `historySize` - 50000 (configurable)
 - `timezone` - "Europe/Paris" (configurable)
-- `hosts` - Known hostnames: rigel, ns3108029 (readonly)
-- `telegramUserId` - Telegram user ID for bot integrations (readonly)
 - `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
 - `deltaConfig` - Shared delta pager configuration submodule (readonly)
 - `deltaConfigToCli` - Function to convert deltaConfig to CLI flags string (readonly)
+
+### sops.nix
+
+SOPS secrets management via `sops-nix` home-manager module:
+
+- **Decryption**: GPG key (`~/.gnupg`)
+- **Default sops file**: `secrets/tokens.enc.yaml`
+- **Activation ordering fix**: Mic92/sops-nix#581 (entryBetween reloadSystemd → sops-nix, Linux only)
+- **App secrets**: hermes-env, agentdeck tokens, shell-secrets (from tokens.enc.yaml)
+- **SSH key**: `secrets/ssh/id_rsa` (format=binary, deployed to `~/.ssh/id_rsa`)
+- **SSH pubkey**: `secrets/ssh/id_rsa.pub` (via home.file, plaintext)
 
 ### distro.nix
 
@@ -58,48 +75,12 @@ Common packages for all platforms:
 
 ### profile.nix
 
-Profile system defining which modules are enabled per profile:
-
-| Category    | Module     | Desktop | Server |
-| ----------- | ---------- | ------- | ------ |
-| shell       | direnv     | ✓       | ✗      |
-| shell       | eza        | ✓       | ✗      |
-| shell       | fd         | ✓       | ✓      |
-| shell       | fzf        | ✓       | ✓      |
-| shell       | ripgrep    | ✓       | ✓      |
-| shell       | zoxide     | ✓       | ✗      |
-| shell       | zsh        | ✓       | ✓      |
-| development | bun        | ✓       | ✗      |
-| development | gh         | ✓       | ✗      |
-| development | git        | ✓       | ✓      |
-| development | lazygit    | ✓       | ✓      |
-| development | opencode   | ✓       | ✗      |
-| development | agentDeck  | ✓       | ✗      |
-| development | aoe        | ✓       | ✗      |
-| development | claudeCode | ✓       | ✗      |
-| development | openclaw   | ✗       | ✗      |
-| development | openspec   | ✓       | ✗      |
-| programs    | alacritty  | ✓       | ✗      |
-| programs    | btop       | ✓       | ✓      |
-| programs    | ghostty    | ✓       | ✗      |
-| programs    | glow       | ✓       | ✓      |
-| programs    | himalaya   | ✓       | ✗      |
-| programs    | lazydocker | ✓       | ✓      |
-| programs    | ssh        | ✓       | ✓      |
-| programs    | tmux       | ✓       | ✓      |
-| programs    | zellij     | ✓       | ✗      |
-| editors     | neovim     | ✓       | ✗      |
-| editors     | vim        | ✓       | ✓      |
+Profile system defining which modules are enabled per profile (desktop vs server).
+See `project_overview` memory for the full enable/disable table.
 
 ### specialisations.nix
 
-Creates work/personal contexts with different:
-
-- Git user email and signing key
-- Email signature file (.signature)
-- Shell aliases (hm, hmw, hmp)
-- Active theme (via `modules.themes.active`)
-- SSH matchBlocks (work specialisation has \*.local -> fraggle user)
+Creates work/personal contexts with different git email, signature, shell aliases (hm/hmw/hmp), active theme, SSH matchBlocks, and sops overrides.
 
 Requires: `modules.development.git.enable = true`, `modules.shell.zsh.enable = true`
 
@@ -301,7 +282,7 @@ CLI email client:
 
 - Platform-aware password command (macOS keychain / Linux pass)
 - Common settings: signature, datetime-local-tz, auto format
-- Account: piment-noir (OVH IMAP/SMTP)
+- Account: configured via personalSecrets (IMAP/SMTP)
 - GPG signing enabled by default
 
 ### btop.nix
