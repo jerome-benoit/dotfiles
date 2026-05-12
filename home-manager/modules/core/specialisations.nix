@@ -24,29 +24,31 @@ let
           gpgKeyId = constants.identity.gpg.keyId;
           gpgFingerprint = constants.identity.gpg.fingerprint;
         in
-        {
-          home.file.".signature".text = lib.mkForce ''
-            ${signature}
-            OpenPGP Key ID : ${gpgKeyId}
-            Key fingerprint : ${gpgFingerprint}
-          '';
+        lib.mkMerge [
+          {
+            home.file.".signature".text = lib.mkForce ''
+              ${signature}
+              OpenPGP Key ID : ${gpgKeyId}
+              Key fingerprint : ${gpgFingerprint}
+            '';
 
-          programs.git.settings.user = {
-            email = lib.mkForce email;
-            signingKey = lib.mkForce gpgKeyId;
-          };
+            programs.git.settings.user = {
+              email = lib.mkForce email;
+              signingKey = lib.mkForce gpgKeyId;
+            };
 
-          programs.zsh.shellAliases = {
-            hm = lib.mkForce "nh home switch --specialisation ${name} --impure";
-            hmw = "nh home switch --specialisation work --impure";
-            hmp = "nh home switch --specialisation personal --impure";
-          };
+            programs.zsh.shellAliases = {
+              hm = lib.mkForce "nh home switch --specialisation ${name} --impure";
+              hmw = "nh home switch --specialisation work --impure";
+              hmp = "nh home switch --specialisation personal --impure";
+            };
 
-          programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
+            programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
 
-          modules.themes.active = lib.mkForce theme;
-        }
-        // sopsOverrides;
+            modules.themes.active = lib.mkForce theme;
+          }
+          sopsOverrides
+        ];
     };
 in
 {
