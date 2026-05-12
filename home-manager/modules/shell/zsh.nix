@@ -102,14 +102,18 @@ in
                 return 1
             fi
 
-            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' EXIT INT TERM
+            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM
 
             nix run nixpkgs#sops -- decrypt --output-type json \
-                --output "''${dec_file}.tmp" "$enc_file" || return 1
+                --output "''${dec_file}.tmp" "$enc_file" || { trap - INT TERM; return 1; }
             chmod 600 "''${dec_file}.tmp"
             mv "''${dec_file}.tmp" "$dec_file"
 
             nh home switch --impure "$@"
+            local rc=$?
+            trap - INT TERM
+            rm -f "$dec_file"
+            return $rc
         }
 
         ${lib.optionalString (profileModules.development.opencode.enable && profileModules.programs.tmux) ''
