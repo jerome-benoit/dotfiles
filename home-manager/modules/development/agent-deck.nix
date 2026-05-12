@@ -206,6 +206,7 @@ in
           run cat > "${configFile}" << 'EOF'
         ${agentDeckConfig}
         EOF
+          run chmod 600 "${configFile}"
         fi
         export TELEGRAM_TOKEN=$(cat "${
           config.sops.secrets."agentdeck-telegram-token".path
@@ -238,6 +239,7 @@ in
             echo "warning: Slack tokens set but [conductor.slack] section missing in config" >&2
           fi
         fi
+        unset TELEGRAM_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN
       '';
   };
 }
