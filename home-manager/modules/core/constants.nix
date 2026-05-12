@@ -86,7 +86,7 @@ in
       readOnly = true;
     };
     nickname = lib.mkOption {
-      type = lib.types.strMatching "^[a-z_][a-z0-9_-]*$";
+      type = lib.types.strMatching "^[a-z_][a-z0-9_-]{0,30}$";
       default = personalSecrets.nickname;
       description = "The user's nickname / unix username on local machines";
       readOnly = true;
