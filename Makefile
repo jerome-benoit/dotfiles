@@ -2,7 +2,7 @@
 SOPS := nix run nixpkgs\#sops --
 FLAKE := .
 
-.PHONY: help decrypt decrypt-personal encrypt edit-personal edit-tokens build switch clean
+.PHONY: help decrypt decrypt-personal encrypt edit-personal edit-tokens bootstrap build switch clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -32,11 +32,14 @@ edit-personal: ## Edit personal secrets interactively via SOPS
 edit-tokens: ## Edit application tokens interactively via SOPS
 	@$(SOPS) secrets/tokens.enc.yaml
 
+bootstrap: decrypt-personal ## First-time setup (no nh/home-manager required)
+	@trap 'rm -f secrets/personal.dec.json' EXIT; nix run home-manager -- switch --flake $(CURDIR) --impure -b backup
+
 build: decrypt-personal ## Decrypt then build home-manager configuration (--impure required)
-	@trap 'rm -f secrets/personal.dec.json' EXIT; home-manager build --flake $(FLAKE) --impure
+	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home build --impure
 
 switch: decrypt-personal ## Decrypt then switch home-manager configuration (--impure required)
-	@trap 'rm -f secrets/personal.dec.json' EXIT; home-manager switch --flake $(FLAKE) --impure
+	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home switch --impure
 
 clean: ## Remove decrypted secrets and temporary files from disk
 	@rm -f secrets/*.dec.* secrets/*.tmp

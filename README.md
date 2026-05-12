@@ -8,8 +8,8 @@ Nix flakes configuration for Generic Linux and macOS.
 git clone <repository-url> ~/.nix
 cd ~/.nix
 
-# Bootstrap with default, personal, or work profile
-nix run home-manager -- switch --flake . --impure -b backup [--specialisation personal|work]
+# Bootstrap
+make bootstrap
 ```
 
 Restart your shell.
@@ -25,6 +25,18 @@ hm
 # Switch profiles (available only from personal or work)
 hmw  # work
 hmp  # personal
+```
+
+### Secrets
+
+Managed via [SOPS](https://github.com/getsops/sops). Personal constants are decrypted at eval-time; application tokens are decrypted at runtime by sops-nix.
+
+```bash
+make decrypt          # Decrypt all secrets to JSON for inspection
+make encrypt          # Re-encrypt after editing
+make edit-personal    # Edit personal constants interactively
+make edit-tokens      # Edit application tokens interactively
+make clean            # Remove plaintext from disk
 ```
 
 ### Formatting

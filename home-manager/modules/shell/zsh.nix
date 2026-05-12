@@ -29,7 +29,7 @@ in
         CARGO_BUILD_BUILD_DIR = "{cargo-cache-home}/build/{workspace-path-hash}";
       };
       shellAliases = {
-        hm = lib.mkDefault "nh home switch --impure";
+        hm = lib.mkDefault "_hm_switch";
       };
       oh-my-zsh = {
         enable = true;
@@ -91,6 +91,30 @@ in
         ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
+
+        _hm_switch() {
+            local nix_dir="''${NH_FLAKE:-$HOME/.nix}"
+            local dec_file="$nix_dir/secrets/personal.dec.json"
+            local enc_file="$nix_dir/secrets/personal.enc.yaml"
+
+            if [[ ! -f "$enc_file" ]]; then
+                echo "error: $enc_file not found" >&2
+                return 1
+            fi
+
+            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM
+
+            nix run nixpkgs#sops -- decrypt --output-type json \
+                --output "''${dec_file}.tmp" "$enc_file" || { rm -f "''${dec_file}.tmp"; trap - INT TERM; return 1; }
+            chmod 600 "''${dec_file}.tmp"
+            mv "''${dec_file}.tmp" "$dec_file"
+
+            nh home switch --impure "$@"
+            local rc=$?
+            trap - INT TERM
+            rm -f "$dec_file"
+            return $rc
+        }
 
         ${lib.optionalString (profileModules.development.opencode.enable && profileModules.programs.tmux) ''
           oc() {

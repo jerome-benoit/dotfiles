@@ -38,9 +38,9 @@ let
             };
 
             programs.zsh.shellAliases = {
-              hm = lib.mkForce "nh home switch --specialisation ${name} --impure";
-              hmw = "nh home switch --specialisation work --impure";
-              hmp = "nh home switch --specialisation personal --impure";
+              hm = lib.mkForce "_hm_switch --specialisation ${name}";
+              hmw = "_hm_switch --specialisation work";
+              hmp = "_hm_switch --specialisation personal";
             };
 
             programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
