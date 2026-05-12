@@ -120,7 +120,7 @@ in
         run mkdir -p "${configDir}"
         if [[ -f "${config.sops.secrets."hermes-env".path}" ]]; then
           run ln -sf "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
-        elif [[ ! -e "${configDir}/.env" ]]; then
+        elif [[ ! -e "${configDir}/.env" && ! -L "${configDir}/.env" ]]; then
           run touch "${configDir}/.env"
           run chmod 600 "${configDir}/.env"
         fi

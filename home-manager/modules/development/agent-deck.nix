@@ -8,6 +8,7 @@
 
 let
   cfg = config.modules.development.agent-deck;
+  constants = config.modules.core.constants;
 
   agentDeckConfig = ''
     # Agent Deck Configuration
@@ -113,7 +114,7 @@ let
       heartbeat_interval = 0
       [conductor.telegram]
         token = ""
-        user_id = 0
+        user_id = ${constants.identity.telegram.userId}
       [conductor.slack]
         bot_token = ""
         app_token = ""
