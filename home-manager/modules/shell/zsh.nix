@@ -166,6 +166,10 @@ in
           }
         fi
 
+        if [[ -n "$SSH_CONNECTION" && ( -z "$GPG_TTY" || "$GPG_TTY" != "$(tty)" ) ]]; then
+          export GPG_TTY=$(tty)
+        fi
+
         export DVM_DIR="$HOME/.dvm"
         [[ -f "$DVM_DIR/dvm.sh" ]] && source "$DVM_DIR/dvm.sh"
         [[ -f "$DVM_DIR/bash_completion" ]] && source "$DVM_DIR/bash_completion"
