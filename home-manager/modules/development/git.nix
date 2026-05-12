@@ -18,8 +18,8 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = constants.gpg.keyId != "";
-        message = "git: GPG key ID must be configured (set constants.gpg.keyId in home-manager/constants.nix)";
+        assertion = constants.identity.gpg.keyId != "";
+        message = "git: GPG key ID must be configured (set constants.identity.gpg.keyId in home-manager/constants.nix)";
       }
     ];
 
@@ -40,9 +40,9 @@ in
             manyFiles = true;
           };
           user = {
-            name = lib.mkDefault constants.username;
-            email = lib.mkDefault constants.primaryEmail;
-            signingKey = lib.mkDefault constants.gpg.keyId;
+            name = lib.mkDefault constants.identity.fullName;
+            email = lib.mkDefault constants.personal.email;
+            signingKey = lib.mkDefault constants.identity.gpg.keyId;
           };
           commit = {
             gpgSign = true;

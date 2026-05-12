@@ -71,7 +71,7 @@ in
         secrets = {
           providers.filemain = {
             source = "file";
-            path = config.sops.secrets."openclaw-secrets-json".path;
+            path = "~/.openclaw/secrets/openclaw-secrets.json";
             mode = "json";
           };
           defaults.file = "filemain";
@@ -85,13 +85,13 @@ in
         channels.telegram = {
           enabled = true;
           dmPolicy = "allowlist";
-          tokenFile = config.sops.secrets."openclaw-telegram-bot-token".path;
-          allowFrom = [ constants.telegramUserId ];
+          tokenFile = "~/.openclaw/secrets/telegram-bot-token";
+          allowFrom = [ constants.identity.telegram.userId ];
           groupPolicy = "disabled";
           configWrites = false;
           execApprovals = {
             enabled = true;
-            approvers = [ constants.telegramUserId ];
+            approvers = [ constants.identity.telegram.userId ];
             target = "dm";
           };
           streaming.block.enabled = true;

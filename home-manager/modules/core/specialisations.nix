@@ -16,12 +16,13 @@ let
       signature,
       theme,
       sshMatchBlocks ? { },
+      sopsOverrides ? { },
     }:
     {
       configuration =
         let
-          gpgKeyId = constants.gpg.keyId;
-          gpgFingerprint = constants.gpg.fingerprint;
+          gpgKeyId = constants.identity.gpg.keyId;
+          gpgFingerprint = constants.identity.gpg.fingerprint;
         in
         {
           home.file.".signature".text = lib.mkForce ''
@@ -44,7 +45,8 @@ let
           programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
 
           modules.themes.active = lib.mkForce theme;
-        };
+        }
+        // sopsOverrides;
     };
 in
 {
@@ -67,25 +69,28 @@ in
     specialisation = {
       work = mkSpecialisation {
         name = "work";
-        email = constants.workEmail;
+        email = constants.work.email;
         signature = ''
-          ${constants.username} - ${constants.work.jobTitle}
+          ${constants.identity.fullName} - ${constants.work.jobTitle}
           ${constants.work.employer}
         '';
         theme = "tokyoNightStorm";
         sshMatchBlocks = {
           "*.local" = {
-            user = constants.nickname;
+            user = constants.identity.nickname;
           };
+        };
+        sopsOverrides = {
+          sops.secrets."hermes-env".key = lib.mkForce "hermes/work/envContent";
         };
       };
 
       personal = mkSpecialisation {
         name = "personal";
-        email = constants.primaryEmail;
+        email = constants.personal.email;
         signature = ''
-          ${constants.username} aka ${constants.nickname}
-          Piment Noir - https://${constants.personalDomain}
+          ${constants.identity.fullName} aka ${constants.identity.nickname}
+          Piment Noir - https://${constants.personal.domain}
         '';
         theme = "tokyoNightStorm";
       };

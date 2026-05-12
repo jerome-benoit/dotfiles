@@ -4,27 +4,31 @@ let
   home = builtins.getEnv "HOME";
   decFile = "${home}/.nix/secrets/personal.dec.json";
   placeholder = {
-    username = "ci-placeholder";
-    primaryEmail = "ci@placeholder.invalid";
-    secondaryEmail = "ci@placeholder.invalid";
-    workEmail = "ci@placeholder.invalid";
-    gpg = {
-      keyId = "0000000000000000";
-      fingerprint = "0000000000000000000000000000000000000000";
+    identity = {
+      fullName = "ci-placeholder";
+      nickname = "ci-user";
+      gpg = {
+        keyId = "0000000000000000";
+        fingerprint = "0000000000000000000000000000000000000000";
+      };
+      telegram = {
+        userId = "0";
+      };
     };
-    telegram = {
-      userId = "0";
+    personal = {
+      email = "ci@placeholder.invalid";
+      secondaryEmail = "ci@placeholder.invalid";
+      domain = "personal.ci-placeholder.invalid";
+      mail = {
+        imapHost = "mail.ci-placeholder.invalid";
+        smtpHost = "mail.ci-placeholder.invalid";
+      };
     };
-    nickname = "ci-user";
-    personalDomain = "personal.ci-placeholder.invalid";
     work = {
+      email = "ci@placeholder.invalid";
       employer = "ci-placeholder";
       jobTitle = "ci-placeholder";
       gheHostname = "ghe.ci-placeholder.invalid";
-    };
-    mail = {
-      imapHost = "mail.ci-placeholder.invalid";
-      smtpHost = "mail.ci-placeholder.invalid";
     };
     hosts = {
       server = "server.ci-placeholder.invalid";

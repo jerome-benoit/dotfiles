@@ -54,22 +54,22 @@ in
     accounts.email.accounts = {
       piment-noir = {
         primary = true;
-        address = constants.primaryEmail;
-        userName = constants.primaryEmail;
-        realName = constants.username;
-        passwordCommand = mkPasswordCommand constants.primaryEmail;
+        address = constants.personal.email;
+        userName = constants.personal.email;
+        realName = constants.identity.fullName;
+        passwordCommand = mkPasswordCommand constants.personal.email;
         imap = {
-          host = constants.mail.imapHost;
+          host = constants.personal.mail.imapHost;
           port = 993;
           tls.enable = true;
         };
         smtp = {
-          host = constants.mail.smtpHost;
+          host = constants.personal.mail.smtpHost;
           port = 465;
           tls.enable = true;
         };
         gpg = {
-          key = constants.gpg.fingerprint;
+          key = constants.identity.gpg.fingerprint;
           signByDefault = true;
         };
         himalaya = {

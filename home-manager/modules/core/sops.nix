@@ -12,21 +12,9 @@ in
 
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
 
-  sops.secrets."openclaw-secrets-json" = {
-    key = "openclaw/secretsJson";
-    path = "${homeDir}/.openclaw/secrets/openclaw-secrets.json";
-    mode = "0600";
-  };
-
-  sops.secrets."openclaw-telegram-bot-token" = {
-    key = "openclaw/telegramBotToken";
-    path = "${homeDir}/.openclaw/secrets/telegram-bot-token";
-    mode = "0600";
-  };
-
   # hermesAgentBootstrap will symlink this to the expected location
   sops.secrets."hermes-env" = {
-    key = "hermes/envContent";
+    key = "hermes/personal/envContent";
     mode = "0600";
   };
 

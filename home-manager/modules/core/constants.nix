@@ -41,63 +41,83 @@ in
       description = "Supported GNU/Linux distributions";
       readOnly = true;
     };
-    username = lib.mkOption {
-      type = lib.types.str;
-      default = personalSecrets.username;
-      description = "The user's full name";
-      readOnly = true;
-    };
-    primaryEmail = lib.mkOption {
-      type = lib.types.strMatching emailRegex;
-      default = personalSecrets.primaryEmail;
-      description = "The user's primary email address";
-      readOnly = true;
-    };
-    secondaryEmail = lib.mkOption {
-      type = lib.types.strMatching emailRegex;
-      default = personalSecrets.secondaryEmail;
-      description = "The user's secondary email address";
-      readOnly = true;
-    };
-    workEmail = lib.mkOption {
-      type = lib.types.strMatching emailRegex;
-      default = personalSecrets.workEmail;
-      description = "The user's work email address";
-      readOnly = true;
-    };
-    gpg = {
-      keyId = lib.mkOption {
-        type = lib.types.strMatching "^([0-9A-Fa-f]{8}|[0-9A-Fa-f]{16})$";
-        default = personalSecrets.gpg.keyId;
-        description = "The user's GPG key ID";
+    identity = {
+      fullName = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.identity.fullName;
+        description = "The user's full name";
         readOnly = true;
       };
-      fingerprint = lib.mkOption {
-        type = lib.types.strMatching "^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{4}([ :]?[0-9A-Fa-f]{4}){9})$";
-        default = personalSecrets.gpg.fingerprint;
-        description = "The user's GPG key fingerprint";
+      nickname = lib.mkOption {
+        type = lib.types.strMatching "^[a-z_][a-z0-9_-]{0,30}$";
+        default = personalSecrets.identity.nickname;
+        description = "The user's nickname / unix username on local machines";
         readOnly = true;
       };
+      gpg = {
+        keyId = lib.mkOption {
+          type = lib.types.strMatching "^([0-9A-Fa-f]{8}|[0-9A-Fa-f]{16})$";
+          default = personalSecrets.identity.gpg.keyId;
+          description = "The user's GPG key ID";
+          readOnly = true;
+        };
+        fingerprint = lib.mkOption {
+          type = lib.types.strMatching "^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{4}([ :]?[0-9A-Fa-f]{4}){9})$";
+          default = personalSecrets.identity.gpg.fingerprint;
+          description = "The user's GPG key fingerprint";
+          readOnly = true;
+        };
+      };
+      telegram = {
+        userId = lib.mkOption {
+          type = lib.types.strMatching "^[0-9]+$";
+          default = personalSecrets.identity.telegram.userId;
+          description = "Telegram user ID for bot integrations";
+          readOnly = true;
+        };
+      };
     };
-    telegramUserId = lib.mkOption {
-      type = lib.types.strMatching "^[0-9]+$";
-      default = personalSecrets.telegram.userId;
-      description = "Telegram user ID for bot integrations";
-      readOnly = true;
-    };
-    nickname = lib.mkOption {
-      type = lib.types.strMatching "^[a-z_][a-z0-9_-]{0,30}$";
-      default = personalSecrets.nickname;
-      description = "The user's nickname / unix username on local machines";
-      readOnly = true;
-    };
-    personalDomain = lib.mkOption {
-      type = lib.types.str;
-      default = personalSecrets.personalDomain;
-      description = "The user's personal domain (bare, no scheme)";
-      readOnly = true;
+    personal = {
+      email = lib.mkOption {
+        type = lib.types.strMatching emailRegex;
+        default = personalSecrets.personal.email;
+        description = "The user's personal email address";
+        readOnly = true;
+      };
+      secondaryEmail = lib.mkOption {
+        type = lib.types.strMatching emailRegex;
+        default = personalSecrets.personal.secondaryEmail;
+        description = "The user's secondary email address";
+        readOnly = true;
+      };
+      domain = lib.mkOption {
+        type = lib.types.str;
+        default = personalSecrets.personal.domain;
+        description = "The user's personal domain (bare, no scheme)";
+        readOnly = true;
+      };
+      mail = {
+        imapHost = lib.mkOption {
+          type = lib.types.str;
+          default = personalSecrets.personal.mail.imapHost;
+          description = "IMAP server hostname";
+          readOnly = true;
+        };
+        smtpHost = lib.mkOption {
+          type = lib.types.str;
+          default = personalSecrets.personal.mail.smtpHost;
+          description = "SMTP server hostname";
+          readOnly = true;
+        };
+      };
     };
     work = {
+      email = lib.mkOption {
+        type = lib.types.strMatching emailRegex;
+        default = personalSecrets.work.email;
+        description = "The user's work email address";
+        readOnly = true;
+      };
       employer = lib.mkOption {
         type = lib.types.str;
         default = personalSecrets.work.employer;
@@ -117,19 +137,15 @@ in
         readOnly = true;
       };
     };
-    mail = {
-      imapHost = lib.mkOption {
-        type = lib.types.str;
-        default = personalSecrets.mail.imapHost;
-        description = "IMAP server hostname";
-        readOnly = true;
+    hosts = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {
+        rigel = "rigel";
+        zeus = "zeus";
+        ns3108029 = personalSecrets.hosts.server;
       };
-      smtpHost = lib.mkOption {
-        type = lib.types.str;
-        default = personalSecrets.mail.smtpHost;
-        description = "SMTP server hostname";
-        readOnly = true;
-      };
+      description = "Hostnames";
+      readOnly = true;
     };
     historySize = lib.mkOption {
       type = lib.types.ints.positive;
@@ -146,16 +162,6 @@ in
       type = lib.types.str;
       default = "Europe/Paris";
       description = "Default timezone for programs";
-    };
-    hosts = lib.mkOption {
-      type = lib.types.attrsOf lib.types.str;
-      default = {
-        rigel = "rigel";
-        zeus = "zeus";
-        ns3108029 = personalSecrets.hosts.server;
-      };
-      description = "Hostnames";
-      readOnly = true;
     };
     deltaConfig = lib.mkOption {
       type = lib.types.submodule {
