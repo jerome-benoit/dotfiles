@@ -1,5 +1,7 @@
 {
   config,
+  lib,
+  pkgs,
   ...
 }:
 
@@ -11,6 +13,11 @@ in
   sops.gnupg.sshKeyPaths = [ ];
 
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
+
+  # Mic92/sops-nix#581
+  home.activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.isLinux (
+    lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
+  );
 
   # hermesAgentBootstrap will symlink this to the expected location
   sops.secrets."hermes-env" = {
