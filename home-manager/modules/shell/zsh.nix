@@ -102,16 +102,16 @@ in
                 return 1
             fi
 
-            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM
+            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM HUP
 
             nix run nixpkgs#sops -- decrypt --output-type json \
-                --output "''${dec_file}.tmp" "$enc_file" || { trap - INT TERM; return 1; }
+                --output "''${dec_file}.tmp" "$enc_file" || { trap - INT TERM HUP; return 1; }
             chmod 600 "''${dec_file}.tmp"
             mv "''${dec_file}.tmp" "$dec_file"
 
             nh home switch --impure "$@"
             local rc=$?
-            trap - INT TERM
+            trap - INT TERM HUP
             rm -f "$dec_file"
             return $rc
         }
