@@ -51,7 +51,7 @@ in
       nickname = lib.mkOption {
         type = lib.types.strMatching "^[a-z_][a-z0-9_-]{0,30}$";
         default = personalSecrets.identity.nickname;
-        description = "The user's nickname / unix username on local machines";
+        description = "The user's nickname";
         readOnly = true;
       };
       gpg = {
@@ -93,7 +93,7 @@ in
       domain = lib.mkOption {
         type = lib.types.str;
         default = personalSecrets.personal.domain;
-        description = "The user's personal domain (bare, no scheme)";
+        description = "The user's personal domain";
         readOnly = true;
       };
       mail = {
