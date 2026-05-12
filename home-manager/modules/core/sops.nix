@@ -45,4 +45,12 @@ in
     key = "shell/secrets";
     mode = "0600";
   };
+
+  sops.secrets."ssh-id-rsa" = {
+    format = "binary";
+    sopsFile = ../../../secrets/ssh/id_rsa;
+    path = "${homeDir}/.ssh/id_rsa";
+  };
+
+  home.file.".ssh/id_rsa.pub".source = ../../../secrets/ssh/id_rsa.pub;
 }

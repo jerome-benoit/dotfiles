@@ -203,4 +203,5 @@ $RECYCLE.BIN/
 result*
 
 ### SOPS decrypted secrets — never commit these ###
-secrets/*.dec.*
+secrets/**/*.dec.*
+secrets/**/*.tmp

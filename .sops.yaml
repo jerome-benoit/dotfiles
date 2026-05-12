@@ -1,4 +1,6 @@
 creation_rules:
+  - path_regex: secrets/ssh/.*
+    pgp: B799BBF68EC8911BB8D7CDBCC3B192C627B535D3
   - path_regex: secrets/.*\.(enc\.yaml|dec\.json)$
     pgp: B799BBF68EC8911BB8D7CDBCC3B192C627B535D3
     encrypted_regex: ".*"
