@@ -29,7 +29,7 @@ let
       employer = "ci-placeholder";
       jobTitle = "ci-placeholder";
       gheHostname = "ghe.ci-placeholder.invalid";
-      username = "ci-user";
+      username = "ci-user-work";
     };
     hosts = {
       server = "server.ci-placeholder.invalid";
