@@ -133,7 +133,7 @@ in
       gheHostname = lib.mkOption {
         type = lib.types.str;
         default = personalSecrets.work.gheHostname;
-        description = "GitHub Enterprise hostname (bare, no scheme)";
+        description = "GitHub Enterprise hostname";
         readOnly = true;
       };
     };
