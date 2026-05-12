@@ -225,10 +225,10 @@ in
           # flip-flop + eof: scope substitution to each TOML section
           ${pkgs.perl}/bin/perl -pi -e '
             sub toml_escape { my $v = shift; my %m = ("\\"=>"\\\\", "\""=>"\\\"", "\n"=>"\\n", "\r"=>"\\r", "\t"=>"\\t", "\x08"=>"\\b", "\x0c"=>"\\f"); $v =~ s/([\\\"\n\r\t\x08\x0c])/$m{$1}/g; return $v; }
-            if (/^\s*\[conductor\.telegram\]/ .. (eof || /^\s*\[(?!conductor\.telegram)/)) {
+            if (/^\s*\[conductor\.telegram\]/ .. (eof() || /^\s*\[(?!conductor\.telegram)/)) {
               s/^(\s*token\s*=\s*).*/$1"@{[toml_escape($ENV{TELEGRAM_TOKEN})]}"/ if $ENV{TELEGRAM_TOKEN} ne "";
             }
-            if (/^\s*\[conductor\.slack\]/ .. (eof || /^\s*\[(?!conductor\.slack)/)) {
+            if (/^\s*\[conductor\.slack\]/ .. (eof() || /^\s*\[(?!conductor\.slack)/)) {
               s/^(\s*bot_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_BOT_TOKEN})]}"/ if $ENV{SLACK_BOT_TOKEN} ne "";
               s/^(\s*app_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_APP_TOKEN})]}"/ if $ENV{SLACK_APP_TOKEN} ne "";
             }
