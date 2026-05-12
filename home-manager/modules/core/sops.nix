@@ -22,11 +22,14 @@ in
     lib.mkForce [ "default.target" ]
   );
 
-  # Linux: GPG agent may not have passphrase cached at boot (GNOME Keyring unlocks later).
-  # Retry until decryption succeeds.
+  # Linux: GPG agent/passphrase may not be ready at boot (GNOME Keyring unlocks later).
+  # Retry until decryption succeeds, with no restart limit.
   systemd.user.services.sops-nix.Service = lib.mkIf pkgs.stdenv.isLinux {
     Restart = "on-failure";
     RestartSec = 5;
+  };
+  systemd.user.services.sops-nix.Unit = lib.mkIf pkgs.stdenv.isLinux {
+    StartLimitIntervalSec = 0;
   };
 
   # Linux: ensure sops-nix activation runs after systemd daemon-reload (Mic92/sops-nix#581)
