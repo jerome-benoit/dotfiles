@@ -32,14 +32,14 @@ edit-personal: ## Edit personal secrets interactively via SOPS
 edit-tokens: ## Edit application tokens interactively via SOPS
 	@$(SOPS) secrets/tokens.enc.yaml
 
-bootstrap: decrypt-personal ## First-time setup (no nh/home-manager required)
-	@trap 'rm -f secrets/personal.dec.json' EXIT; nix run home-manager -- switch --flake $(CURDIR) --impure -b backup
+bootstrap: decrypt-personal ## First-time setup (no nh/home-manager required). Usage: make bootstrap SPEC=work
+	@trap 'rm -f secrets/personal.dec.json' EXIT; nix run home-manager -- switch --flake $(CURDIR) --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
 
 build: decrypt-personal ## Decrypt then build home-manager configuration (--impure required)
 	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home build --impure
 
-switch: decrypt-personal ## Decrypt then switch home-manager configuration (--impure required)
-	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home switch --impure
+switch: decrypt-personal ## Decrypt then switch home-manager configuration (--impure required). Usage: make switch SPEC=work
+	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home switch --impure $(if $(SPEC),--specialisation $(SPEC))
 
 clean: ## Remove decrypted secrets and temporary files from disk
 	@rm -f secrets/*.dec.* secrets/*.tmp

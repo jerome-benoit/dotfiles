@@ -9,7 +9,7 @@ git clone <repository-url> ~/.nix
 cd ~/.nix
 
 # Bootstrap
-make bootstrap
+make bootstrap SPEC=work     # or SPEC=personal
 ```
 
 Restart your shell.
@@ -19,12 +19,15 @@ Restart your shell.
 ### Home Manager
 
 ```bash
-# Apply changes (preserves current profile)
+# Apply changes (preserves current specialisation)
 hm
 
-# Switch profiles (available only from personal or work)
+# Switch specialisation
 hmw  # work
 hmp  # personal
+
+# Or via Makefile
+make switch SPEC=work
 ```
 
 ### Secrets
