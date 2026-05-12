@@ -36,10 +36,10 @@ bootstrap: decrypt-personal ## First-time setup (no nh/home-manager required). U
 	@trap 'rm -f secrets/personal.dec.json' EXIT; nix run home-manager -- switch --flake $(CURDIR) --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
 
 build: decrypt-personal ## Decrypt then build home-manager configuration (--impure required)
-	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home build --impure -c "$$(whoami)"
+	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home build --impure -c "$$(whoami)" -- --impure
 
 switch: decrypt-personal ## Decrypt then switch home-manager configuration (--impure required). Usage: make switch SPEC=work
-	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC))
+	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
 
 clean: ## Remove decrypted secrets and temporary files from disk
 	@rm -f secrets/*.dec.* secrets/*.tmp

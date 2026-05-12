@@ -109,7 +109,7 @@ in
             chmod 600 "''${dec_file}.tmp"
             mv "''${dec_file}.tmp" "$dec_file"
 
-            nh home switch --impure -c "$(whoami)" "$@"
+            nh home switch --impure -c "$(whoami)" "$@" -- --impure
             local rc=$?
             trap - INT TERM HUP
             rm -f "$dec_file"
