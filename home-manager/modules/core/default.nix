@@ -7,6 +7,7 @@
     ./lib.nix
     ./packages.nix
     ./profile.nix
+    ./sops.nix
     ./specialisations.nix
   ];
 }

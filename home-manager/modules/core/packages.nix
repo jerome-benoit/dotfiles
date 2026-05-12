@@ -7,6 +7,7 @@
 }:
 let
   cfg = config.modules.core.packages;
+  constants = config.modules.core.constants;
   openclawEnabled = config.modules.development.openclaw.enable or false;
   openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.system};
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
@@ -116,7 +117,7 @@ in
 
     home.file.".Brewfile" = lib.mkIf (isDesktop && isDarwin) {
       text = ''
-        tap "hAIperspace/hai", "https://github.tools.sap/hAIperspace/hai-homebrew"
+        tap "hAIperspace/hai", "https://${constants.work.gheHostname}/hAIperspace/hai-homebrew"
         tap "moltenbits/tap"
         cask "docker-desktop"
         cask "ferdium"
@@ -139,7 +140,7 @@ in
 
         if [[ -n "$_brew" ]]; then
           if command -v gh >/dev/null 2>&1; then
-            _gh_sap_token=$(gh auth token --hostname github.tools.sap 2>/dev/null)
+            _gh_sap_token=$(gh auth token --hostname "${constants.work.gheHostname}" 2>/dev/null)
             if [[ -n "$_gh_sap_token" ]]; then
               export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
             fi

@@ -5,6 +5,8 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    sops-nix.url = "github:Mic92/sops-nix";
+    sops-nix.inputs.nixpkgs.follows = "nixpkgs";
     opencode.url = "github:anomalyco/opencode";
     opencode.inputs.nixpkgs.follows = "nixpkgs";
     opencode-nvim = {
@@ -64,6 +66,7 @@
     }@inputs:
     let
       constants = import ./constants.nix;
+      personalSecrets = import ./secrets/default.nix;
       forAllSystems = nixpkgs.lib.genAttrs (
         builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
       );
@@ -80,28 +83,30 @@
               inputs
               username
               constants
+              personalSecrets
               self
               ;
           };
           modules = [
             inputs.nix-openclaw.homeManagerModules.openclaw
+            inputs.sops-nix.homeManagerModules.sops
             ./home-manager/home.nix
           ];
         };
     in
     {
       homeConfigurations = {
-        "fraggle" = mkHomeConfiguration {
+        "${personalSecrets.identity.username}" = mkHomeConfiguration {
           arch = constants.systems.linux.arch;
-          username = "fraggle";
+          username = personalSecrets.identity.username;
         };
         "almalinux" = mkHomeConfiguration {
           arch = constants.systems.linux.arch;
           username = "almalinux";
         };
-        "I339261" = mkHomeConfiguration {
+        "${personalSecrets.work.username}" = mkHomeConfiguration {
           arch = constants.systems.darwin.arch;
-          username = "I339261";
+          username = personalSecrets.work.username;
         };
       };
 
@@ -126,12 +131,14 @@
           homeConfigChecks =
             if arch == "x86_64-linux" then
               {
-                home-fraggle = self.homeConfigurations.fraggle.activationPackage;
+                "home-${personalSecrets.identity.username}" =
+                  self.homeConfigurations.${personalSecrets.identity.username}.activationPackage;
                 home-almalinux = self.homeConfigurations.almalinux.activationPackage;
               }
             else if arch == "aarch64-darwin" then
               {
-                home-I339261 = self.homeConfigurations.I339261.activationPackage;
+                "home-${personalSecrets.work.username}" =
+                  self.homeConfigurations.${personalSecrets.work.username}.activationPackage;
               }
             else
               { };

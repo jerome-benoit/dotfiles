@@ -21,11 +21,13 @@ let
     HOME = homeDir;
     HERMES_HOME = configDir;
     HERMES_MANAGED = "true";
-    PATH = lib.makeBinPath [
-      cfg.package
-      pkgs.bash
-      pkgs.coreutils
-    ] + ":/usr/bin:/bin";
+    PATH =
+      lib.makeBinPath [
+        cfg.package
+        pkgs.bash
+        pkgs.coreutils
+      ]
+      + ":/usr/bin:/bin";
   };
 
   mkLaunchdService =
@@ -114,9 +116,11 @@ in
     ) "hermesAgent: package not available for system ${system}";
 
     home.activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
-      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
         run mkdir -p "${configDir}"
-        if [[ ! -f "${configDir}/.env" ]]; then
+        if [[ -f "${config.sops.secrets."hermes-env".path}" ]]; then
+          run ln -sf "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
+        elif [[ ! -e "${configDir}/.env" && ! -L "${configDir}/.env" ]]; then
           run touch "${configDir}/.env"
           run chmod 600 "${configDir}/.env"
         fi

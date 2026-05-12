@@ -86,12 +86,12 @@ in
           enabled = true;
           dmPolicy = "allowlist";
           tokenFile = "~/.openclaw/secrets/telegram-bot-token";
-          allowFrom = [ constants.telegramUserId ];
+          allowFrom = [ constants.identity.telegram.userId ];
           groupPolicy = "disabled";
           configWrites = false;
           execApprovals = {
             enabled = true;
-            approvers = [ constants.telegramUserId ];
+            approvers = [ constants.identity.telegram.userId ];
             target = "dm";
           };
           streaming.block.enabled = true;

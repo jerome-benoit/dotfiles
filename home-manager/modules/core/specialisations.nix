@@ -16,35 +16,39 @@ let
       signature,
       theme,
       sshMatchBlocks ? { },
+      sopsOverrides ? { },
     }:
     {
       configuration =
         let
-          gpgKeyId = constants.gpg.keyId;
-          gpgFingerprint = constants.gpg.fingerprint;
+          gpgKeyId = constants.identity.gpg.keyId;
+          gpgFingerprint = constants.identity.gpg.fingerprint;
         in
-        {
-          home.file.".signature".text = lib.mkForce ''
-            ${signature}
-            OpenPGP Key ID : ${gpgKeyId}
-            Key fingerprint : ${gpgFingerprint}
-          '';
+        lib.mkMerge [
+          {
+            home.file.".signature".text = lib.mkForce ''
+              ${signature}
+              OpenPGP Key ID : ${gpgKeyId}
+              Key fingerprint : ${gpgFingerprint}
+            '';
 
-          programs.git.settings.user = {
-            email = lib.mkForce email;
-            signingKey = lib.mkForce gpgKeyId;
-          };
+            programs.git.settings.user = {
+              email = lib.mkForce email;
+              signingKey = lib.mkForce gpgKeyId;
+            };
 
-          programs.zsh.shellAliases = {
-            hm = lib.mkForce "nh home switch --specialisation ${name} --impure";
-            hmw = "nh home switch --specialisation work --impure";
-            hmp = "nh home switch --specialisation personal --impure";
-          };
+            programs.zsh.shellAliases = {
+              hm = lib.mkForce "_hm_switch --specialisation ${name}";
+              hmw = "_hm_switch --specialisation work";
+              hmp = "_hm_switch --specialisation personal";
+            };
 
-          programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
+            programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
 
-          modules.themes.active = lib.mkForce theme;
-        };
+            modules.themes.active = lib.mkForce theme;
+          }
+          sopsOverrides
+        ];
     };
 in
 {
@@ -67,25 +71,28 @@ in
     specialisation = {
       work = mkSpecialisation {
         name = "work";
-        email = constants.workEmail;
+        email = constants.work.email;
         signature = ''
-          ${constants.username} - R&D Software Engineer
-          SAP Labs France
+          ${constants.identity.fullName} - ${constants.work.jobTitle}
+          ${constants.work.employer}
         '';
         theme = "tokyoNightStorm";
         sshMatchBlocks = {
           "*.local" = {
-            user = "fraggle";
+            user = constants.identity.username;
           };
+        };
+        sopsOverrides = {
+          sops.secrets."hermes-env".key = lib.mkForce "hermes/work/envContent";
         };
       };
 
       personal = mkSpecialisation {
         name = "personal";
-        email = constants.primaryEmail;
+        email = constants.personal.email;
         signature = ''
-          ${constants.username} aka fraggle
-          Piment Noir - https://piment-noir.org
+          ${constants.identity.fullName} aka ${constants.identity.username}
+          Piment Noir - https://${constants.personal.domain}
         '';
         theme = "tokyoNightStorm";
       };

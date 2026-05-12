@@ -7,6 +7,7 @@
 
 let
   cfg = config.modules.shell.zsh;
+  constants = config.modules.core.constants;
   distroId = config.modules.core.distro.id;
   distroIds = config.modules.core.distro.ids;
   profileModules = config.modules.core.profile.modules;
@@ -28,7 +29,7 @@ in
         CARGO_BUILD_BUILD_DIR = "{cargo-cache-home}/build/{workspace-path-hash}";
       };
       shellAliases = {
-        hm = lib.mkDefault "nh home switch --impure";
+        hm = lib.mkDefault "_hm_switch";
       };
       oh-my-zsh = {
         enable = true;
@@ -91,6 +92,30 @@ in
           zstyle :omz:plugins:iterm2 shell-integration yes
         ''}
 
+        _hm_switch() {
+            local nix_dir="$HOME/.nix"
+            local dec_file="$nix_dir/secrets/personal.dec.json"
+            local enc_file="$nix_dir/secrets/personal.enc.yaml"
+
+            if [[ ! -f "$enc_file" ]]; then
+                echo "error: $enc_file not found" >&2
+                return 1
+            fi
+
+            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM HUP
+
+            nix run nixpkgs#sops -- decrypt --output-type json \
+                --output "''${dec_file}.tmp" "$enc_file" || { trap - INT TERM HUP; return 1; }
+            chmod 600 "''${dec_file}.tmp"
+            mv "''${dec_file}.tmp" "$dec_file"
+
+            nh home switch --impure "$@"
+            local rc=$?
+            trap - INT TERM HUP
+            rm -f "$dec_file"
+            return $rc
+        }
+
         ${lib.optionalString (profileModules.development.opencode.enable && profileModules.programs.tmux) ''
           oc() {
               local base_name=$(basename "$PWD")
@@ -145,13 +170,8 @@ in
         [[ -f "$DVM_DIR/dvm.sh" ]] && source "$DVM_DIR/dvm.sh"
         [[ -f "$DVM_DIR/bash_completion" ]] && source "$DVM_DIR/bash_completion"
 
-        if [[ -f "$HOME/.secrets" ]]; then
-          if [[ -z "$(find "$HOME/.secrets" -perm 600)" ]]; then
-            echo "\033[1;31mWARNING: $HOME/.secrets has insecure permissions!\033[0m"
-            echo "Please run: chmod 600 $HOME/.secrets"
-          else
-            source "$HOME/.secrets"
-          fi
+        if [[ -f "${config.sops.secrets."shell-secrets".path}" ]]; then
+          source "${config.sops.secrets."shell-secrets".path}"
         fi
       '';
 
@@ -163,7 +183,7 @@ in
           if [[ -n "$_gh_token" ]]; then
             export NIX_CONFIG="access-tokens = github.com=$_gh_token"
           fi
-          _gh_sap_token=$(gh auth token --hostname github.tools.sap 2>/dev/null)
+          _gh_sap_token=$(gh auth token --hostname "${constants.work.gheHostname}" 2>/dev/null)
           if [[ -n "$_gh_sap_token" ]]; then
             export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
           fi

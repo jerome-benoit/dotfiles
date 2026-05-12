@@ -8,6 +8,7 @@
 
 let
   cfg = config.modules.development.agent-deck;
+  constants = config.modules.core.constants;
 
   agentDeckConfig = ''
     # Agent Deck Configuration
@@ -113,7 +114,7 @@ let
       heartbeat_interval = 0
       [conductor.telegram]
         token = ""
-        user_id = 0
+        user_id = ${constants.identity.telegram.userId}
       [conductor.slack]
         bot_token = ""
         app_token = ""
@@ -200,13 +201,46 @@ in
         configDir = "${config.home.homeDirectory}/.agent-deck";
         configFile = "${configDir}/config.toml";
       in
-      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
         run mkdir -p "${configDir}"
         if [[ ! -f "${configFile}" ]]; then
           run cat > "${configFile}" << 'EOF'
         ${agentDeckConfig}
         EOF
+          run chmod 600 "${configFile}"
         fi
+        export TELEGRAM_TOKEN=$(cat "${
+          config.sops.secrets."agentdeck-telegram-token".path
+        }" 2>/dev/null | tr -d '\n' || true)
+        export SLACK_BOT_TOKEN=$(cat "${
+          config.sops.secrets."agentdeck-slack-bot-token".path
+        }" 2>/dev/null | tr -d '\n' || true)
+        export SLACK_APP_TOKEN=$(cat "${
+          config.sops.secrets."agentdeck-slack-app-token".path
+        }" 2>/dev/null | tr -d '\n' || true)
+
+        if [[ -z "$TELEGRAM_TOKEN" && -z "$SLACK_BOT_TOKEN" && -z "$SLACK_APP_TOKEN" ]]; then
+          echo "sops: conductor tokens unavailable — skipping injection" >&2
+        elif [[ -f "${configFile}" ]]; then
+          # flip-flop + eof: scope substitution to each TOML section
+          ${pkgs.perl}/bin/perl -pi -e '
+            sub toml_escape { my $v = shift; my %m = ("\\"=>"\\\\", "\""=>"\\\"", "\n"=>"\\n", "\r"=>"\\r", "\t"=>"\\t", "\x08"=>"\\b", "\x0c"=>"\\f"); $v =~ s/([\\\"\n\r\t\x08\x0c])/$m{$1}/g; return $v; }
+            if (/^\s*\[conductor\.telegram\]/ .. (eof() || /^\s*\[(?!conductor\.telegram)/)) {
+              s/^(\s*token\s*=\s*).*/$1"@{[toml_escape($ENV{TELEGRAM_TOKEN})]}"/ if $ENV{TELEGRAM_TOKEN} ne "";
+            }
+            if (/^\s*\[conductor\.slack\]/ .. (eof() || /^\s*\[(?!conductor\.slack)/)) {
+              s/^(\s*bot_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_BOT_TOKEN})]}"/ if $ENV{SLACK_BOT_TOKEN} ne "";
+              s/^(\s*app_token\s*=\s*).*/$1"@{[toml_escape($ENV{SLACK_APP_TOKEN})]}"/ if $ENV{SLACK_APP_TOKEN} ne "";
+            }
+          ' "${configFile}"
+          if [[ -n "$TELEGRAM_TOKEN" ]] && ! grep -q '^\s*\[conductor\.telegram\]' "${configFile}"; then
+            echo "warning: TELEGRAM_TOKEN set but [conductor.telegram] section missing in config" >&2
+          fi
+          if [[ -n "$SLACK_BOT_TOKEN" || -n "$SLACK_APP_TOKEN" ]] && ! grep -q '^\s*\[conductor\.slack\]' "${configFile}"; then
+            echo "warning: Slack tokens set but [conductor.slack] section missing in config" >&2
+          fi
+        fi
+        unset TELEGRAM_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN
       '';
   };
 }
