@@ -11,7 +11,9 @@ decrypt: ## Decrypt personal secrets to JSON (cleaned up automatically by build/
 	@$(SOPS) decrypt --output-type json --output secrets/personal.dec.json.tmp secrets/personal.enc.yaml
 	@chmod 600 secrets/personal.dec.json.tmp
 	@mv secrets/personal.dec.json.tmp secrets/personal.dec.json
-	@echo "\033[33mNote: plaintext secrets on disk. Run 'make clean' when done.\033[0m"
+	@if [ -z "$(MAKECMDGOALS)" ] || [ "$(MAKECMDGOALS)" = "decrypt" ]; then \
+		echo "\033[33mNote: plaintext secrets on disk. Run 'make clean' when done.\033[0m"; \
+	fi
 
 encrypt: ## Re-encrypt personal secrets from JSON (after manual editing)
 	@$(SOPS) encrypt --input-type json --output-type yaml --output secrets/personal.enc.yaml.tmp secrets/personal.dec.json
