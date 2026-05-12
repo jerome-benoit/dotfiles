@@ -14,9 +14,20 @@ in
 
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
 
-  # Mic92/sops-nix#581
+  # Mic92/sops-nix#581 (Linux: activation before daemon-reload)
   home.activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.isLinux (
     lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
+  );
+
+  # Mic92/sops-nix#910 (macOS: activation before plist installed)
+  home.activation.sops-nix = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
+      /bin/launchctl bootout gui/$(id -u ${config.home.username})/org.nix-community.home.sops-nix && true
+      PLIST="${homeDir}/Library/LaunchAgents/org.nix-community.home.sops-nix.plist"
+      if [ -f "$PLIST" ]; then
+        /bin/launchctl bootstrap gui/$(id -u ${config.home.username}) "$PLIST"
+      fi
+    ''
   );
 
   # hermesAgentBootstrap will symlink this to the expected location
