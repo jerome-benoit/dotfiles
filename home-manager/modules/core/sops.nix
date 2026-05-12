@@ -16,7 +16,7 @@ in
 
   # --- Platform-specific sops-nix activation workarounds ---
 
-  # Linux: upstream uses graphical-session-pre.target (Mic92/sops-nix#581),
+  # Linux: upstream defaults to graphical-session-pre.target when using GPG,
   # which never triggers on headless/SSH-only machines. Use default.target instead.
   systemd.user.services.sops-nix.Install.WantedBy = lib.mkIf pkgs.stdenv.isLinux (
     lib.mkForce [ "default.target" ]
