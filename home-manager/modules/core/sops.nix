@@ -14,12 +14,20 @@ in
 
   sops.defaultSopsFile = ../../../secrets/tokens.enc.yaml;
 
-  # Mic92/sops-nix#581 (Linux: activation before daemon-reload)
+  # --- Platform-specific sops-nix activation workarounds ---
+
+  # Linux: upstream uses graphical-session-pre.target (Mic92/sops-nix#581),
+  # which never triggers on headless/SSH-only machines. Use default.target instead.
+  systemd.user.services.sops-nix.Install.WantedBy = lib.mkIf pkgs.stdenv.isLinux (
+    lib.mkForce [ "default.target" ]
+  );
+
+  # Linux: ensure sops-nix activation runs after systemd daemon-reload (Mic92/sops-nix#581)
   home.activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.isLinux (
     lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
   );
 
-  # Mic92/sops-nix#910 (macOS: activation before plist installed)
+  # macOS: ensure sops-nix activation runs after plist is installed (Mic92/sops-nix#910)
   home.activation.sops-nix = lib.mkIf pkgs.stdenv.isDarwin (
     lib.mkForce (lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
       /bin/launchctl bootout gui/$(id -u ${config.home.username})/org.nix-community.home.sops-nix || true
@@ -30,7 +38,8 @@ in
     '')
   );
 
-  # hermesAgentBootstrap will symlink this to the expected location
+  # --- Secrets declarations ---
+
   sops.secrets."hermes-env" = {
     key = "hermes/personal/envContent";
     mode = "0600";
@@ -51,7 +60,6 @@ in
     mode = "0600";
   };
 
-  # replaces $HOME/.secrets
   sops.secrets."shell-secrets" = {
     key = "shell/secrets";
     mode = "0600";
