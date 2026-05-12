@@ -200,7 +200,7 @@ $RECYCLE.BIN/
 .sisyphus/
 
 .secrets
-result
+result*
 
 ### SOPS decrypted secrets — never commit these ###
 secrets/*.dec.*

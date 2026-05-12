@@ -43,11 +43,11 @@
     "agtx": {
       "flake": false,
       "locked": {
-        "lastModified": 1778575502,
-        "narHash": "sha256-mvkaulCC1YSqvsSLkhH96YTVD8hx96VIzLrap7rOHgw=",
+        "lastModified": 1778595092,
+        "narHash": "sha256-Mkl94PijOvbPOEeeETY5Hj7G+gbVKjVVFUb5ZhNdueo=",
         "owner": "fynnfluegge",
         "repo": "agtx",
-        "rev": "8da357e90cb723873ad8a5787f26b6c3b7512778",
+        "rev": "69d824cff8a037d307b222adb4e980ae87543943",
         "type": "github"
       },
       "original": {
