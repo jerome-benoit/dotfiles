@@ -11,7 +11,15 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  hermesAgentPackage = pkgs.hermes-agent or null;
+  baseHermesAgentPackage = pkgs.hermes-agent or null;
+
+  hermesAgentPackage =
+    if baseHermesAgentPackage == null then
+      null
+    else if cfg.extraDependencyGroups != [ ] then
+      baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
+    else
+      baseHermesAgentPackage;
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
@@ -92,6 +100,32 @@ in
       type = lib.types.port;
       default = 9119;
       description = "Port for the hermes-agent web dashboard";
+    };
+
+    extraDependencyGroups = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "anthropic"
+        "bedrock"
+        "daytona"
+        "dingtalk"
+        "edge-tts"
+        "exa"
+        "fal"
+        "feishu"
+        "firecrawl"
+        "honcho"
+        "matrix"
+        "messaging"
+        "modal"
+        "parallel-web"
+        "slack"
+        "tts-premium"
+        "vercel"
+        "voice"
+      ];
+      description = "Additional pyproject.toml dependency groups to bundle in the sealed venv";
+      example = [ "anthropic" "messaging" "voice" ];
     };
 
     package = lib.mkOption {
