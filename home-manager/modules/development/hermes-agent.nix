@@ -125,7 +125,11 @@ in
         "voice"
       ];
       description = "Additional pyproject.toml dependency groups to bundle in the sealed venv";
-      example = [ "anthropic" "messaging" "voice" ];
+      example = [
+        "anthropic"
+        "messaging"
+        "voice"
+      ];
     };
 
     package = lib.mkOption {
