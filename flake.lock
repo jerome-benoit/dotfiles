@@ -272,11 +272,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1778707210,
-        "narHash": "sha256-3T2HMfG3RB8ai588zQw6axlsUXQy5UY+nEtjggfW2V0=",
+        "lastModified": 1778710720,
+        "narHash": "sha256-3liO1r7QDPCP4AEbL+eeT+1sp+rf122bYpRp5bB3Ja8=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "0d074492dfaaa90db68cfc9593cf5a48e74848e2",
+        "rev": "73e1de4513d082c07b8ed3ffcb5f2463d3a3aaed",
         "type": "github"
       },
       "original": {
