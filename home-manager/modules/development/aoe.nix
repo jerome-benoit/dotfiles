@@ -49,6 +49,7 @@ in
         "catppuccin-latte"
         "dracula"
         "empire"
+        "rose-pine"
       ];
       default = "tokyo-night-storm";
       description = "TUI theme";
@@ -62,8 +63,14 @@ in
           "vibe"
           "codex"
           "gemini"
-          "hermes"
+          "cursor"
+          "copilot"
           "pi"
+          "droid"
+          "settl"
+          "hermes"
+          "kiro"
+          "qwen"
         ]
       );
       default = "opencode";

@@ -175,6 +175,7 @@ in
         "gemini"
         "opencode"
         "codex"
+        "pi"
       ];
       default = "opencode";
       description = "Default AI tool for new sessions";
