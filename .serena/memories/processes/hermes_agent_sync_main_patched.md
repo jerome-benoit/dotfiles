@@ -4,10 +4,11 @@
 
 - Fork: `github:jerome-benoit/hermes-agent` branch `main-patched`
 - Upstream: `github:NousResearch/hermes-agent` branch `main`
-- The fork carries 3 commits on top of upstream:
+- The fork carries 4 commits on top of upstream:
   1. `fix(tools/delegate): align direct endpoint transport heuristics` (PR #13567)
   2. `fix(tools/delegate): add kimi detection and docstring` (PR #13567)
   3. `fix(nix): skip av/faster-whisper build checks on aarch64-darwin` (NixOS/nix#15638 workaround)
+  4. `fix(nix): prebuilt python-olm on aarch64-darwin (no macOS wheels)` (no upstream macOS wheel for python-olm)
 - Flake input: `hermes-agent.url = "github:jerome-benoit/hermes-agent/main-patched"`
 
 ## Process
@@ -33,7 +34,7 @@ git log --oneline upstream/main..HEAD
 
 - If a patch commit was merged upstream → it auto-drops during rebase (empty commit)
 - If conflict → resolve keeping our changes in files we patched
-- Expected: 3 commits (2 delegate + 1 darwin fix). If different, investigate.
+- Expected: 4 commits (2 delegate + 2 darwin fixes). If different, investigate.
 
 ### 3. Force push
 
@@ -94,6 +95,7 @@ nix flake update hermes-agent --flake "$HOME/.nix" && git -C "$HOME/.nix" add fl
 
 - PR #13567 (delegate transport) — when merged, 2 commits auto-drop
 - NixOS/nix#15638 (daemon code signing) — when fixed, remove `nix/python.nix` commit from fork
+- python-olm aarch64-darwin wheel — when upstream publishes macOS wheels, drop the python-olm prebuilt commit
 - hermes-agent tui npmDepsHash — goes stale frequently (issue #15272); fix: update hash in fork's `nix/tui.nix`
 
 ## Key Rules
