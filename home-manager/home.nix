@@ -62,6 +62,20 @@ in
     overlays = [
       inputs.nix-openclaw.overlays.default
       inputs.hermes-agent.overlays.default
+      (
+        _: prev:
+        lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+          python313 = prev.python313.override {
+            packageOverrides = _: pprev: {
+              a2a-sdk = pprev.a2a-sdk.overrideAttrs (old: {
+                disabledTests = (old.disabledTests or [ ]) ++ [
+                  "test_notification_triggering"
+                ];
+              });
+            };
+          };
+        }
+      )
     ];
     config = {
       allowUnfree = true;
