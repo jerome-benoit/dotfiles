@@ -17,8 +17,6 @@ let
       baseOpencodePackage.overrideAttrs (oldAttrs: {
         patches = (oldAttrs.patches or [ ]) ++ [
           (self + "/patches/opencode/relax-bun-version-check.patch")
-          # https://github.com/anomalyco/opencode/pull/12822
-          (self + "/patches/opencode/proxy-env-to-process-env.patch")
         ];
         # Workaround for https://github.com/anomalyco/opencode/issues/18447
         postFixup =

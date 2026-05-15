@@ -10,7 +10,6 @@ When the locked input advances, patch line offsets drift → must refresh.
 
 ## Current Patches
 
-- `patches/opencode/proxy-env-to-process-env.patch` — PR #12822 (anomalyco/opencode)
 - `patches/opencode/relax-bun-version-check.patch` — local, NOT from a PR (exempt from this process)
 - `patches/qmd/fix-nixos-llama-build.patch` — PR #574 (tobi/qmd), only `src/llm.ts`
 
@@ -100,7 +99,6 @@ nix build --impure --expr '
     opencode = pkgs.applyPatches {
       src = flake.inputs.opencode.packages.${system}.default.src;
       patches = [
-        (patchDir + "/opencode/proxy-env-to-process-env.patch")
         (patchDir + "/opencode/relax-bun-version-check.patch")
       ];
     };
