@@ -40,7 +40,7 @@ in
 
         EXPECTED=$("$SHA256" "${bundle}" | "$CUT" -d' ' -f1)
         if [[ -r "${stamp}" ]] \
-           && [[ "$(cat "${stamp}")" == "$EXPECTED" ]] \
+           && [[ "$(<"${stamp}")" == "$EXPECTED" ]] \
            && "$GPG" --batch --list-secret-keys "${fingerprint}" >/dev/null 2>&1; then
           exit 0
         fi
