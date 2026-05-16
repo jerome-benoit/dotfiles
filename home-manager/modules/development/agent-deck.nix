@@ -224,7 +224,7 @@ in
           echo "sops: conductor tokens unavailable — skipping injection" >&2
         elif [[ -f "${configFile}" ]]; then
           # flip-flop + eof: scope substitution to each TOML section
-          ${pkgs.perl}/bin/perl -pi -e '
+          ${lib.getExe pkgs.perl} -pi -e '
             sub toml_escape { my $v = shift; my %m = ("\\"=>"\\\\", "\""=>"\\\"", "\n"=>"\\n", "\r"=>"\\r", "\t"=>"\\t", "\x08"=>"\\b", "\x0c"=>"\\f"); $v =~ s/([\\\"\n\r\t\x08\x0c])/$m{$1}/g; return $v; }
             if (/^\s*\[conductor\.telegram\]/ .. (eof() || /^\s*\[(?!conductor\.telegram)/)) {
               s/^(\s*token\s*=\s*).*/$1"@{[toml_escape($ENV{TELEGRAM_TOKEN})]}"/ if $ENV{TELEGRAM_TOKEN} ne "";

@@ -5,20 +5,20 @@
 }:
 
 let
-  findNixFiles = "${pkgs.findutils}/bin/find . -name '*.nix' -type f -not -path './result/*'";
+  findNixFiles = "${pkgs.lib.getExe pkgs.findutils} . -name '*.nix' -type f -not -path './result/*'";
 
   findAndFormatScript = checkMode: ''
     ${findNixFiles} | while IFS= read -r file; do
       ${
         if checkMode then
           ''
-            [ -f "$file" ] && ${formatter}/bin/nixfmt --check "$file" || {
+            [ -f "$file" ] && ${pkgs.lib.getExe formatter} --check "$file" || {
               echo "ERROR: $file not formatted. Run 'nix fmt'" >&2
               exit 1
             }
           ''
         else
-          ''[ -f "$file" ] && ${formatter}/bin/nixfmt "$file"''
+          ''[ -f "$file" ] && ${pkgs.lib.getExe formatter} "$file"''
       }
     done
   '';
@@ -49,7 +49,7 @@ let
 
         for arg in "$@"; do
           [[ -d "$arg" ]] && format_dir "$arg" && continue
-          [[ -f "$arg" ]] && ${formatter}/bin/nixfmt "$arg" && continue
+          [[ -f "$arg" ]] && ${pkgs.lib.getExe formatter} "$arg" && continue
           echo "Error: $arg not found" >&2 && exit 1
         done
       '';
