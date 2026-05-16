@@ -15,7 +15,7 @@ let
 
   mod = if isDarwin then "Command" else "Control";
   modShift = if isDarwin then "Command|Shift" else "Control|Shift";
-  urlOpener = if isDarwin then "open" else "xdg-open";
+  urlOpener = if isDarwin then "/usr/bin/open" else lib.getExe' pkgs.xdg-utils "xdg-open";
 
   grrrBin =
     if builtins.pathExists /opt/homebrew/bin/grrr then
@@ -33,13 +33,13 @@ let
           "--title"
           "Alacritty"
           "--execute"
-          "open -a Alacritty"
+          "/usr/bin/open -a Alacritty"
           "Bell"
         ];
       }
     else if isLinux then
       {
-        program = "notify-send";
+        program = lib.getExe pkgs.libnotify;
         args = [
           "-a"
           "Alacritty"

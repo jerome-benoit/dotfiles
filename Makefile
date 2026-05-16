@@ -2,7 +2,7 @@
 SOPS := nix run nixpkgs\#sops --
 FLAKE := .
 
-.PHONY: help decrypt decrypt-personal encrypt edit-personal edit-tokens bootstrap build switch clean
+.PHONY: help decrypt decrypt-personal encrypt edit-personal edit-tokens encrypt-gpg bootstrap build switch clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -31,6 +31,9 @@ edit-personal: ## Edit personal secrets interactively via SOPS
 
 edit-tokens: ## Edit application tokens interactively via SOPS
 	@$(SOPS) secrets/tokens.enc.yaml
+
+encrypt-gpg: decrypt-personal ## (Re)create age-encrypted GPG keypair bundle for home-manager bootstrap
+	@trap 'rm -f secrets/personal.dec.json' EXIT; ./scripts/encrypt-gpg-bundle.sh
 
 bootstrap: decrypt-personal ## First-time setup (no nh/home-manager required). Usage: make bootstrap SPEC=work
 	@trap 'rm -f secrets/personal.dec.json' EXIT; nix run home-manager -- switch --flake $(CURDIR) --impure -b backup $(if $(SPEC),--specialisation $(SPEC))

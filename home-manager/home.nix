@@ -86,6 +86,7 @@ in
   };
 
   modules.core = {
+    gpg.enable = true;
     home-manager.enable = true;
     gpu = {
       enable = pkgs.stdenv.hostPlatform.isLinux && profileName == constants.profiles.desktop;

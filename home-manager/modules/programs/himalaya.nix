@@ -14,7 +14,7 @@ let
     email:
     if isDarwin then
       [
-        "security"
+        "/usr/bin/security"
         "find-generic-password"
         "-s"
         "himalaya"
@@ -24,7 +24,7 @@ let
       ]
     else
       [
-        "pass"
+        (lib.getExe pkgs.pass)
         "email/${email}"
       ];
 

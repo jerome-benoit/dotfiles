@@ -30,7 +30,7 @@ in
 
         settings = {
           core = {
-            pager = "delta";
+            pager = lib.getExe pkgs.delta;
             attributesfile = "${config.xdg.configHome}/git/attributes";
             commitGraph = true;
             untrackedCache = true;
@@ -64,11 +64,13 @@ in
           };
           merge = {
             conflictStyle = "diff3";
+          }
+          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             tool = lib.mkDefault "meld";
           };
           "merge.mergiraf" = {
             name = "mergiraf";
-            driver = "mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L --timeout 30000";
+            driver = "${lib.getExe pkgs.mergiraf} merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L --timeout 30000";
           };
           mergetool = {
             meld = {
@@ -128,7 +130,7 @@ in
             showPatch = true;
           };
           interactive = {
-            diffFilter = "delta --color-only";
+            diffFilter = "${lib.getExe pkgs.delta} --color-only";
           };
           delta = config.modules.core.constants.deltaConfig;
         };

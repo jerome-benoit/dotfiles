@@ -59,6 +59,7 @@ in
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [
+        pkgs.age
         pkgs.autoconf
         pkgs.automake
         pkgs.bashInteractive
@@ -139,11 +140,9 @@ in
         fi
 
         if [[ -n "$_brew" ]]; then
-          if command -v gh >/dev/null 2>&1; then
-            _gh_sap_token=$(gh auth token --hostname "${constants.work.gheHostname}" 2>/dev/null)
-            if [[ -n "$_gh_sap_token" ]]; then
-              export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
-            fi
+          _gh_sap_token=$(${lib.getExe pkgs.gh} auth token --hostname "${constants.work.gheHostname}" 2>/dev/null || true)
+          if [[ -n "$_gh_sap_token" ]]; then
+            export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
           fi
 
           verboseEcho "Installing Homebrew packages from Brewfile"

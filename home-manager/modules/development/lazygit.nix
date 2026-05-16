@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 
@@ -72,7 +73,7 @@ in
           pagers = [
             {
               colorArg = "always";
-              pager = "delta ${deltaFlags}";
+              pager = "${lib.getExe pkgs.delta} ${deltaFlags}";
             }
           ];
 

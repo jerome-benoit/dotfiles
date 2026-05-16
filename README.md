@@ -42,6 +42,16 @@ make edit-tokens      # Edit application tokens interactively
 make clean            # Remove plaintext from disk
 ```
 
+### GPG keypair
+
+Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where `~/.config/sops/age/keys.txt` is present.
+
+```bash
+make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
+```
+
+Recovery: with `~/.config/sops/age/keys.txt` + the git repo, SOPS secrets and GPG subkeys are recoverable. The GPG primary key is not in the bundle; back it up separately offline.
+
 ### Formatting
 
 ```bash
