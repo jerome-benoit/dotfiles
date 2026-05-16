@@ -40,9 +40,13 @@ in
         }
 
         EXPECTED=$("$SHA256" "${bundle}" | "$CUT" -d' ' -f1)
-        if [[ -r "${stamp}" ]] \
-           && [[ "$(<"${stamp}")" == "$EXPECTED" ]] \
-           && "$GPG" --batch --list-secret-keys "${fingerprint}" >/dev/null 2>&1; then
+        # Idempotent: skip if the key is in the keyring; refresh the stamp on drift.
+        if "$GPG" --batch --list-secret-keys "${fingerprint}" >/dev/null 2>&1; then
+          if [[ ! -r "${stamp}" || "$(<"${stamp}")" != "$EXPECTED" ]] \
+             && [[ -z "''${DRY_RUN_CMD:-}" ]]; then
+            mkdir -p "$(dirname "${stamp}")"
+            printf '%s\n' "$EXPECTED" > "${stamp}"
+          fi
           exit 0
         fi
 

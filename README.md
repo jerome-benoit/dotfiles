@@ -44,7 +44,7 @@ make clean            # Remove plaintext from disk
 
 ### GPG keypair
 
-Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where `~/.config/sops/age/keys.txt` is present.
+Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them on any machine where `~/.config/sops/age/keys.txt` is present and the key is not yet in the user's keyring.
 
 ```bash
 make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
