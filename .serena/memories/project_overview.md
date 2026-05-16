@@ -111,8 +111,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── git.nix          # Git config with delta, mergiraf, GPG signing
 │       │   ├── lazygit.nix      # Git TUI with conventional commits
 │       │   ├── openclaw.nix     # OpenClaw AI gateway
-│       │   ├── opencode.nix     # OpenCode AI assistant
-│       │   ├── opencode-hashes.nix # OpenCode desktop Cargo hashes
+│       │   ├── opencode.nix     # OpenCode AI assistant (TUI/CLI + Electron desktop)
 │       │   ├── openspec.nix     # OpenSpec CLI
 │       │   ├── hermes-agent.nix # Hermes Agent (gateway + dashboard services)
 │       │   ├── agtx.nix         # Agtx terminal agent

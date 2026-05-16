@@ -31,15 +31,18 @@ let
 
   mkDesktopPackage =
     let
-      desktop = inputs.opencode.packages.${system}.desktop or null;
-      outputHashes = import ./opencode-hashes.nix;
+      desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if desktop != null then
-      (desktop.override { opencode = opencodePackage; }).overrideAttrs (_: {
-        cargoDeps = pkgs.rustPlatform.importCargoLock {
-          lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
-          inherit outputHashes;
-        };
+      (desktop.override { opencode = opencodePackage; }).overrideAttrs (oldAttrs: {
+        patches = (oldAttrs.patches or [ ]) ++ [
+          (self + "/patches/opencode/relax-bun-version-check.patch")
+        ];
+        postFixup =
+          (oldAttrs.postFixup or "")
+          + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            /usr/bin/codesign --force --deep --sign - "$out/Applications/OpenCode.app"
+          '';
       })
     else
       null;
