@@ -38,7 +38,7 @@ let
       lazygit = true;
       opencode = {
         enable = true;
-        enableDesktop = false;
+        enableDesktop = true;
       };
       openclaw = false;
       openspec = true;
