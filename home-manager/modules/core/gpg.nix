@@ -40,13 +40,16 @@ in
         }
 
         EXPECTED=$("$SHA256" "${bundle}" | "$CUT" -d' ' -f1)
-        # Idempotent: skip if the key is in the keyring; refresh the stamp on drift.
-        if "$GPG" --batch --list-secret-keys "${fingerprint}" >/dev/null 2>&1; then
-          if [[ ! -r "${stamp}" || "$(<"${stamp}")" != "$EXPECTED" ]] \
-             && [[ -z "''${DRY_RUN_CMD:-}" ]]; then
-            mkdir -p "$(dirname "${stamp}")"
-            printf '%s\n' "$EXPECTED" > "${stamp}"
-          fi
+        ACTUAL=
+        [[ -r "${stamp}" ]] && ACTUAL=$(<"${stamp}")
+
+        if [[ "$ACTUAL" == "$EXPECTED" ]] \
+           && "$GPG" --batch --list-secret-keys "${fingerprint}" >/dev/null 2>&1; then
+          exit 0
+        fi
+
+        if [[ -n "''${DRY_RUN_CMD:-}" ]]; then
+          echo "[gpg] bundle drift or key absent; would (re)import ${fingerprint}" >&2
           exit 0
         fi
 
@@ -60,16 +63,14 @@ in
           --import "$TMP/gpg-secret.asc"
         echo "${fingerprint}:6:" | run "$GPG" --batch --import-ownertrust
 
-        if [[ -z "''${DRY_RUN_CMD:-}" ]]; then
-          "$GPG" --batch --list-secret-keys --with-colons "${fingerprint}" 2>/dev/null \
-            | "$AWK" -F: '$1 == "fpr" { print $10; exit }' \
-            | grep -qi "^${fingerprint}$" \
-            || { echo "[gpg] imported key not found or fingerprint mismatch (expected ${fingerprint})" >&2; exit 1; }
+        "$GPG" --batch --list-secret-keys --with-colons "${fingerprint}" 2>/dev/null \
+          | "$AWK" -F: '$1 == "fpr" { print $10; exit }' \
+          | grep -qi "^${fingerprint}$" \
+          || { echo "[gpg] imported key not found or fingerprint mismatch (expected ${fingerprint})" >&2; exit 1; }
 
-          mkdir -p "$(dirname "${stamp}")"
-          printf '%s\n' "$EXPECTED" > "${stamp}"
-          echo "[gpg] ${fingerprint} imported"
-        fi
+        mkdir -p "$(dirname "${stamp}")"
+        printf '%s\n' "$EXPECTED" > "${stamp}.tmp" && mv "${stamp}.tmp" "${stamp}"
+        echo "[gpg] ${fingerprint} imported"
       )
     '';
   };
