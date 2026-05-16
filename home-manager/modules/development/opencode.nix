@@ -45,11 +45,12 @@ let
     if desktop != null then
       withOpencodePatches (
         (desktop.override { opencode = opencodePackage; }).overrideAttrs (oldAttrs: {
-          postFixup =
-            (oldAttrs.postFixup or "")
-            + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-              /usr/bin/codesign --force --deep --sign - "$out/Applications/OpenCode.app"
-            '';
+          # Ad-hoc sign the .app: upstream passes --config.mac.identity=null.
+          nativeBuildInputs =
+            (oldAttrs.nativeBuildInputs or [ ])
+            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+              pkgs.darwin.autoSignDarwinBinariesHook
+            ];
         })
       )
     else
