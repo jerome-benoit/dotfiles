@@ -28,6 +28,7 @@ in
         GPG=${lib.getExe' pkgs.gnupg "gpg"}
         AGE=${lib.getExe pkgs.age}
         TAR=${lib.getExe' pkgs.gnutar "tar"}
+        GZIP=${lib.getExe' pkgs.gzip "gzip"}
         SHA256=${lib.getExe' pkgs.coreutils "sha256sum"}
         CUT=${lib.getExe' pkgs.coreutils "cut"}
         AWK=${lib.getExe' pkgs.gawk "awk"}
@@ -49,7 +50,7 @@ in
         trap 'rm -rf "$TMP"' EXIT INT TERM HUP
 
         run "$AGE" -d -i "${ageIdentity}" -o "$TMP/bundle.tar.gz" "${bundle}"
-        run "$TAR" xzf "$TMP/bundle.tar.gz" -C "$TMP"
+        run "$TAR" --use-compress-program="$GZIP" -xf "$TMP/bundle.tar.gz" -C "$TMP"
         run "$GPG" --batch --pinentry-mode loopback \
           --passphrase-file "$TMP/gpg-passphrase.txt" \
           --import "$TMP/gpg-secret.asc"
