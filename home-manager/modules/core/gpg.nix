@@ -29,6 +29,7 @@ in
         AGE=${lib.getExe pkgs.age}
         TAR=${lib.getExe' pkgs.gnutar "tar"}
         SHA256=${lib.getExe' pkgs.coreutils "sha256sum"}
+        CUT=${lib.getExe' pkgs.coreutils "cut"}
         AWK=${lib.getExe' pkgs.gawk "awk"}
 
         [[ -r "${ageIdentity}" ]] || exit 0
@@ -37,7 +38,7 @@ in
           exit 0
         }
 
-        EXPECTED=$("$SHA256" "${bundle}" | "$AWK" '{print $1}')
+        EXPECTED=$("$SHA256" "${bundle}" | "$CUT" -d' ' -f1)
         if [[ -r "${stamp}" ]] \
            && [[ "$(cat "${stamp}")" == "$EXPECTED" ]] \
            && "$GPG" --batch --list-secret-keys "${fingerprint}" >/dev/null 2>&1; then
@@ -45,7 +46,7 @@ in
         fi
 
         TMP=$(mktemp -d 2>/dev/null || mktemp -d -t gpg-bootstrap)
-        trap "rm -rf '$TMP'" EXIT
+        trap 'rm -rf "$TMP"' EXIT INT TERM HUP
 
         run "$AGE" -d -i "${ageIdentity}" -o "$TMP/bundle.tar.gz" "${bundle}"
         run "$TAR" xzf "$TMP/bundle.tar.gz" -C "$TMP"

@@ -38,14 +38,15 @@ if [ -e secrets/gpg/keypair.tar.gz.age ]; then
   esac
 fi
 
-RECIPIENT=$(age-keygen -y "$AGE_KEY" | head -n1)
-
 printf 'GPG passphrase for %s (empty if key has none): ' "$FP" >&2
 read -rs PASS
 echo >&2
 
 TMP=$(mktemp -d 2>/dev/null || mktemp -d -t gpg-encrypt)
 trap 'rm -rf "$TMP"' EXIT INT TERM HUP
+
+age-keygen -y "$AGE_KEY" > "$TMP/recipients.txt"
+[ -s "$TMP/recipients.txt" ] || { echo "no age recipients derived from $AGE_KEY" >&2; exit 1; }
 
 printf '%s' "$PASS" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
   --export-secret-subkeys --armor "$FP" > "$TMP/gpg-secret.asc"
@@ -58,15 +59,15 @@ GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
   --import "$TMP/gpg-secret.asc" 2>/dev/null \
   || { echo "Bundle import test failed" >&2; exit 1; }
 
-echo validate | GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
+SIGN_ERR=$(echo validate | GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
   --passphrase-file "$TMP/gpg-passphrase.txt" \
-  --sign --output /dev/null 2>/dev/null \
-  || { echo "Bundle passphrase test failed: passphrase doesn't unlock the imported subkeys" >&2; exit 1; }
+  --sign --output /dev/null 2>&1) \
+  || { echo "Bundle signing test failed (bad passphrase or no signing-capable subkey)" >&2; [ -n "$SIGN_ERR" ] && echo "$SIGN_ERR" >&2; exit 1; }
 
 tar czf "$TMP/bundle.tar.gz" -C "$TMP" \
   gpg-secret.asc gpg-passphrase.txt
 mkdir -p secrets/gpg
-age -r "$RECIPIENT" \
+age -R "$TMP/recipients.txt" \
     -o secrets/gpg/keypair.tar.gz.age \
     "$TMP/bundle.tar.gz"
 chmod 0644 secrets/gpg/keypair.tar.gz.age
