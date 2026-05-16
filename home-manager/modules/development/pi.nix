@@ -33,9 +33,8 @@ let
     ];
 
     meta = {
-      description = "Agentic coding CLI by Mario Zechner";
-      homepage = "https://github.com/earendil-works/pi-mono";
-      downloadPage = "https://www.npmjs.com/package/@earendil-works/pi-coding-agent";
+      description = "Agentic coding CLI";
+      homepage = "https://github.com/earendil-works/pi";
       license = lib.licenses.mit;
       mainProgram = "pi";
       platforms = lib.platforms.unix;
