@@ -1,8 +1,8 @@
 diff --git a/src/llm.ts b/src/llm.ts
-index d469d360..dc7bbc76 100644
+index b0b30d45..545bbd04 100644
 --- a/src/llm.ts
 +++ b/src/llm.ts
-@@ -27,8 +27,9 @@ async function loadNodeLlamaCpp(): Promise<NodeLlamaCppModule> {
+@@ -62,8 +62,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
  }
  
  import { homedir } from "os";
@@ -14,7 +14,7 @@ index d469d360..dc7bbc76 100644
  
  // =============================================================================
  // Embedding Formatting Functions
-@@ -69,6 +70,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
+@@ -104,6 +105,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
    return `title: ${title || "none"} | text: ${text}`;
  }
  
@@ -38,7 +38,7 @@ index d469d360..dc7bbc76 100644
  // =============================================================================
  // Types
  // =============================================================================
-@@ -665,14 +683,15 @@ export class LlamaCpp implements LLM {
+@@ -710,14 +728,15 @@ export class LlamaCpp implements LLM {
    private async ensureLlama(allowBuild = true): Promise<Llama> {
      if (!this.llama) {
        const gpuMode = resolveLlamaGpuMode();
@@ -46,13 +46,13 @@ index d469d360..dc7bbc76 100644
  
        const { getLlama, LlamaLogLevel } = await loadNodeLlamaCpp();
        const loadLlama = async (gpu: LlamaGpuMode) =>
-         await getLlama({
+         await withNativeStdoutRedirectedToStderr(() => getLlama({
 -          build: allowBuild ? "autoAttempt" : "never",
 +          build: buildMode,
            logLevel: LlamaLogLevel.error,
            gpu,
 -          skipDownload: !allowBuild,
 +          skipDownload: buildMode === "never",
-         });
+         }));
  
        let llama: Llama;
