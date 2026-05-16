@@ -10,22 +10,31 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
 
+  opencodePatches = [
+    (self + "/patches/opencode/relax-bun-version-check.patch")
+  ];
+
+  withOpencodePatches =
+    drv:
+    drv.overrideAttrs (oldAttrs: {
+      patches = (oldAttrs.patches or [ ]) ++ opencodePatches;
+    });
+
   baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
 
   opencodePackage =
     if baseOpencodePackage != null then
-      baseOpencodePackage.overrideAttrs (oldAttrs: {
-        patches = (oldAttrs.patches or [ ]) ++ [
-          (self + "/patches/opencode/relax-bun-version-check.patch")
-        ];
-        # Workaround for https://github.com/anomalyco/opencode/issues/18447
-        postFixup =
-          (oldAttrs.postFixup or "")
-          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-            wrapProgram "$out/bin/opencode" \
-              --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
-          '';
-      })
+      withOpencodePatches (
+        baseOpencodePackage.overrideAttrs (oldAttrs: {
+          # Workaround for https://github.com/anomalyco/opencode/issues/18447
+          postFixup =
+            (oldAttrs.postFixup or "")
+            + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              wrapProgram "$out/bin/opencode" \
+                --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+            '';
+        })
+      )
     else
       null;
 
@@ -34,16 +43,15 @@ let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if desktop != null then
-      (desktop.override { opencode = opencodePackage; }).overrideAttrs (oldAttrs: {
-        patches = (oldAttrs.patches or [ ]) ++ [
-          (self + "/patches/opencode/relax-bun-version-check.patch")
-        ];
-        postFixup =
-          (oldAttrs.postFixup or "")
-          + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-            /usr/bin/codesign --force --deep --sign - "$out/Applications/OpenCode.app"
-          '';
-      })
+      withOpencodePatches (
+        (desktop.override { opencode = opencodePackage; }).overrideAttrs (oldAttrs: {
+          postFixup =
+            (oldAttrs.postFixup or "")
+            + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+              /usr/bin/codesign --force --deep --sign - "$out/Applications/OpenCode.app"
+            '';
+        })
+      )
     else
       null;
 in
