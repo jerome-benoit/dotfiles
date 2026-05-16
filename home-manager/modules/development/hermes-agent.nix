@@ -181,6 +181,7 @@ in
           args = [
             "${cfg.package}/bin/hermes"
             "gateway"
+            "run"
           ];
           logPrefix = "gateway";
         });
@@ -193,6 +194,7 @@ in
             "${cfg.package}/bin/hermes"
             "dashboard"
             "--no-open"
+            "--skip-build"
             "--port"
             (toString cfg.dashboardPort)
           ];
@@ -203,14 +205,14 @@ in
       lib.mkIf (cfg.enableGateway && !isDarwin && cfg.package != null)
         (mkSystemdService {
           description = "Hermes Agent Gateway";
-          execStart = "${cfg.package}/bin/hermes gateway";
+          execStart = "${cfg.package}/bin/hermes gateway run";
         });
 
     systemd.user.services.hermes-agent-dashboard =
       lib.mkIf (cfg.enableDashboard && !isDarwin && cfg.package != null)
         (mkSystemdService {
           description = "Hermes Agent Web Dashboard";
-          execStart = "${cfg.package}/bin/hermes dashboard --no-open --port ${toString cfg.dashboardPort}";
+          execStart = "${cfg.package}/bin/hermes dashboard --no-open --skip-build --port ${toString cfg.dashboardPort}";
         });
   };
 }
