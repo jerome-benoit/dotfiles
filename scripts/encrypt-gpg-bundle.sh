@@ -59,10 +59,17 @@ GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
   --import "$TMP/gpg-secret.asc" 2>/dev/null \
   || { echo "Bundle import test failed" >&2; exit 1; }
 
-SIGN_ERR=$(echo validate | GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
+# Decrypt round-trip exercises the encryption subkey's secret to validate the passphrase.
+echo validate > "$TMP/plain"
+ENCRYPT_ERR=$(GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
+  --trust-model always --recipient "$FP" \
+  --encrypt --output "$TMP/cipher" "$TMP/plain" 2>&1) \
+  || { echo "Bundle encrypt test failed (no usable encryption subkey for $FP, or key unusable)" >&2; [ -n "$ENCRYPT_ERR" ] && echo "$ENCRYPT_ERR" >&2; exit 1; }
+
+DECRYPT_ERR=$(GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback \
   --passphrase-file "$TMP/gpg-passphrase.txt" \
-  --sign --output /dev/null 2>&1) \
-  || { echo "Bundle signing test failed (bad passphrase or no signing-capable subkey)" >&2; [ -n "$SIGN_ERR" ] && echo "$SIGN_ERR" >&2; exit 1; }
+  --decrypt --output /dev/null "$TMP/cipher" 2>&1) \
+  || { echo "Bundle decrypt test failed (bad passphrase)" >&2; [ -n "$DECRYPT_ERR" ] && echo "$DECRYPT_ERR" >&2; exit 1; }
 
 tar czf "$TMP/bundle.tar.gz" -C "$TMP" \
   gpg-secret.asc gpg-passphrase.txt
