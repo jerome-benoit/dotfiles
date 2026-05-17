@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  self,
   inputs,
   ...
 }:
@@ -10,11 +11,21 @@ let
   cfg = config.modules.development.aoe;
   system = pkgs.stdenv.hostPlatform.system;
 
+  aoePatches = [
+    (self + "/patches/agent-of-empires/pr-1173-resume-fallback.patch")
+  ];
+
+  withAoePatches =
+    drv:
+    drv.overrideAttrs (oldAttrs: {
+      patches = (oldAttrs.patches or [ ]) ++ aoePatches;
+    });
+
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
   baseAoePackage =
     if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
 
-  aoePackage = baseAoePackage;
+  aoePackage = if baseAoePackage != null then withAoePatches baseAoePackage else null;
 
   aoeConfig = ''
     [theme]
