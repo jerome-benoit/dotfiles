@@ -1,8 +1,8 @@
 diff --git a/src/llm.ts b/src/llm.ts
-index bab9e5fb..aece59cf 100644
+index 3047b201..60917e08 100644
 --- a/src/llm.ts
 +++ b/src/llm.ts
-@@ -62,8 +62,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
+@@ -63,8 +63,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
  }
  
  import { homedir } from "os";
@@ -14,7 +14,7 @@ index bab9e5fb..aece59cf 100644
  
  // =============================================================================
  // Embedding Formatting Functions
-@@ -104,6 +105,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
+@@ -105,6 +106,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
    return `title: ${title || "none"} | text: ${text}`;
  }
  
@@ -38,7 +38,7 @@ index bab9e5fb..aece59cf 100644
  // =============================================================================
  // Types
  // =============================================================================
-@@ -727,14 +745,15 @@ export class LlamaCpp implements LLM {
+@@ -763,14 +781,15 @@ export class LlamaCpp implements LLM {
    private async ensureLlama(allowBuild = true): Promise<Llama> {
      if (!this.llama) {
        const gpuMode = resolveLlamaGpuMode();
