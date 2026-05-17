@@ -127,11 +127,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1778964547,
-        "narHash": "sha256-lV1TCZ+PF+wXAfMrtlTQXcz21T0lJVPLpzutnIKwq80=",
+        "lastModified": 1779015377,
+        "narHash": "sha256-3YeVy5q+EYRkdaMQEtLN++Fxkmh+wS0kq/W+AidrBic=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "327fdddb6eb32b59e91d0d64f620c31e244f9026",
+        "rev": "3217a579bc23f1b2cf0ff744e5946e1aabfaacd7",
         "type": "github"
       },
       "original": {
@@ -200,11 +200,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1778870084,
-        "narHash": "sha256-tverIbm7k4476JN78DMcZeyYh47JqGBaqyINRd8lvOU=",
+        "lastModified": 1779015271,
+        "narHash": "sha256-K22IvBQrEtY0Dt+udqfTmPzDSPQwTUaQVxpJOBYOceE=",
         "owner": "openclaw",
         "repo": "nix-openclaw-tools",
-        "rev": "49ea185fd5bac9b5ef47afabd2d674cc937299f9",
+        "rev": "9085cb57df9396a4d3ac46fd17dfa04f19c56cd3",
         "type": "github"
       },
       "original": {
