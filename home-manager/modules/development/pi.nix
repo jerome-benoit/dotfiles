@@ -15,10 +15,10 @@ let
 
     src = pkgs.fetchzip {
       url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${finalAttrs.version}.tgz";
-      hash = "sha256-I6urHVoMvZzz3I4y067gYGacIPPgYnZ/uDgw1o0A5Ks=";
+      hash = "sha256-vevduMD9U7yAnfpLqrsl0FnnUdA2ZE7US2HwCIbh+nQ=";
     };
 
-    npmDepsHash = "sha256-mz8iaf/yi7GJo5Q1iaoHu9SxphaQm9FWOfv74wxJFO0=";
+    npmDepsHash = "sha256-5Pwnc3BqoVymwkhalVgCVdtVN733bmpKAdrkJfqDhJ4=";
 
     postPatch = ''
       cp ${./pi-package-lock.json} package-lock.json
