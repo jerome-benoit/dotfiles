@@ -12,11 +12,11 @@ let
 
   baseQmdPackage = inputs.qmd.packages.${system}.default or null;
 
-  # https://github.com/tobi/qmd/pull/574
   qmdPackage =
     if baseQmdPackage != null then
       baseQmdPackage.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [
+          # https://github.com/tobi/qmd/pull/574
           (self + "/patches/qmd/fix-nixos-llama-build.patch")
         ];
         installPhase =

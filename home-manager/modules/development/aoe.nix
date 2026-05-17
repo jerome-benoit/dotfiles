@@ -12,7 +12,8 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 
   aoePatches = [
-    (self + "/patches/agent-of-empires/pr-1173-resume-fallback.patch")
+    # https://github.com/njbrake/agent-of-empires/pull/1173
+    (self + "/patches/agent-of-empires/fix-session-resume-fallback.patch")
   ];
 
   withAoePatches =
