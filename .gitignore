@@ -198,6 +198,7 @@ $RECYCLE.BIN/
 
 # oh-my-opencode
 .sisyphus/
+.omo/
 
 .secrets
 result*
