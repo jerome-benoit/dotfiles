@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  self,
   inputs,
   ...
 }:
@@ -11,10 +10,7 @@ let
   cfg = config.modules.development.aoe;
   system = pkgs.stdenv.hostPlatform.system;
 
-  aoePatches = [
-    # https://github.com/njbrake/agent-of-empires/pull/1173
-    (self + "/patches/agent-of-empires/fix-session-resume-fallback.patch")
-  ];
+  aoePatches = [ ];
 
   withAoePatches =
     drv:
