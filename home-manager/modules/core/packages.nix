@@ -56,6 +56,7 @@ in
       pkgs.nil
       pkgs.nixfmt
       pkgs.obsidian
+      pkgs.yazi
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [
