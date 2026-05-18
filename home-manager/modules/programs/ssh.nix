@@ -20,21 +20,15 @@ in
         enable = true;
         enableDefaultConfig = false;
         package = mkSystemPackage "ssh" { };
-        matchBlocks = {
-          "*" = {
-            addKeysToAgent = "yes";
-            forwardAgent = true;
-            forwardX11 = true;
-          };
+        settings."*" = {
+          AddKeysToAgent = "yes";
+          ForwardAgent = true;
+          ForwardX11 = true;
         };
       }
       (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
-        matchBlocks = {
-          "*" = {
-            extraOptions = {
-              UseKeychain = "yes";
-            };
-          };
+        settings."*" = {
+          UseKeychain = "yes";
         };
       })
     ];

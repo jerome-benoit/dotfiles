@@ -15,7 +15,7 @@ let
       email,
       signature,
       theme,
-      sshMatchBlocks ? { },
+      sshSettings ? { },
       sopsOverrides ? { },
     }:
     {
@@ -43,7 +43,7 @@ let
               hmp = "_hm_switch --specialisation personal";
             };
 
-            programs.ssh.matchBlocks = lib.mkIf sshEnabled sshMatchBlocks;
+            programs.ssh.settings = lib.mkIf sshEnabled sshSettings;
 
             modules.themes.active = lib.mkForce theme;
           }
@@ -77,9 +77,9 @@ in
           ${constants.work.employer}
         '';
         theme = "tokyoNightStorm";
-        sshMatchBlocks = {
+        sshSettings = {
           "*.local" = {
-            user = constants.identity.username;
+            User = constants.identity.username;
           };
         };
         sopsOverrides = {
