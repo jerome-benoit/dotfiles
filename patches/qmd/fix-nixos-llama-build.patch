@@ -1,8 +1,8 @@
 diff --git a/src/llm.ts b/src/llm.ts
-index 3047b201..60917e08 100644
+index 1ffa1854..a86c4ceb 100644
 --- a/src/llm.ts
 +++ b/src/llm.ts
-@@ -63,8 +63,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
+@@ -71,8 +71,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
  }
  
  import { homedir } from "os";
@@ -14,7 +14,7 @@ index 3047b201..60917e08 100644
  
  // =============================================================================
  // Embedding Formatting Functions
-@@ -105,6 +106,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
+@@ -113,6 +114,23 @@ export function formatDocForEmbedding(text: string, title?: string, modelUri?: s
    return `title: ${title || "none"} | text: ${text}`;
  }
  
@@ -38,21 +38,16 @@ index 3047b201..60917e08 100644
  // =============================================================================
  // Types
  // =============================================================================
-@@ -763,14 +781,15 @@ export class LlamaCpp implements LLM {
+@@ -845,9 +863,11 @@ export class LlamaCpp implements LLM {
    private async ensureLlama(allowBuild = true): Promise<Llama> {
      if (!this.llama) {
        const gpuMode = resolveLlamaGpuMode();
-+      const buildMode = allowBuild && canWriteLlamaDir() ? "autoAttempt" : "never";
++      // Skip source build when install dir is read-only (e.g. NixOS store).
++      const canBuild = allowBuild && canWriteLlamaDir();
  
-       const { getLlama, LlamaLogLevel } = await loadNodeLlamaCpp();
-       const loadLlama = async (gpu: LlamaGpuMode) =>
+       const { getLlama, getLlamaGpuTypes, LlamaLogLevel } = await loadNodeLlamaCpp();
+-      const loadLlama = async (gpu: LlamaGpuMode, sourceBuildAllowed = allowBuild, buildOverride?: "auto" | "never") =>
++      const loadLlama = async (gpu: LlamaGpuMode, sourceBuildAllowed = canBuild, buildOverride?: "auto" | "never") =>
          await withNativeStdoutRedirectedToStderr(() => getLlama({
--          build: allowBuild ? "autoAttempt" : "never",
-+          build: buildMode,
-           logLevel: LlamaLogLevel.error,
-           gpu,
--          skipDownload: !allowBuild,
-+          skipDownload: buildMode === "never",
-         }));
- 
-       let llama: Llama;
+           // Prefer packaged prebuilt bindings before compiling llama.cpp locally.
+           // node-llama-cpp documents gpu:"auto" as the best default: Metal on
