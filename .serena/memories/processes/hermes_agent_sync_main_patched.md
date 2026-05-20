@@ -94,7 +94,6 @@ nix flake update hermes-agent --flake "$HOME/.nix" && git -C "$HOME/.nix" add fl
 
 - NixOS/nix#15638 (daemon code signing) — when fixed, remove `nix/python.nix` commit from fork
 - python-olm aarch64-darwin wheel — when upstream publishes macOS wheels, drop the python-olm prebuilt commit
-- hermes-agent tui npmDepsHash — goes stale frequently (issue #15272); fix: update hash in fork's `nix/tui.nix`
 - ~~PR #13567 (delegate transport)~~ — superseded by upstream PR #26824 on 2026-05-16; commits dropped from fork. PR #13567 itself can now be closed as obsolete.
 
 ## Key Rules
