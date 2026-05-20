@@ -39,7 +39,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     nix-openclaw-tools.url = "github:openclaw/nix-openclaw-tools";
     nix-openclaw-tools.inputs.nixpkgs.follows = "nixpkgs";
-    # https://github.com/NousResearch/hermes-agent/pull/13567
+    # See .serena/memories/processes/hermes_agent_sync_main_patched.md
     hermes-agent.url = "github:jerome-benoit/hermes-agent/main-patched";
     hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
     hermes-agent.inputs.flake-parts.follows = "flake-parts";
