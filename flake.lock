@@ -3,11 +3,11 @@
     "agent-deck": {
       "flake": false,
       "locked": {
-        "lastModified": 1779354609,
-        "narHash": "sha256-v/LMXJU+Dev75skOmzoLgb2WwQngwkMfquwnGvoD9BU=",
+        "lastModified": 1779355443,
+        "narHash": "sha256-XoP2jpE4Gq0aP3g6K8ygFKozb7aLf+yi0UNhgQmSOJQ=",
         "owner": "asheshgoplani",
         "repo": "agent-deck",
-        "rev": "1e73639959899c264fe4e62fa463ce91ca4de5d8",
+        "rev": "04559bf1601ba75747a6797061787e842285acb0",
         "type": "github"
       },
       "original": {
@@ -272,11 +272,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1779350317,
-        "narHash": "sha256-HAfUFz/YNwcCIqN0QIx4nvGAL90NNTDuqAHEYqfAtYc=",
+        "lastModified": 1779355347,
+        "narHash": "sha256-C3VUYGkjpLqSr7LIVYhavwxJRaW1OVg5nvcQoqc/dxM=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "f70afbea343d7a213a8b7054eeb4a7969ced6bdb",
+        "rev": "7d5e91b8015f70588697e39f1ad7f983b1525ee4",
         "type": "github"
       },
       "original": {
