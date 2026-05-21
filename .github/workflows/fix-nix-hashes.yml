@@ -92,14 +92,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          awk '{gsub(/vendorHash = "sha256-[^"]*"/, "vendorHash = \"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"")}1' "$AD_NIX" > "$AD_NIX.tmp" && mv "$AD_NIX.tmp" "$AD_NIX"
+          awk '/@ci:vendor-hash/ {sub(/"sha256-[^"]*"/, "\"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"")} 1' "$AD_NIX" > "$AD_NIX.tmp" && mv "$AD_NIX.tmp" "$AD_NIX"
 
           BUILD_OUTPUT=$(nix build --impure --no-link --extra-experimental-features 'nix-command flakes' \
             --expr "(builtins.getFlake \"path:$GITHUB_WORKSPACE\").homeConfigurations.fraggle.config.modules.development.agent-deck.package.goModules" 2>&1 || true)
 
           VENDOR_HASH=$(printf '%s\n' "$BUILD_OUTPUT" | awk '/got:.*sha256-/ { print $2 }')
           if [[ "$VENDOR_HASH" == sha256-* ]]; then
-            awk -v h="$VENDOR_HASH" '{gsub(/vendorHash = "sha256-[^"]*"/, "vendorHash = \"" h "\"")}1' "$AD_NIX" > "$AD_NIX.tmp" && mv "$AD_NIX.tmp" "$AD_NIX"
+            awk -v h="$VENDOR_HASH" '/@ci:vendor-hash/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$AD_NIX" > "$AD_NIX.tmp" && mv "$AD_NIX.tmp" "$AD_NIX"
           else
             echo "::warning::Failed to extract vendor hash, reverting"
             git checkout -- "$AD_NIX"
