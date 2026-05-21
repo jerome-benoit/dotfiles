@@ -62,8 +62,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION=$(sed -n 's/.*version = "\([^"]*\)".*/\1/p' "$PI_NIX" | head -1)
-          [[ -n "$VERSION" ]] || { echo "::error::Failed to extract version from $PI_NIX"; exit 1; }
+          VERSION=$(grep -A1 '# renovate: datasource=npm depName=@earendil-works/pi-coding-agent' "$PI_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
+          [[ -n "$VERSION" ]] || { echo "::error::Failed to extract version from $PI_NIX (renovate marker missing?)"; exit 1; }
 
           URL_TEMPLATE=$(sed -n 's/.*url = "\(.*\)".*/\1/p' "$PI_NIX" | head -1)
           [[ -n "$URL_TEMPLATE" ]] || { echo "::error::Failed to extract URL template from $PI_NIX"; exit 1; }
@@ -72,7 +72,7 @@ jobs:
 
           FETCH_HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
           [[ "$FETCH_HASH" == sha256-* ]] || { echo "::error::Invalid fetch hash: $FETCH_HASH"; exit 1; }
-          awk -v h="$FETCH_HASH" '/@ci:src-hash/ {sub(/sha256-[A-Za-z0-9+\/=]+/, h)} 1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
+          awk -v h="$FETCH_HASH" '/@ci:src-hash/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
 
           WORKDIR="$(mktemp -d)"
           curl -sfSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
@@ -82,7 +82,7 @@ jobs:
 
           NPM_HASH=$(nix run nixpkgs#prefetch-npm-deps -- ./package-lock.json)
           [[ "$NPM_HASH" == sha256-* ]] || { echo "::error::Invalid npm deps hash: $NPM_HASH"; exit 1; }
-          awk -v h="$NPM_HASH" '/@ci:npm-deps-hash/ {sub(/sha256-[A-Za-z0-9+\/=]+/, h)} 1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
+          awk -v h="$NPM_HASH" '/@ci:npm-deps-hash/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
           cp package-lock.json "$GITHUB_WORKSPACE/$PI_LOCK"
 
       - name: Update agent-deck vendorHash
