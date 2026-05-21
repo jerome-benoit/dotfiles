@@ -15,12 +15,20 @@ let
 
     src = pkgs.fetchzip {
       url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${finalAttrs.version}.tgz";
-      hash = "sha256-1nrypZzcBxWrpADBaqiSYt7ISWjVqDRhQQcZUd+bSk4=";
+      hash = "sha256-8a++WHrYJXf7otNK1upA9JoYlRSJ7MHlZruCSOJ8lh0="; # @ci:src-hash
     };
 
-    npmDepsHash = "sha256-cPKR/z3Ggfaz0JASpjnGGWAaZSaBqhhsXVInkHkBxYI=";
+    npmDeps = pkgs.fetchNpmDeps {
+      name = "${finalAttrs.pname}-${finalAttrs.version}-npm-deps";
+      unpackPhase = "true";
+      postPatch = ''
+        cp ${./pi-package-lock.json} package-lock.json
+      '';
+      hash = "sha256-Rz16x0K7akiBkk7Nc12yc7rYM24wUoOeFKle+CpmdJg="; # @ci:npm-deps-hash
+    };
 
     postPatch = ''
+      rm -f npm-shrinkwrap.json
       cp ${./pi-package-lock.json} package-lock.json
     '';
 

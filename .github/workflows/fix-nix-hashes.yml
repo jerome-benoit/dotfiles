@@ -48,6 +48,12 @@ jobs:
           nix_conf: |
             extra-experimental-features = nix-command flakes
 
+      - name: Setup Node.js
+        if: steps.detect.outputs.pi == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Update pi-coding-agent hashes
         if: steps.detect.outputs.pi == 'true'
         env:
@@ -66,16 +72,17 @@ jobs:
 
           FETCH_HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
           [[ "$FETCH_HASH" == sha256-* ]] || { echo "::error::Invalid fetch hash: $FETCH_HASH"; exit 1; }
-          awk -v h="$FETCH_HASH" '{gsub(/hash = "sha256-[^"]*"/, "hash = \"" h "\"")}1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
+          awk -v h="$FETCH_HASH" '/@ci:src-hash/ {sub(/sha256-[A-Za-z0-9+\/=]+/, h)} 1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
 
           WORKDIR="$(mktemp -d)"
           curl -sfSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
           cd "$WORKDIR"
-          npm install --package-lock-only --ignore-scripts
+          rm -f npm-shrinkwrap.json
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
           NPM_HASH=$(nix run nixpkgs#prefetch-npm-deps -- ./package-lock.json)
           [[ "$NPM_HASH" == sha256-* ]] || { echo "::error::Invalid npm deps hash: $NPM_HASH"; exit 1; }
-          awk -v h="$NPM_HASH" '{gsub(/npmDepsHash = "sha256-[^"]*"/, "npmDepsHash = \"" h "\"")}1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
+          awk -v h="$NPM_HASH" '/@ci:npm-deps-hash/ {sub(/sha256-[A-Za-z0-9+\/=]+/, h)} 1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
           cp package-lock.json "$GITHUB_WORKSPACE/$PI_LOCK"
 
       - name: Update agent-deck vendorHash
