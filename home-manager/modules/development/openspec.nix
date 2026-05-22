@@ -8,6 +8,21 @@
 let
   cfg = config.modules.development.openspec;
   system = pkgs.stdenv.hostPlatform.system;
+
+  baseOpenspecPackage = inputs.openspec.packages.${system}.default or null;
+
+  openspecPackage =
+    if baseOpenspecPackage != null then
+      baseOpenspecPackage.overrideAttrs (_: {
+        nativeBuildInputs = with pkgs; [
+          nodejs_22
+          npmHooks.npmInstallHook
+          pnpmConfigHook
+          pnpm_9
+        ];
+      })
+    else
+      null;
 in
 {
   options.modules.development.openspec = {
@@ -15,7 +30,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = inputs.openspec.packages.${system}.default or null;
+      default = openspecPackage;
       defaultText = lib.literalExpression "inputs.openspec.packages.\${system}.default";
       description = "OpenSpec CLI package";
       example = lib.literalExpression "inputs.openspec.packages.\${system}.default";
