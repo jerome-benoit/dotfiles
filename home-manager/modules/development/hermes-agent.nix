@@ -106,6 +106,7 @@ in
       type = lib.types.listOf lib.types.str;
       default = [
         "anthropic"
+        "azure-identity"
         "bedrock"
         "daytona"
         "dingtalk"
@@ -114,6 +115,7 @@ in
         "fal"
         "feishu"
         "firecrawl"
+        "hindsight"
         "honcho"
         "matrix"
         "messaging"
