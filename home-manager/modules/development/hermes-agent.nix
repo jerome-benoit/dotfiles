@@ -63,7 +63,8 @@ let
         pkgs.coreutils
       ]
       + ":/usr/bin:/bin";
-  } // lib.optionalAttrs needsPortaudio { ${audioLibVar} = audioLibPath; };
+  }
+  // lib.optionalAttrs needsPortaudio { ${audioLibVar} = audioLibPath; };
 
   mkLaunchdService =
     {
@@ -101,7 +102,8 @@ let
           "HOME=${homeDir}"
           "HERMES_HOME=${configDir}"
           "HERMES_MANAGED=true"
-        ] ++ lib.optional needsPortaudio "${audioLibVar}=${audioLibPath}";
+        ]
+        ++ lib.optional needsPortaudio "${audioLibVar}=${audioLibPath}";
         WorkingDirectory = configDir;
       };
       Install.WantedBy = [ "default.target" ];
