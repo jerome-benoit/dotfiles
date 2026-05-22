@@ -11,15 +11,42 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
+  needsPortaudio = lib.elem "voice" cfg.extraDependencyGroups;
+  audioLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
+  audioLibPath = lib.makeLibraryPath [ pkgs.portaudio ];
+
   baseHermesAgentPackage = pkgs.hermes-agent or null;
 
   hermesAgentPackage =
     if baseHermesAgentPackage == null then
       null
-    else if cfg.extraDependencyGroups != [ ] then
-      baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
     else
-      baseHermesAgentPackage;
+      let
+        withGroups =
+          if cfg.extraDependencyGroups != [ ] then
+            baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
+          else
+            baseHermesAgentPackage;
+      in
+      if !needsPortaudio then
+        withGroups
+      else
+        pkgs.symlinkJoin {
+          name = "hermes-agent-voice-wrapped";
+          paths = [ withGroups ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          postBuild = ''
+            for bin in $out/bin/*; do
+              if [ -L "$bin" ]; then
+                target=$(readlink -f "$bin")
+                rm "$bin"
+                makeWrapper "$target" "$bin" --prefix ${audioLibVar} : "${audioLibPath}"
+              fi
+            done
+          '';
+          inherit (withGroups) meta;
+          passthru = withGroups.passthru or { };
+        };
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
@@ -36,7 +63,7 @@ let
         pkgs.coreutils
       ]
       + ":/usr/bin:/bin";
-  };
+  } // lib.optionalAttrs needsPortaudio { ${audioLibVar} = audioLibPath; };
 
   mkLaunchdService =
     {
@@ -74,7 +101,7 @@ let
           "HOME=${homeDir}"
           "HERMES_HOME=${configDir}"
           "HERMES_MANAGED=true"
-        ];
+        ] ++ lib.optional needsPortaudio "${audioLibVar}=${audioLibPath}";
         WorkingDirectory = configDir;
       };
       Install.WantedBy = [ "default.target" ];
@@ -143,7 +170,9 @@ in
 
     settings = lib.mkOption {
       type = yamlFormat.type;
-      default = { };
+      default = {
+        terminal.cwd = homeDir;
+      };
       description = "Initial config.yaml settings (seeded once, hermes-agent owns the file after)";
     };
   };
