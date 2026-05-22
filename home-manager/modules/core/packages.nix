@@ -9,7 +9,7 @@ let
   cfg = config.modules.core.packages;
   constants = config.modules.core.constants;
   openclawEnabled = config.modules.development.openclaw.enable or false;
-  openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.system};
+  openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.stdenv.hostPlatform.system};
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
   isServer = config.modules.core.profile.name == config.modules.core.constants.profiles.server;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
