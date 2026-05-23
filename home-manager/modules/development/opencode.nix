@@ -42,10 +42,7 @@ let
     let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
-    if desktop != null then
-      desktop.override { opencode = opencodePackage; }
-    else
-      null;
+    if desktop != null then desktop.override { opencode = opencodePackage; } else null;
 in
 {
   options.modules.development.opencode = {
