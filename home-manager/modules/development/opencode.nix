@@ -14,20 +14,27 @@ let
     (self + "/patches/opencode/relax-bun-version-check.patch")
   ];
 
+  withOpencodePatches =
+    drv:
+    drv.overrideAttrs (oldAttrs: {
+      patches = (oldAttrs.patches or [ ]) ++ opencodePatches;
+    });
+
   baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
 
   opencodePackage =
     if baseOpencodePackage != null then
-      baseOpencodePackage.overrideAttrs (oldAttrs: {
-        patches = (oldAttrs.patches or [ ]) ++ opencodePatches;
-        # Workaround for https://github.com/anomalyco/opencode/issues/18447
-        postFixup =
-          (oldAttrs.postFixup or "")
-          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-            wrapProgram "$out/bin/opencode" \
-              --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
-          '';
-      })
+      withOpencodePatches (
+        baseOpencodePackage.overrideAttrs (oldAttrs: {
+          # Workaround for https://github.com/anomalyco/opencode/issues/18447
+          postFixup =
+            (oldAttrs.postFixup or "")
+            + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              wrapProgram "$out/bin/opencode" \
+                --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+            '';
+        })
+      )
     else
       null;
 
