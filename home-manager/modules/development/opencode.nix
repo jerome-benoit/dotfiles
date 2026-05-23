@@ -43,16 +43,7 @@ let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if desktop != null then
-      withOpencodePatches (
-        (desktop.override { opencode = opencodePackage; }).overrideAttrs (oldAttrs: {
-          # Ad-hoc sign the .app: upstream passes --config.mac.identity=null.
-          nativeBuildInputs =
-            (oldAttrs.nativeBuildInputs or [ ])
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-              pkgs.darwin.autoSignDarwinBinariesHook
-            ];
-        })
-      )
+      desktop.override { opencode = opencodePackage; }
     else
       null;
 in
