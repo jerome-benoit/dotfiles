@@ -26,6 +26,7 @@ in
         NH_FLAKE = "$HOME/.nix";
         WORKSPACE = "$HOME/tmp";
         EDITOR = "vi";
+        VISUAL = "vi";
         CARGO_BUILD_BUILD_DIR = "{cargo-cache-home}/build/{workspace-path-hash}";
       };
       shellAliases = {
@@ -149,21 +150,31 @@ in
           }
         ''}
 
-        if [[ -z "$SSH_CONNECTION" ]] && command -v code >/dev/null 2>&1; then
-          ${
-            if pkgs.stdenv.hostPlatform.isDarwin then
-              ''
-                export EDITOR="code --wait"
-              ''
-            else if pkgs.stdenv.hostPlatform.isLinux then
-              ''
-                if [[ -n "$DISPLAY" || -n "$WAYLAND_DISPLAY" ]]; then
-                  export EDITOR="code --wait"
-                fi
-              ''
-            else
-              ""
-          }
+        if [[ -z "$EDITOR" || "$EDITOR" == "vi" ]]; then
+          if command -v nvim >/dev/null 2>&1; then
+            export EDITOR="nvim"
+          elif command -v vim >/dev/null 2>&1; then
+            export EDITOR="vim"
+          fi
+        fi
+        if [[ -z "$VISUAL" || "$VISUAL" == "vi" ]]; then
+          export VISUAL="$EDITOR"
+        fi
+
+        if [[ -z "$SSH_CONNECTION" && "$VISUAL" == "$EDITOR" ]]; then
+          _has_gui=1
+          ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            [[ -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" ]] && _has_gui=0
+          ''}
+
+          if [[ "$_has_gui" == 1 ]]; then
+            if command -v zed >/dev/null 2>&1; then
+              export VISUAL="zed --wait"
+            elif command -v code >/dev/null 2>&1; then
+              export VISUAL="code --wait"
+            fi
+          fi
+          unset _has_gui
         fi
 
         if [[ -n "$SSH_CONNECTION" && ( -z "$GPG_TTY" || "$GPG_TTY" != "$(tty)" ) ]]; then
