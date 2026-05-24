@@ -146,9 +146,11 @@ in
     hosts = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = {
+        faust = "faust";
+        nemesis = "nemesis";
+        ns3108029 = personalSecrets.hosts.server;
         rigel = "rigel";
         zeus = "zeus";
-        ns3108029 = personalSecrets.hosts.server;
       };
       description = "Hostnames";
       readOnly = true;

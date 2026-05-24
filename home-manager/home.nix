@@ -14,9 +14,10 @@ let
     else
       null;
 
-  bunSupported = hostname != config.modules.core.constants.hosts.rigel;
-
-  isSway = hostname == config.modules.core.constants.hosts.zeus;
+  hosts = config.modules.core.constants.hosts;
+  bunSupported = hostname != hosts.rigel;
+  crushSupported = hostname != hosts.faust;
+  isSway = hostname == hosts.zeus;
 
   nvidiaVersion =
     if builtins.pathExists /proc/driver/nvidia/version then
@@ -41,10 +42,7 @@ let
     };
 
   profileName =
-    if hostname == config.modules.core.constants.hosts.ns3108029 then
-      constants.profiles.server
-    else
-      constants.profiles.desktop;
+    if hostname == hosts.ns3108029 then constants.profiles.server else constants.profiles.desktop;
   profileModules = config.modules.core.profile.modules;
 in
 {
@@ -96,7 +94,10 @@ in
         sha256 = nvidiaDriverSri;
       };
     };
-    packages.enable = true;
+    packages = {
+      enable = true;
+      inherit crushSupported;
+    };
     specialisations.enable = true;
     profile.name = profileName;
   };

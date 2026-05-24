@@ -18,6 +18,11 @@ in
 {
   options.modules.core.packages = {
     enable = lib.mkEnableOption "common packages";
+    crushSupported = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Whether crush is supported on this host";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -49,7 +54,6 @@ in
       pkgs.bruno
       pkgs.cloudfoundry-cli
       pkgs.codex
-      pkgs.crush
       pkgs.gemini-cli
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
@@ -57,6 +61,9 @@ in
       pkgs.nixfmt
       pkgs.obsidian
       pkgs.yazi
+    ]
+    ++ lib.optionals (isDesktop && cfg.crushSupported) [
+      pkgs.crush
     ]
     ++ lib.optionals (isDesktop && isDarwin) (
       [
