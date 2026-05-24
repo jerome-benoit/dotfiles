@@ -39,7 +39,7 @@ in
     enableWeb = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Build with embedded web dashboard (aoe-with-web)";
+      description = "Whether to build with embedded web dashboard (aoe-with-web)";
     };
 
     package = lib.mkOption {

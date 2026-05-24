@@ -13,7 +13,7 @@ let
 in
 {
   options.modules.development.openclaw = {
-    enable = lib.mkEnableOption "OpenClaw AI gateway";
+    enable = lib.mkEnableOption "OpenClaw configuration";
   };
 
   config = lib.mkIf cfg.enable {

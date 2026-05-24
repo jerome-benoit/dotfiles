@@ -111,18 +111,18 @@ let
 in
 {
   options.modules.development.hermesAgent = {
-    enable = lib.mkEnableOption "hermes-agent";
+    enable = lib.mkEnableOption "hermes-agent configuration";
 
     enableGateway = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Run hermes-agent gateway as a background service";
+      description = "Whether to run hermes-agent gateway as a background service";
     };
 
     enableDashboard = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Run hermes-agent web dashboard as a background service";
+      description = "Whether to run hermes-agent web dashboard as a background service";
     };
 
     dashboardPort = lib.mkOption {

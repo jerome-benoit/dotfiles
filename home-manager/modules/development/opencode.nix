@@ -51,7 +51,7 @@ in
     enableDesktop = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "OpenCode Desktop integration";
+      description = "Whether to enable OpenCode Desktop integration";
     };
 
     opencodePackage = lib.mkOption {
