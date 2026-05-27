@@ -152,7 +152,6 @@ in
         "parallel-web"
         "slack"
         "tts-premium"
-        "vercel"
         "voice"
       ];
       description = "Additional pyproject.toml dependency groups to bundle in the sealed venv";
