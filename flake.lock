@@ -27,11 +27,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1780001410,
-        "narHash": "sha256-UCabgV0sgeW/Ik4tqj9b9PA7QEetEZx0isZ3S+U5w5c=",
+        "lastModified": 1780050090,
+        "narHash": "sha256-+Zmc5Eu51syjRrXAxv1m9pu3U4sQWJsrmkEduFYavwk=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "4959fdb0738b93785a9d57d57dbabb6489f667db",
+        "rev": "199a3e6a29021585780f47b53dd7c2ec11758199",
         "type": "github"
       },
       "original": {
@@ -180,11 +180,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1779997739,
-        "narHash": "sha256-u56GV2l/fFdLyH1ULvSm4xZku6vl/9tTj1HiBJUSGTQ=",
+        "lastModified": 1780037778,
+        "narHash": "sha256-8peHZD76kFpw1XjkzBIFioB4ZwqT2lxxUNBiwRyFVgI=",
         "owner": "openclaw",
         "repo": "nix-openclaw",
-        "rev": "8b9acbb6919fbf3a5b6351af917e51a678301aa2",
+        "rev": "773708b523201b2b632567a418ae8095e96df7da",
         "type": "github"
       },
       "original": {
@@ -200,11 +200,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1779914613,
-        "narHash": "sha256-GphvVke0bUogOXb4HsEs7WNAw/vtBv1F6JatS7ZkR1s=",
+        "lastModified": 1780030704,
+        "narHash": "sha256-LOqVd7O5wS7r0XCjwvzr6ws8C73OUdgJ/zRB2UpAfDw=",
         "owner": "openclaw",
         "repo": "nix-openclaw-tools",
-        "rev": "937044a84183ed50b7d7f80e79a51e167667de3a",
+        "rev": "e2a8ceda5e6091ff3868d65679e9cb3cbed526b8",
         "type": "github"
       },
       "original": {
@@ -272,11 +272,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1780001364,
-        "narHash": "sha256-FzUCmTT+kSvQf37osvX41p04h6wgXbHrdmlr4LylKho=",
+        "lastModified": 1780053230,
+        "narHash": "sha256-VL/0qXoJiB6i+8MXe1mWWmNL67BgJH5RMEyK0K+AGEk=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "1f707f1b52eb4c8c60b0a36f3358a3d175fb3bc3",
+        "rev": "7da2620078d4d645cc045f8bc3d9746aca46ee4f",
         "type": "github"
       },
       "original": {
@@ -377,11 +377,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1779481448,
-        "narHash": "sha256-CCTPYEdbpLyFFAXyagQIWabZXPstLcWnJ7MT0+XF9uk=",
+        "lastModified": 1780023206,
+        "narHash": "sha256-bFk078qQ8Ha/1na+r5ka6yNPI/Pealh0Rk6hJxKBwNs=",
         "owner": "tobi",
         "repo": "qmd",
-        "rev": "443760f4d5a17550d77a0e3146b5b8f08452991f",
+        "rev": "53232770867ccb16538c2c6034e7d891dffc9ce3",
         "type": "github"
       },
       "original": {
