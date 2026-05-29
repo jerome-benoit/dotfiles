@@ -30,8 +30,8 @@ let
 
   commonSettings = {
     signature = "${config.home.homeDirectory}/.signature";
-    signature-delim = "-- \n";
     envelope.list.datetime-local-tz = true;
+    envelope.list.page-size = 50;
     message.read.format = "auto";
     message.send.save-copy = true;
     message.delete.style = "folder";
@@ -57,6 +57,12 @@ in
         address = constants.personal.email;
         userName = constants.personal.email;
         realName = constants.identity.fullName;
+        folders = {
+          inbox = "INBOX";
+          sent = "Sent";
+          drafts = "Drafts";
+          trash = "Trash";
+        };
         passwordCommand = mkPasswordCommand constants.personal.email;
         imap = {
           host = constants.personal.mail.imapHost;
@@ -67,10 +73,6 @@ in
           host = constants.personal.mail.smtpHost;
           port = 465;
           tls.enable = true;
-        };
-        gpg = {
-          key = constants.identity.gpg.fingerprint;
-          signByDefault = true;
         };
         himalaya = {
           enable = true;
