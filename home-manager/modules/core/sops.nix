@@ -40,6 +40,11 @@ in
     mode = "0600";
   };
 
+  sops.secrets."himalaya-imap-password" = {
+    key = "himalaya/personal/imapPassword";
+    mode = "0600";
+  };
+
   sops.secrets."agentdeck-telegram-token" = {
     key = "agentDeck/telegramToken";
     mode = "0600";

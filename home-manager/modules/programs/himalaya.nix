@@ -8,25 +8,6 @@
 let
   cfg = config.modules.programs.himalaya;
   constants = config.modules.core.constants;
-  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-
-  mkPasswordCommand =
-    email:
-    if isDarwin then
-      [
-        "/usr/bin/security"
-        "find-generic-password"
-        "-s"
-        "himalaya"
-        "-a"
-        email
-        "-w"
-      ]
-    else
-      [
-        (lib.getExe pkgs.pass)
-        "email/${email}"
-      ];
 
   commonSettings = {
     signature = "${config.home.homeDirectory}/.signature";
@@ -63,7 +44,10 @@ in
           drafts = "Drafts";
           trash = "Trash";
         };
-        passwordCommand = mkPasswordCommand constants.personal.email;
+        passwordCommand = [
+          "cat"
+          config.sops.secrets."himalaya-imap-password".path
+        ];
         imap = {
           host = constants.personal.mail.imapHost;
           port = 993;
