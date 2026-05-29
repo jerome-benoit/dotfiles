@@ -158,6 +158,7 @@ in
         "slack"
         "tts-premium"
         "voice"
+        "web"
       ];
       description = "Additional pyproject.toml dependency groups to bundle in the sealed venv";
       example = [
