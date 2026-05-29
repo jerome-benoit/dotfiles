@@ -1,5 +1,5 @@
 diff --git a/src/llm.ts b/src/llm.ts
-index 1ffa1854..a86c4ceb 100644
+index 7c2d464..633d6f6 100644
 --- a/src/llm.ts
 +++ b/src/llm.ts
 @@ -71,8 +71,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
@@ -38,7 +38,7 @@ index 1ffa1854..a86c4ceb 100644
  // =============================================================================
  // Types
  // =============================================================================
-@@ -845,9 +863,11 @@ export class LlamaCpp implements LLM {
+@@ -851,9 +869,11 @@ export class LlamaCpp implements LLM {
    private async ensureLlama(allowBuild = true): Promise<Llama> {
      if (!this.llama) {
        const gpuMode = resolveLlamaGpuMode();
