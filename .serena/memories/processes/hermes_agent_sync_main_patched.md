@@ -96,10 +96,6 @@ nix flake update hermes-agent --flake "$HOME/.nix" && git -C "$HOME/.nix" add fl
 - python-olm aarch64-darwin wheel — when upstream publishes macOS wheels, drop the python-olm prebuilt commit
 - ~~PR #13567 (delegate transport)~~ — superseded by upstream PR #26824 on 2026-05-16; commits dropped from fork. PR #13567 itself can now be closed as obsolete.
 
-## Transitive inputs not followed
-
-- `npm-lockfile-fix` (jeslie0/npm-lockfile-fix): transitive helper used by hermes-agent's `nix/web.nix` to repair the npm lockfile before `npmDepsHash` computation. Build-time only, no runtime impact. Bumps silently on `nix flake update hermes-agent`. Deliberately not declared in `inputs.hermes-agent.inputs.*.follows` — the pinned version inside the fork is the source of truth.
-
 ## Key Rules
 
 - PREFER `--force-with-lease` (catches unexpected pushes from another machine). If rejected due to stale ref from same-session push, use `--force` after verifying commit count is correct.
