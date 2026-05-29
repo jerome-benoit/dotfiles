@@ -19,28 +19,6 @@ let
   crushSupported = hostname != hosts.faust;
   isSway = hostname == hosts.zeus;
 
-  nvidiaVersion =
-    if builtins.pathExists /proc/driver/nvidia/version then
-      let
-        raw = builtins.readFile /proc/driver/nvidia/version;
-        match = builtins.match "NVRM version:.*Module[[:space:]]+([0-9.]+)[^\n]*\n.*" raw;
-      in
-      if match != null then builtins.head match else null
-    else
-      null;
-
-  nvidiaArch = if pkgs.stdenv.hostPlatform.isx86_64 then "x86_64" else "aarch64";
-  nvidiaDriverSri =
-    let
-      url = "https://download.nvidia.com/XFree86/Linux-${nvidiaArch}/${nvidiaVersion}/NVIDIA-Linux-${nvidiaArch}-${nvidiaVersion}.run";
-      hash = builtins.hashFile "sha256" (builtins.fetchurl url);
-    in
-    builtins.convertHash {
-      inherit hash;
-      toHashFormat = "sri";
-      hashAlgo = "sha256";
-    };
-
   profileName =
     if hostname == hosts.ns3108029 then constants.profiles.server else constants.profiles.desktop;
   profileModules = config.modules.core.profile.modules;
@@ -86,14 +64,7 @@ in
   modules.core = {
     gpg.enable = true;
     home-manager.enable = true;
-    gpu = {
-      enable = pkgs.stdenv.hostPlatform.isLinux && profileName == constants.profiles.desktop;
-      nvidia = lib.mkIf (nvidiaVersion != null) {
-        enable = true;
-        version = nvidiaVersion;
-        sha256 = nvidiaDriverSri;
-      };
-    };
+    gpu.enable = pkgs.stdenv.hostPlatform.isLinux && profileName == constants.profiles.desktop;
     packages = {
       enable = true;
       inherit crushSupported;

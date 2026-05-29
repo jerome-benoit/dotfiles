@@ -7,39 +7,81 @@
 
 let
   cfg = config.modules.core.gpu;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
+
+  detectedNvidiaVersion =
+    if isLinux && builtins.pathExists /proc/driver/nvidia/version then
+      let
+        raw = builtins.readFile /proc/driver/nvidia/version;
+        match = builtins.match "NVRM version:.*Module[[:space:]]+([0-9.]+)[^\n]*\n.*" raw;
+      in
+      if match != null then builtins.head match else null
+    else
+      null;
+
+  inferredVendor =
+    if isDarwin then
+      "apple"
+    else if detectedNvidiaVersion != null then
+      "nvidia"
+    else
+      "none";
+
+  effectiveVendor = if cfg.vendor == "auto" then inferredVendor else cfg.vendor;
+  cudaEnable = cfg.enable && isLinux && effectiveVendor == "nvidia" && detectedNvidiaVersion != null;
+
+  nvidiaArch = if pkgs.stdenv.hostPlatform.isx86_64 then "x86_64" else "aarch64";
+  nvidiaDriverSri =
+    let
+      url = "https://download.nvidia.com/XFree86/Linux-${nvidiaArch}/${detectedNvidiaVersion}/NVIDIA-Linux-${nvidiaArch}-${detectedNvidiaVersion}.run";
+      hash = builtins.hashFile "sha256" (builtins.fetchurl url);
+    in
+    builtins.convertHash {
+      inherit hash;
+      toHashFormat = "sri";
+      hashAlgo = "sha256";
+    };
 in
 {
   options.modules.core.gpu = {
-    enable = lib.mkEnableOption "GPU support for non-NixOS Linux";
+    enable = lib.mkEnableOption "GPU acceleration integration";
 
-    nvidia = {
-      enable = lib.mkEnableOption "NVIDIA proprietary driver support";
+    vendor = lib.mkOption {
+      type = lib.types.enum [
+        "auto"
+        "nvidia"
+        "apple"
+        "none"
+      ];
+      default = "auto";
+      description = ''
+        GPU vendor selector. "auto" infers from platform:
+        - Darwin → "apple" (Metal/CoreML implicit)
+        - Linux with /proc/driver/nvidia → "nvidia"
+        - Otherwise → "none"
+      '';
+    };
 
-      version = lib.mkOption {
-        type = lib.types.str;
-        description = ''
-          NVIDIA driver version matching the host kernel module.
-          Detect with: cat /proc/driver/nvidia/version
-        '';
-        example = "550.163.01";
-      };
-
-      sha256 = lib.mkOption {
-        type = lib.types.str;
-        description = ''
-          SRI hash of the NVIDIA driver installer.
-          Compute with: nix store prefetch-file <url>
-        '';
-        example = "sha256-74FJ9bNFlUYBRen7+C08ku5Gc1uFYGeqlIh7l1yrmi4=";
-      };
+    cudaLibraryPath = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = ''
+        Runtime LD_LIBRARY_PATH addition for binaries that dlopen CUDA libs
+        (e.g. ctranslate2 in faster-whisper). Empty when CUDA disabled.
+      '';
     };
   };
 
-  config = lib.mkIf (cfg.enable && isLinux) {
-    targets.genericLinux.gpu.nvidia = lib.mkIf cfg.nvidia.enable {
+  config = lib.mkIf cudaEnable {
+    targets.genericLinux.gpu.nvidia = {
       enable = true;
-      inherit (cfg.nvidia) version sha256;
+      version = detectedNvidiaVersion;
+      sha256 = nvidiaDriverSri;
     };
+    modules.core.gpu.cudaLibraryPath = lib.makeLibraryPath [
+      pkgs.cudaPackages.libcublas
+      pkgs.cudaPackages.cudnn
+    ];
   };
 }

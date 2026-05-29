@@ -12,8 +12,13 @@ let
   homeDir = config.home.homeDirectory;
 
   needsPortaudio = lib.elem "voice" cfg.extraDependencyGroups;
-  audioLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
-  audioLibPath = lib.makeLibraryPath [ pkgs.portaudio ];
+  voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
+  voiceRuntimeLibPath = lib.concatStringsSep ":" (
+    lib.filter (s: s != "") [
+      (lib.makeLibraryPath [ pkgs.portaudio ])
+      config.modules.core.gpu.cudaLibraryPath
+    ]
+  );
 
   baseHermesAgentPackage = pkgs.hermes-agent or null;
 
@@ -40,7 +45,7 @@ let
               if [ -L "$bin" ]; then
                 target=$(readlink -f "$bin")
                 rm "$bin"
-                makeWrapper "$target" "$bin" --prefix ${audioLibVar} : "${audioLibPath}"
+                makeWrapper "$target" "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
               fi
             done
           '';
@@ -64,7 +69,7 @@ let
       ]
       + ":/usr/bin:/bin";
   }
-  // lib.optionalAttrs needsPortaudio { ${audioLibVar} = audioLibPath; };
+  // lib.optionalAttrs needsPortaudio { ${voiceRuntimeLibVar} = voiceRuntimeLibPath; };
 
   mkLaunchdService =
     {
@@ -103,7 +108,7 @@ let
           "HERMES_HOME=${configDir}"
           "HERMES_MANAGED=true"
         ]
-        ++ lib.optional needsPortaudio "${audioLibVar}=${audioLibPath}";
+        ++ lib.optional needsPortaudio "${voiceRuntimeLibVar}=${voiceRuntimeLibPath}";
         WorkingDirectory = configDir;
       };
       Install.WantedBy = [ "default.target" ];
