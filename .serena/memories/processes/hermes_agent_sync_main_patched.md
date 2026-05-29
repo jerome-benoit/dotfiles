@@ -23,6 +23,18 @@ git fetch upstream main --filter=blob:none
 git rebase --empty=drop upstream/main
 ```
 
+If the partial-clone fetch fails with `fatal: did not receive expected object` (intermittent server-side bug), fall back to a shallow clone:
+
+```bash
+git clone --depth=400 https://github.com/jerome-benoit/hermes-agent.git "$_workdir/h"
+cd "$_workdir/h"
+git fetch origin '+refs/heads/main-patched:refs/remotes/origin/main-patched' --depth=400
+git remote add upstream https://github.com/NousResearch/hermes-agent.git
+git fetch upstream main --depth=400
+git checkout -B main-patched origin/main-patched
+git rebase --empty=drop upstream/main
+```
+
 ### 2. Validate rebase result
 
 ```bash
@@ -98,7 +110,7 @@ nix flake update hermes-agent --flake "$HOME/.nix" && git -C "$HOME/.nix" add fl
 
 ## Key Rules
 
-- PREFER `--force-with-lease` (catches unexpected pushes from another machine). If rejected due to stale ref from same-session push, use `--force` after verifying commit count is correct.
+- PREFER `--force-with-lease` (catches unexpected pushes from another machine). If rejected (`stale info` — common after a shallow-clone fallback or a same-session push), use `--force` after verifying commit count is correct.
 - If commits drop to 0 → fork identical to upstream → switch input back to `github:NousResearch/hermes-agent`
 - Commit message: `chore: update hermes-agent lock` (or `chore: update hermes-agent lock (drop <desc>, now upstream)` if a commit dropped)
 - **Ordering**: This process runs BEFORE patch refresh — hermes sync affects the lock, and patch refresh must verify against the current lock.
