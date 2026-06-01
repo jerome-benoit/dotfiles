@@ -98,17 +98,18 @@ in
 
         agents.defaults = {
           model = {
-            primary = "github-copilot/gpt-5.4";
+            primary = "opencode-go/deepseek-v4-pro";
             fallbacks = [ "opencode-go/glm-5.1" ];
           };
           models = {
             "google/gemini-3.1-pro-preview".alias = "Gemini";
+            "opencode-go/deepseek-v4-pro".alias = "DeepSeek Pro";
+            "opencode-go/deepseek-v4-flash".alias = "DeepSeek Flash";
             "opencode-go/glm-5.1".alias = "GLM";
             "opencode-go/kimi-k2.6".alias = "Kimi";
-            "github-copilot/gpt-5.4".alias = "GPT";
-            "github-copilot/claude-opus-4.6".alias = "Opus";
-            "github-copilot/claude-sonnet-4.6".alias = "Sonnet";
             "opencode-go/minimax-m2.7".alias = "MiniMax";
+            "opencode-go/mimo-v2.5-pro".alias = "MiMo";
+            "opencode-go/qwen3.7-max".alias = "Qwen";
           };
           thinkingDefault = "medium";
           maxConcurrent = 4;
