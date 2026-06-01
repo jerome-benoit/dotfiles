@@ -331,54 +331,38 @@ let
   nvimOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable ''
     -- OpenCode AI Integration
     vim.g.opencode_opts = {
-      provider = {
-        enabled = "snacks",
-        snacks = {
-          auto_close = true,
-          win = {
-            position = "right",
-            enter = false,
-            wo = {
-              winbar = "",
-            },
-            bo = {
-              filetype = "opencode_terminal",
-            },
-          },
-        },
-      },
       events = {
         enabled = true,
         reload = true,
         permissions = {
           enabled = true,
-          idle_delay_ms = 1000,
         },
       },
       ask = {
         prompt = "Ask opencode: ",
-        blink_cmp_sources = { "opencode", "buffer" },
       },
-      prompts = {
-        ask_append = { prompt = "", ask = true },
-        ask_this = { prompt = "@this: ", ask = true, submit = true },
-        diagnostics = { prompt = "Explain @diagnostics", submit = true },
-        diff = { prompt = "Review the following git diff for correctness and readability: @diff", submit = true },
-        document = { prompt = "Add comments documenting @this", submit = true },
-        explain = { prompt = "Explain @this and its context", submit = true },
-        fix = { prompt = "Fix @diagnostics", submit = true },
-        implement = { prompt = "Implement @this", submit = true },
-        optimize = { prompt = "Optimize @this for performance and readability", submit = true },
-        review = { prompt = "Review @this for correctness and readability", submit = true },
-        test = { prompt = "Add tests for @this", submit = true },
-        nix = { prompt = "Review @this for Nix best practices", submit = true },
-        security = { prompt = "Review @this for security vulnerabilities", submit = true },
-        marks = { prompt = "List @marks with locations", submit = true },
+      select = {
+        prompts = {
+          ask_append = "...",
+          ask_this = "@this: ...",
+          diagnostics = "Explain @diagnostics",
+          diff = "Review the following git diff for correctness and readability: @diff",
+          document = "Add comments documenting @this",
+          explain = "Explain @this and its context",
+          fix = "Fix @diagnostics",
+          implement = "Implement @this",
+          optimize = "Optimize @this for performance and readability",
+          review = "Review @this for correctness and readability",
+          test = "Add tests for @this",
+          nix = "Review @this for Nix best practices",
+          security = "Review @this for security vulnerabilities",
+          marks = "List @marks with locations",
+        },
       },
     }
 
     local opencode_map = vim.keymap.set
-    opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ", { submit = true }) end, { desc = "OpenCode: Ask question", silent = true })
+    opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ") end, { desc = "OpenCode: Ask question", silent = true })
     opencode_map({ "n", "x" }, "<leader>om", function() require("opencode").select() end, { desc = "OpenCode: Menu", silent = true })
     opencode_map({ "n", "t" }, "<leader>ot", function() require("opencode").toggle() end, { desc = "OpenCode: Toggle terminal", silent = true })
     opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
