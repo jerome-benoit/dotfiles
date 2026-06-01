@@ -121,7 +121,7 @@ let
       callback = function() if vim.fn.argc() == 0 then vim.cmd("Neotree toggle filesystem reveal left") end end,
     })
     vim.keymap.set("n", "<leader>e", "<CMD>Neotree toggle<CR>", { desc = "File explorer: Toggle", silent = true })
-    require("oil").setup({ watch_for_changes = true, view_options = { show_hidden = true } })
+    require("oil").setup({ default_file_explorer = false, watch_for_changes = true, view_options = { show_hidden = true } })
     vim.keymap.set("n", "<leader>-", "<CMD>Oil<CR>", { desc = "File explorer: Parent directory", silent = true })
 
     -- Editor Essentials
@@ -166,7 +166,7 @@ let
           ["al"] = "@loop.outer",
           ["il"] = "@loop.inner",
           ["a/"] = "@comment.outer",
-          ["i/"] = "@comment.outer",
+          ["i/"] = "@comment.inner",
           ["ak"] = "@call.outer",
           ["ik"] = "@call.inner",
         },
@@ -300,13 +300,15 @@ let
     end
 
     -- LSP diagnostics
-    local signs = { Error = " ", Warn = " ", Hint = "󰠠 ", Info = " " }
-    for type, icon in pairs(signs) do
-      local hl = "DiagnosticSign" .. type
-      vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = "" })
-    end
-
     vim.diagnostic.config({
+      signs = {
+        text = {
+          [vim.diagnostic.severity.ERROR] = " ",
+          [vim.diagnostic.severity.WARN]  = " ",
+          [vim.diagnostic.severity.HINT]  = "󰠠 ",
+          [vim.diagnostic.severity.INFO]  = " ",
+        },
+      },
       virtual_text = {
         prefix = "●",
         spacing = 4,
