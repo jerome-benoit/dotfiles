@@ -298,7 +298,7 @@ in
           "Development"
           "Utility"
         ];
-        settings.StartupWMClass = "hermes-desktop";
+        settings.StartupWMClass = "Hermes";
       };
     };
   };
