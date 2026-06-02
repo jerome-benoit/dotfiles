@@ -97,6 +97,7 @@ in
     hermesAgent = {
       enable = profileModules.development.hermesAgent.enable;
       enableDashboard = profileModules.development.hermesAgent.enableDashboard;
+      enableDesktop = profileModules.development.hermesAgent.enableDesktop;
       enableGateway = profileModules.development.hermesAgent.enableGateway;
     };
     lazygit.enable = profileModules.development.lazygit;

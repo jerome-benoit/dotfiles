@@ -52,6 +52,34 @@ let
           inherit (withGroups) meta;
           passthru = withGroups.passthru or { };
         };
+
+  baseHermesDesktopPackage =
+    if baseHermesAgentPackage == null then
+      null
+    else
+      let
+        withGroups =
+          if cfg.extraDependencyGroups != [ ] then
+            baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
+          else
+            baseHermesAgentPackage;
+      in
+      withGroups.hermesDesktop or null;
+
+  hermesDesktopPackage =
+    if baseHermesDesktopPackage == null then
+      null
+    else if !needsPortaudio then
+      baseHermesDesktopPackage
+    else
+      baseHermesDesktopPackage.overrideAttrs (old: {
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ];
+        postFixup = (old.postFixup or "") + ''
+          wrapProgram $out/bin/hermes-desktop \
+            --set HERMES_DESKTOP_HERMES "${hermesAgentPackage}/bin/hermes"
+        '';
+      });
+
   yamlFormat = pkgs.formats.yaml { };
 
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
@@ -130,6 +158,12 @@ in
       description = "Whether to run hermes-agent web dashboard as a background service";
     };
 
+    enableDesktop = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Whether to install the hermes-agent Electron desktop app";
+    };
+
     dashboardPort = lib.mkOption {
       type = lib.types.port;
       default = 9119;
@@ -175,6 +209,13 @@ in
       description = "hermes-agent package";
     };
 
+    desktopPackage = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = hermesDesktopPackage;
+      defaultText = lib.literalExpression "pkgs.hermes-agent.hermesDesktop";
+      description = "hermes-agent Electron desktop package";
+    };
+
     settings = lib.mkOption {
       type = yamlFormat.type;
       default = {
@@ -185,11 +226,15 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.package != null) cfg.package;
+    home.packages =
+      lib.optional (cfg.package != null) cfg.package
+      ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;
 
-    warnings = lib.optional (
-      cfg.package == null
-    ) "hermesAgent: package not available for system ${system}";
+    warnings =
+      lib.optional (cfg.package == null)
+        "hermesAgent: package not available for system ${system}"
+      ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage == null)
+        "hermesAgent: desktopPackage not available for system ${system}";
 
     home.activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
       lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
@@ -252,5 +297,19 @@ in
           description = "Hermes Agent Web Dashboard";
           execStart = "${lib.getExe' cfg.package "hermes"} dashboard --no-open --skip-build --port ${toString cfg.dashboardPort}";
         });
+
+    xdg.desktopEntries = lib.mkIf (cfg.enableDesktop && !isDarwin && cfg.desktopPackage != null) {
+      hermes-desktop = {
+        name = "Hermes Desktop";
+        exec = "${lib.getExe cfg.desktopPackage} %U";
+        comment = "Hermes Agent desktop app";
+        terminal = false;
+        categories = [
+          "Development"
+          "Utility"
+        ];
+        settings.StartupWMClass = "hermes-desktop";
+      };
+    };
   };
 }
