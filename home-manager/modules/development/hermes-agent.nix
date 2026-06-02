@@ -22,49 +22,39 @@ let
 
   baseHermesAgentPackage = pkgs.hermes-agent or null;
 
-  hermesAgentPackage =
+  withGroups =
     if baseHermesAgentPackage == null then
       null
+    else if cfg.extraDependencyGroups != [ ] then
+      baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
     else
-      let
-        withGroups =
-          if cfg.extraDependencyGroups != [ ] then
-            baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
-          else
-            baseHermesAgentPackage;
-      in
-      if !needsPortaudio then
-        withGroups
-      else
-        pkgs.symlinkJoin {
-          name = "hermes-agent-voice-wrapped";
-          paths = [ withGroups ];
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          postBuild = ''
-            for bin in $out/bin/*; do
-              if [ -L "$bin" ]; then
-                target=$(readlink -f "$bin")
-                rm "$bin"
-                makeWrapper "$target" "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
-              fi
-            done
-          '';
-          inherit (withGroups) meta;
-          passthru = withGroups.passthru or { };
-        };
+      baseHermesAgentPackage;
+
+  hermesAgentPackage =
+    if withGroups == null then
+      null
+    else if !needsPortaudio then
+      withGroups
+    else
+      pkgs.symlinkJoin {
+        name = "hermes-agent-voice-wrapped";
+        paths = [ withGroups ];
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        postBuild = ''
+          for bin in $out/bin/*; do
+            if [ -L "$bin" ]; then
+              target=$(readlink -f "$bin")
+              rm "$bin"
+              makeWrapper "$target" "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
+            fi
+          done
+        '';
+        inherit (withGroups) meta;
+        passthru = withGroups.passthru or { };
+      };
 
   baseHermesDesktopPackage =
-    if baseHermesAgentPackage == null then
-      null
-    else
-      let
-        withGroups =
-          if cfg.extraDependencyGroups != [ ] then
-            baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
-          else
-            baseHermesAgentPackage;
-      in
-      withGroups.hermesDesktop or null;
+    if withGroups == null then null else withGroups.hermesDesktop or null;
 
   hermesDesktopPackage =
     if baseHermesDesktopPackage == null then
