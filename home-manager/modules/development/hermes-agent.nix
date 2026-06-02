@@ -161,7 +161,7 @@ in
     enableDesktop = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Whether to install the hermes-agent Electron desktop app";
+      description = "Whether to install the hermes-agent desktop app";
     };
 
     dashboardPort = lib.mkOption {
@@ -213,7 +213,7 @@ in
       type = lib.types.nullOr lib.types.package;
       default = hermesDesktopPackage;
       defaultText = lib.literalExpression "pkgs.hermes-agent.hermesDesktop";
-      description = "hermes-agent Electron desktop package";
+      description = "hermes-agent desktop package";
     };
 
     settings = lib.mkOption {
