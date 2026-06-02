@@ -12,7 +12,6 @@ let
 
   opencodePatches = [
     (self + "/patches/opencode/relax-bun-version-check.patch")
-    (self + "/patches/opencode/expose-v2-css-exports.patch")
   ];
 
   withOpencodePatches =
