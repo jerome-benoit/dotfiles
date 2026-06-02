@@ -33,7 +33,7 @@ let
       hermesAgent = {
         enable = true;
         enableDashboard = true;
-        enableDesktop = true;
+        enableDesktop = false;
         enableGateway = true;
       };
       lazygit = true;
