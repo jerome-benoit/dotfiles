@@ -1,5 +1,5 @@
 diff --git a/src/llm.ts b/src/llm.ts
-index 7c2d464..633d6f6 100644
+index 7c2d464c..633d6f66 100644
 --- a/src/llm.ts
 +++ b/src/llm.ts
 @@ -71,8 +71,9 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
