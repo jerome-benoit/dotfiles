@@ -153,6 +153,10 @@ in
             export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
           fi
 
+          "$_brew" trust --formula haiperspace/hai/hai 2>/dev/null || true
+          "$_brew" trust --formula haiperspace/hai/mole 2>/dev/null || true
+          "$_brew" trust --cask moltenbits/tap/growlrrr 2>/dev/null || true
+
           verboseEcho "Installing Homebrew packages from Brewfile"
           run "$_brew" bundle install --global
           run "$_brew" bundle cleanup --global --force
