@@ -3,11 +3,11 @@
     "agent-deck": {
       "flake": false,
       "locked": {
-        "lastModified": 1780498237,
-        "narHash": "sha256-/KyKwBXWfTPoEEn1LOdUh6R/ahdva+yuJwmzJBsaiDM=",
+        "lastModified": 1780512307,
+        "narHash": "sha256-9Hx+yCmLa0Yk1Go3zVY1EYbyENyyuefvfE0GHeFA6bo=",
         "owner": "asheshgoplani",
         "repo": "agent-deck",
-        "rev": "b5886a588b2145c186c067f392e804ba3de28ffc",
+        "rev": "f4514d8a85bd3093499d49cec3b5df05b626a814",
         "type": "github"
       },
       "original": {
