@@ -129,7 +129,7 @@ let
     version = config.modules.core.lib.mkUnstableVersion inputs.agent-deck;
     src = inputs.agent-deck;
 
-    vendorHash = "sha256-1YV8u505VY2XZ+SzIR3zX563pHmcxYJUxeSreK3glv4="; # @ci:vendor-hash
+    vendorHash = "sha256-ltU0qyZEUjzN+E5FOBnfnc4W3CchPJ0+0GFCtA9C8Zo="; # @ci:vendor-hash
     subPackages = [ "cmd/agent-deck" ];
 
     ldflags = [
