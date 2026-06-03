@@ -53,8 +53,7 @@ let
         passthru = withGroups.passthru or { };
       };
 
-  baseHermesDesktopPackage =
-    if withGroups == null then null else withGroups.hermesDesktop or null;
+  baseHermesDesktopPackage = if withGroups == null then null else withGroups.hermesDesktop or null;
 
   hermesDesktopPackage =
     if baseHermesDesktopPackage == null then
@@ -221,10 +220,10 @@ in
       ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;
 
     warnings =
-      lib.optional (cfg.package == null)
-        "hermesAgent: package not available for system ${system}"
-      ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage == null)
-        "hermesAgent: desktopPackage not available for system ${system}";
+      lib.optional (cfg.package == null) "hermesAgent: package not available for system ${system}"
+      ++ lib.optional (
+        cfg.enableDesktop && cfg.desktopPackage == null
+      ) "hermesAgent: desktopPackage not available for system ${system}";
 
     home.activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
       lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
