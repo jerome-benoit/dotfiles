@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
-index 048b91f4c320..080275e08bca 100644
+index 048b91f4c320..75b076024166 100644
 --- a/packages/opencode/src/provider/transform.ts
 +++ b/packages/opencode/src/provider/transform.ts
 @@ -611,6 +611,32 @@ function googleThinkingBudgetMax(apiId: string) {
@@ -20,12 +20,12 @@ index 048b91f4c320..080275e08bca 100644
 +    return {
 +      high: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } },
 +      max: {
-+        thinkingConfig: { includeThoughts: true, thinkingBudget: googleThinkingBudgetMax(model.api.id) },
++        thinkingConfig: { includeThoughts: true, thinkingBudget: googleThinkingBudgetMax(id) },
 +      },
 +    }
 +  }
 +  return Object.fromEntries(
-+    googleThinkingLevelEfforts(model.api.id).map((effort) => [
++    googleThinkingLevelEfforts(id).map((effort) => [
 +      effort,
 +      { thinkingConfig: { includeThoughts: true, thinkingLevel: effort } },
 +    ]),
@@ -40,7 +40,7 @@ index 048b91f4c320..080275e08bca 100644
                thinkingConfig: {
                  includeThoughts: true,
 -                thinkingBudget: 24576,
-+                thinkingBudget: googleThinkingBudgetMax(model.api.id),
++                thinkingBudget: googleThinkingBudgetMax(id),
                },
              },
            }
@@ -85,8 +85,9 @@ index 048b91f4c320..080275e08bca 100644
        return {}
  
 -    case "@jerome-benoit/sap-ai-provider-v2":
+-      if (model.api.id.includes("anthropic")) {
 +    case "@jerome-benoit/sap-ai-provider-v2": {
-       if (model.api.id.includes("anthropic")) {
++      if (id.includes("anthropic")) {
          if (adaptiveEfforts) {
 -          return Object.fromEntries(
 -            adaptiveEfforts.map((effort) => [
@@ -146,12 +147,13 @@ index 048b91f4c320..080275e08bca 100644
 -            },
 -          },
 -        }
-+      if (model.api.id.includes("gemini") && model.api.id.includes("2.5")) {
++      if (id.includes("gemini") && id.includes("2.5")) {
 +        return wrapInSapModelParams(googleThinkingVariants(model))
        }
-       if (model.api.id.includes("gpt") || /\bo[1-9]/.test(model.api.id)) {
+-      if (model.api.id.includes("gpt") || /\bo[1-9]/.test(model.api.id)) {
 -        return Object.fromEntries(WIDELY_SUPPORTED_EFFORTS.map((effort) => [effort, { reasoningEffort: effort }]))
-+        const efforts = openaiReasoningEfforts(model.api.id, model.release_date)
++      if (id.includes("gpt") || /\bo[1-9]/.test(id)) {
++        const efforts = openaiReasoningEfforts(id, model.release_date)
 +        return wrapInSapModelParams(
 +          Object.fromEntries(efforts.map((effort) => [effort, { reasoning_effort: effort }])),
 +        )
