@@ -12,6 +12,7 @@ let
 
   opencodePatches = [
     (self + "/patches/opencode/relax-bun-version-check.patch")
+    (self + "/patches/opencode/sap-ai-core-reasoning-modelparams.patch")
   ];
 
   withOpencodePatches =
