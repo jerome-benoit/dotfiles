@@ -89,6 +89,24 @@ let
 
   nvimPlugins = nvimBasePlugins ++ lib.optionals cfg.plugins.opencode.enable nvimAiPlugins;
 
+  nvimSnacksPickerOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable (
+    lib.concatStringsSep "\n" [
+      "    actions = {"
+      "      opencode_send = function(...)"
+      "        return require(\"opencode\").snacks_picker_send(...)"
+      "      end,"
+      "    },"
+      "    win = {"
+      "      input = {"
+      "        keys = {"
+      "          [\"<a-a>\"] = { \"opencode_send\", mode = { \"n\", \"i\" } },"
+      "        },"
+      "      },"
+      "    },"
+    ]
+    + "\n"
+  );
+
   nvimBaseLuaConfig = ''
     -- Global Options
     vim.o.termguicolors = true
@@ -104,7 +122,12 @@ let
     require('nvim-web-devicons').setup({ default = true })
     require("snacks").setup({
       bigfile = { enabled = true }, dashboard = { enabled = true }, indent = { enabled = true },
-      input = { enabled = true }, notifier = { enabled = true }, picker = { enabled = true },
+      input = { enabled = true }, notifier = { enabled = true }, picker = {
+        enabled = true,
+  ''
+  + nvimSnacksPickerOpencodeConfig
+  + ''
+      },
       quickfile = { enabled = true }, scroll = { enabled = true }, statuscolumn = { enabled = true },
       terminal = { enabled = true }, words = { enabled = true },
     })
@@ -332,7 +355,23 @@ let
 
   nvimOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable ''
     -- OpenCode AI Integration
+    local opencode_cmd = "opencode --port"
+    local opencode_terminal_opts = {
+      win = {
+        position = "right",
+        enter = false,
+      },
+    }
+    local opencode_toggle = function()
+      require("snacks.terminal").toggle(opencode_cmd, opencode_terminal_opts)
+    end
+
     vim.g.opencode_opts = {
+      server = {
+        start = function()
+          require("snacks.terminal").open(opencode_cmd, opencode_terminal_opts)
+        end,
+      },
       events = {
         enabled = true,
         reload = true,
@@ -366,7 +405,7 @@ let
     local opencode_map = vim.keymap.set
     opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ") end, { desc = "OpenCode: Ask question", silent = true })
     opencode_map({ "n", "x" }, "<leader>om", function() require("opencode").select() end, { desc = "OpenCode: Menu", silent = true })
-    opencode_map({ "n", "t" }, "<leader>ot", function() require("opencode").toggle() end, { desc = "OpenCode: Toggle terminal", silent = true })
+    opencode_map({ "n", "t" }, "<leader>ot", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
     opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
     opencode_map("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
 
