@@ -170,6 +170,8 @@ in
           if [[ "$_has_gui" == 1 ]]; then
             if command -v zed >/dev/null 2>&1; then
               export VISUAL="zed --wait"
+            elif command -v zeditor >/dev/null 2>&1; then
+              export VISUAL="zeditor --wait"
             elif command -v code >/dev/null 2>&1; then
               export VISUAL="code --wait"
             fi
