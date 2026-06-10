@@ -1,5 +1,6 @@
 {
   config,
+  inputs,
   lib,
   pkgs,
   ...
@@ -11,7 +12,36 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  needsPortaudio = lib.elem "voice" cfg.extraDependencyGroups;
+  localExtraDependencyGroups = cfg.extraDependencyGroups;
+
+  hermesInputs = inputs.hermes-agent.inputs // {
+    self = inputs.hermes-agent;
+  };
+  hermesPackageModule = import "${inputs.hermes-agent}/nix/packages.nix" {
+    inputs = hermesInputs;
+  };
+  hermesPackages = hermesPackageModule.perSystem {
+    inherit lib pkgs;
+    inputs' = {
+      npm-lockfile-fix.packages.default =
+        inputs.hermes-agent.inputs.npm-lockfile-fix.packages.${system}.default;
+    };
+  };
+  baseHermesAgentPackage = hermesPackages.packages.full or null;
+
+  hermesAgentWithExtras =
+    if baseHermesAgentPackage == null then
+      null
+    else if localExtraDependencyGroups != [ ] then
+      baseHermesAgentPackage.override (old: {
+        extraDependencyGroups = lib.unique (
+          (old.extraDependencyGroups or [ ]) ++ localExtraDependencyGroups
+        );
+      })
+    else
+      baseHermesAgentPackage;
+
+  wrapRuntimeLibraries = hermesAgentWithExtras != null;
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
   voiceRuntimeLibPath = lib.concatStringsSep ":" (
     lib.filter (s: s != "") [
@@ -20,25 +50,13 @@ let
     ]
   );
 
-  baseHermesAgentPackage = pkgs.hermes-agent or null;
-
-  withGroups =
-    if baseHermesAgentPackage == null then
-      null
-    else if cfg.extraDependencyGroups != [ ] then
-      baseHermesAgentPackage.override { inherit (cfg) extraDependencyGroups; }
-    else
-      baseHermesAgentPackage;
-
   hermesAgentPackage =
-    if withGroups == null then
+    if hermesAgentWithExtras == null then
       null
-    else if !needsPortaudio then
-      withGroups
     else
       pkgs.symlinkJoin {
         name = "hermes-agent-voice-wrapped";
-        paths = [ withGroups ];
+        paths = [ hermesAgentWithExtras ];
         nativeBuildInputs = [ pkgs.makeWrapper ];
         postBuild = ''
           for bin in $out/bin/*; do
@@ -49,17 +67,16 @@ let
             fi
           done
         '';
-        inherit (withGroups) meta;
-        passthru = withGroups.passthru or { };
+        inherit (hermesAgentWithExtras) meta;
+        passthru = hermesAgentWithExtras.passthru or { };
       };
 
-  baseHermesDesktopPackage = if withGroups == null then null else withGroups.hermesDesktop or null;
+  baseHermesDesktopPackage =
+    if hermesAgentWithExtras == null then null else hermesAgentWithExtras.hermesDesktop or null;
 
   hermesDesktopPackage =
     if baseHermesDesktopPackage == null then
       null
-    else if !needsPortaudio then
-      baseHermesDesktopPackage
     else
       baseHermesDesktopPackage.overrideAttrs (old: {
         nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ];
@@ -86,7 +103,7 @@ let
       ]
       + ":/usr/bin:/bin";
   }
-  // lib.optionalAttrs needsPortaudio { ${voiceRuntimeLibVar} = voiceRuntimeLibPath; };
+  // lib.optionalAttrs wrapRuntimeLibraries { ${voiceRuntimeLibVar} = voiceRuntimeLibPath; };
 
   mkLaunchdService =
     {
@@ -125,7 +142,7 @@ let
           "HERMES_HOME=${configDir}"
           "HERMES_MANAGED=true"
         ]
-        ++ lib.optional needsPortaudio "${voiceRuntimeLibVar}=${voiceRuntimeLibPath}";
+        ++ lib.optional wrapRuntimeLibraries "${voiceRuntimeLibVar}=${voiceRuntimeLibPath}";
         WorkingDirectory = configDir;
       };
       Install.WantedBy = [ "default.target" ];
@@ -161,47 +178,25 @@ in
 
     extraDependencyGroups = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [
-        "anthropic"
-        "azure-identity"
-        "bedrock"
-        "daytona"
-        "dingtalk"
-        "edge-tts"
-        "exa"
-        "fal"
-        "feishu"
-        "firecrawl"
-        "hindsight"
-        "honcho"
-        "matrix"
-        "messaging"
-        "modal"
-        "parallel-web"
-        "slack"
-        "tts-premium"
-        "voice"
-        "web"
-      ];
-      description = "Additional pyproject.toml dependency groups to bundle in the sealed venv";
+      default = [ ];
+      description = "Additional dependency groups added on top of Hermes Agent's `full` package";
       example = [
-        "anthropic"
-        "messaging"
-        "voice"
+        "mistral"
+        "nemo-relay"
       ];
     };
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = hermesAgentPackage;
-      defaultText = lib.literalExpression "pkgs.hermes-agent";
+      defaultText = lib.literalExpression "hermesPackages.packages.full";
       description = "hermes-agent package";
     };
 
     desktopPackage = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = hermesDesktopPackage;
-      defaultText = lib.literalExpression "pkgs.hermes-agent.hermesDesktop";
+      defaultText = lib.literalExpression "hermesAgentWithExtras.hermesDesktop";
       description = "hermes-agent desktop package";
     };
 

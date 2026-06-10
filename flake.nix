@@ -71,13 +71,47 @@
         builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
       );
 
+      localOverlays = [
+        inputs.nix-openclaw.overlays.default
+        (
+          _: prev:
+          nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+            python313 = prev.python313.override {
+              packageOverrides = _: pprev: {
+                a2a-sdk = pprev.a2a-sdk.overrideAttrs (old: {
+                  disabledTests = (old.disabledTests or [ ]) ++ [
+                    "test_notification_triggering"
+                  ];
+                });
+              };
+            };
+          }
+        )
+      ];
+
+      mkPkgs =
+        arch:
+        let
+          isDarwin = nixpkgs.legacyPackages.${arch}.stdenv.hostPlatform.isDarwin;
+        in
+        import nixpkgs {
+          system = arch;
+          overlays = localOverlays;
+          config = {
+            allowUnfree = true;
+            permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [
+              "olm-3.2.16"
+            ];
+          };
+        };
+
       mkHomeConfiguration =
         {
           arch,
           username,
         }:
         home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.${arch};
+          pkgs = mkPkgs arch;
           extraSpecialArgs = {
             inherit
               inputs

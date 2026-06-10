@@ -1,5 +1,4 @@
 {
-  inputs,
   lib,
   config,
   pkgs,
@@ -33,33 +32,6 @@ in
   imports = [
     ./modules
   ];
-
-  nixpkgs = {
-    overlays = [
-      inputs.nix-openclaw.overlays.default
-      inputs.hermes-agent.overlays.default
-      (
-        _: prev:
-        lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-          python313 = prev.python313.override {
-            packageOverrides = _: pprev: {
-              a2a-sdk = pprev.a2a-sdk.overrideAttrs (old: {
-                disabledTests = (old.disabledTests or [ ]) ++ [
-                  "test_notification_triggering"
-                ];
-              });
-            };
-          };
-        }
-      )
-    ];
-    config = {
-      allowUnfree = true;
-      permittedInsecurePackages = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-        "olm-3.2.16"
-      ];
-    };
-  };
 
   modules.core = {
     gpg.enable = true;
@@ -95,10 +67,12 @@ in
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
     hermesAgent = {
-      enable = profileModules.development.hermesAgent.enable;
-      enableDashboard = profileModules.development.hermesAgent.enableDashboard;
-      enableDesktop = profileModules.development.hermesAgent.enableDesktop;
-      enableGateway = profileModules.development.hermesAgent.enableGateway;
+      inherit (profileModules.development.hermesAgent)
+        enable
+        enableDashboard
+        enableDesktop
+        enableGateway
+        ;
     };
     lazygit.enable = profileModules.development.lazygit;
     opencode = {
