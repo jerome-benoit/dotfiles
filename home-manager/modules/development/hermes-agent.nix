@@ -284,10 +284,7 @@ in
         exec = "${lib.getExe cfg.desktopPackage} %U";
         comment = "Hermes Agent desktop app";
         terminal = false;
-        categories = [
-          "Development"
-          "Utility"
-        ];
+        categories = [ "Development" ];
         settings.StartupWMClass = "Hermes";
       };
     };
