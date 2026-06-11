@@ -12,8 +12,6 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   homeDir = config.home.homeDirectory;
 
-  localExtraDependencyGroups = cfg.extraDependencyGroups;
-
   hermesInputs = inputs.hermes-agent.inputs // {
     self = inputs.hermes-agent;
   };
@@ -32,16 +30,15 @@ let
   hermesAgentWithExtras =
     if baseHermesAgentPackage == null then
       null
-    else if localExtraDependencyGroups != [ ] then
+    else if cfg.extraDependencyGroups != [ ] then
       baseHermesAgentPackage.override (old: {
         extraDependencyGroups = lib.unique (
-          (old.extraDependencyGroups or [ ]) ++ localExtraDependencyGroups
+          (old.extraDependencyGroups or [ ]) ++ cfg.extraDependencyGroups
         );
       })
     else
       baseHermesAgentPackage;
 
-  wrapRuntimeLibraries = hermesAgentWithExtras != null;
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
   voiceRuntimeLibPath = lib.concatStringsSep ":" (
     lib.filter (s: s != "") [
@@ -79,11 +76,10 @@ let
       null
     else
       baseHermesDesktopPackage.overrideAttrs (old: {
-        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ];
-        postFixup = (old.postFixup or "") + ''
-          wrapProgram $out/bin/hermes-desktop \
-            --set HERMES_DESKTOP_HERMES "${hermesAgentPackage}/bin/hermes"
-        '';
+        # Reroute HERMES_DESKTOP_HERMES to voice-wrapped hermesAgentPackage
+        installPhase =
+          builtins.replaceStrings [ (lib.getExe hermesAgentWithExtras) ] [ (lib.getExe hermesAgentPackage) ]
+            old.installPhase;
       });
 
   yamlFormat = pkgs.formats.yaml { };
@@ -95,6 +91,7 @@ let
     HOME = homeDir;
     HERMES_HOME = configDir;
     HERMES_MANAGED = "true";
+    ${voiceRuntimeLibVar} = voiceRuntimeLibPath;
     PATH =
       lib.makeBinPath [
         cfg.package
@@ -102,8 +99,7 @@ let
         pkgs.coreutils
       ]
       + ":/usr/bin:/bin";
-  }
-  // lib.optionalAttrs wrapRuntimeLibraries { ${voiceRuntimeLibVar} = voiceRuntimeLibPath; };
+  };
 
   mkLaunchdService =
     {
@@ -141,8 +137,8 @@ let
           "HOME=${homeDir}"
           "HERMES_HOME=${configDir}"
           "HERMES_MANAGED=true"
-        ]
-        ++ lib.optional wrapRuntimeLibraries "${voiceRuntimeLibVar}=${voiceRuntimeLibPath}";
+          "${voiceRuntimeLibVar}=${voiceRuntimeLibPath}"
+        ];
         WorkingDirectory = configDir;
       };
       Install.WantedBy = [ "default.target" ];
