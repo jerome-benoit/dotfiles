@@ -30,16 +30,7 @@ in
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
-      (
-        if isDarwin then
-          pkgs.ollama.overrideAttrs (old: {
-            preBuild =
-              builtins.replaceStrings [ "cmake -B build" ] [ "cmake -B build -DOLLAMA_MLX_BACKENDS=" ]
-                old.preBuild;
-          })
-        else
-          pkgs.ollama
-      )
+      pkgs.ollama
       pkgs.volta
       pkgs.whisper-cpp
     ]
