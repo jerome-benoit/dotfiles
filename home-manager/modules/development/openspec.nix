@@ -14,6 +14,7 @@ let
   openspecPackage =
     if baseOpenspecPackage != null then
       baseOpenspecPackage.overrideAttrs (_: {
+        # `_:` skips oldAttrs to avoid forcing nodejs_20 EOL thunk (check-meta insecure)
         nativeBuildInputs = with pkgs; [
           nodejs_22
           npmHooks.npmInstallHook
