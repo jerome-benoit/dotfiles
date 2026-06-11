@@ -14,20 +14,38 @@ let
 
   qmdPackage =
     if baseQmdPackage != null then
-      baseQmdPackage.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
-          # https://github.com/tobi/qmd/pull/574
-          (self + "/patches/qmd/fix-nixos-llama-build.patch")
-        ];
-        installPhase =
-          if pkgs.stdenv.hostPlatform.isLinux then
+      baseQmdPackage.overrideAttrs (
+        old:
+        let
+          linuxLibPath = lib.optionalString pkgs.stdenv.hostPlatform.isLinux "${pkgs.stdenv.cc.libc.out}/lib:${pkgs.stdenv.cc.cc.lib}/lib:";
+          envFlags = lib.concatStringsSep " " (
+            [
+              ''--set-default LLAMA_LOG_LEVEL "error"''
+              ''--set-default GGML_LOG_LEVEL "error"''
+              ''--set-default GGML_BACKEND_SILENT "1"''
+            ]
+            ++ lib.optional pkgs.stdenv.hostPlatform.isDarwin ''--set-default GGML_METAL_NO_RESIDENCY "1"''
+          );
+        in
+        {
+          patches = (old.patches or [ ]) ++ [
+            # https://github.com/tobi/qmd/pull/574
+            (self + "/patches/qmd/fix-nixos-llama-build.patch")
+          ];
+          # https://github.com/tobi/qmd/issues/722 (skills) + /issues/723 (env vars) + /pull/574 (linux libs)
+          installPhase =
             builtins.replaceStrings
-              [ ''--set LD_LIBRARY_PATH "'' ]
-              [ ''--set LD_LIBRARY_PATH "${pkgs.stdenv.cc.libc.out}/lib:${pkgs.stdenv.cc.cc.lib}/lib:'' ]
-              old.installPhase
-          else
-            old.installPhase;
-      })
+              [
+                "cp package.json $out/lib/qmd/"
+                "--set LD_LIBRARY_PATH \""
+              ]
+              [
+                "cp package.json $out/lib/qmd/\ncp -r skills $out/lib/qmd/"
+                "${envFlags} --set LD_LIBRARY_PATH \"${linuxLibPath}"
+              ]
+              old.installPhase;
+        }
+      )
     else
       null;
 in
