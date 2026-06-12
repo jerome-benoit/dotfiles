@@ -63,6 +63,13 @@ in
       '';
     };
 
+    cudaEnable = lib.mkOption {
+      type = lib.types.bool;
+      readOnly = true;
+      default = cudaEnable;
+      description = "Whether CUDA acceleration is active for this host.";
+    };
+
     cudaLibraryPath = lib.mkOption {
       type = lib.types.str;
       default = "";
