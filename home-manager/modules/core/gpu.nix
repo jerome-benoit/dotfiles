@@ -38,20 +38,16 @@ let
       packages = pkgs.cudaPackages_13_0;
     }
     {
+      minDriver = 575;
+      packages = pkgs.cudaPackages_12_9;
+    }
+    {
       minDriver = 570;
       packages = pkgs.cudaPackages_12_8;
     }
     {
       minDriver = 560;
       packages = pkgs.cudaPackages_12_6;
-    }
-    {
-      minDriver = 550;
-      packages = pkgs.cudaPackages_12_4;
-    }
-    {
-      minDriver = 535;
-      packages = pkgs.cudaPackages_12_2;
     }
   ];
 
