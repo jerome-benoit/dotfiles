@@ -13,34 +13,11 @@ let
 
   nvidiaDetected = isLinux && builtins.pathExists /sys/module/nvidia;
 
-  nvidiaVersionPattern = "[0-9]+\\.[0-9]+(\\.[0-9]+)?";
-
-  nvidiaFirmwareRoots = [
-    /usr/lib/firmware/nvidia
-    /lib/firmware/nvidia
-  ];
-
-  nvidiaFirmwareVersions = lib.unique (
-    lib.concatMap (
-      root:
-      if builtins.pathExists root then
-        builtins.attrNames (
-          lib.filterAttrs (
-            name: type: type == "directory" && builtins.match nvidiaVersionPattern name != null
-          ) (builtins.readDir root)
-        )
-      else
-        [ ]
-    ) nvidiaFirmwareRoots
-  );
-
   detectedNvidiaVersion =
-    if cfg.nvidiaDriverVersion != null then
-      cfg.nvidiaDriverVersion
-    else if builtins.length nvidiaFirmwareVersions == 1 then
-      builtins.head nvidiaFirmwareVersions
-    else
-      null;
+    let
+      envVersion = builtins.getEnv "NIX_NVIDIA_DRIVER_VERSION";
+    in
+    if envVersion != "" then envVersion else cfg.nvidiaDriverVersion;
 
   driverMajor =
     if detectedNvidiaVersion != null then
@@ -131,9 +108,9 @@ in
       default = null;
       example = "595.80";
       description = ''
-        Explicit NVIDIA driver version for hosts where automatic firmware-directory
-        detection cannot infer exactly one loaded driver version. Leave null to use
-        automatic detection.
+        Explicit loaded NVIDIA kernel module version. This must match the running
+        host driver; leave null to keep CUDA and the Generic Linux NVIDIA target
+        disabled when the version cannot be known safely during Nix evaluation.
       '';
     };
 

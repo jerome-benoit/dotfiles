@@ -110,7 +110,8 @@ in
             chmod 600 "''${dec_file}.tmp"
             mv "''${dec_file}.tmp" "$dec_file"
 
-            nh home switch --impure -c "$(whoami)" "$@" -- --impure
+            NIX_NVIDIA_DRIVER_VERSION="$(modinfo -F version nvidia 2>/dev/null || true)" \
+                nh home switch --impure -c "$(whoami)" "$@" -- --impure
             local rc=$?
             trap - INT TERM HUP
             rm -f "$dec_file"
