@@ -30,7 +30,14 @@ in
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
-      (if config.modules.core.gpu.cudaEnable then pkgs.ollama-cuda else pkgs.ollama)
+      (
+        if config.modules.core.gpu.cudaEnable then
+          pkgs.ollama-cuda.override { cudaPackages = config.modules.core.gpu.cudaPackages; }
+        else if config.modules.core.gpu.rocmEnable then
+          pkgs.ollama-rocm
+        else
+          pkgs.ollama
+      )
       pkgs.volta
       pkgs.whisper-cpp
     ]

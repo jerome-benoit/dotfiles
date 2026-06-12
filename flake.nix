@@ -99,6 +99,7 @@
           overlays = localOverlays;
           config = {
             allowUnfree = true;
+            nvidia.acceptLicense = true;
             permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [
               "olm-3.2.16"
             ];
