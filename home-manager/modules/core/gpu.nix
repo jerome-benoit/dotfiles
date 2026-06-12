@@ -17,7 +17,7 @@ let
     let
       sysfsVersion =
         if nvidiaDetected && builtins.pathExists /sys/module/nvidia/version then
-          lib.removeSuffix "\n" (builtins.readFile /sys/module/nvidia/version)
+          lib.removeSuffix "\n" (builtins.readFile (builtins.fetchurl "file:///sys/module/nvidia/version"))
         else
           "";
     in
@@ -111,7 +111,7 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "595.80";
-      description = "Fallback NVIDIA driver version when /sys/module/nvidia/version is unreadable (e.g. cross-host eval). Must match the running driver; null disables CUDA and the Generic Linux NVIDIA target.";
+      description = "Fallback NVIDIA driver version when /sys/module/nvidia/version is unavailable during impure evaluation. Must match the running driver; null disables CUDA and the Generic Linux NVIDIA target.";
     };
 
     cudaEnable = lib.mkOption {
