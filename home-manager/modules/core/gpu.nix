@@ -15,9 +15,13 @@ let
 
   detectedNvidiaVersion =
     let
-      envNvidiaDriverVersion = builtins.getEnv "NIX_NVIDIA_DRIVER_VERSION";
+      sysfsVersion =
+        if nvidiaDetected && builtins.pathExists /sys/module/nvidia/version then
+          lib.removeSuffix "\n" (builtins.readFile /sys/module/nvidia/version)
+        else
+          "";
     in
-    if envNvidiaDriverVersion != "" then envNvidiaDriverVersion else cfg.nvidiaDriverVersion;
+    if sysfsVersion != "" then sysfsVersion else cfg.nvidiaDriverVersion;
 
   driverMajor =
     if detectedNvidiaVersion != null then
@@ -107,11 +111,7 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "595.80";
-      description = ''
-        Explicit loaded NVIDIA kernel module version. This must match the running
-        host driver; leave null to keep CUDA and the Generic Linux NVIDIA target
-        disabled when the version cannot be known safely during Nix evaluation.
-      '';
+      description = "Fallback NVIDIA driver version when /sys/module/nvidia/version is unreadable (e.g. cross-host eval). Must match the running driver; null disables CUDA and the Generic Linux NVIDIA target.";
     };
 
     cudaEnable = lib.mkOption {
