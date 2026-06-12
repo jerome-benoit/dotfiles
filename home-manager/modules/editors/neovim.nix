@@ -92,8 +92,14 @@ let
   nvimSnacksPickerOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable (
     lib.concatStringsSep "\n" [
       "    actions = {"
-      "      opencode_send = function(...)"
-      "        return require(\"opencode\").snacks_picker_send(...)"
+      "      ---@param picker snacks.Picker"
+      "      opencode_send = function(picker)"
+      "        local items = vim.tbl_map(function(item) ---@param item snacks.picker.Item"
+      "          return item.file"
+      "            and require(\"opencode\").format({ path = item.file, from = item.pos, to = item.end_pos })"
+      "            or item.text"
+      "        end, picker:selected({ fallback = true }))"
+      "        require(\"opencode\").prompt(table.concat(items, \", \") .. \" \")"
       "      end,"
       "    },"
       "    win = {"
@@ -387,7 +393,6 @@ let
           ask_append = "...",
           ask_this = "@this: ...",
           diagnostics = "Explain @diagnostics",
-          diff = "Review the following git diff for correctness and readability: @diff",
           document = "Add comments documenting @this",
           explain = "Explain @this and its context",
           fix = "Fix @diagnostics",
@@ -446,7 +451,7 @@ let
         if opencode_event.type == "session.idle" then
           vim.notify("OpenCode ready", vim.log.levels.INFO)
         elseif opencode_event.type == "session.error" then
-          vim.notify("OpenCode error: " .. vim.inspect(opencode_event.data), vim.log.levels.ERROR)
+          vim.notify("OpenCode error: " .. vim.inspect(opencode_event.properties), vim.log.levels.ERROR)
         end
       end,
     })
