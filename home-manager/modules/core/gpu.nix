@@ -30,15 +30,36 @@ let
       0;
 
   nvidiaVersionKnown = detectedNvidiaVersion != null;
-  cudaSupported = nvidiaVersionKnown && driverMajor >= 560;
 
-  cudaPkgs =
-    if driverMajor >= 580 then
-      pkgs.cudaPackages_13_0
-    else if driverMajor >= 570 then
-      pkgs.cudaPackages_12_8
-    else
-      pkgs.cudaPackages_12_6;
+  # Driver→CUDA matrix, descending. NVIDIA CUDA Release Notes, Table 3.
+  cudaMatrix = [
+    {
+      minDriver = 580;
+      packages = pkgs.cudaPackages_13_0;
+    }
+    {
+      minDriver = 570;
+      packages = pkgs.cudaPackages_12_8;
+    }
+    {
+      minDriver = 560;
+      packages = pkgs.cudaPackages_12_6;
+    }
+    {
+      minDriver = 550;
+      packages = pkgs.cudaPackages_12_4;
+    }
+    {
+      minDriver = 535;
+      packages = pkgs.cudaPackages_12_2;
+    }
+  ];
+
+  selectedCuda = lib.findFirst (m: driverMajor >= m.minDriver) null cudaMatrix;
+  minSupportedDriver = (lib.last cudaMatrix).minDriver;
+
+  cudaSupported = nvidiaVersionKnown && selectedCuda != null;
+  cudaPkgs = if selectedCuda != null then selectedCuda.packages else pkgs.cudaPackages_12_6;
 
   hasAmdgpu = isLinux && builtins.pathExists /sys/module/amdgpu;
 
@@ -70,7 +91,7 @@ let
       !nvidiaVersionKnown
     ) "modules.core.gpu: NVIDIA driver version unknown; CUDA disabled" nvidiaVersionKnown)
     && (lib.warnIf (!cudaSupported)
-      "modules.core.gpu: NVIDIA driver ${toString detectedNvidiaVersion} < 560 — CUDA disabled (cudaPackages_12_6 minimum)"
+      "modules.core.gpu: NVIDIA driver ${toString detectedNvidiaVersion} < ${toString minSupportedDriver} — CUDA disabled (no compatible cudaPackages set)"
       cudaSupported
     );
   rocmEnable = cfg.enable && isLinux && effectiveVendor == "amd" && hasAmdgpu;
