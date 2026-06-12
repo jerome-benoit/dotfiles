@@ -15,9 +15,9 @@ let
 
   detectedNvidiaVersion =
     let
-      envVersion = builtins.getEnv "NIX_NVIDIA_DRIVER_VERSION";
+      envNvidiaDriverVersion = builtins.getEnv "NIX_NVIDIA_DRIVER_VERSION";
     in
-    if envVersion != "" then envVersion else cfg.nvidiaDriverVersion;
+    if envNvidiaDriverVersion != "" then envNvidiaDriverVersion else cfg.nvidiaDriverVersion;
 
   driverMajor =
     if detectedNvidiaVersion != null then
