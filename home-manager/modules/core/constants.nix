@@ -155,6 +155,16 @@ in
       description = "Hostnames";
       readOnly = true;
     };
+    hostname = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default =
+        if builtins.pathExists /etc/hostname then
+          lib.removeSuffix "\n" (builtins.readFile /etc/hostname)
+        else
+          null;
+      description = "Hostname";
+      readOnly = true;
+    };
     historySize = lib.mkOption {
       type = lib.types.ints.positive;
       default = 50000;

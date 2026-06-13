@@ -3,17 +3,12 @@
   config,
   pkgs,
   username,
-  constants,
   ...
 }:
 let
-  hostname =
-    if builtins.pathExists /etc/hostname then
-      lib.removeSuffix "\n" (builtins.readFile /etc/hostname)
-    else
-      null;
-
-  hosts = config.modules.core.constants.hosts;
+  constants = config.modules.core.constants;
+  hostname = constants.hostname;
+  hosts = constants.hosts;
   bunSupported = hostname != hosts.rigel;
   crushSupported = hostname != hosts.faust;
   isSway = hostname == hosts.zeus;
