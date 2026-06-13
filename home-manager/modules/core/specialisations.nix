@@ -8,6 +8,7 @@ let
   cfg = config.modules.core.specialisations;
   constants = config.modules.core.constants;
   sshEnabled = config.modules.programs.ssh.enable;
+  isZeus = constants.hostname == constants.hosts.zeus;
 
   mkSpecialisation =
     {
@@ -95,6 +96,10 @@ in
           Piment Noir - https://${constants.personal.domain}
         '';
         theme = "tokyoNightStorm";
+        sopsOverrides = lib.mkIf isZeus {
+          sops.secrets."hermes-env".key = lib.mkForce "hermes/personal/dashboardEnvContent";
+          modules.development.hermesAgent.dashboardHost = "0.0.0.0";
+        };
       };
     };
   };
