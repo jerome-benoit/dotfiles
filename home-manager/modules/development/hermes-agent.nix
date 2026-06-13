@@ -84,8 +84,8 @@ let
 
   yamlFormat = pkgs.formats.yaml { };
 
-  managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
   configDir = "${homeDir}/.hermes";
+  managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
 
   launchdEnv = {
     HOME = homeDir;
@@ -133,6 +133,7 @@ let
         ExecStart = execStart;
         Restart = "always";
         RestartSec = 5;
+        EnvironmentFile = "-${configDir}/.env";
         Environment = [
           "HOME=${homeDir}"
           "HERMES_HOME=${configDir}"
@@ -164,6 +165,12 @@ in
       type = lib.types.bool;
       default = false;
       description = "Whether to install the hermes-agent desktop app";
+    };
+
+    dashboardHost = lib.mkOption {
+      type = lib.types.str;
+      default = "127.0.0.1";
+      description = "Host address for the hermes-agent web dashboard";
     };
 
     dashboardPort = lib.mkOption {
@@ -258,6 +265,8 @@ in
             "dashboard"
             "--no-open"
             "--skip-build"
+            "--host"
+            cfg.dashboardHost
             "--port"
             (toString cfg.dashboardPort)
           ];
@@ -275,7 +284,7 @@ in
       lib.mkIf (cfg.enableDashboard && !isDarwin && cfg.package != null)
         (mkSystemdService {
           description = "Hermes Agent Web Dashboard";
-          execStart = "${lib.getExe' cfg.package "hermes"} dashboard --no-open --skip-build --port ${toString cfg.dashboardPort}";
+          execStart = "${lib.getExe' cfg.package "hermes"} dashboard --no-open --skip-build --host ${cfg.dashboardHost} --port ${toString cfg.dashboardPort}";
         });
 
     xdg.desktopEntries = lib.mkIf (cfg.enableDesktop && !isDarwin && cfg.desktopPackage != null) {
