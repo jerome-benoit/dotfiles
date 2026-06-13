@@ -16,11 +16,11 @@ decrypt: decrypt-personal ## Decrypt all secrets to JSON for inspection
 	@$(SOPS) decrypt --output-type json --output secrets/tokens.dec.json.tmp secrets/tokens.enc.yaml
 	@chmod 600 secrets/tokens.dec.json.tmp
 	@mv secrets/tokens.dec.json.tmp secrets/tokens.dec.json
-	@echo "\033[33mNote: plaintext secrets on disk. Run 'make clean' when done.\033[0m"
+	@printf '\033[33m%s\033[0m\n' "Note: plaintext secrets on disk. Run 'make clean' when done."
 
 encrypt: ## Re-encrypt all secrets from JSON (after manual editing)
-	@test -f secrets/personal.dec.json || { echo "Error: secrets/personal.dec.json not found. Run 'make decrypt' first."; exit 1; }
-	@test -f secrets/tokens.dec.json || { echo "Error: secrets/tokens.dec.json not found. Run 'make decrypt' first."; exit 1; }
+	@test -f secrets/personal.dec.json || { printf '%s\n' "Error: secrets/personal.dec.json not found. Run 'make decrypt' first."; exit 1; }
+	@test -f secrets/tokens.dec.json || { printf '%s\n' "Error: secrets/tokens.dec.json not found. Run 'make decrypt' first."; exit 1; }
 	@$(SOPS) encrypt --input-type json --output-type yaml --output secrets/personal.enc.yaml.tmp secrets/personal.dec.json
 	@$(SOPS) encrypt --input-type json --output-type yaml --output secrets/tokens.enc.yaml.tmp secrets/tokens.dec.json
 	@mv secrets/personal.enc.yaml.tmp secrets/personal.enc.yaml
