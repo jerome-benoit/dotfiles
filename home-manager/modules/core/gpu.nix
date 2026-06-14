@@ -34,6 +34,18 @@ let
   # Driver→CUDA matrix, descending. NVIDIA CUDA Release Notes, Table 3.
   cudaMatrix = [
     {
+      minDriver = 610;
+      packages = pkgs.cudaPackages_13_3;
+    }
+    {
+      minDriver = 595;
+      packages = pkgs.cudaPackages_13_2;
+    }
+    {
+      minDriver = 590;
+      packages = pkgs.cudaPackages_13_1;
+    }
+    {
       minDriver = 580;
       packages = pkgs.cudaPackages_13_0;
     }
