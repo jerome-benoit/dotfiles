@@ -43,7 +43,7 @@ jobs:
 
       - name: Install Nix
         if: steps.detect.outputs.pi == 'true' || steps.detect.outputs.agent-deck == 'true'
-        uses: nixbuild/nix-quick-install-action@v34
+        uses: nixbuild/nix-quick-install-action@v35
         with:
           nix_conf: |
             extra-experimental-features = nix-command flakes
