@@ -4,10 +4,9 @@
 
 - Fork: `github:jerome-benoit/hermes-agent` branch `main-patched`
 - Upstream: `github:NousResearch/hermes-agent` branch `main`
-- The fork currently carries 3 commits on top of upstream:
+- The fork currently carries 2 commits on top of upstream, both limited to `nix/python.nix`:
   1. `fix(nix): skip av/faster-whisper build checks on aarch64-darwin` (NixOS/nix#15638 workaround)
   2. `fix(nix): prebuilt python-olm on aarch64-darwin (no macOS wheels)` (no upstream macOS wheel for python-olm)
-  3. `fix(nix): update npm deps hash` (`nix/lib.nix` `npmDepsHash`; validate each sync by confirming the stack without this commit fails with the expected `got: sha256-kbjJksq7limRIYqP3DwI+GNgCXkG96tXcsQqmuEedxo=` and the full stack passes `nix build .#tui.npmDeps --no-link`)
 - HISTORICAL: 2 delegate-tool commits (PR #13567) were dropped on 2026-05-16 — superseded by upstream PR #26824 (commit `c445f48b`), which reuses the shared `_detect_api_mode_for_url` from `hermes_cli.runtime_provider` (byte-identical detection logic, including kimi.com/coding case) and adds an explicit `delegation.api_mode` config knob.
 - Flake input: `hermes-agent.url = "github:jerome-benoit/hermes-agent/main-patched"`
 
