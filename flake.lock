@@ -3,11 +3,11 @@
     "agent-deck": {
       "flake": false,
       "locked": {
-        "lastModified": 1781876812,
-        "narHash": "sha256-IiCOF4MCUjc0rPLikoo1HODPBfeqHSjvMjOTukeOITs=",
+        "lastModified": 1782026006,
+        "narHash": "sha256-4LbeRiaFIn4Nx/VtDvhJAaeA7YB6i2VX8wZhJ75qw5k=",
         "owner": "asheshgoplani",
         "repo": "agent-deck",
-        "rev": "ad59fd0dd9ce4547e1fc15f57b0f1fa59665f922",
+        "rev": "2eedbc1ff60bcc23dd3f97848517b571e5f74ab9",
         "type": "github"
       },
       "original": {
@@ -180,11 +180,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781670889,
-        "narHash": "sha256-AyKaznhWKd2+WBqTJbxQaJC9I/cSR6iGZ2N2kbyGWT0=",
+        "lastModified": 1782030975,
+        "narHash": "sha256-hfKiB8+uOatfKwKyNu/nzV7jW8ZllTvfvkzmyqVTdLw=",
         "owner": "openclaw",
         "repo": "nix-openclaw",
-        "rev": "39bc88a8c6214b28f2e7043629239f6da808af69",
+        "rev": "8aec0ac75e228dc1bacd691c97a527cb69a15b58",
         "type": "github"
       },
       "original": {
@@ -272,11 +272,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782001171,
-        "narHash": "sha256-1jI24OCIU270nWkIedAJH3u9/qQsKOWDA9O+o0DMXFk=",
+        "lastModified": 1782044485,
+        "narHash": "sha256-lyoilEd8XxZDRdKrA2h3cspnGv9LXxwpOfuS+6hysf8=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "5606d2bab9744e5ec7992fffe424569fadf37ae7",
+        "rev": "ca006a2d206370365c10793a89da486d1a7497fc",
         "type": "github"
       },
       "original": {
