@@ -156,18 +156,22 @@ in
 
         if [[ -n "$_brew" ]]; then
           _gh_sap_token=$(${lib.getExe pkgs.gh} auth token --hostname "${constants.work.gheHostname}" 2>/dev/null || true)
-          if [[ -n "$_gh_sap_token" ]]; then
+          if [[ -z "$_gh_sap_token" ]]; then
+            errorEcho "gh CLI not authenticated for ${constants.work.gheHostname} — required for hAIperspace/hai"
+            errorEcho "  Fix: gh auth login --hostname ${constants.work.gheHostname}"
+            errorEcho "  Skipping Homebrew bundle install"
+          else
             export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
+
+            "$_brew" trust --tap haiperspace/hai 2>/dev/null || true
+            "$_brew" trust --tap moltenbits/tap 2>/dev/null || true
+
+            verboseEcho "Installing Homebrew packages from Brewfile"
+            run "$_brew" bundle install --global
+            run "$_brew" bundle cleanup --global --force
+
+            unset _gh_sap_token
           fi
-
-          "$_brew" trust --tap haiperspace/hai 2>/dev/null || true
-          "$_brew" trust --tap moltenbits/tap 2>/dev/null || true
-
-          verboseEcho "Installing Homebrew packages from Brewfile"
-          run "$_brew" bundle install --global
-          run "$_brew" bundle cleanup --global --force
-
-          unset _gh_sap_token
         else
           warnEcho "Homebrew not found"
         fi
