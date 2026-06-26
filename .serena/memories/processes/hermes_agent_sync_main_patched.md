@@ -1,35 +1,42 @@
 # Process: Sync `hermes-agent/main-patched`
 
-## Current state
-- Fork input: `github:jerome-benoit/hermes-agent/main-patched`.
-- Upstream: `github:NousResearch/hermes-agent/main`.
-- Last verified sync: 2026-06-26.
-- Upstream synced to: `8ab7246c45383cfcda4944d3872efa56f515f87f`.
-- Fork `main-patched` verified at: `fd7243e9af4447fd987be91466c776ff4665678a`.
-- Local `.nix/flake.lock` Hermes lock: `fd7243e9af4447fd987be91466c776ff4665678a`, `narHash = sha256-g66O9+vSbAUrsUWkfe2Pz3mNKorbWzJOLMM8H3n7oXQ=`.
+## Purpose
+Keep the fork branch used by `.nix` rebased on upstream while preserving only the fork-local patches that are still needed.
 
-## Preserved fork patches
-`main-patched` should be `0 behind / 3 ahead` of upstream while these temporary fixes are active:
-1. `fix(nix): skip av/faster-whisper build checks on aarch64-darwin`
-2. `fix(nix): prebuilt python-olm on aarch64-darwin (no macOS wheels)`
-3. `fix(npm): restore esbuild linux optional dependency`
+## Stable Repositories
+- Fork: `github:jerome-benoit/hermes-agent`, branch `main-patched`.
+- Upstream: `github:NousResearch/hermes-agent`, branch `main`.
+- `.nix` follows the fork while fork-local patches remain necessary.
 
-## Sync rules
-- Run all git commands as `GIT_MASTER=1 git ...`.
-- Work in a temporary clone under `/tmp/opencode`, never in `/home/fraggle/.nix`.
-- Record the old remote fork SHA before rewriting.
-- Rebuild the branch from fresh `upstream/main`, then cherry-pick the preserved patches in order.
-- Push only with exact lease: `--force-with-lease=refs/heads/main-patched:<old_remote_sha>`.
-- Fetch and verify `origin/main-patched == local HEAD` before updating `.nix/flake.lock`.
+## Rules
+- Run git commands as `GIT_MASTER=1 git ...`.
+- Work in a temporary clone under `/tmp/opencode`, not in `/home/fraggle/.nix`.
+- Record the old remote fork SHA before rewriting; use it only as the exact push lease.
+- Do not update `.nix/flake.lock` until the pushed fork remote has been fetched and verified.
 - Do not commit or push dotfiles unless explicitly requested.
+- Do not encode current SHAs, dates, narHashes, or a fixed ahead-count in this memory; derive them during each sync.
 
-## Verification
-- Check fork shape: `GIT_MASTER=1 git rev-list --left-right --count upstream/main...origin/main-patched` should be `0 3`.
-- Check esbuild lock: `apps/desktop/package.json` and `package-lock.json` must pin `esbuild` to `0.28.1`, and `package-lock.json` must include `node_modules/@esbuild/linux-x64`.
-- Build check used for the latest sync: `nix build --no-link --print-build-logs .#desktop` in the Hermes clone, then the same desktop build through the local `.nix` flake input.
+## Sync Procedure
+1. Inspect `/home/fraggle/.nix` status and preserve any existing dirty work.
+2. Clone the fork in `/tmp/opencode`, add/fetch upstream, and fetch `origin/main-patched`.
+3. Record:
+   - old fork remote SHA: `origin/main-patched`
+   - new upstream SHA: `upstream/main`
+   - current fork-only commits: `GIT_MASTER=1 git log --oneline --reverse upstream/main..origin/main-patched`
+4. Decide which fork-only commits to keep:
+   - keep temporary patches that are still not upstream
+   - drop commits that became empty, upstreamed, or obsolete
+   - if the set is ambiguous, stop and inspect before pushing
+5. Rebuild from fresh `upstream/main` and cherry-pick kept commits in original order.
+6. Verify before push:
+   - clean status
+   - expected fork-only commits only
+   - relevant lock/package invariants for any preserved npm/Nix patch
+   - targeted build, typically `nix build --no-link --print-build-logs .#desktop`
+7. Push with exact lease: `--force-with-lease=refs/heads/main-patched:<old_remote_sha>`.
+8. Fetch `origin/main-patched` and verify it equals local `HEAD`.
+9. Update `.nix/flake.lock` for `hermes-agent`, then verify the lock points to the verified remote SHA.
+10. Run the targeted local flake build when the sync affects build inputs, then clean up the temp clone.
 
-## Drop conditions
-- Drop the av/faster-whisper patch when NixOS/nix#15638 no longer requires the aarch64-darwin check workaround.
-- Drop the python-olm patch when usable aarch64-darwin wheels exist upstream.
-- Drop the esbuild patch when upstream restores npm optional native package lock entries or removes the Nix build path entirely.
-- If all patches drop, point `.nix` back to `github:NousResearch/hermes-agent` instead of the fork.
+## If All Fork Patches Drop
+Switch `.nix` back to upstream `github:NousResearch/hermes-agent` instead of keeping an empty fork branch.
