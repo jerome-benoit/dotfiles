@@ -116,6 +116,7 @@ in
         pkgs.rectangle
         pkgs.ruff
         pkgs.rustup
+        pkgs.shellcheck
         pkgs.uv
         pkgs.vscode
         pkgs.yq
