@@ -11,7 +11,6 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 
   opencodePatches = [
-    (self + "/patches/opencode/relax-bun-version-check.patch")
   ];
 
   withOpencodePatches =
