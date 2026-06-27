@@ -25,7 +25,7 @@ let
         inputs.hermes-agent.inputs.npm-lockfile-fix.packages.${system}.default;
     };
   };
-  baseHermesAgentPackage = hermesPackages.packages.full or null;
+  baseHermesAgentPackage = hermesPackages.packages.default or null;
 
   hermesAgentWithExtras =
     if baseHermesAgentPackage == null then
@@ -182,7 +182,7 @@ in
     extraDependencyGroups = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
-      description = "Additional dependency groups added on top of Hermes Agent's `full` package";
+      description = "Additional dependency groups added on top of Hermes Agent's default package";
       example = [
         "mistral"
         "nemo-relay"
@@ -192,7 +192,7 @@ in
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = hermesAgentPackage;
-      defaultText = lib.literalExpression "hermesPackages.packages.full";
+      defaultText = lib.literalExpression "hermesPackages.packages.default";
       description = "hermes-agent package";
     };
 
