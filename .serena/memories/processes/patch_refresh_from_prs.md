@@ -10,8 +10,8 @@ When the locked input advances, patch line offsets drift → must refresh.
 
 ## Current Patches
 
+- `patches/opencode/relax-bun-version-check.patch` — local, NOT from a PR (exempt from this process)
 - `patches/qmd/fix-nixos-llama-build.patch` — PR #574 (tobi/qmd), only `src/llm.ts`
-
 
 ## Process
 
@@ -94,6 +94,14 @@ nix build --impure --expr '
       pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
       patchDir = /. + "${home}/.nix/patches";
   in {
+    # Validates ALL patches apply together (including local/exempt ones).
+    # Only PR-sourced patches need refreshing; the full set is tested for coherence.
+    opencode = pkgs.applyPatches {
+      src = flake.inputs.opencode.packages.${system}.default.src;
+      patches = [
+        (patchDir + "/opencode/relax-bun-version-check.patch")
+      ];
+    };
     qmd = pkgs.applyPatches {
       src = flake.inputs.qmd.packages.${system}.default.src;
       patches = [
