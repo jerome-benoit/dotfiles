@@ -11,16 +11,17 @@ let
 
   baseOpenspecPackage = inputs.openspec.packages.${system}.default or null;
   pnpmPackage = pkgs.pnpm_10;
+  pnpmDepsHash = "sha256-OUY6G8e6Xqi+0YCcDbpVF06V9pJc68jSSA9rtNg/Vrg=";
 
   openspecPackage =
     if baseOpenspecPackage != null then
       baseOpenspecPackage.overrideAttrs (
-        finalAttrs: oldAttrs: {
+        finalAttrs: _: {
           pnpmDeps = pkgs.fetchPnpmDeps {
             inherit (finalAttrs) pname version src;
             pnpm = pnpmPackage;
             fetcherVersion = 3;
-            hash = oldAttrs.pnpmDeps.outputHash;
+            hash = pnpmDepsHash;
           };
 
           nativeBuildInputs = with pkgs; [
