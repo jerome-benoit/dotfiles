@@ -10,18 +10,27 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 
   baseOpenspecPackage = inputs.openspec.packages.${system}.default or null;
+  pnpmPackage = pkgs.pnpm_10;
 
   openspecPackage =
     if baseOpenspecPackage != null then
-      baseOpenspecPackage.overrideAttrs (_: {
-        # `_:` skips oldAttrs to avoid forcing nodejs_20 EOL thunk (check-meta insecure)
-        nativeBuildInputs = with pkgs; [
-          nodejs_22
-          npmHooks.npmInstallHook
-          pnpmConfigHook
-          pnpm_9
-        ];
-      })
+      baseOpenspecPackage.overrideAttrs (
+        finalAttrs: oldAttrs: {
+          pnpmDeps = pkgs.fetchPnpmDeps {
+            inherit (finalAttrs) pname version src;
+            pnpm = pnpmPackage;
+            fetcherVersion = 3;
+            hash = oldAttrs.pnpmDeps.outputHash;
+          };
+
+          nativeBuildInputs = with pkgs; [
+            nodejs_22
+            npmHooks.npmInstallHook
+            pnpmConfigHook
+            pnpmPackage
+          ];
+        }
+      )
     else
       null;
 in
