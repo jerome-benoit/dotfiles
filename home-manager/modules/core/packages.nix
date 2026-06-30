@@ -105,9 +105,6 @@ in
         pkgs.pass
         pkgs.pipenv
         pkgs.pkg-config
-        pkgs.podman
-        pkgs.podman-compose
-        pkgs.podman-desktop
         pkgs.poetry
         pkgs.poppler-utils
         pkgs.python3
@@ -142,8 +139,11 @@ in
         cask "gpg-suite@nightly"
         cask "jordanbaird-ice"
         cask "moltenbits/tap/growlrrr"
+        cask "podman-desktop"
         brew "hai"
         brew "mole"
+        brew "podman"
+        brew "podman-compose"
       '';
     };
     home.activation.brewBundle = lib.mkIf (isDesktop && isDarwin) (
