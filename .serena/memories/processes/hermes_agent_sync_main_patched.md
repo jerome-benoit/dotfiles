@@ -30,13 +30,14 @@ Keep the fork branch used by `.nix` rebased on upstream while preserving only th
 5. Rebuild from fresh `upstream/main` and cherry-pick kept commits in original order.
 6. Verify before push:
    - clean status
+   - `upstream/main` is an ancestor of the rebuilt branch
    - expected fork-only commits only
    - relevant lock/package invariants for any preserved npm/Nix patch
-   - targeted build, typically `nix build --no-link --print-build-logs .#desktop`
+   - do not run a full/slow build by default; only run a targeted build when explicitly requested or when the patch itself changes build logic in a way git/lock checks cannot validate
 7. Push with exact lease: `--force-with-lease=refs/heads/main-patched:<old_remote_sha>`.
 8. Fetch `origin/main-patched` and verify it equals local `HEAD`.
 9. Update `.nix/flake.lock` for `hermes-agent`, then verify the lock points to the verified remote SHA.
-10. Run the targeted local flake build when the sync affects build inputs, then clean up the temp clone.
+10. Clean up the temp clone. If a build was explicitly requested, run it before cleanup.
 
 ## If All Fork Patches Drop
 Switch `.nix` back to upstream `github:NousResearch/hermes-agent` instead of keeping an empty fork branch.
