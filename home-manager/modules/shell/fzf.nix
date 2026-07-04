@@ -27,8 +27,8 @@ in
       package = mkPlatformPackage "fzf" { version = "0.73.1"; };
       enableZshIntegration = false;
       defaultCommand = "fd --type f";
-      fileWidgetCommand = "fd --type f";
-      changeDirWidgetCommand = "fd --type d";
+      fileWidget.command = "fd --type f";
+      changeDirWidget.command = "fd --type d";
     };
   };
 }
