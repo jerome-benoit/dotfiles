@@ -87,6 +87,14 @@
             };
           }
         )
+        # ctranslate2 src hash, pending nixpkgs a4c0db722.
+        (_: prev: {
+          ctranslate2 = prev.ctranslate2.overrideAttrs (old: {
+            src = old.src.overrideAttrs (_: {
+              outputHash = "sha256-cchwv+esysn/0v6RqD5zp306HfzOjjlCxH5usLETXs0=";
+            });
+          });
+        })
       ];
 
       mkPkgs =
