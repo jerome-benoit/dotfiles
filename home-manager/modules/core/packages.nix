@@ -65,6 +65,7 @@ in
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nil
+      pkgs.nixd
       pkgs.nixfmt
       pkgs.obsidian
       pkgs.yazi
@@ -101,7 +102,6 @@ in
         pkgs.mitmproxy
         pkgs.nheko
         pkgs.ninja
-        pkgs.nixd
         pkgs.pandoc
         pkgs.pass
         pkgs.pipenv
