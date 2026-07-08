@@ -24,7 +24,7 @@ in
     programs.fzf = {
       enable = true;
       # renovate: datasource=github-releases depName=junegunn/fzf
-      package = mkPlatformPackage "fzf" { version = "0.73.1"; };
+      package = mkPlatformPackage "fzf" { version = "0.74.0"; };
       enableZshIntegration = false;
       defaultCommand = "fd --type f";
       fileWidget.command = "fd --type f";
