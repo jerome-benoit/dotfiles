@@ -92,27 +92,39 @@
               }
             );
             nheko = forceLld prev (prev.nheko.override { inherit (final) qt6Packages; });
+            # agent tests break on hardcoded /tmp/crush-test in darwin's shared /tmp.
+            crush = prev.crush.overrideAttrs (previousAttrs: {
+              postPatch = (previousAttrs.postPatch or "") + ''
+                substituteInPlace internal/agent/common_test.go \
+                  --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
+              '';
+            });
           }
         )
         (_: prev: {
           pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
-            (_: pyprev: {
-              # test_clone_contents breaks on virtualenv 21.x/py3.14 (edwardgeorge/virtualenv-clone#84).
-              virtualenv-clone = pyprev.virtualenv-clone.overrideAttrs (previousAttrs: {
-                patches = (previousAttrs.patches or [ ]) ++ [
-                  ./patches/virtualenv-clone/fix-pyvenv-cfg-path.patch
-                ];
-              });
-              # retry/timeout tests assert on wall-clock timing; flaky in the build sandbox.
-              opentelemetry-exporter-otlp-proto-grpc =
-                pyprev.opentelemetry-exporter-otlp-proto-grpc.overrideAttrs
-                  (previousAttrs: {
-                    disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
-                      "test_retry_info_is_respected"
-                      "test_timeout_set_correctly"
-                    ];
-                  });
-            })
+            (
+              _: pyprev:
+              {
+                # test_clone_contents breaks on virtualenv 21.x/py3.14 (edwardgeorge/virtualenv-clone#84).
+                virtualenv-clone = pyprev.virtualenv-clone.overrideAttrs (previousAttrs: {
+                  patches = (previousAttrs.patches or [ ]) ++ [
+                    ./patches/virtualenv-clone/fix-pyvenv-cfg-path.patch
+                  ];
+                });
+              }
+              // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+                # retry/timeout tests break on wall-clock timing asserts on the darwin builder.
+                opentelemetry-exporter-otlp-proto-grpc =
+                  pyprev.opentelemetry-exporter-otlp-proto-grpc.overrideAttrs
+                    (previousAttrs: {
+                      disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
+                        "test_retry_info_is_respected"
+                        "test_timeout_set_correctly"
+                      ];
+                    });
+              }
+            )
           ];
         })
       ];
