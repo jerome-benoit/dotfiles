@@ -15,7 +15,7 @@ let
   qmdPackage =
     if baseQmdPackage != null then
       baseQmdPackage.overrideAttrs (
-        old:
+        previousAttrs:
         let
           linuxLibPath = lib.optionalString pkgs.stdenv.hostPlatform.isLinux "${pkgs.stdenv.cc.libc.out}/lib:${pkgs.stdenv.cc.cc.lib}/lib:";
           envFlags = lib.concatStringsSep " " (
@@ -28,11 +28,11 @@ let
           );
         in
         {
-          patches = (old.patches or [ ]) ++ [
-            # https://github.com/tobi/qmd/pull/574
+          patches = (previousAttrs.patches or [ ]) ++ [
+            # tobi/qmd#574
             (self + "/patches/qmd/fix-nixos-llama-build.patch")
           ];
-          # https://github.com/tobi/qmd/issues/722 (skills) + /issues/723 (env vars) + /pull/574 (linux libs)
+          # tobi/qmd#722 (skills) + #723 (env vars) + #574 (linux libs)
           installPhase =
             builtins.replaceStrings
               [
@@ -43,7 +43,7 @@ let
                 "cp package.json $out/lib/qmd/\ncp -r skills $out/lib/qmd/"
                 "${envFlags} --set LD_LIBRARY_PATH \"${linuxLibPath}"
               ]
-              old.installPhase;
+              previousAttrs.installPhase;
         }
       )
     else

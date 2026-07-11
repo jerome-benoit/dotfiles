@@ -78,8 +78,8 @@
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
             python313 = prev.python313.override {
               packageOverrides = _: pprev: {
-                a2a-sdk = pprev.a2a-sdk.overrideAttrs (old: {
-                  disabledTests = (old.disabledTests or [ ]) ++ [
+                a2a-sdk = pprev.a2a-sdk.overrideAttrs (previousAttrs: {
+                  disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
                     "test_notification_triggering"
                   ];
                 });

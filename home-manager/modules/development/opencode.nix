@@ -16,8 +16,8 @@ let
 
   withOpencodePatches =
     drv:
-    drv.overrideAttrs (oldAttrs: {
-      patches = (oldAttrs.patches or [ ]) ++ opencodePatches;
+    drv.overrideAttrs (previousAttrs: {
+      patches = (previousAttrs.patches or [ ]) ++ opencodePatches;
     });
 
   baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
@@ -25,10 +25,10 @@ let
   opencodePackage =
     if baseOpencodePackage != null then
       withOpencodePatches (
-        baseOpencodePackage.overrideAttrs (oldAttrs: {
-          # Workaround for https://github.com/anomalyco/opencode/issues/18447
+        baseOpencodePackage.overrideAttrs (previousAttrs: {
+          # Workaround for anomalyco/opencode#18447
           postFixup =
-            (oldAttrs.postFixup or "")
+            (previousAttrs.postFixup or "")
             + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
               wrapProgram "$out/bin/opencode" \
                 --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib

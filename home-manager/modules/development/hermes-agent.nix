@@ -31,9 +31,9 @@ let
     if baseHermesAgentPackage == null then
       null
     else if cfg.extraDependencyGroups != [ ] then
-      baseHermesAgentPackage.override (old: {
+      baseHermesAgentPackage.override (previous: {
         extraDependencyGroups = lib.unique (
-          (old.extraDependencyGroups or [ ]) ++ cfg.extraDependencyGroups
+          (previous.extraDependencyGroups or [ ]) ++ cfg.extraDependencyGroups
         );
       })
     else
@@ -75,11 +75,11 @@ let
     if baseHermesDesktopPackage == null then
       null
     else
-      baseHermesDesktopPackage.overrideAttrs (old: {
+      baseHermesDesktopPackage.overrideAttrs (previousAttrs: {
         # Reroute HERMES_DESKTOP_HERMES to voice-wrapped hermesAgentPackage
         installPhase =
           builtins.replaceStrings [ (lib.getExe hermesAgentWithExtras) ] [ (lib.getExe hermesAgentPackage) ]
-            old.installPhase;
+            previousAttrs.installPhase;
       });
 
   yamlFormat = pkgs.formats.yaml { };

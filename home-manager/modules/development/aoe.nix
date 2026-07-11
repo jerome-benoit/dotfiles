@@ -14,8 +14,8 @@ let
 
   withAoePatches =
     drv:
-    drv.overrideAttrs (oldAttrs: {
-      patches = (oldAttrs.patches or [ ]) ++ aoePatches;
+    drv.overrideAttrs (previousAttrs: {
+      patches = (previousAttrs.patches or [ ]) ++ aoePatches;
     });
 
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
