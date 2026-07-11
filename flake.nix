@@ -71,36 +71,50 @@
         builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
       );
 
+      # Force LLD on darwin; cctools ld64 hardening SIGTRAPs at link (NixOS/nixpkgs#540054).
+      forceLld =
+        prev: drv:
+        drv.overrideAttrs (previousAttrs: {
+          nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [ prev.llvmPackages.lld ];
+          NIX_CFLAGS_LINK = (previousAttrs.NIX_CFLAGS_LINK or "") + " -fuse-ld=lld";
+        });
+
       localOverlays = [
         inputs.nix-openclaw.overlays.default
         (
-          _: prev:
+          final: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-            python313 = prev.python313.override {
-              packageOverrides = _: pprev: {
-                a2a-sdk = pprev.a2a-sdk.overrideAttrs (previousAttrs: {
-                  disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
-                    "test_notification_triggering"
-                  ];
-                });
-              };
-            };
-          }
-        )
-        # Workaround for NixOS/nixpkgs#540054
-        (
-          _: prev:
-          nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+            whisper-cpp = forceLld prev prev.whisper-cpp;
+            rectangle = forceLld prev prev.rectangle;
             qt6Packages = prev.qt6Packages.overrideScope (
               _: qprev: {
-                qtkeychain = qprev.qtkeychain.overrideAttrs (previousAttrs: {
-                  nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [ prev.llvmPackages.lld ];
-                  NIX_CFLAGS_LINK = (previousAttrs.NIX_CFLAGS_LINK or "") + " -fuse-ld=lld";
-                });
+                qtkeychain = forceLld prev qprev.qtkeychain;
               }
             );
+            nheko = forceLld prev (prev.nheko.override { inherit (final) qt6Packages; });
           }
         )
+        (_: prev: {
+          pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
+            (_: pyprev: {
+              # test_clone_contents breaks on virtualenv 21.x/py3.14 (edwardgeorge/virtualenv-clone#84).
+              virtualenv-clone = pyprev.virtualenv-clone.overrideAttrs (previousAttrs: {
+                patches = (previousAttrs.patches or [ ]) ++ [
+                  ./patches/virtualenv-clone/fix-pyvenv-cfg-path.patch
+                ];
+              });
+              # retry/timeout tests assert on wall-clock timing; flaky in the build sandbox.
+              opentelemetry-exporter-otlp-proto-grpc =
+                pyprev.opentelemetry-exporter-otlp-proto-grpc.overrideAttrs
+                  (previousAttrs: {
+                    disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
+                      "test_retry_info_is_respected"
+                      "test_timeout_set_correctly"
+                    ];
+                  });
+            })
+          ];
+        })
       ];
 
       mkPkgs =
