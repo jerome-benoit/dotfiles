@@ -111,7 +111,6 @@ in
         pkgs.python3
         pkgs.python3Packages.virtualenv
         pkgs.qpdf
-        pkgs.rectangle
         pkgs.ruff
         pkgs.rustup
         pkgs.shellcheck

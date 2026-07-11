@@ -85,7 +85,6 @@
           final: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
             whisper-cpp = forceLld prev prev.whisper-cpp;
-            rectangle = forceLld prev prev.rectangle;
             qt6Packages = prev.qt6Packages.overrideScope (
               _: qprev: {
                 qtkeychain = forceLld prev qprev.qtkeychain;
