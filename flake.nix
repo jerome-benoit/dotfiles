@@ -87,6 +87,20 @@
             };
           }
         )
+        # Workaround for NixOS/nixpkgs#540054
+        (
+          _: prev:
+          nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+            qt6Packages = prev.qt6Packages.overrideScope (
+              _: qprev: {
+                qtkeychain = qprev.qtkeychain.overrideAttrs (previousAttrs: {
+                  nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [ prev.llvmPackages.lld ];
+                  NIX_CFLAGS_LINK = (previousAttrs.NIX_CFLAGS_LINK or "") + " -fuse-ld=lld";
+                });
+              }
+            );
+          }
+        )
       ];
 
       mkPkgs =
