@@ -82,6 +82,7 @@ in
         pkgs.bat
         pkgs.chroma
         pkgs.cmake
+        pkgs.codexbar
         pkgs.coreutils
         pkgs.delta
         pkgs.ffmpeg
@@ -133,6 +134,7 @@ in
       text = ''
         tap "hAIperspace/hai", "https://${constants.work.gheHostname}/hAIperspace/hai-homebrew"
         tap "moltenbits/tap"
+        cask "codex-app"
         cask "docker-desktop"
         cask "ferdium"
         cask "ghostty"
