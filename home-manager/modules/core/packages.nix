@@ -139,7 +139,6 @@ in
         cask "ferdium"
         cask "ghostty"
         cask "gpg-suite@nightly"
-        cask "jordanbaird-ice"
         cask "moltenbits/tap/growlrrr"
         cask "podman-desktop"
         brew "hai"
