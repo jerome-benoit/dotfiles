@@ -79,6 +79,13 @@ in
       bindsym $mod+Shift+Escape exec loginctl lock-session
     '';
 
+    xdg.configFile."sway/config.d/30-autostart.conf".text = ''
+      # Generated from Home Manager.
+
+      exec --no-startup-id 'login_shell=$$(getent passwd "$$(id -un)" | cut -d: -f7); [ -x "$$login_shell" ] && exec "$$login_shell" -lc "command -v codex-desktop >/dev/null 2>&1 && exec codex-desktop"'
+      exec --no-startup-id 'login_shell=$$(getent passwd "$$(id -un)" | cut -d: -f7); [ -x "$$login_shell" ] && exec "$$login_shell" -lc "command -v obsidian >/dev/null 2>&1 && exec obsidian"'
+    '';
+
     xdg.configFile."sway/config.d/40-theme.conf".text = ''
       # Generated from Home Manager theme registry.
 
