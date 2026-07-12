@@ -104,15 +104,7 @@
           pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
             (
               _: pyprev:
-              {
-                # test_clone_contents breaks on virtualenv 21.x/py3.14 (edwardgeorge/virtualenv-clone#84).
-                virtualenv-clone = pyprev.virtualenv-clone.overrideAttrs (previousAttrs: {
-                  patches = (previousAttrs.patches or [ ]) ++ [
-                    ./patches/virtualenv-clone/fix-pyvenv-cfg-path.patch
-                  ];
-                });
-              }
-              // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+              nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
                 # retry/timeout tests break on wall-clock timing asserts on the darwin builder.
                 opentelemetry-exporter-otlp-proto-grpc =
                   pyprev.opentelemetry-exporter-otlp-proto-grpc.overrideAttrs
