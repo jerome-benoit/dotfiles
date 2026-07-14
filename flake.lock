@@ -27,17 +27,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1784049788,
-        "narHash": "sha256-0y1XSi7ev+GRcKBH8OZquQQriG4EUrITjbUWBZzg284=",
-        "ref": "refs/heads/main",
-        "rev": "5826e0fd33fbecdf16c54e1f0ee0c67bdbe83397",
-        "revCount": 1760,
-        "type": "git",
-        "url": "ssh://git@github.com/agent-of-empires/agent-of-empires"
+        "lastModified": 1784053870,
+        "narHash": "sha256-iwUanx/dqlnnDmsXo3rNXPKsRTDlIILVcNCOErD6r5I=",
+        "owner": "agent-of-empires",
+        "repo": "agent-of-empires",
+        "rev": "d9fa41886a0ffbc65c48e12591dfe38c960a4035",
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "ssh://git@github.com/agent-of-empires/agent-of-empires"
+        "owner": "agent-of-empires",
+        "repo": "agent-of-empires",
+        "type": "github"
       }
     },
     "agtx": {
