@@ -98,6 +98,14 @@
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
             });
+            # vscode ripgrep moved to node_modules.asar.unpacked (NixOS/nixpkgs#543825).
+            vscode = prev.vscode.overrideAttrs (previousAttrs: {
+              postPatch =
+                nixpkgs.lib.replaceStrings
+                  [ "Contents/Resources/app/node_modules/@vscode/ripgrep-universal" ]
+                  [ "Contents/Resources/app/node_modules.asar.unpacked/@vscode/ripgrep-universal" ]
+                  (previousAttrs.postPatch or "");
+            });
           }
         )
         (_: prev: {
