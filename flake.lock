@@ -127,11 +127,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784723038,
-        "narHash": "sha256-kSK4Xg0CS0n1En8CT6srdHKdWPzLtdyiUTRYltTpbq0=",
+        "lastModified": 1784730301,
+        "narHash": "sha256-yxJUSHThDRa34X0W2pE+TJdtQZ+80/dem7EJWiokCAc=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "e8a55593f444389a3a1d65324cb9d209411b398c",
+        "rev": "4aaa22575efc815989044cdb5393aa75029996c8",
         "type": "github"
       },
       "original": {
@@ -148,11 +148,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784690067,
-        "narHash": "sha256-t86pRs7IPs3RTMPueWvvdcxyTFrctHAv2Jl7jnjsSf8=",
+        "lastModified": 1784725727,
+        "narHash": "sha256-J5+C9wsO0lhDyUalQzfplDbRjyHDYeEH5+9sdyXtwa8=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "6d8d61567802997f9ec3086b2a837e3ef31fac16",
+        "rev": "041a999e8c1c5b731913855909e68d30ca69b8e0",
         "type": "github"
       },
       "original": {
@@ -308,11 +308,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784576569,
-        "narHash": "sha256-bDNHS/GzGj8JG/5hv9QJkiBEtukW9eP1bRpB39zyoMI=",
+        "lastModified": 1784730731,
+        "narHash": "sha256-+qXebOVFWJihlvRb4AiCD3QZOWmh9TE+mMMzw8MueEw=",
         "owner": "Fission-AI",
         "repo": "OpenSpec",
-        "rev": "60f720c43acd94de7645ac8629c614ede4682b6a",
+        "rev": "b3b05e1abeb312caefd57e60be799aeb466c1d0e",
         "type": "github"
       },
       "original": {
