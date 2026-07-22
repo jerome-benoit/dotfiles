@@ -11,7 +11,7 @@ let
   piPackage = pkgs.buildNpmPackage (finalAttrs: {
     pname = "pi-coding-agent";
     # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-    version = "0.80.10";
+    version = "0.81.1";
 
     src = pkgs.fetchzip {
       url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${finalAttrs.version}.tgz";
