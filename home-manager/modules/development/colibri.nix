@@ -40,6 +40,7 @@ let
       pkgs.llvmPackages.openmp
       pkgs.apple-sdk_15 # backend_metal.mm needs the macOS 15 SDK (JustVugg/colibri#596)
     ];
+    extraNativeBuildInputs = [ ];
     preMake = "";
     makeArgs = "ARCH= METAL=1 OMPDIR=${colibriOmp}"; # ARCH= keeps the build portable (no -mcpu=native)
     doCheck = true;
@@ -64,6 +65,7 @@ let
         cudaPackages.cuda_cudart
         pkgs.stdenv.cc.cc.lib
       ];
+      extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
       makeArgs = "CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc CUDA_ARCH=all-major"; # all-major: headless-safe
       doCheck = false;
@@ -71,6 +73,7 @@ let
 
   cpuBuild = {
     extraBuildInputs = [ ];
+    extraNativeBuildInputs = [ ];
     preMake = "";
     makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a"}"; # portable baselines (upstream PORTABLE_ARCH)
     doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
@@ -89,7 +92,7 @@ let
     version = inputs.colibri.shortRev or "unstable";
     inherit src;
 
-    nativeBuildInputs = [ pkgs.makeWrapper ];
+    nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
     buildInputs = [ pkgs.gmp ] ++ build.extraBuildInputs;
     nativeCheckInputs = [ pkgs.python3 ];
 
