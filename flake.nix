@@ -112,7 +112,7 @@
           pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
             (
               _: pyprev:
-              nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+              (nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
                 # retry/timeout tests break on wall-clock timing asserts on the darwin builder.
                 opentelemetry-exporter-otlp-proto-grpc =
                   pyprev.opentelemetry-exporter-otlp-proto-grpc.overrideAttrs
@@ -122,6 +122,12 @@
                         "test_timeout_set_correctly"
                       ];
                     });
+              })
+              // {
+                # langfuse 4.0.2 caps wrapt below 2, but its import check passes with wrapt 2.
+                langfuse = pyprev.langfuse.overridePythonAttrs (previousAttrs: {
+                  pythonRelaxDeps = (previousAttrs.pythonRelaxDeps or [ ]) ++ [ "wrapt" ];
+                });
               }
             )
           ];
