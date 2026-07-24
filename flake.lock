@@ -56,6 +56,30 @@
         "type": "github"
       }
     },
+    "colibri": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1784757395,
+        "narHash": "sha256-GnUyW6XasJ7nTedRjvHa3zkMHC8no1LDd65foQa973s=",
+        "owner": "JustVugg",
+        "repo": "colibri",
+        "rev": "81f08a09e5651ce52616dc720f68810f9021c0be",
+        "type": "github"
+      },
+      "original": {
+        "owner": "JustVugg",
+        "ref": "v1.1.1",
+        "repo": "colibri",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1771796463,
@@ -395,6 +419,7 @@
         "agent-deck": "agent-deck",
         "agent-of-empires": "agent-of-empires",
         "agtx": "agtx",
+        "colibri": "colibri",
         "flake-parts": "flake-parts",
         "flake-utils": "flake-utils",
         "hermes-agent": "hermes-agent",

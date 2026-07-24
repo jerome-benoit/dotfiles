@@ -59,6 +59,7 @@ in
     };
     bun.enable = bunSupported && profileModules.development.bun;
     claudeCode.enable = bunSupported && profileModules.development.claudeCode;
+    colibri.enable = profileModules.development.colibri;
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
     hermesAgent = {

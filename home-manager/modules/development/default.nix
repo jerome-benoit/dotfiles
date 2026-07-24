@@ -5,6 +5,7 @@
     ./aoe.nix
     ./bun.nix
     ./claude-code.nix
+    ./colibri.nix
     ./gh.nix
     ./git.nix
     ./hermes-agent.nix

@@ -29,6 +29,9 @@
     qmd.url = "github:tobi/qmd";
     qmd.inputs.nixpkgs.follows = "nixpkgs";
     qmd.inputs.flake-utils.follows = "flake-utils";
+    colibri.url = "github:JustVugg/colibri/v1.1.1";
+    colibri.inputs.nixpkgs.follows = "nixpkgs";
+    colibri.inputs.flake-utils.follows = "flake-utils";
     nix-openclaw.url = "github:openclaw/nix-openclaw";
     nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
     nix-openclaw.inputs.home-manager.follows = "home-manager";
