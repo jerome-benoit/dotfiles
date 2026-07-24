@@ -50,13 +50,12 @@ let
       cudaPackages = config.modules.core.gpu.cudaPackages;
       cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
       hostCxx = "${cudaPackages.backendStdenv.cc}/bin/g++";
-      # Makefile wants $(CUDA_HOME)/{bin/nvcc,lib64}; nixpkgs cuda_cudart is a single `out`.
+      # CUDA_HOME is only used for -L/-rpath/lib64 + the overridable NVCC (Makefile).
+      # Keep it cudart-only so nvcc (build-only, passed via NVCC=) stays out of the
+      # binary's runtime closure. nixpkgs cuda_cudart is a single `out` (include/ + lib/).
       cudaHome = pkgs.symlinkJoin {
         name = "colibri-cuda-home";
-        paths = [
-          cudaNvcc
-          cudaPackages.cuda_cudart
-        ];
+        paths = [ cudaPackages.cuda_cudart ];
         postBuild = ''[ -e "$out/lib64" ] || ln -s lib "$out/lib64"'';
       };
     in
@@ -66,14 +65,14 @@ let
         pkgs.stdenv.cc.cc.lib
       ];
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
-      makeArgs = "CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaHome}/bin/nvcc CUDA_ARCH=all-major"; # all-major: headless-safe
+      makeArgs = "CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc CUDA_ARCH=all-major"; # all-major: headless-safe
       doCheck = false;
     };
 
   cpuBuild = {
     extraBuildInputs = [ ];
     preMake = "";
-    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "native"}"; # portable AVX2 on x86_64
+    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a"}"; # portable baselines (upstream PORTABLE_ARCH)
     doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
   };
 
