@@ -9,15 +9,11 @@ let
   cfg = config.modules.development.colibri;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
-  # colibri GLM-5.2 (744B MoE) inference engine. We build our OWN derivation from
-  # the pinned flake input used purely as SOURCE — the upstream flake's own
-  # packages.default is broken (its installPhase copies c/glm, but `make glm`
-  # produces c/colibri), so consuming it would force a workaround. Deriving here
-  # gives clean naming, GPU control (Metal on darwin, CUDA on Linux), and no
-  # dependency on the upstream flake outputs.
+  # Built from the flake input as source: upstream's packages.default is broken —
+  # it installs c/glm, but `make glm` produces c/colibri (JustVugg/colibri#595).
   src = inputs.colibri;
 
-  # Python runtime for the `coli` launcher and the offline converter/oracle tools.
+  # Runtime for the `coli` launcher and the offline converter/oracle tools.
   pythonEnv = pkgs.python3.withPackages (
     ps: with ps; [
       torch
@@ -29,8 +25,7 @@ let
     ]
   );
 
-  # darwin OpenMP: omp.h lives in the `.dev` output, libomp.dylib in the default
-  # output; the Makefile's OMPDIR probe needs both headers and lib under one prefix.
+  # omp.h (dev output) + libomp.dylib (out) under one prefix for the Makefile's OMPDIR probe.
   colibriOmp = pkgs.symlinkJoin {
     name = "colibri-openmp";
     paths = [
@@ -39,18 +34,15 @@ let
     ];
   };
 
-  # Per-platform build knobs: extra inputs, the `make glm` arguments, an optional
-  # pre-make shell snippet, and whether to run the upstream C test suite.
+  # Per-platform knobs: extra inputs, `make glm` args, an optional pre-make line, and doCheck.
   darwinBuild = {
     extraBuildInputs = [
       pkgs.llvmPackages.openmp
-      pkgs.apple-sdk_15 # backend_metal.mm needs the macOS 15 SDK (MTLResidencySet)
+      pkgs.apple-sdk_15 # backend_metal.mm needs the macOS 15 SDK (JustVugg/colibri#596)
     ];
     preMake = "";
-    # ARCH= drops -mcpu=native (portable). Only append GPU/OMP flags — CFLAGS/LDFLAGS
-    # stay Makefile-controlled so METAL=1 keeps -DCOLI_METAL + -framework Metal.
-    makeArgs = "ARCH= METAL=1 OMPDIR=${colibriOmp}";
-    doCheck = true; # dependency-free C tests, validated on darwin
+    makeArgs = "ARCH= METAL=1 OMPDIR=${colibriOmp}"; # ARCH= keeps the build portable (no -mcpu=native)
+    doCheck = true;
   };
 
   cudaBuild =
@@ -58,8 +50,7 @@ let
       cudaPackages = config.modules.core.gpu.cudaPackages;
       cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
       hostCxx = "${cudaPackages.backendStdenv.cc}/bin/g++";
-      # The Makefile hardcodes $(CUDA_HOME)/bin/nvcc and $(CUDA_HOME)/lib64; nixpkgs
-      # cuda_cudart is a single `out` (include/ + lib/), so join with nvcc + alias lib64.
+      # Makefile wants $(CUDA_HOME)/{bin/nvcc,lib64}; nixpkgs cuda_cudart is a single `out`.
       cudaHome = pkgs.symlinkJoin {
         name = "colibri-cuda-home";
         paths = [
@@ -74,19 +65,15 @@ let
         cudaPackages.cuda_cudart
         pkgs.stdenv.cc.cc.lib
       ];
-      # -ccbin via NVCC_PREPEND_FLAGS (env) so it does not clobber the Makefile's NVCCFLAGS.
-      preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"'';
-      # CUDA_ARCH=all-major: headless-safe (no GPU probe) and version-adaptive.
-      makeArgs = "CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaHome}/bin/nvcc CUDA_ARCH=all-major";
-      doCheck = false; # no NVIDIA GPU in the sandbox; CUDA path unvalidatable here
+      preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
+      makeArgs = "CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaHome}/bin/nvcc CUDA_ARCH=all-major"; # all-major: headless-safe
+      doCheck = false;
     };
 
   cpuBuild = {
     extraBuildInputs = [ ];
     preMake = "";
-    # x86-64-v3 (portable AVX2) on x86_64; native elsewhere (nix strips -march/-mcpu=native)
-    # — mirrors upstream's guard so a future aarch64-linux target does not get an invalid -march.
-    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "native"}";
+    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "native"}"; # portable AVX2 on x86_64
     doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
   };
 
@@ -100,7 +87,7 @@ let
 
   colibriPackage = pkgs.stdenv.mkDerivation {
     pname = "colibri";
-    version = "1.1.1";
+    version = inputs.colibri.shortRev or "unstable";
     inherit src;
 
     nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -114,9 +101,7 @@ let
       runHook postBuild
     '';
 
-    # Self-contained layout mirroring the tree `coli` resolves at runtime. The C
-    # target `glm` produces the binary `c/colibri` (phony `glm: colibri`); install
-    # it as the engine `glm` — no rename hack, unlike the upstream flake.
+    # Self-contained layout `coli` resolves at runtime; install c/colibri as the engine `glm`.
     installPhase = ''
       runHook preInstall
       mkdir -p $out/lib/colibri/tools $out/bin
@@ -156,7 +141,7 @@ in
     package = lib.mkOption {
       type = lib.types.package;
       default = colibriPackage;
-      defaultText = lib.literalExpression "colibri built from the flake input source (GPU-enabled)";
+      defaultText = lib.literalExpression "colibri built from the flake input (GPU-enabled)";
       description = "colibri package (Metal on darwin, CUDA on Linux when available, else CPU)";
     };
   };
