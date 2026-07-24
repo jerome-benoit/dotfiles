@@ -32,7 +32,17 @@ in
       pkgs.nh
       (
         if config.modules.core.gpu.cudaEnable then
-          pkgs.ollama-cuda.override { cudaPackages = config.modules.core.gpu.cudaPackages; }
+          let
+            cudaPackages = config.modules.core.gpu.cudaPackages;
+            cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
+          in
+          (pkgs.ollama-cuda.override { inherit cudaPackages; }).overrideAttrs (previousAttrs: {
+            # Ollama's CUDA sub-build needs the nvcc root with CMake 4.2+ (NixOS/nixpkgs#545092).
+            preBuild = ''
+              export CUDAToolkit_ROOT="${lib.getBin cudaNvcc}"
+            ''
+            + (previousAttrs.preBuild or "");
+          })
         else if config.modules.core.gpu.rocmEnable then
           pkgs.ollama-rocm
         else
