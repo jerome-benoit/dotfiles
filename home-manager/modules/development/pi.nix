@@ -15,7 +15,7 @@ let
 
     src = pkgs.fetchzip {
       url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${finalAttrs.version}.tgz";
-      hash = "sha256-lSA7MUQ028XPjwUyTRKbsyawNEbaxeiFUgtR6loVjKM="; # @ci:src-hash
+      hash = "sha256-Z/66Xj27dToaoPcxhcbsM/8AB+Q/YYVg+vVhn8GOhnk="; # @ci:src-hash
     };
 
     npmDeps = pkgs.fetchNpmDeps {
@@ -24,7 +24,7 @@ let
       postPatch = ''
         cp ${./pi-package-lock.json} package-lock.json
       '';
-      hash = "sha256-3ErPMWH49pwgRlmwFpjbwnc9tmbVq4Yrcl18cB/jyDk="; # @ci:npm-deps-hash
+      hash = "sha256-sfcD175+A0jwcbWW14xQ+S4huUwGAJwi/fam/fw0blA="; # @ci:npm-deps-hash
     };
 
     postPatch = ''
