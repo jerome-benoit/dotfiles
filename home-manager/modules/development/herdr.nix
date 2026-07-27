@@ -14,9 +14,34 @@ let
   herdrPackages = inputs.herdr.packages.${system} or { };
   herdrPackage = herdrPackages.default or herdrPackages.herdr or null;
 
+  # All built-in herdr theme identifiers (herdr src/app/state.rs THEME_NAMES).
+  # Single source of truth for the `theme` option enum and the family fallback.
+  herdrThemeNames = [
+    "catppuccin"
+    "catppuccin-latte"
+    "terminal"
+    "tokyo-night"
+    "tokyo-night-day"
+    "dracula"
+    "nord"
+    "gruvbox"
+    "gruvbox-light"
+    "one-dark"
+    "one-light"
+    "solarized"
+    "solarized-light"
+    "kanagawa"
+    "kanagawa-lotus"
+    "rose-pine"
+    "rose-pine-dawn"
+    "vesper"
+  ];
+
   # Map the shared theme system (family + style) onto herdr's built-in theme
   # identifiers. herdr ships no storm/macchiato/frappe variants, so those fall
-  # back to their family's default dark theme.
+  # back to their family's default dark theme. When adding a family to
+  # modules/themes, extend this map for correct light/dark handling (herdr's
+  # light names are irregular, e.g. tokyo-night-day, catppuccin-latte).
   herdrThemeByFamily = {
     tokyonight = {
       night = "tokyo-night";
@@ -31,11 +56,14 @@ let
     };
   };
 
+  # Unmapped family/style: use theme.family when it is itself a herdr theme
+  # name, else the safe dark default. Never worse than a bare "catppuccin".
   resolvedTheme =
     if cfg.theme != null then
       cfg.theme
     else
-      herdrThemeByFamily.${theme.family}.${theme.style} or "catppuccin";
+      herdrThemeByFamily.${theme.family}.${theme.style}
+        or (if lib.elem theme.family herdrThemeNames then theme.family else "catppuccin");
 
   herdrConfig = ''
     # Herdr configuration — managed by home-manager (modules/development/herdr.nix)
@@ -56,34 +84,13 @@ in
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = herdrPackage;
-      defaultText = lib.literalExpression "inputs.herdr.packages.\${system}.default";
+      defaultText = lib.literalExpression "inputs.herdr.packages.\${system}.default or .herdr or null";
       description = "Herdr package";
       example = lib.literalExpression "inputs.herdr.packages.\${system}.default";
     };
 
     theme = lib.mkOption {
-      type = lib.types.nullOr (
-        lib.types.enum [
-          "catppuccin"
-          "catppuccin-latte"
-          "terminal"
-          "tokyo-night"
-          "tokyo-night-day"
-          "dracula"
-          "nord"
-          "gruvbox"
-          "gruvbox-light"
-          "one-dark"
-          "one-light"
-          "solarized"
-          "solarized-light"
-          "kanagawa"
-          "kanagawa-lotus"
-          "rose-pine"
-          "rose-pine-dawn"
-          "vesper"
-        ]
-      );
+      type = lib.types.nullOr (lib.types.enum herdrThemeNames);
       default = null;
       description = "Built-in herdr theme. null follows the shared theme system (modules.themes.current).";
       example = "tokyo-night";
@@ -102,7 +109,10 @@ in
         # herdr config-dir precedence (herdr src/config/io.rs): $HERDR_CONFIG_PATH
         # (exact file) then $XDG_CONFIG_HOME/herdr, else $HOME/.config/herdr on both
         # Linux and macOS (herdr never uses the macOS platform dir). config.xdg.configHome
-        # resolves to ~/.config here, matching herdr's fallback and sibling modules.
+        # resolves to ~/.config here, matching herdr's fallback and sibling modules. A
+        # shell-only, non-HM $XDG_CONFIG_HOME override at runtime desyncs this seed from
+        # herdr's live path; harmless (herdr self-seeds defaults there) and shared by all
+        # XDG-based HM modules.
         configDir = "${config.xdg.configHome}/herdr";
         configFile = "${configDir}/config.toml";
       in
