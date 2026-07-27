@@ -37,7 +37,7 @@ SOPS secrets management via `sops-nix` home-manager module:
 - **Default sops file**: `secrets/tokens.enc.yaml`
 - **Activation ordering fix (Linux)**: Mic92/sops-nix#581 (entryBetween reloadSystemd → sops-nix)
 - **Activation ordering fix (macOS)**: Mic92/sops-nix#910 (entryAfter setupLaunchAgents, guarded plist existence)
-- **App secrets**: hermes-env, agentdeck tokens, shell-secrets (from tokens.enc.yaml)
+- **App secrets**: hermes-env, shell-secrets (from tokens.enc.yaml)
 - **SSH key**: `secrets/ssh/id_rsa` (format=binary, deployed to `~/.ssh/id_rsa`)
 - **SSH pubkey**: `secrets/ssh/id_rsa.pub` (via home.file, plaintext)
 
@@ -92,7 +92,7 @@ Profile system defining which modules are enabled per profile:
 | development | git        | ✓       | ✓      |
 | development | lazygit    | ✓       | ✓      |
 | development | opencode   | ✓       | ✗      |
-| development | agentDeck  | ✓       | ✗      |
+| development | herdr      | ✓       | ✗      |
 | development | claudeCode | ✓       | ✗      |
 | programs    | alacritty  | ✓       | ✗      |
 | programs    | btop       | ✓       | ✓      |
@@ -202,15 +202,18 @@ Claude Code AI assistant:
 
 - Simple wrapper installing `pkgs.claude-code`
 
-### agent-deck.nix
+### herdr.nix
 
-AI agent command center TUI:
+Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
 
-- Options: `enable`, `package`, `defaultTool`, `theme`
-- Default tool: opencode (supports claude, gemini, opencode, codex)
-- Theme: system (supports dark, light, system)
-- Config: `~/.agent-deck/config.toml` (created on first activation)
-- Built from flake input with `buildGoModule`
+- Options: `enable`, `package` (nullOr), `theme` (nullOr)
+- Theme: `null` follows the shared theme system (`modules.themes.current`), mapped
+  onto herdr built-ins (tokyonight→tokyo-night/-day, catppuccin→catppuccin/-latte);
+  override with any built-in name (tokyo-night, catppuccin, dracula, nord, gruvbox, ...)
+- Config: `~/.config/herdr/config.toml` on Linux and macOS (seeds `onboarding=false` + `[theme]` on first activation; editable in-app via prefix+s / `herdr server reload-config`)
+- Package consumed from the `herdr` flake input (`inputs.herdr.packages.${system}.default`), no vendor/src hash to maintain
+- No conductor/telegram/slack integration (unlike the former agent-deck)
+
 
 ### aoe.nix
 

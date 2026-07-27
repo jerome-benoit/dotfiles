@@ -51,7 +51,6 @@ in
   };
 
   modules.development = {
-    agent-deck.enable = profileModules.development.agentDeck;
     agtx.enable = profileModules.development.agtx;
     aoe = {
       enable = profileModules.development.aoe.enable;
@@ -61,6 +60,7 @@ in
     claudeCode.enable = bunSupported && profileModules.development.claudeCode;
     gh.enable = profileModules.development.gh;
     git.enable = profileModules.development.git;
+    herdr.enable = profileModules.development.herdr;
     hermesAgent = {
       inherit (profileModules.development.hermesAgent)
         enable

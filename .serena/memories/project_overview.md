@@ -21,7 +21,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `opencode`                | `github:anomalyco/opencode`                      | OpenCode TUI/CLI/Desktop                                                                                                |
 | `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`               | Neovim plugin (non-flake)                                                                                               |
 | `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`       | AI agent session manager (non-flake)                                                                                    |
-| `agent-deck`              | `github:asheshgoplani/agent-deck`                | AI agent command center (non-flake)                                                                                     |
+| `herdr`                   | `github:ogulcancelik/herdr`                      | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                |
 | `openspec`                | `github:Fission-AI/OpenSpec`                     | OpenSpec CLI, follows nixpkgs                                                                                           |
 | `nix-openclaw`            | `github:openclaw/nix-openclaw`                   | OpenClaw AI gateway, follows nixpkgs + home-manager + flake-utils + nix-openclaw-tools                                  |
 | `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`             | OpenClaw tool binaries, follows nixpkgs                                                                                 |
@@ -103,12 +103,12 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── zoxide.nix       # Smart cd command
 │       │   └── zsh.nix          # Shell config with oh-my-zsh
 │       ├── development/         # Dev tools (16 files)
-│       │   ├── agent-deck.nix   # AI agent command center TUI
 │       │   ├── aoe.nix          # Agent of Empires session manager
 │       │   ├── bun.nix          # JavaScript runtime
 │       │   ├── claude-code.nix  # Claude Code AI assistant
 │       │   ├── gh.nix           # GitHub CLI + extensions
 │       │   ├── git.nix          # Git config with delta, mergiraf, GPG signing
+│       │   ├── herdr.nix        # Terminal multiplexer for AI coding agents
 │       │   ├── lazygit.nix      # Git TUI with conventional commits
 │       │   ├── openclaw.nix     # OpenClaw AI gateway
 │       │   ├── opencode.nix     # OpenCode AI assistant (TUI/CLI + Electron desktop)
@@ -136,7 +136,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 ├── secrets/
 │   ├── default.nix              # Secret loader (impure: reads decrypted JSON, pure: placeholder)
 │   ├── personal.enc.yaml        # Encrypted personal data (identity, work, hosts)
-│   ├── tokens.enc.yaml          # Encrypted app tokens (hermes, agentdeck, shell)
+│   ├── tokens.enc.yaml          # Encrypted app tokens (hermes, shell, himalaya)
 │   └── ssh/
 │       ├── id_rsa               # Encrypted SSH private key (sops binary format)
 │       └── id_rsa.pub           # SSH public key (plaintext)
