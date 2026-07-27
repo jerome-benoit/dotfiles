@@ -131,6 +131,10 @@
                 langfuse = pyprev.langfuse.overridePythonAttrs (previousAttrs: {
                   pythonRelaxDeps = (previousAttrs.pythonRelaxDeps or [ ]) ++ [ "wrapt" ];
                 });
+                # mitmproxy 12.2.3 caps msgpack at <=1.1.2, but nixpkgs ships 1.2.1 (NixOS/nixpkgs#545297).
+                mitmproxy = pyprev.mitmproxy.overridePythonAttrs (previousAttrs: {
+                  pythonRelaxDeps = (previousAttrs.pythonRelaxDeps or [ ]) ++ [ "msgpack" ];
+                });
               }
             )
           ];
