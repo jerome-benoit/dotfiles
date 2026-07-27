@@ -16,10 +16,8 @@
     agent-of-empires.url = "github:agent-of-empires/agent-of-empires";
     agent-of-empires.inputs.nixpkgs.follows = "nixpkgs";
     agent-of-empires.inputs.flake-parts.follows = "flake-parts";
-    agent-deck = {
-      url = "github:asheshgoplani/agent-deck";
-      flake = false;
-    };
+    herdr.url = "github:ogulcancelik/herdr";
+    herdr.inputs.nixpkgs.follows = "nixpkgs";
     agtx = {
       url = "github:fynnfluegge/agtx";
       flake = false;

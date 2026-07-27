@@ -1,6 +1,5 @@
 {
   imports = [
-    ./agent-deck.nix
     ./agtx.nix
     ./aoe.nix
     ./bun.nix
@@ -8,6 +7,7 @@
     ./colibri.nix
     ./gh.nix
     ./git.nix
+    ./herdr.nix
     ./hermes-agent.nix
     ./lazygit.nix
     ./openclaw.nix

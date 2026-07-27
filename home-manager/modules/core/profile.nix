@@ -20,7 +20,6 @@ let
     };
 
     development = {
-      agentDeck = true;
       agtx = true;
       aoe = {
         enable = true;
@@ -31,6 +30,7 @@ let
       colibri = true;
       gh = true;
       git = true;
+      herdr = true;
       hermesAgent = {
         enable = true;
         enableDashboard = true;
@@ -86,7 +86,6 @@ let
     };
 
     development = {
-      agentDeck = false;
       agtx = false;
       aoe = {
         enable = false;
@@ -97,6 +96,7 @@ let
       colibri = true;
       gh = false;
       git = true;
+      herdr = false;
       hermesAgent = {
         enable = false;
         enableDashboard = false;

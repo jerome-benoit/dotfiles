@@ -1,21 +1,5 @@
 {
   "nodes": {
-    "agent-deck": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1785139572,
-        "narHash": "sha256-1HPfKT/YxrpsAEYVoTMJfs3xEpvnWX9xFeZBefwPDYM=",
-        "owner": "asheshgoplani",
-        "repo": "agent-deck",
-        "rev": "580e772c1a267834199451c91caeb0b76f0c1a74",
-        "type": "github"
-      },
-      "original": {
-        "owner": "asheshgoplani",
-        "repo": "agent-deck",
-        "type": "github"
-      }
-    },
     "agent-of-empires": {
       "inputs": {
         "crane": "crane",
@@ -130,6 +114,27 @@
         "type": "github"
       }
     },
+    "herdr": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "rust-overlay": "rust-overlay"
+      },
+      "locked": {
+        "lastModified": 1785158234,
+        "narHash": "sha256-fReWyOhGiVa8QEwvgkPNJPJnCmiHgNQf0ajM3sm9zzc=",
+        "owner": "ogulcancelik",
+        "repo": "herdr",
+        "rev": "a979916568b0225123711b1aa401d67102e3cf95",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ogulcancelik",
+        "repo": "herdr",
+        "type": "github"
+      }
+    },
     "hermes-agent": {
       "inputs": {
         "flake-parts": [
@@ -150,11 +155,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785184724,
-        "narHash": "sha256-GB21eivZgppZjqIPewgFVTA1cztbUgaPwavepx8VVZ8=",
+        "lastModified": 1785189667,
+        "narHash": "sha256-MAhTMNMyy9nJhKEGfGaZew0JOF2YD+h8tHhy4K6jzpM=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "af60ad33a72528ab99d527f355bfa79e28e39f88",
+        "rev": "0d00d8df683766e2d94ffa677e680b6b13cd11df",
         "type": "github"
       },
       "original": {
@@ -331,11 +336,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785184659,
-        "narHash": "sha256-gAeykHgJ2WBNVujcnnzXsi8txWUmU9rBb+eJAMgmBzo=",
+        "lastModified": 1785186919,
+        "narHash": "sha256-m7F3icYROhctBulxbQ/e/2yl+JZFtVXotkQR8Gi5scA=",
         "owner": "Fission-AI",
         "repo": "OpenSpec",
-        "rev": "abb422a04b10a364327f4e630cecc7ee6d00c81f",
+        "rev": "05c701970acf680c1276362d48c6d339794c4340",
         "type": "github"
       },
       "original": {
@@ -415,12 +420,12 @@
     },
     "root": {
       "inputs": {
-        "agent-deck": "agent-deck",
         "agent-of-empires": "agent-of-empires",
         "agtx": "agtx",
         "colibri": "colibri",
         "flake-parts": "flake-parts",
         "flake-utils": "flake-utils",
+        "herdr": "herdr",
         "hermes-agent": "hermes-agent",
         "home-manager": "home-manager",
         "nix-openclaw": "nix-openclaw",
@@ -434,6 +439,27 @@
         "qmd": "qmd",
         "sops-nix": "sops-nix",
         "uv2nix": "uv2nix"
+      }
+    },
+    "rust-overlay": {
+      "inputs": {
+        "nixpkgs": [
+          "herdr",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783577481,
+        "narHash": "sha256-EWMxOWrJ031f8f/lrcEmhTRs4npw1/5N3Hcjin846c8=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "4cdea398dc491b082dccdce0fad1ed0b75fa3394",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
       }
     },
     "sops-nix": {
