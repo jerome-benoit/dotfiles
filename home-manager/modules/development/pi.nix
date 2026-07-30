@@ -11,11 +11,11 @@ let
   piPackage = pkgs.buildNpmPackage (finalAttrs: {
     pname = "pi-coding-agent";
     # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-    version = "0.82.1";
+    version = "0.83.0";
 
     src = pkgs.fetchzip {
       url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${finalAttrs.version}.tgz";
-      hash = "sha256-Z/66Xj27dToaoPcxhcbsM/8AB+Q/YYVg+vVhn8GOhnk="; # @ci:src-hash
+      hash = "sha256-u/MCbliYB4OY4HP3KDNUWFEkCFny+srlMxB9mhgtEvA="; # @ci:src-hash
     };
 
     npmDeps = pkgs.fetchNpmDeps {
@@ -24,7 +24,7 @@ let
       postPatch = ''
         cp ${./pi-package-lock.json} package-lock.json
       '';
-      hash = "sha256-sfcD175+A0jwcbWW14xQ+S4huUwGAJwi/fam/fw0blA="; # @ci:npm-deps-hash
+      hash = "sha256-hRtBqr/Fhf6H8FdKOd/5aAzMsCxuwVFs4pWzWLR/P5Y="; # @ci:npm-deps-hash
     };
 
     postPatch = ''
