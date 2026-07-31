@@ -9,8 +9,7 @@ let
   cfg = config.modules.development.colibri;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
-  # Built from the flake input as source: upstream's packages.default is broken —
-  # it installs c/glm, but `make glm` produces c/colibri (JustVugg/colibri#595).
+  # Own derivation built from the flake input source.
   src = inputs.colibri;
 
   # Runtime for the `coli` launcher and the offline converter/oracle tools.
@@ -38,7 +37,7 @@ let
   darwinBuild = {
     extraBuildInputs = [
       pkgs.llvmPackages.openmp
-      pkgs.apple-sdk_15 # backend_metal.mm needs the macOS 15 SDK (JustVugg/colibri#596)
+      pkgs.apple-sdk_15 # macOS 15 SDK: enables the Metal residency-set path
     ];
     extraNativeBuildInputs = [ ];
     preMake = "";
@@ -51,9 +50,7 @@ let
       cudaPackages = config.modules.core.gpu.cudaPackages;
       cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
       hostCxx = "${cudaPackages.backendStdenv.cc}/bin/g++";
-      # CUDA_HOME is only used for -L/-rpath/lib64 + the overridable NVCC (Makefile).
-      # Keep it cudart-only so nvcc (build-only, passed via NVCC=) stays out of the
-      # binary's runtime closure. nixpkgs cuda_cudart is a single `out` (include/ + lib/).
+      # cudart-only CUDA_HOME (-L/-rpath/lib64); keeps build-only nvcc out of the runtime closure.
       cudaHome = pkgs.symlinkJoin {
         name = "colibri-cuda-home";
         paths = [ cudaPackages.cuda_cudart ];
@@ -75,7 +72,7 @@ let
     extraBuildInputs = [ ];
     extraNativeBuildInputs = [ ];
     preMake = "";
-    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a"}"; # portable baselines (upstream PORTABLE_ARCH)
+    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a"}"; # portable ISA baselines
     doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
   };
 

@@ -50,11 +50,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784757395,
-        "narHash": "sha256-GnUyW6XasJ7nTedRjvHa3zkMHC8no1LDd65foQa973s=",
+        "lastModified": 1785368435,
+        "narHash": "sha256-CB5n9CXoUFiI2uY2U/2SXMC6q059dykOIHabgz2PrAQ=",
         "owner": "JustVugg",
         "repo": "colibri",
-        "rev": "81f08a09e5651ce52616dc720f68810f9021c0be",
+        "rev": "ecade075cfc2eae684097ea7de5570c3786ce199",
         "type": "github"
       },
       "original": {
