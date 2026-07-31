@@ -68,15 +68,30 @@
       readOnly = true;
     };
 
-    mkUnstableVersion = lib.mkOption {
-      type = lib.types.functionTo lib.types.str;
+    mkUnstableVersionWithBase = lib.mkOption {
+      type = lib.types.functionTo (lib.types.functionTo lib.types.str);
       default =
-        input:
+        base: input:
         let
           date = input.lastModifiedDate or "19700101000000";
           fmtDate = "${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}";
         in
-        "0-unstable-${fmtDate}+${input.shortRev}";
+        "${base}-unstable-${fmtDate}+${input.shortRev}";
+      description = ''
+        Like mkUnstableVersion but with an explicit base version instead of "0",
+        for inputs that expose a real upstream version.
+
+        Format: <base>-unstable-YYYY-MM-DD+shortRev
+
+        Usage:
+          version = mkUnstableVersionWithBase "1.3.0" inputs.my-package;  # "1.3.0-unstable-2026-04-20+abc1234"
+      '';
+      readOnly = true;
+    };
+
+    mkUnstableVersion = lib.mkOption {
+      type = lib.types.functionTo lib.types.str;
+      default = input: config.modules.core.lib.mkUnstableVersionWithBase "0" input;
       description = ''
         Generates a nixpkgs-convention version string for packages built from
         a flake input tracking a development branch.

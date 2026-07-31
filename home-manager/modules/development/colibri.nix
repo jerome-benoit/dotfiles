@@ -12,6 +12,13 @@ let
   # Own derivation built from the flake input source.
   src = inputs.colibri;
 
+  # Real upstream version from c/version.py, tracked by the input rev.
+  colibriVersion =
+    let
+      match = builtins.match ''.*__version__ = "([^"]*)".*'' (builtins.readFile "${src}/c/version.py");
+    in
+    if match == null then "0" else builtins.head match;
+
   # Runtime for the `coli` launcher and the offline converter/oracle tools.
   pythonEnv = pkgs.python3.withPackages (
     ps: with ps; [
@@ -86,7 +93,7 @@ let
 
   colibriPackage = pkgs.stdenv.mkDerivation {
     pname = "colibri";
-    version = inputs.colibri.shortRev or "unstable";
+    version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
