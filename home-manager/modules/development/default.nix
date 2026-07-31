@@ -4,6 +4,7 @@
     ./aoe.nix
     ./bun.nix
     ./claude-code.nix
+    ./colibri.nix
     ./gh.nix
     ./git.nix
     ./herdr.nix

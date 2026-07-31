@@ -27,6 +27,7 @@ let
       };
       bun = true;
       claudeCode = true;
+      colibri = true;
       gh = true;
       git = true;
       herdr = true;
@@ -92,6 +93,7 @@ let
       };
       bun = false;
       claudeCode = false;
+      colibri = true;
       gh = false;
       git = true;
       herdr = false;

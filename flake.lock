@@ -40,6 +40,29 @@
         "type": "github"
       }
     },
+    "colibri": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1785368435,
+        "narHash": "sha256-CB5n9CXoUFiI2uY2U/2SXMC6q059dykOIHabgz2PrAQ=",
+        "owner": "JustVugg",
+        "repo": "colibri",
+        "rev": "ecade075cfc2eae684097ea7de5570c3786ce199",
+        "type": "github"
+      },
+      "original": {
+        "owner": "JustVugg",
+        "repo": "colibri",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1771796463,
@@ -399,6 +422,7 @@
       "inputs": {
         "agent-of-empires": "agent-of-empires",
         "agtx": "agtx",
+        "colibri": "colibri",
         "flake-parts": "flake-parts",
         "flake-utils": "flake-utils",
         "herdr": "herdr",
