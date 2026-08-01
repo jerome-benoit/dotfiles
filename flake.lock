@@ -11,11 +11,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785588713,
-        "narHash": "sha256-0Pq2zINmhvX3Yl4Q1MRjd5ir68xbMFnXTnru7JavTmo=",
+        "lastModified": 1785593179,
+        "narHash": "sha256-ma5FHn2zYpMuGnJP3k9sjGoshc27OPwhzSsOP9m++UI=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "45aec629d230c6dd2dd3759b34e579aec195861d",
+        "rev": "68ac4835274db97fa435349f68a4395c3fe70543",
         "type": "github"
       },
       "original": {
@@ -122,11 +122,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1785550097,
-        "narHash": "sha256-6KDpXylSJM+XP7S/ZEMYIF+u+LnE899QyPVVImBpYuM=",
+        "lastModified": 1785591657,
+        "narHash": "sha256-9gGVwPhPapnUGokk+xS8jRtc/iw2WsQ0YNZHoDOzVWA=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "26a7bc860e4af516ef687d90b9f9dd2830f88d2a",
+        "rev": "f459a0df315e0963aec5e4dcf2fc394a252ea320",
         "type": "github"
       },
       "original": {
