@@ -101,7 +101,7 @@ jobs:
             URL="https://github.com/can1357/oh-my-pi/releases/download/v${VERSION}/omp-${key}"
             HASH=$(nix store prefetch-file --json "$URL" | jq -r '.hash')
             [[ "$HASH" == sha256-* ]] || { echo "::error::Invalid omp hash for $key: $HASH"; exit 1; }
-            awk -v h="$HASH" '/@ci:src-hash-'"$key"'/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$OMP_NIX" > "$OMP_NIX.tmp" && mv "$OMP_NIX.tmp" "$OMP_NIX"
+            awk -v h="$HASH" '/@ci:src-hash-'"$key"'$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$OMP_NIX" > "$OMP_NIX.tmp" && mv "$OMP_NIX.tmp" "$OMP_NIX"
           done
 
       - name: Commit hash fixes
