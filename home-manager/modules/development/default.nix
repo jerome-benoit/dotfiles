@@ -10,6 +10,7 @@
     ./herdr.nix
     ./hermes-agent.nix
     ./lazygit.nix
+    ./omp.nix
     ./openclaw.nix
     ./opencode.nix
     ./openspec.nix
