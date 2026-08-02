@@ -38,6 +38,7 @@ let
         enableGateway = true;
       };
       lazygit = true;
+      omp = true;
       opencode = {
         enable = true;
         enableDesktop = true;
@@ -104,6 +105,7 @@ let
         enableGateway = false;
       };
       lazygit = true;
+      omp = false;
       opencode = {
         enable = false;
         enableDesktop = false;
