@@ -72,7 +72,7 @@ jobs:
 
           FETCH_HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
           [[ "$FETCH_HASH" == sha256-* ]] || { echo "::error::Invalid fetch hash: $FETCH_HASH"; exit 1; }
-          awk -v h="$FETCH_HASH" '/@ci:src-hash/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
+          awk -v h="$FETCH_HASH" '/@ci:src-hash$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
 
           WORKDIR="$(mktemp -d)"
           curl -sfSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
@@ -95,7 +95,9 @@ jobs:
           VERSION=$(grep -A1 '# renovate: datasource=github-releases depName=can1357/oh-my-pi' "$OMP_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
           [[ -n "$VERSION" ]] || { echo "::error::Failed to extract omp version from $OMP_NIX (renovate marker missing?)"; exit 1; }
 
-          for key in linux-x64 linux-arm64 darwin-arm64; do
+          KEYS=$(grep -oE '@ci:src-hash-[a-z0-9-]+' "$OMP_NIX" | sed 's/@ci:src-hash-//' | sort -u)
+          [[ -n "$KEYS" ]] || { echo "::error::No @ci:src-hash-<key> markers in $OMP_NIX"; exit 1; }
+          for key in $KEYS; do
             URL="https://github.com/can1357/oh-my-pi/releases/download/v${VERSION}/omp-${key}"
             HASH=$(nix store prefetch-file --json "$URL" | jq -r '.hash')
             [[ "$HASH" == sha256-* ]] || { echo "::error::Invalid omp hash for $key: $HASH"; exit 1; }

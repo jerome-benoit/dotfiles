@@ -10,14 +10,12 @@ let
   stdenv = pkgs.stdenvNoCC;
   hp = stdenv.hostPlatform;
 
-  # node.platform-node.arch matches upstream's glibc asset naming:
-  # x86_64-linux -> linux-x64, aarch64-linux -> linux-arm64, aarch64-darwin -> darwin-arm64.
+  # hp.node.{platform,arch} yields the upstream asset names (linux-x64, linux-arm64, darwin-arm64).
   platformKey = "${hp.node.platform}-${hp.node.arch}";
 
   # renovate: datasource=github-releases depName=can1357/oh-my-pi
   version = "17.2.4";
 
-  # One SRI hash per release binary (platform-independent fetch); rewritten by fix-nix-hashes.yml.
   hashes = {
     "linux-x64" = "sha256-pucIbzuAf2ilsItJWX9DSeXONzZWObevXpyP41mYmEA="; # @ci:src-hash-linux-x64
     "linux-arm64" = "sha256-rEc8v2HMGiYH0og5MOZB4V6Oedos3UL/7I1wGthaIZw="; # @ci:src-hash-linux-arm64
@@ -39,8 +37,9 @@ let
 
         dontUnpack = true;
         dontBuild = true;
+        # darwin has no build sandbox; also lets the versionCheckHook exec the binary.
         __noChroot = hp.isDarwin;
-        # otherwise the bun runtime is executed instead of the binary
+        # otherwise the bundled bun runtime is executed instead of the binary
         dontStrip = true;
 
         nativeBuildInputs = [
@@ -60,6 +59,14 @@ let
             --prefix PATH : ${lib.makeBinPath [ pkgs.git ]}
           runHook postInstall
         '';
+
+        doInstallCheck = true;
+        nativeInstallCheckInputs = [
+          pkgs.writableTmpDirAsHomeHook
+          pkgs.versionCheckHook
+        ];
+        versionCheckKeepEnvironment = [ "HOME" ];
+        versionCheckProgramArg = "--version";
 
         meta = {
           description = "oh-my-pi (omp) coding agent CLI";
