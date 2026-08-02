@@ -37,8 +37,6 @@ let
 
         dontUnpack = true;
         dontBuild = true;
-        # darwin has no build sandbox; also lets the versionCheckHook exec the binary.
-        __noChroot = hp.isDarwin;
         # otherwise the bundled bun runtime is executed instead of the binary
         dontStrip = true;
 
@@ -61,11 +59,7 @@ let
         '';
 
         doInstallCheck = true;
-        nativeInstallCheckInputs = [
-          pkgs.writableTmpDirAsHomeHook
-          pkgs.versionCheckHook
-        ];
-        versionCheckKeepEnvironment = [ "HOME" ];
+        nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
 
         meta = {
