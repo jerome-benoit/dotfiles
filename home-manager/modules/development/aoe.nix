@@ -16,16 +16,6 @@ let
     drv:
     drv.overrideAttrs (previousAttrs: {
       patches = (previousAttrs.patches or [ ]) ++ aoePatches;
-      # Restore acp-worker/adapters JSON dropped by cleanCargoSource but embedded via
-      # include_bytes! in adapters.rs; guard trips when agent-of-empires/agent-of-empires#3204 lands.
-      postPatch = (previousAttrs.postPatch or "") + ''
-        if [ -e acp-worker/adapters/claude-agent-acp/package.json ]; then
-          echo "aoe: adapter manifests present in src; agent-of-empires#3204 fixed, drop this workaround" >&2
-          exit 1
-        fi
-        mkdir -p acp-worker/adapters
-        cp -r ${inputs.agent-of-empires}/acp-worker/adapters/. acp-worker/adapters/
-      '';
     });
 
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
