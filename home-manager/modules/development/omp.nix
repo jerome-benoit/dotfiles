@@ -17,9 +17,9 @@ let
   version = "17.2.8";
 
   hashes = {
-    "linux-x64" = "sha256-bjgsgLCvWAFrD1N7YEo6KfHpEEq7SYcFKVNB44+9x3Q="; # @ci:src-hash-linux-x64
-    "linux-arm64" = "sha256-EsllnAM/GQZV+VMDed5VQlkP4D3WqsPQI8FSyDki8qE="; # @ci:src-hash-linux-arm64
-    "darwin-arm64" = "sha256-zS9HVFyz+OteFckbyQVNc5Z3dGUuAgtDLilIA9G3HqA="; # @ci:src-hash-darwin-arm64
+    "linux-x64" = "sha256-6QPrkN6Zfl0M6VUBuEmTlsX+M3GD5Q+JC3hoT5Iy+Bo="; # @ci:src-hash-linux-x64
+    "linux-arm64" = "sha256-Lz3QlTQaS0qB7ZMtLmUITescI/KdSBmDl+k8Ol1qizI="; # @ci:src-hash-linux-arm64
+    "darwin-arm64" = "sha256-WFkeHMos4sItEfOjbDDMA9PotDU/uonEgo55hKSe5JQ="; # @ci:src-hash-darwin-arm64
   };
 
   ompPackage =
