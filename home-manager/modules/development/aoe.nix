@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  self,
   inputs,
   ...
 }:
@@ -10,7 +11,9 @@ let
   cfg = config.modules.development.aoe;
   system = pkgs.stdenv.hostPlatform.system;
 
-  aoePatches = [ ];
+  aoePatches = [
+    (self + "/patches/agent-of-empires/pr-3230-omp-session-capture.patch")
+  ];
 
   withAoePatches =
     drv:
