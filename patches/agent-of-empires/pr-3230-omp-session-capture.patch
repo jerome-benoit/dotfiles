@@ -1666,7 +1666,7 @@ index 8dea1cd61..d4254933f 100644
                      idle_entered_at: None,
                      last_accessed_at: Some(new_ts),
 diff --git a/src/session/capture.rs b/src/session/capture.rs
-index 4ca12dcbc..abfb7e3b5 100644
+index 2e526c50a..1025740f6 100644
 --- a/src/session/capture.rs
 +++ b/src/session/capture.rs
 @@ -1,12 +1,16 @@
@@ -1972,7 +1972,7 @@ index 4ca12dcbc..abfb7e3b5 100644
      if !status.success() {
          anyhow::bail!("{} command failed", label);
      }
-@@ -3145,6 +3227,66 @@ mod tests {
+@@ -3161,6 +3243,66 @@ mod tests {
          );
      }
  
@@ -2039,7 +2039,7 @@ index 4ca12dcbc..abfb7e3b5 100644
      /// Real e2e: run the same shell script we ship to `docker exec` against a
      /// Pi session dir on disk, and feed the stdout into the parser to confirm
      /// it picks up the live UUID. Set `AOE_PI_E2E_DIR=/path/to/.pi/agent` and
-@@ -3247,92 +3389,11 @@ mod tests {
+@@ -3263,92 +3405,11 @@ mod tests {
          }
      }
  
@@ -5452,7 +5452,7 @@ index cb63c303d..dc2d19d5d 100644
      fn decide_restore_claim_on_absent_row_is_already_gone() {
          let mut all: Vec<Instance> = vec![];
 diff --git a/src/session/deletion.rs b/src/session/deletion.rs
-index 22c9f1c53..5ea2cb445 100644
+index e43eef234..a7eb709ef 100644
 --- a/src/session/deletion.rs
 +++ b/src/session/deletion.rs
 @@ -2,11 +2,14 @@
@@ -5471,7 +5471,7 @@ index 22c9f1c53..5ea2cb445 100644
  
  pub struct DeletionRequest {
      pub session_id: String,
-@@ -26,31 +29,438 @@ pub struct DeletionRequest {
+@@ -26,12 +29,422 @@ pub struct DeletionRequest {
      pub keep_scratch: bool,
  }
  
@@ -5865,10 +5865,8 @@ index 22c9f1c53..5ea2cb445 100644
 +                });
 +            });
 +    }
- }
- 
--/// Whether `workspace_dir` looks like a directory aoe created and may
--/// therefore remove recursively.
++}
++
 +pub fn execute_deletion(request: DeletionRequest) -> DeletionResult {
 +    let id = request.session_id.clone();
 +    let recent_entry = crate::session::recent_project_entry_for(&request.instance);
@@ -5893,39 +5891,10 @@ index 22c9f1c53..5ea2cb445 100644
 +        }
 +    }
 +    result
-+}
-+
-+/// Whether `workspace_dir` has the workspace layout AoE creates and may
-+/// therefore be removed once empty.
- ///
--/// The workspace stage ends in a `remove_dir_all` of a path read straight off
--/// the session record. That was safe only implicitly, because the only writer
--/// was `super::builder::create_workspace`, which creates the directory itself
--/// and then puts every repo's worktree in a subdirectory of it. Nothing
--/// enforced the invariant at delete time, so any future writer that set
--/// `workspace_dir` to a path aoe did not create (a session's own `project_path`,
--/// say) would turn session deletion into a recursive delete of the user's
--/// checkout, and for repos aoe does not manage the dirty check would not even
--/// fire first.
-+/// The workspace stage ends in a non-recursive removal of a path read from the
-+/// session record. The shape check remains a defense against future writers
-+/// setting `workspace_dir` to a session's own checkout, but it does not claim
-+/// to prove ownership by itself.
- ///
--/// So check the invariant instead of trusting the record: there is at least one
--/// repo, and every repo's worktree is a strict descendant of `workspace_dir`.
--/// A `workspace_dir` that *is* one of the worktrees, or that holds none of
--/// them, was not laid out by the workspace builder.
-+/// There must be at least one repo, and every repo's worktree must be a strict
-+/// descendant of `workspace_dir`. A `workspace_dir` that is one of the
-+/// worktrees, or that holds none of them, was not laid out by the workspace
-+/// builder. The final `remove_dir` succeeds only after the managed worktrees
-+/// have been removed and the directory is empty, so a corrupt ancestor path
-+/// cannot recursively remove unrelated user data.
- fn workspace_dir_is_aoe_owned(ws_info: &crate::session::WorkspaceInfo) -> bool {
-     let ws_path = Path::new(&ws_info.workspace_dir);
-     if ws_info.repos.is_empty() {
-@@ -74,12 +484,20 @@ fn is_protected_default_branch(main_repo: &Path, branch: &str) -> bool {
+ }
+ 
+ /// Whether `workspace_dir` has the workspace layout AoE creates and may
+@@ -71,12 +484,20 @@ fn is_protected_default_branch(main_repo: &Path, branch: &str) -> bool {
          .is_ok_and(|names| names.contains(branch))
  }
  
@@ -5946,7 +5915,7 @@ index 22c9f1c53..5ea2cb445 100644
  /// Core deletion routine, parameterized over how the sandbox container is torn
  /// down so the container-removal contract can be exercised without a live
  /// runtime.
-@@ -88,9 +506,18 @@ pub fn perform_deletion(request: &DeletionRequest) -> DeletionResult {
+@@ -85,9 +506,18 @@ pub fn perform_deletion(request: &DeletionRequest) -> DeletionResult {
  /// must be invoked unconditionally; it must not be gated behind a separate
  /// existence probe, whose transient failure would skip removal and orphan a
  /// live container.
@@ -5965,7 +5934,7 @@ index 22c9f1c53..5ea2cb445 100644
  ) -> DeletionResult {
      let mut errors = Vec::new();
      let mut messages = Vec::new();
-@@ -109,10 +536,8 @@ fn perform_deletion_with(
+@@ -106,10 +536,8 @@ fn perform_deletion_with(
          "perform_deletion: starting"
      );
  
@@ -5978,7 +5947,7 @@ index 22c9f1c53..5ea2cb445 100644
  
      // Stage 2: sever the live agent BEFORE we touch the working tree it
      // may be writing to. Killing the tmux session terminates the user's
-@@ -123,7 +548,11 @@ fn perform_deletion_with(
+@@ -120,7 +548,11 @@ fn perform_deletion_with(
      // first, container second, tmux last), which raced the in-container
      // agent and produced flaky deletions on Docker + worktree sessions.
      tracing::debug!(target: "session.delete", session_id = %request.session_id, stage = "tmux_kill", "perform_deletion: stage");
@@ -5991,31 +5960,7 @@ index 22c9f1c53..5ea2cb445 100644
  
      let is_sandboxed = request
          .instance
-@@ -386,10 +815,10 @@ fn perform_deletion_with(
-             // preserved; otherwise we'd nuke the user's uncommitted changes,
-             // or a default-branch checkout, through the back door.
-             //
--            // The ownership guard is the second half of that: this is a
--            // recursive delete of a path read straight off the session
--            // record, so it must prove aoe created that directory rather
--            // than trusting the record. See `workspace_dir_is_aoe_owned`.
-+            // The shape guard rejects known-invalid records. The final removal
-+            // is deliberately non-recursive: child worktrees were handled
-+            // above with Git-aware deletion, and any unrecognized content must
-+            // keep the parent directory in place.
-             if ws_info.cleanup_on_delete && !any_preserved {
-                 let ws_path = PathBuf::from(&ws_info.workspace_dir);
-                 if !workspace_dir_is_aoe_owned(ws_info) {
-@@ -404,7 +833,7 @@ fn perform_deletion_with(
-                         ws_path.display()
-                     ));
-                 } else if ws_path.exists() {
--                    if let Err(e) = std::fs::remove_dir_all(&ws_path) {
-+                    if let Err(e) = std::fs::remove_dir(&ws_path) {
-                         errors.push(format!("Workspace dir: {}", e));
-                     } else {
-                         messages.push("Workspace directory removed".to_string());
-@@ -583,8 +1012,11 @@ fn perform_deletion_with(
+@@ -608,8 +1040,11 @@ fn perform_deletion_with(
      DeletionResult {
          session_id: request.session_id.clone(),
          success: errors.is_empty(),
@@ -6027,7 +5972,7 @@ index 22c9f1c53..5ea2cb445 100644
      }
  }
  
-@@ -714,6 +1146,78 @@ mod tests {
+@@ -739,6 +1174,78 @@ mod tests {
          assert_eq!(result.session_id, request.session_id);
      }
  
@@ -6106,13 +6051,14 @@ index 22c9f1c53..5ea2cb445 100644
      #[test]
      fn test_deletion_result_success_even_with_delete_worktree_flag_when_no_worktree() {
          let instance = create_test_instance();
-@@ -1396,6 +1900,59 @@ mod tests {
+@@ -1423,6 +1930,76 @@ mod tests {
              );
          }
  
-+        /// A strict-descendant layout alone does not prove ownership. Even if
-+        /// a corrupt record names an unrelated ancestor, the final parent
-+        /// removal must remain non-recursive.
++        /// A strict-descendant layout alone does not prove ownership. A corrupt
++        /// record naming a populated ancestor must never be wiped: the removal
++        /// is non-recursive, so the ancestor is left in place and reported as a
++        /// message rather than a hard error, and the trash row still clears.
 +        #[test]
 +        fn e2e_workspace_ancestor_with_unrelated_content_is_not_recursively_removed() {
 +            let tmp = tempfile::TempDir::new().unwrap();
@@ -6154,20 +6100,113 @@ index 22c9f1c53..5ea2cb445 100644
 +                "do not delete me"
 +            );
 +            assert!(
-+                result
-+                    .errors
-+                    .iter()
-+                    .any(|error| error.starts_with("Workspace dir:")),
-+                "non-empty ancestor removal must fail visibly: {:?}",
++                user_checkout.exists(),
++                "the user's checkout under a corrupt ancestor must survive"
++            );
++            assert!(
++                tmp.path().exists(),
++                "the populated ancestor dir must be left in place, not wiped"
++            );
++            // A non-empty dir aoe cannot own is a safe refusal reported as a
++            // message, not a hard error, so the purge still clears the row and
++            // does not retry the same non-convergent refusal forever (#3215).
++            assert!(
++                result.success,
++                "safe refusal must not fail the purge: {:?}",
 +                result.errors
++            );
++            assert!(
++                result
++                    .messages
++                    .iter()
++                    .any(|m| m.starts_with("Workspace directory kept:")),
++                "expected a 'kept' message: {:?}",
++                result.messages
 +            );
 +        }
 +
          /// A repo attached onto a branch the user already had records
          /// `branch_preexisting`. Its worktree is still aoe's to remove, but the
          /// branch is not, and the two decisions are independent: getting them
+@@ -1964,76 +2541,6 @@ mod tests {
+             );
+         }
+ 
+-        /// A strict-descendant layout alone does not prove ownership. A corrupt
+-        /// record naming a populated ancestor must never be wiped: the removal
+-        /// is non-recursive, so the ancestor is left in place and reported as a
+-        /// message rather than a hard error, and the trash row still clears.
+-        #[test]
+-        fn e2e_workspace_ancestor_with_unrelated_content_is_not_recursively_removed() {
+-            let tmp = tempfile::TempDir::new().unwrap();
+-            let user_checkout = tmp.path().join("backend");
+-            init_repo(&user_checkout);
+-            let precious = tmp.path().join("unrelated.txt");
+-            std::fs::write(&precious, "do not delete me").unwrap();
+-
+-            let mut instance = Instance::new("Bad ancestor", user_checkout.to_str().unwrap());
+-            instance.workspace_info = Some(workspace_info(
+-                tmp.path().to_str().unwrap(),
+-                &[user_checkout.to_str().unwrap()],
+-            ));
+-            if let Some(repo) = instance
+-                .workspace_info
+-                .as_mut()
+-                .and_then(|workspace| workspace.repos.first_mut())
+-            {
+-                repo.source_path = user_checkout.to_string_lossy().into_owned();
+-                repo.main_repo_path = user_checkout.to_string_lossy().into_owned();
+-                repo.managed_by_aoe = false;
+-            }
+-
+-            let request = DeletionRequest {
+-                session_id: instance.id.clone(),
+-                instance,
+-                delete_worktree: true,
+-                delete_branch: false,
+-                delete_sandbox: false,
+-                force_delete: false,
+-                detach_hooks: true,
+-                keep_scratch: false,
+-            };
+-            let result = perform_deletion(&request);
+-
+-            assert!(precious.exists(), "unrelated ancestor content must survive");
+-            assert_eq!(
+-                std::fs::read_to_string(&precious).unwrap(),
+-                "do not delete me"
+-            );
+-            assert!(
+-                user_checkout.exists(),
+-                "the user's checkout under a corrupt ancestor must survive"
+-            );
+-            assert!(
+-                tmp.path().exists(),
+-                "the populated ancestor dir must be left in place, not wiped"
+-            );
+-            // A non-empty dir aoe cannot own is a safe refusal reported as a
+-            // message, not a hard error, so the purge still clears the row and
+-            // does not retry the same non-convergent refusal forever (#3215).
+-            assert!(
+-                result.success,
+-                "safe refusal must not fail the purge: {:?}",
+-                result.errors
+-            );
+-            assert!(
+-                result
+-                    .messages
+-                    .iter()
+-                    .any(|m| m.starts_with("Workspace directory kept:")),
+-                "expected a 'kept' message: {:?}",
+-                result.messages
+-            );
+-        }
+-
+         /// A stray file under an otherwise aoe-owned workspace keeps the dir
+         /// non-empty after the managed worktree is gone. The non-recursive
+         /// removal must leave that file and report a kept-message rather than a
 diff --git a/src/session/environment.rs b/src/session/environment.rs
-index 43d94bc49..552c7b289 100644
+index 783c8ecbb..552c7b289 100644
 --- a/src/session/environment.rs
 +++ b/src/session/environment.rs
 @@ -7,108 +7,6 @@ use super::config::SandboxConfig;
@@ -6279,7 +6318,7 @@ index 43d94bc49..552c7b289 100644
  /// Terminal environment variables that are always passed through for proper UI/theming
  pub(crate) const DEFAULT_TERMINAL_ENV_VARS: &[&str] =
      &["TERM", "COLORTERM", "FORCE_COLOR", "NO_COLOR"];
-@@ -306,61 +204,20 @@ pub(crate) fn user_posix_shell() -> String {
+@@ -306,72 +204,20 @@ pub(crate) fn user_posix_shell() -> String {
  ///
  /// Uses single-quote escaping: inside single quotes ALL characters are literal
  /// except `'` itself, which is escaped via the POSIX `'\''` technique. This is
@@ -6314,9 +6353,20 @@ index 43d94bc49..552c7b289 100644
 -/// Values are passed through `shell_escape` so spaces, quotes, and shell
 -/// metacharacters are preserved literally. Returns an empty string when
 -/// the entry list is empty so callers can format unconditionally.
+-///
+-/// Keys are not escapable here (a shell assignment needs a bare name on the
+-/// left), so an entry whose key is not a valid environment variable name is
+-/// skipped with a warning rather than concatenated into the command line. The
+-/// structured-view sibling [`resolve_host_environment_pairs`] applies the same
+-/// rule, so both views drop the same entries.
 -pub(crate) fn host_environment_prefix(entries: &[String]) -> String {
 -    let mut out = String::new();
 -    for entry in entries {
+-        let key = entry.split_once('=').map(|(key, _)| key).unwrap_or(entry);
+-        if !is_valid_env_key(key) {
+-            tracing::warn!(target: "session.create", "invalid host environment key '{}'; skipping", key);
+-            continue;
+-        }
 -        if let Some((key, value)) = entry.split_once('=') {
 -            let resolved = if let Some(rest) = value.strip_prefix("$$") {
 -                Some(format!("${}", rest))
@@ -6347,7 +6397,7 @@ index 43d94bc49..552c7b289 100644
  /// Resolve a session's sandbox environment entries to concrete `(KEY, VALUE)`
  /// pairs on the host, for feeding into a host-side hook's process environment
  /// (so a `before_start` hook can read a per-session `$TEST_VAR`).
-@@ -430,8 +287,7 @@ fn host_hook_entries(extra: &[String], trusted: &[String], repo_aware: &[String]
+@@ -441,8 +287,7 @@ fn host_hook_entries(extra: &[String], trusted: &[String], repo_aware: &[String]
  ///
  /// Duplicate keys resolve FIRST-wins here. The agent-side sibling,
  /// `resolve_host_environment_pairs`, is deliberately LAST-wins to match the
@@ -6357,7 +6407,7 @@ index 43d94bc49..552c7b289 100644
  fn resolve_hook_env_pairs(entries: &[String]) -> Vec<(String, String)> {
      let mut seen = std::collections::HashSet::new();
      let mut pairs = Vec::new();
-@@ -455,16 +311,9 @@ fn resolve_hook_env_pairs(entries: &[String]) -> Vec<(String, String)> {
+@@ -466,16 +311,9 @@ fn resolve_hook_env_pairs(entries: &[String]) -> Vec<(String, String)> {
      pairs
  }
  
@@ -6377,7 +6427,7 @@ index 43d94bc49..552c7b289 100644
  ///
  /// Entry keys are read with the same grammar the resolvers use: the part before
  /// the first `=`, or the whole entry for a bare passthrough key.
-@@ -524,26 +373,21 @@ pub(crate) fn resolve_host_environment_value(
+@@ -535,26 +373,21 @@ pub(crate) fn resolve_host_environment_value(
  }
  
  /// Resolve trusted global/profile `environment` entries for a host-side agent
@@ -6408,21 +6458,19 @@ index 43d94bc49..552c7b289 100644
                  let resolved = std::env::var(entry);
                  if resolved.is_err() {
                      tracing::warn!(
-@@ -632,6 +476,13 @@ where
- /// - `KEY=literal` (no `$`): always valid
- /// - `KEY=$$...`: escaped literal `$`, always valid
- pub fn validate_env_entry(entry: &str) -> Option<String> {
-+    let key = entry.split_once('=').map(|(key, _)| key).unwrap_or(entry);
-+    if !is_valid_env_key(key) {
-+        return Some(format!(
-+            "Warning: invalid environment key '{}'; skipping",
-+            key
-+        ));
-+    }
-     if let Some((_, value)) = entry.split_once('=') {
-         if value.starts_with("$$") {
-             // Escaped literal $, always valid
-@@ -664,16 +515,12 @@ pub fn validate_env_entry(entry: &str) -> Option<String> {
+@@ -634,9 +467,8 @@ where
+         .collect()
+ }
+ 
+-/// Validate an env entry string and return a warning message when its key is
+-/// not a valid environment variable name (the entry is dropped at collection
+-/// time) or when it references a host variable that doesn't exist.
++/// Validate an env entry string and return a warning message if it references
++/// a host variable that doesn't exist.
+ ///
+ /// Entry formats:
+ /// - `KEY` (bare): pass through from host
+@@ -683,16 +515,12 @@ pub fn validate_env_entry(entry: &str) -> Option<String> {
      }
  }
  
@@ -6444,30 +6492,7 @@ index 43d94bc49..552c7b289 100644
  ///
  /// Deduplicates by key (first wins).
  pub(crate) fn collect_environment(
-@@ -724,6 +571,10 @@ pub(crate) fn collect_environment(
-     // Placed before the configured entries so a freshly-minted secret wins over
-     // any same-keyed `sandbox.environment` / `extra_env` entry (first-wins).
-     for (key, value) in &sandbox_info.before_start_env {
-+        if !is_valid_env_key(key) {
-+            tracing::warn!(target: "session.create", "invalid before_start environment key '{}'; skipping", key);
-+            continue;
-+        }
-         if seen_keys.insert(key.clone()) {
-             result.push(EnvEntry::Inherit {
-                 key: key.clone(),
-@@ -733,6 +584,11 @@ pub(crate) fn collect_environment(
-     }
- 
-     for entry in entries {
-+        let key = entry.split_once('=').map(|(key, _)| key).unwrap_or(entry);
-+        if !is_valid_env_key(key) {
-+            tracing::warn!(target: "session.create", "invalid sandbox environment key '{}'; skipping", key);
-+            continue;
-+        }
-         if let Some((key, value)) = entry.split_once('=') {
-             if seen_keys.insert(key.to_string()) {
-                 if let Some(rest) = value.strip_prefix("$$") {
-@@ -820,33 +676,41 @@ pub(crate) fn resolved_sandbox_config(
+@@ -848,33 +676,41 @@ pub(crate) fn resolved_sandbox_config(
      super::repo_config::resolve_config_with_repo_or_warn(&resolved, project_path).sandbox
  }
  
@@ -6514,13 +6539,13 @@ index 43d94bc49..552c7b289 100644
  
 -/// Build docker exec environment flags from config and optional per-session extra entries.
 -/// Used for `docker exec` commands run inside tmux sessions.
--///
--/// Returns a [`DockerExecEnv`] that separates secret values (prepended as
--/// `export` statements to the tmux session command) from literal values
--/// (which are safe to include in the command line).
 +/// Build docker exec environment flags and protected-channel values from config
 +/// and optional per-session extra entries.
  ///
+-/// Returns a [`DockerExecEnv`] that separates secret values (prepended as
+-/// `export` statements to the tmux session command) from literal values
+-/// (which are safe to include in the command line).
+-///
 -/// The `docker run` path (container creation) is protected separately via
 -/// `Command::env()` in `run_create`, which keeps secrets out of argv entirely.
 +/// The `docker run` path protects inherited host values separately via
@@ -6529,7 +6554,7 @@ index 43d94bc49..552c7b289 100644
  pub(crate) fn build_docker_env_args(
      profile: &str,
      sandbox: &SandboxInfo,
-@@ -855,10 +719,10 @@ pub(crate) fn build_docker_env_args(
+@@ -883,10 +719,10 @@ pub(crate) fn build_docker_env_args(
      let sandbox_config = resolved_sandbox_config(profile, project_path);
  
      tracing::debug!(target: "session.create",
@@ -6543,7 +6568,7 @@ index 43d94bc49..552c7b289 100644
      );
  
      let env_entries = collect_environment(&sandbox_config, sandbox);
-@@ -872,25 +736,16 @@ pub(crate) fn build_docker_env_args(
+@@ -900,25 +736,16 @@ pub(crate) fn build_docker_env_args(
      }
  
      let mut docker_flag_parts: Vec<String> = Vec::new();
@@ -6573,7 +6598,7 @@ index 43d94bc49..552c7b289 100644
      }
  }
  
-@@ -1132,62 +987,36 @@ environment = ["GH_TOKEN=write_token"]
+@@ -1160,62 +987,36 @@ environment = ["GH_TOKEN=write_token"]
          let project_path = temp_home.path().join("nonexistent_project");
  
          let result_personal = build_docker_env_args("personal", &sandbox, &project_path);
@@ -6657,7 +6682,7 @@ index 43d94bc49..552c7b289 100644
      }
  
      #[test]
-@@ -1234,59 +1063,6 @@ environment = ["GH_TOKEN=write_token"]
+@@ -1262,62 +1063,6 @@ environment = ["GH_TOKEN=write_token"]
          }
      }
  
@@ -6678,6 +6703,9 @@ index 43d94bc49..552c7b289 100644
 -            (&["MARKER=$$KEEP"], "MARKER='$KEEP' "),
 -            // Single-quote wrapping with `'\''` escape for the apostrophe.
 -            (&["X=a b'c$d"], "X='a b'\\''c$d' "),
+-            // A key is a bare shell name here and cannot be quoted, so an
+-            // invalid one is dropped instead of concatenated into the command.
+-            (&["FOO; touch /tmp/pwn; X=1", "GOOD=ok"], "GOOD='ok' "),
 -        ];
 -        for (entries, expected) in cases {
 -            let owned: Vec<String> = entries.iter().map(|s| s.to_string()).collect();
@@ -6717,7 +6745,7 @@ index 43d94bc49..552c7b289 100644
      #[test]
      #[serial_test::serial]
      fn test_resolve_host_environment_value_uses_last_resolved_entry() {
-@@ -1318,10 +1094,8 @@ environment = ["GH_TOKEN=write_token"]
+@@ -1349,10 +1094,8 @@ environment = ["GH_TOKEN=write_token"]
          std::env::remove_var("AOE_TEST_CODEX_HOME_REF");
      }
  
@@ -6730,7 +6758,7 @@ index 43d94bc49..552c7b289 100644
      #[test]
      #[serial_test::serial]
      fn test_resolve_host_environment_pairs_matches_prefix_grammar() {
-@@ -1352,11 +1126,8 @@ environment = ["GH_TOKEN=write_token"]
+@@ -1383,11 +1126,8 @@ environment = ["GH_TOKEN=write_token"]
          std::env::remove_var("AOE_TEST_HOST_PAIRS_BARE");
      }
  
@@ -6744,7 +6772,58 @@ index 43d94bc49..552c7b289 100644
      #[test]
      #[serial_test::serial]
      fn test_resolve_host_environment_pairs_last_entry_wins() {
-@@ -1587,6 +1358,50 @@ environment = ["GH_TOKEN=write_token"]
+@@ -1468,50 +1208,6 @@ environment = ["GH_TOKEN=write_token"]
+         entries.iter().find(|e| e.key() == key)
+     }
+ 
+-    #[test]
+-    fn test_collect_environment_rejects_invalid_config_extra_and_hook_keys() {
+-        let config = SandboxConfig {
+-            environment: vec![
+-                "CFG; touch /tmp/cfg_injected; #=secret".to_string(),
+-                "VALID_CONFIG=ok".to_string(),
+-            ],
+-            ..Default::default()
+-        };
+-        let base = SandboxInfo {
+-            enabled: true,
+-            container_id: None,
+-            image: "test".to_string(),
+-            container_name: "test".to_string(),
+-            extra_env: None,
+-            custom_instruction: None,
+-            before_start_env: vec![
+-                (
+-                    "HOOK$(touch /tmp/hook_injected)".to_string(),
+-                    "secret".to_string(),
+-                ),
+-                ("VALID_HOOK".to_string(), "minted".to_string()),
+-            ],
+-            container_workdir: None,
+-        };
+-        let configured = collect_environment(&config, &base);
+-        assert!(find_entry(&configured, "VALID_CONFIG").is_some());
+-        assert!(find_entry(&configured, "VALID_HOOK").is_some());
+-        assert!(!configured
+-            .iter()
+-            .any(|entry| { entry.key().contains("touch") || entry.key().contains(';') }));
+-
+-        let mut extra = base;
+-        extra.extra_env = Some(vec![
+-            "EXTRA`touch /tmp/extra_injected`=secret".to_string(),
+-            "VALID_EXTRA=ok".to_string(),
+-        ]);
+-        let resolved_extra = collect_environment(&config, &extra);
+-        assert!(find_entry(&resolved_extra, "VALID_EXTRA").is_some());
+-        assert!(!resolved_extra
+-            .iter()
+-            .any(|entry| { entry.key().contains("touch") || entry.key().contains('`') }));
+-    }
+-
+     #[test]
+     #[serial_test::serial]
+     fn test_collect_environment_passthrough() {
+@@ -1662,6 +1358,50 @@ environment = ["GH_TOKEN=write_token"]
          );
      }
  
@@ -6795,7 +6874,7 @@ index 43d94bc49..552c7b289 100644
      #[test]
      fn test_collect_environment_key_value() {
          let config = SandboxConfig {
-@@ -1916,8 +1731,6 @@ environment = ["GH_TOKEN=write_token"]
+@@ -1991,8 +1731,6 @@ environment = ["GH_TOKEN=write_token"]
      #[test]
      #[serial_test::serial]
      fn test_build_docker_env_args_inherit_uses_key_only_in_args() {
@@ -6804,7 +6883,7 @@ index 43d94bc49..552c7b289 100644
          std::env::set_var("AOE_TEST_TOKEN", "secret123");
          let sandbox = SandboxInfo {
              enabled: true,
-@@ -1930,26 +1743,11 @@ environment = ["GH_TOKEN=write_token"]
+@@ -2005,26 +1743,11 @@ environment = ["GH_TOKEN=write_token"]
              container_workdir: None,
          };
          let result = build_docker_env_args("", &sandbox, std::path::Path::new("/nonexistent"));
@@ -6836,7 +6915,7 @@ index 43d94bc49..552c7b289 100644
          std::env::remove_var("AOE_TEST_TOKEN");
      }
  
-@@ -1968,32 +1766,17 @@ environment = ["GH_TOKEN=write_token"]
+@@ -2043,32 +1766,17 @@ environment = ["GH_TOKEN=write_token"]
              container_workdir: None,
          };
          let result = build_docker_env_args("", &sandbox, std::path::Path::new("/nonexistent"));
@@ -6875,7 +6954,7 @@ index 43d94bc49..552c7b289 100644
          std::env::set_var("AOE_TEST_BARE", "barevalue");
          let sandbox = SandboxInfo {
              enabled: true,
-@@ -2006,63 +1789,37 @@ environment = ["GH_TOKEN=write_token"]
+@@ -2081,63 +1789,37 @@ environment = ["GH_TOKEN=write_token"]
              container_workdir: None,
          };
          let result = build_docker_env_args("", &sandbox, std::path::Path::new("/nonexistent"));
@@ -6952,7 +7031,7 @@ index 43d94bc49..552c7b289 100644
          std::env::set_var("AOE_TEST_SECRET", "mysecret");
          let sandbox = SandboxInfo {
              enabled: true,
-@@ -2071,23 +1828,23 @@ environment = ["GH_TOKEN=write_token"]
+@@ -2146,23 +1828,23 @@ environment = ["GH_TOKEN=write_token"]
              container_name: "test".to_string(),
              extra_env: Some(vec![
                  "AOE_TEST_SECRET=$AOE_TEST_SECRET".to_string(),
@@ -11393,37 +11472,6 @@ index 3c152d9dc..ff243b61c 100644
          assert!(
              count > 0,
              "poller should have started polling immediately (count={})",
-diff --git a/src/session/repo_config.rs b/src/session/repo_config.rs
-index 3c3d8d9e4..9a47a0b81 100644
---- a/src/session/repo_config.rs
-+++ b/src/session/repo_config.rs
-@@ -1293,10 +1293,11 @@ pub fn resolve_before_session_hooks(profile: &str) -> Vec<String> {
-         .before_session
- }
- 
--/// Parse `KEY=VALUE` lines from a hook's stdout, ignoring blank lines, lines
--/// with no `=`, and lines whose key is not a valid env var name. Later entries
--/// override earlier ones for the same key. The value is preserved verbatim
--/// (only the line ending is stripped by [`str::lines`]).
-+/// Parse `KEY=VALUE` lines from a hook's stdout, ignoring blank lines and lines
-+/// with no `=`. Invalid env names are skipped with a warning before they can
-+/// reach shell construction. Later entries override earlier ones for the same
-+/// key. The value is preserved verbatim (only the line ending is stripped by
-+/// [`str::lines`]).
- fn parse_env_kv_lines(stdout: &str) -> Vec<(String, String)> {
-     let mut out: Vec<(String, String)> = Vec::new();
-     for line in stdout.lines() {
-@@ -1305,6 +1306,10 @@ fn parse_env_kv_lines(stdout: &str) -> Vec<(String, String)> {
-         };
-         let key = key.trim();
-         if !super::environment::is_valid_env_key(key) {
-+            tracing::warn!(
-+                target: "session.create",
-+                "hook produced an invalid environment key; skipping"
-+            );
-             continue;
-         }
-         out.retain(|(k, _)| k != key);
 diff --git a/src/session/stop.rs b/src/session/stop.rs
 index 9faed3598..a8c9f4d3a 100644
 --- a/src/session/stop.rs
@@ -12914,7 +12962,7 @@ index b33c47e6f..6b63e302e 100644
  
      #[test]
 diff --git a/src/tui/home/mod.rs b/src/tui/home/mod.rs
-index 0bd2bb9d1..45a74eb92 100644
+index 3e6e8f256..7025541fd 100644
 --- a/src/tui/home/mod.rs
 +++ b/src/tui/home/mod.rs
 @@ -759,12 +759,6 @@ pub struct HomeView {
@@ -12980,7 +13028,7 @@ index 0bd2bb9d1..45a74eb92 100644
                  }
              }
              // Rebuild this profile's tree from disk, preserving any collapsed
-@@ -3122,115 +3097,76 @@ impl HomeView {
+@@ -3161,115 +3136,76 @@ impl HomeView {
      }
  
      pub fn apply_deletion_results(&mut self) -> bool {
@@ -13147,7 +13195,7 @@ index 0bd2bb9d1..45a74eb92 100644
                      return false;
                  }
                  tracing::error!(
-@@ -3245,9 +3181,6 @@ impl HomeView {
+@@ -3284,9 +3220,6 @@ impl HomeView {
                              Some("Deletion worker crashed; session was not deleted".to_string());
                      });
                  }
@@ -13157,7 +13205,7 @@ index 0bd2bb9d1..45a74eb92 100644
                  true
              }
          }
-@@ -3261,18 +3194,31 @@ impl HomeView {
+@@ -3300,18 +3233,31 @@ impl HomeView {
  
          match self.stop_poller.try_recv_result() {
              Ok(result) => {
@@ -13199,7 +13247,7 @@ index 0bd2bb9d1..45a74eb92 100644
                  }
                  true
              }
-@@ -3475,40 +3421,56 @@ impl HomeView {
+@@ -3514,40 +3460,56 @@ impl HomeView {
      /// Tmux env may also be republished when this returns `false`
      /// (filtered or Failed paths republish the in-memory mirror).
      pub fn apply_session_id_updates(&mut self) -> bool {
@@ -13554,7 +13602,7 @@ index 68bb580a6..88e10da1b 100644
          if !self.flat_items.is_empty() && self.cursor >= self.flat_items.len() {
              self.cursor = self.flat_items.len() - 1;
 diff --git a/src/tui/home/tests.rs b/src/tui/home/tests.rs
-index 0c3b0feaa..8bb17df9b 100644
+index d50177429..aeee6c54d 100644
 --- a/src/tui/home/tests.rs
 +++ b/src/tui/home/tests.rs
 @@ -8490,7 +8490,7 @@ fn right_click_archived_header_shows_restore_menu() {
