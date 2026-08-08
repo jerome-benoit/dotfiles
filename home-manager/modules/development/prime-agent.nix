@@ -6,7 +6,7 @@
 }:
 
 let
-  cfg = config.modules.development.prime-agent;
+  cfg = config.modules.development.primeAgent;
   stdenv = pkgs.stdenvNoCC;
   hp = stdenv.hostPlatform;
 
@@ -201,7 +201,7 @@ let
       };
 in
 {
-  options.modules.development.prime-agent = {
+  options.modules.development.primeAgent = {
     enable = lib.mkEnableOption "Prime Agent (RLM coding/research agent)";
 
     package = lib.mkOption {

@@ -79,7 +79,7 @@ in
     openspec.enable = profileModules.development.openspec;
     openclaw.enable = profileModules.development.openclaw;
     pi.enable = profileModules.development.pi;
-    prime-agent.enable = profileModules.development.prime-agent;
+    primeAgent.enable = profileModules.development.primeAgent;
     qmd.enable = bunSupported && profileModules.development.qmd;
   };
 
