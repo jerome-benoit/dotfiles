@@ -118,14 +118,13 @@ jobs:
           VERSION=$(grep -A1 '# renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent' "$PA_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
           [[ -n "$VERSION" ]] || { echo "::error::Failed to extract prime-agent version from $PA_NIX (renovate marker missing?)"; exit 1; }
 
-          # 1) release tarball hash
           URL="https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${VERSION}/prime-agent-${VERSION}.tgz"
           HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
           [[ "$HASH" == sha256-* ]] || { echo "::error::Invalid prime-agent hash: $HASH"; exit 1; }
           awk -v h="$HASH" '/@ci:src-hash-prime-agent$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
 
-          # 2) bundle-external Node deps: resync each version + fetchzip hash from the upstream lock at this tag,
-          #    so a bump can't silently keep stale mirrored deps that load at runtime but mismatch the bundle.
+          # bundle-external Node deps: resync each version + fetchzip hash from the upstream lock at this tag,
+          # so a bump can't silently keep stale mirrored deps that load at runtime but mismatch the bundle.
           LOCK="$(mktemp)"
           curl -sfSL "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${VERSION}/package-lock.json" -o "$LOCK" \
             || { echo "::error::upstream package-lock.json missing for v${VERSION}"; exit 1; }
@@ -142,8 +141,8 @@ jobs:
             awk -v key="$key" -v h="$DHASH" 'index($0, "@ci:npm-hash " key) {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
           done <<< "$MARKERS"
 
-          # 3) kernel deps drift guard: pip->nixpkgs attrs aren't 1:1, so kernelPython can't be auto-generated;
-          #    fail the bump if upstream's DEFAULT_RLM_EXTRA_PACKAGES set (+ dill) drifts from the pinned manifest.
+          # kernel deps drift guard: fail the bump if upstream's DEFAULT_RLM_EXTRA_PACKAGES (+ dill) drifts from
+          # the pinned @ci:rlm-extra-packages manifest (why it's hand-maintained: see prime-agent.nix kernelPython).
           BOOT="https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${VERSION}/packages/coding-agent/src/core/kernel/bootstrap.ts"
           BT=$(curl -sfSL "$BOOT") || { echo "::error::cannot fetch bootstrap.ts for v${VERSION} (path moved? refresh the guard)"; exit 1; }
           UPSTREAM=$(printf '%s\n' "$BT" | grep -oE 'uvArg:[[:space:]]*"[^"]+"' | sed -E 's/.*"([^"]+)".*/\1/' | sort -u | paste -sd' ' -)

@@ -25,7 +25,7 @@ let
   };
 
   # Native/runtime deps external to the esbuild bundle, absent from the tarball; pinned to prime-agent's package-lock.
-  # Versions + hashes are resynced from the upstream lock (node_modules/<name>.version) by fix-nix-hashes.yml on a
+  # Versions + hashes are resynced from the upstream lock (.packages["node_modules/<name>"].version) by fix-nix-hashes.yml on a
   # bump — the @ci:npm-version/@ci:npm-hash markers below are the rewrite anchors; keep one dep per marked line.
   zeromqVersion = "6.5.0"; # @ci:npm-version zeromq
   cmakeTsVersion = "1.0.2"; # @ci:npm-version cmake-ts
@@ -104,10 +104,9 @@ let
     doCheck = false;
   };
 
-  # PRIME_AGENT_KERNEL_PYTHON is validated against ipykernel + rlm + every DEFAULT_RLM_EXTRA_PACKAGES;
-  # a missing package makes the agent fall back to the uv/network venv path. pip->nixpkgs attr names aren't
-  # 1:1, so this list can't be auto-generated; fix-nix-hashes.yml fails a bump if upstream's uvArg set (+ dill
-  # via STATE_SNAPSHOT_REQUIREMENT) drifts from the pinned manifest below, forcing a hand refresh here.
+  # PRIME_AGENT_KERNEL_PYTHON must cover ipykernel + rlm + every DEFAULT_RLM_EXTRA_PACKAGES; a missing one
+  # silently drops the agent to the uv/network venv path. pip->nixpkgs names aren't 1:1, so the set is
+  # hand-mirrored below (dill tracked separately) and fix-nix-hashes.yml fails a bump on upstream drift.
   # @ci:rlm-extra-packages beautifulsoup4 httpx lxml numpy pandas pydantic python-dotenv pyyaml requests scipy tomli tyro
   kernelPython = py.withPackages (ps: [
     rlm
