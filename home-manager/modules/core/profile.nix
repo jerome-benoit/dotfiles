@@ -114,6 +114,7 @@ let
       openclaw = false;
       openspec = false;
       pi = false;
+      prime-agent = false;
       qmd = false;
     };
 

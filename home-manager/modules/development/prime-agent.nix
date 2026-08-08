@@ -10,9 +10,9 @@ let
   stdenv = pkgs.stdenvNoCC;
   hp = stdenv.hostPlatform;
 
+  # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
   version = "0.7.1";
 
-  # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
   src = pkgs.fetchzip {
     url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${version}/prime-agent-${version}.tgz";
     hash = "sha256-o0zZuv+Xam0BNn112wkDP7SfDh24VfMMBJKSLBynIAI="; # @ci:src-hash-prime-agent
