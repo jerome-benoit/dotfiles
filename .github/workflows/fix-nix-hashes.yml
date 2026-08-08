@@ -129,6 +129,8 @@ jobs:
           LOCK="$(mktemp)"
           curl -sfSL "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${VERSION}/package-lock.json" -o "$LOCK" \
             || { echo "::error::upstream package-lock.json missing for v${VERSION}"; exit 1; }
+          MARKERS=$(grep -oE '@ci:npm-version .+' "$PA_NIX" | sed 's/@ci:npm-version //')
+          [[ -n "$MARKERS" ]] || { echo "::error::no @ci:npm-version markers in $PA_NIX (renamed/removed?)"; exit 1; }
           while IFS= read -r key; do
             newver=$(jq -r --arg k "node_modules/$key" '.packages[$k].version // empty' "$LOCK")
             [[ -n "$newver" ]] || { echo "::error::node_modules/$key absent from upstream lock (v${VERSION})"; exit 1; }
@@ -138,7 +140,7 @@ jobs:
             DHASH=$(nix store prefetch-file --unpack --json "$DURL" | jq -r '.hash')
             [[ "$DHASH" == sha256-* ]] || { echo "::error::Invalid hash for ${key}@${newver}: $DHASH"; exit 1; }
             awk -v key="$key" -v h="$DHASH" 'index($0, "@ci:npm-hash " key) {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
-          done < <(grep -oE '@ci:npm-version .+' "$PA_NIX" | sed 's/@ci:npm-version //')
+          done <<< "$MARKERS"
 
           # 3) kernel deps drift guard: pip->nixpkgs attrs aren't 1:1, so kernelPython can't be auto-generated;
           #    fail the bump if upstream's DEFAULT_RLM_EXTRA_PACKAGES set (+ dill) drifts from the pinned manifest.
