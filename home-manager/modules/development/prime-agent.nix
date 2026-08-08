@@ -12,8 +12,8 @@ let
 
   platforms = [
     "aarch64-darwin"
-    "x86_64-linux"
     "aarch64-linux"
+    "x86_64-linux"
   ];
 
   # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
@@ -172,10 +172,10 @@ let
         doInstallCheck = true;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
-        # Exercise the real runtime plumbing versionCheckHook misses: load the native zeromq addon
-        # (also validates cmake-ts + the ELF patch) and the kernel interpreter's import surface.
+        # Exercise the real runtime plumbing versionCheckHook misses: load the external native deps
+        # (zeromq — also validates cmake-ts + the ELF patch — and undici) and the kernel import surface.
         preInstallCheck = ''
-          ( cd $out/lib/prime-agent && ${lib.getExe pkgs.nodejs_22} -e 'require("zeromq")' )
+          ( cd $out/lib/prime-agent && ${lib.getExe pkgs.nodejs_22} -e 'require("zeromq"); require("undici")' )
           ${kernelPython}/bin/python3 -c 'import rlm, ipykernel'
         '';
 
