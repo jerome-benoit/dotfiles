@@ -25,24 +25,30 @@ let
   };
 
   # Native/runtime deps external to the esbuild bundle, absent from the tarball; pinned to prime-agent's package-lock.
-  # Resync from raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v<version>/package-lock.json on a bump.
+  # Versions + hashes are resynced from the upstream lock (node_modules/<name>.version) by fix-nix-hashes.yml on a
+  # bump — the @ci:npm-version/@ci:npm-hash markers below are the rewrite anchors; keep one dep per marked line.
+  zeromqVersion = "6.5.0"; # @ci:npm-version zeromq
+  cmakeTsVersion = "1.0.2"; # @ci:npm-version cmake-ts
+  photonVersion = "0.3.4"; # @ci:npm-version @silvia-odwyer/photon-node
+  undiciVersion = "7.28.0"; # @ci:npm-version undici
+
   zeromqSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/zeromq/-/zeromq-6.5.0.tgz";
-    hash = "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM=";
+    url = "https://registry.npmjs.org/zeromq/-/zeromq-${zeromqVersion}.tgz";
+    hash = "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM="; # @ci:npm-hash zeromq
   };
   # zeromq's load-addon.js does require("cmake-ts/build/loader"); cmake-ts is a runtime dep absent from its tarball.
   cmakeTsSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/cmake-ts/-/cmake-ts-1.0.2.tgz";
-    hash = "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac=";
+    url = "https://registry.npmjs.org/cmake-ts/-/cmake-ts-${cmakeTsVersion}.tgz";
+    hash = "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac="; # @ci:npm-hash cmake-ts
   };
   photonSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-0.3.4.tgz";
-    hash = "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8=";
+    url = "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-${photonVersion}.tgz";
+    hash = "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8="; # @ci:npm-hash @silvia-odwyer/photon-node
   };
   # cli-main dynamically imports "undici" (kept external from the esbuild bundle); it has no runtime deps.
   undiciSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/undici/-/undici-7.28.0.tgz";
-    hash = "sha256-j0xXiurS8I7UkOHltqn6o6ndDs4igkAAE0A3VPRxa9c=";
+    url = "https://registry.npmjs.org/undici/-/undici-${undiciVersion}.tgz";
+    hash = "sha256-j0xXiurS8I7UkOHltqn6o6ndDs4igkAAE0A3VPRxa9c="; # @ci:npm-hash undici
   };
 
   # zeromq ships prebuilt N-API addons for every platform; keep only the host os/arch and drop the musl
@@ -50,7 +56,7 @@ let
   # consumer only copies a ready addon — isolates the ELF handling and keeps prime-agent a pure assembly.
   zeromqAddon = stdenv.mkDerivation {
     pname = "zeromq-node-addon";
-    version = "6.5.0";
+    version = zeromqVersion;
     src = zeromqSrc;
 
     nativeBuildInputs = lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
@@ -99,7 +105,10 @@ let
   };
 
   # PRIME_AGENT_KERNEL_PYTHON is validated against ipykernel + rlm + every DEFAULT_RLM_EXTRA_PACKAGES;
-  # a missing package makes the agent fall back to the uv/network venv path.
+  # a missing package makes the agent fall back to the uv/network venv path. pip->nixpkgs attr names aren't
+  # 1:1, so this list can't be auto-generated; fix-nix-hashes.yml fails a bump if upstream's uvArg set (+ dill
+  # via STATE_SNAPSHOT_REQUIREMENT) drifts from the pinned manifest below, forcing a hand refresh here.
+  # @ci:rlm-extra-packages beautifulsoup4 httpx lxml numpy pandas pydantic python-dotenv pyyaml requests scipy tomli tyro
   kernelPython = py.withPackages (ps: [
     rlm
     tyro
