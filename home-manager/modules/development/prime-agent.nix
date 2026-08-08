@@ -10,6 +10,12 @@ let
   stdenv = pkgs.stdenvNoCC;
   hp = stdenv.hostPlatform;
 
+  platforms = [
+    "aarch64-darwin"
+    "x86_64-linux"
+    "aarch64-linux"
+  ];
+
   # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
   version = "0.7.1";
 
@@ -18,34 +24,62 @@ let
     hash = "sha256-o0zZuv+Xam0BNn112wkDP7SfDh24VfMMBJKSLBynIAI="; # @ci:src-hash-prime-agent
   };
 
-  # The bundle keeps native deps external; only these artifacts are needed at runtime (not in the release tarball).
+  # These native/runtime deps are external to the esbuild bundle and absent from the release tarball.
+  # Their versions are pinned to prime-agent's own package-lock (the bundle is built against them) — resync from
+  # https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${version}/package-lock.json on a prime-agent bump.
   zeromqSrc = pkgs.fetchzip {
     url = "https://registry.npmjs.org/zeromq/-/zeromq-6.5.0.tgz";
-    hash = "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM="; # @ci:src-hash-zeromq
+    hash = "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM=";
   };
   # zeromq's load-addon.js does require("cmake-ts/build/loader"); cmake-ts is a runtime dep absent from its tarball.
   cmakeTsSrc = pkgs.fetchzip {
     url = "https://registry.npmjs.org/cmake-ts/-/cmake-ts-1.0.2.tgz";
-    hash = "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac="; # @ci:src-hash-cmake-ts
+    hash = "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac=";
   };
   photonSrc = pkgs.fetchzip {
     url = "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-0.3.4.tgz";
-    hash = "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8="; # @ci:src-hash-photon
+    hash = "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8=";
   };
   # cli-main dynamically imports "undici" (kept external from the esbuild bundle); it has no runtime deps.
   undiciSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/undici/-/undici-7.29.0.tgz";
-    hash = "sha256-xtWGZuAjA6c8p3EjgweXN6Au1sMLg9JZOKPXNFCMIjs="; # @ci:src-hash-undici
+    url = "https://registry.npmjs.org/undici/-/undici-7.28.0.tgz";
+    hash = "sha256-j0xXiurS8I7UkOHltqn6o6ndDs4igkAAE0A3VPRxa9c=";
   };
 
-  # python311 is eval-broken in current nixpkgs (sphinx via stack-data); 3.12 satisfies rlm's requires-python>=3.10.
+  # zeromq ships prebuilt N-API addons for every platform; keep only the host os/arch and drop the musl
+  # variants (autoPatchelfHook can't resolve musl's libc on a glibc stdenv). Patched writable here so the
+  # consumer only copies a ready addon — isolates the ELF handling and keeps prime-agent a pure assembly.
+  zeromqAddon = stdenv.mkDerivation {
+    pname = "zeromq-node-addon";
+    version = "6.5.0";
+    src = zeromqSrc;
+
+    nativeBuildInputs = lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
+    buildInputs = lib.optionals hp.isElf [ pkgs.stdenv.cc.cc.lib ];
+
+    strictDeps = true;
+    dontConfigure = true;
+    dontBuild = true;
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out
+      cp -r build lib package.json $out/
+      chmod -R u+w $out/build
+      find $out/build -mindepth 1 -maxdepth 1 -type d ! -name '${hp.node.platform}' -exec rm -rf {} +
+      find $out/build/${hp.node.platform} -mindepth 1 -maxdepth 1 -type d ! -name '${hp.node.arch}' -exec rm -rf {} +
+      find $out/build -type d -name 'musl-*-Release' -prune -exec rm -rf {} +
+      runHook postInstall
+    '';
+  };
+
+  # python311 is eval-broken here: ipykernel -> ipython -> sphinx-9.1.0 (unsupported on 3.11); 3.12 satisfies rlm's requires-python>=3.10.
   py = pkgs.python312;
   # tyro's own bash-completion tests flake building from source on aarch64-darwin; we only consume the library.
   tyro = py.pkgs.tyro.overridePythonAttrs (_: {
     doCheck = false;
   });
-  # scipy's stats test suite has a flaky Hypothesis property test (test_support_moments_sample,
-  # ~2e-9 tolerance drift) building from source on aarch64-darwin; we only consume the library.
+  # scipy's stats suite has a flaky Hypothesis property test (~2e-9 drift) building from source on aarch64-darwin.
   scipy = py.pkgs.scipy.overridePythonAttrs (_: {
     doCheck = false;
   });
@@ -85,11 +119,7 @@ let
     ps.pydantic
   ]);
 
-  supported = builtins.elem hp.system [
-    "aarch64-darwin"
-    "x86_64-linux"
-    "aarch64-linux"
-  ];
+  supported = builtins.elem hp.system platforms;
 
   primeAgentPackage =
     if !supported then
@@ -99,13 +129,9 @@ let
         pname = "prime-agent";
         inherit version src;
 
-        nativeBuildInputs = [
-          pkgs.makeBinaryWrapper
-        ]
-        ++ lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
+        nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
 
-        buildInputs = lib.optionals hp.isElf [ pkgs.stdenv.cc.cc.lib ];
-
+        strictDeps = true;
         dontConfigure = true;
         dontBuild = true;
 
@@ -114,13 +140,13 @@ let
 
           mkdir -p $out/lib/prime-agent
           cp -r dist docs skills $out/lib/prime-agent/
-          # The CLI's getPackageDir() walks up from dist/bundle looking for the dir that
-          # contains package.json (to read version + piConfig); ship it at the package root.
+          # The CLI's getPackageDir() walks up from dist/bundle for the dir that holds package.json
+          # (to read version + piConfig); ship it at the package root.
           cp package.json $out/lib/prime-agent/
 
           nm=$out/lib/prime-agent/node_modules
-          mkdir -p "$nm/zeromq" "$nm/cmake-ts" "$nm/@silvia-odwyer/photon-node" "$nm/undici"
-          cp -r ${zeromqSrc}/build ${zeromqSrc}/lib ${zeromqSrc}/package.json "$nm/zeromq/"
+          mkdir -p "$nm/cmake-ts" "$nm/@silvia-odwyer/photon-node" "$nm/undici"
+          cp -r ${zeromqAddon} "$nm/zeromq"
           cp -r ${cmakeTsSrc}/. "$nm/cmake-ts/"
           cp -r ${photonSrc}/. "$nm/@silvia-odwyer/photon-node/"
           cp -r ${undiciSrc}/. "$nm/undici/"
@@ -146,17 +172,19 @@ let
         doInstallCheck = true;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
+        # Exercise the real runtime plumbing versionCheckHook misses: load the native zeromq addon
+        # (also validates cmake-ts + the ELF patch) and the kernel interpreter's import surface.
+        preInstallCheck = ''
+          ( cd $out/lib/prime-agent && ${lib.getExe pkgs.nodejs_22} -e 'require("zeromq")' )
+          ${kernelPython}/bin/python3 -c 'import rlm, ipykernel'
+        '';
 
         meta = {
           description = "Prime Agent: self-improving RLM coding and research agent";
           homepage = "https://github.com/PrimeIntellect-ai/prime-agent";
           license = lib.licenses.mit;
           mainProgram = "prime-agent";
-          platforms = [
-            "aarch64-darwin"
-            "x86_64-linux"
-            "aarch64-linux"
-          ];
+          inherit platforms;
           sourceProvenance = with lib.sourceTypes; [
             binaryBytecode
             binaryNativeCode
