@@ -15,6 +15,7 @@
     ./opencode.nix
     ./openspec.nix
     ./pi.nix
+    ./prime-agent.nix
     ./qmd.nix
   ];
 }
