@@ -24,9 +24,8 @@ let
     hash = "sha256-o0zZuv+Xam0BNn112wkDP7SfDh24VfMMBJKSLBynIAI="; # @ci:src-hash-prime-agent
   };
 
-  # These native/runtime deps are external to the esbuild bundle and absent from the release tarball.
-  # Their versions are pinned to prime-agent's own package-lock (the bundle is built against them) — resync from
-  # https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${version}/package-lock.json on a prime-agent bump.
+  # Native/runtime deps external to the esbuild bundle, absent from the tarball; pinned to prime-agent's package-lock.
+  # Resync from raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v<version>/package-lock.json on a bump.
   zeromqSrc = pkgs.fetchzip {
     url = "https://registry.npmjs.org/zeromq/-/zeromq-6.5.0.tgz";
     hash = "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM=";
@@ -79,7 +78,7 @@ let
   tyro = py.pkgs.tyro.overridePythonAttrs (_: {
     doCheck = false;
   });
-  # scipy's stats suite has a flaky Hypothesis property test (~2e-9 drift) building from source on aarch64-darwin.
+  # scipy's stats suite has a flaky Hypothesis property test (~2e-9 drift) building from source on aarch64-darwin; we only consume the library.
   scipy = py.pkgs.scipy.overridePythonAttrs (_: {
     doCheck = false;
   });
