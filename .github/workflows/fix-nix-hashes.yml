@@ -6,6 +6,7 @@ on:
     paths:
       - "home-manager/modules/development/pi.nix"
       - "home-manager/modules/development/omp.nix"
+      - "home-manager/modules/development/prime-agent.nix"
 
 permissions:
   contents: write
@@ -40,9 +41,12 @@ jobs:
           if git diff "origin/$BASE_REF" --name-only | grep -q 'home-manager/modules/development/omp.nix'; then
             echo "omp=true" >> "$GITHUB_OUTPUT"
           fi
+          if git diff "origin/$BASE_REF" --name-only | grep -q 'home-manager/modules/development/prime-agent.nix'; then
+            echo "prime_agent=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Nix
-        if: steps.detect.outputs.pi == 'true' || steps.detect.outputs.omp == 'true'
+        if: steps.detect.outputs.pi == 'true' || steps.detect.outputs.omp == 'true' || steps.detect.outputs.prime_agent == 'true'
         uses: nixbuild/nix-quick-install-action@v35
         with:
           nix_conf: |
@@ -104,16 +108,32 @@ jobs:
             awk -v h="$HASH" '/@ci:src-hash-'"$key"'$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$OMP_NIX" > "$OMP_NIX.tmp" && mv "$OMP_NIX.tmp" "$OMP_NIX"
           done
 
+      - name: Update prime-agent hash
+        if: steps.detect.outputs.prime_agent == 'true'
+        env:
+          PA_NIX: home-manager/modules/development/prime-agent.nix
+        run: |
+          set -euo pipefail
+
+          VERSION=$(grep -A1 '# renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent' "$PA_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
+          [[ -n "$VERSION" ]] || { echo "::error::Failed to extract prime-agent version from $PA_NIX (renovate marker missing?)"; exit 1; }
+
+          URL="https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${VERSION}/prime-agent-${VERSION}.tgz"
+          HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
+          [[ "$HASH" == sha256-* ]] || { echo "::error::Invalid prime-agent hash: $HASH"; exit 1; }
+          awk -v h="$HASH" '/@ci:src-hash-prime-agent$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
+
       - name: Commit hash fixes
         env:
           PI_NIX: home-manager/modules/development/pi.nix
           PI_LOCK: home-manager/modules/development/pi-package-lock.json
           OMP_NIX: home-manager/modules/development/omp.nix
+          PA_NIX: home-manager/modules/development/prime-agent.nix
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$PI_NIX" "$PI_LOCK" "$OMP_NIX"
+          git add "$PI_NIX" "$PI_LOCK" "$OMP_NIX" "$PA_NIX"
           if ! git diff --cached --quiet; then
             git commit -m "fix: update nix hashes for version bump"
             git push

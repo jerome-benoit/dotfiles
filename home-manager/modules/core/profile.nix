@@ -46,6 +46,7 @@ let
       openclaw = false;
       openspec = true;
       pi = true;
+      prime-agent = true;
       qmd = true;
     };
 
