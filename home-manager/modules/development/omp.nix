@@ -14,7 +14,7 @@ let
   platformKey = "${hp.node.platform}-${hp.node.arch}";
 
   # renovate: datasource=github-releases depName=can1357/oh-my-pi
-  version = "17.2.11";
+  version = "17.2.12";
 
   hashes = {
     "linux-x64" = "sha256-uGTV7FkTN2G5Wzh60oN3pU2lRZtaqn5aNOgrBZU1C6M="; # @ci:src-hash-linux-x64
