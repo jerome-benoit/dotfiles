@@ -1482,7 +1482,7 @@ index ebc0e59607..288a2ff44f 100644
      }
  
 diff --git a/src/server/api/sessions.rs b/src/server/api/sessions.rs
-index 96aab66c08..7e124314f0 100644
+index 96aab66c08..3ff7305f0f 100644
 --- a/src/server/api/sessions.rs
 +++ b/src/server/api/sessions.rs
 @@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
@@ -2096,7 +2096,7 @@ index 96aab66c08..7e124314f0 100644
 +                }
 +                crate::session::claim::RestoreCommit::Superseded => {
 +                    Err(RestoreTransitionError::Busy(
-+                        "busy with a newer lifecycle generation".to_string(),
++                        crate::session::NEWER_GENERATION_BUSY_REASON.to_string(),
 +                    ))
 +                }
 +                crate::session::claim::RestoreCommit::AlreadyGone => {
@@ -7988,7 +7988,7 @@ index cb63c303da..4d3c7734e8 100644
      }
  }
 diff --git a/src/session/deletion.rs b/src/session/deletion.rs
-index e43eef2340..f49bf789f6 100644
+index e43eef2340..5ffc325be4 100644
 --- a/src/session/deletion.rs
 +++ b/src/session/deletion.rs
 @@ -2,11 +2,15 @@
@@ -8123,7 +8123,7 @@ index e43eef2340..f49bf789f6 100644
 +                    let retained = instances.iter().find(|instance| instance.id == id).cloned();
 +                    rejected = Some((
 +                        DeletionDisposition::Busy,
-+                        format!("Session lifecycle operation {holder:?} is already in progress"),
++                        format!("Session {}", holder.already_in_progress_reason()),
 +                        retained,
 +                    ));
 +                    return Ok(());
@@ -9963,7 +9963,7 @@ index 783c8ecbbc..f85301d7be 100644
      }
  
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index bb52fbb78c..c8483081a6 100644
+index bb52fbb78c..1569416cd1 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -3,6 +3,7 @@
@@ -10032,7 +10032,7 @@ index bb52fbb78c..c8483081a6 100644
  
  #[derive(Debug, Clone, Serialize, Deserialize)]
  pub struct TerminalInfo {
-@@ -510,51 +541,59 @@ pub enum SessionBucket {
+@@ -510,51 +541,60 @@ pub enum SessionBucket {
      Trashed,
  }
  
@@ -10094,7 +10094,13 @@ index bb52fbb78c..c8483081a6 100644
 +    pub(crate) fn busy_reason(self) -> String {
 +        format!("busy with lifecycle operation {self:?}")
 +    }
++
++    pub(crate) fn already_in_progress_reason(self) -> String {
++        format!("lifecycle operation {self:?} is already in progress")
++    }
 +}
++
++pub(crate) const NEWER_GENERATION_BUSY_REASON: &str = "busy with a newer lifecycle generation";
 +
 +#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 +pub enum LifecycleReservationError {
@@ -10105,12 +10111,7 @@ index bb52fbb78c..c8483081a6 100644
 +impl std::fmt::Display for LifecycleReservationError {
 +    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 +        match self {
-+            Self::Busy(operation) => {
-+                write!(
-+                    f,
-+                    "lifecycle operation {operation:?} is already in progress"
-+                )
-+            }
++            Self::Busy(operation) => f.write_str(&operation.already_in_progress_reason()),
 +            Self::GenerationOverflow => f.write_str("lifecycle generation overflow"),
 +        }
 +    }
@@ -10127,7 +10128,7 @@ index bb52fbb78c..c8483081a6 100644
      pub at: DateTime<Utc>,
  }
  
-@@ -719,21 +758,15 @@ pub struct Instance {
+@@ -719,21 +759,15 @@ pub struct Instance {
      #[serde(default, skip_serializing_if = "Option::is_none")]
      pub pre_trash_project_path: Option<String>,
  
@@ -10157,7 +10158,7 @@ index bb52fbb78c..c8483081a6 100644
  
      /// Namespaced per-session plugin data, keyed by plugin id. Each plugin
      /// owns only its own slot (`plugin_meta["<id>"]`), an opaque JSON value it
-@@ -829,6 +862,14 @@ pub struct Instance {
+@@ -829,6 +863,14 @@ pub struct Instance {
          deserialize_with = "deserialize_session_id"
      )]
      pub agent_session_id: Option<String>,
@@ -10172,25 +10173,25 @@ index bb52fbb78c..c8483081a6 100644
  
      /// Durable loop-breaker for ambiguous resume-probe failures. When this
      /// equals `agent_session_id`, startup recovery skips automatic resume so a
-@@ -1006,20 +1047,16 @@ pub struct Instance {
+@@ -1006,20 +1048,16 @@ pub struct Instance {
      #[serde(skip)]
      pub unknown_since: Option<std::time::Instant>,
  
 -    /// `KEY=VALUE` pairs minted by `host_hooks.before_session` for the launch
 -    /// currently being assembled, for host (non-sandboxed) sessions only.
-+    /// Runtime-only `KEY=VALUE` pairs minted by
-+    /// `host_hooks.before_session` for the host launch currently being
-+    /// assembled. They are appended after resolved static profile values in
-+    /// the protected one-shot pane environment file, so minted values win
-+    /// without entering tmux argv, pane metadata, or session environment.
-     ///
+-    ///
 -    /// Populated by [`Instance::mint_host_session_env`] at the top of the launch
 -    /// path and consumed twice: [`Instance::build_host_command`] drops any
 -    /// same-keyed static `environment` entry from the pane's shell-assignment
 -    /// prefix (a prefix assignment would otherwise shadow the inherited value),
 -    /// and the launch site passes it to `tmux new-session -e` so the value
 -    /// reaches the pane without ever entering argv.
--    ///
++    /// Runtime-only `KEY=VALUE` pairs minted by
++    /// `host_hooks.before_session` for the host launch currently being
++    /// assembled. They are appended after resolved static profile values in
++    /// the protected one-shot pane environment file, so minted values win
++    /// without entering tmux argv, pane metadata, or session environment.
+     ///
 -    /// `#[serde(skip)]` is intentional and load-bearing: these values are
 -    /// secrets with a short lifetime, so persisting them to the session store
 -    /// would both leak them to disk and let a stale value be replayed on a later
@@ -10202,7 +10203,7 @@ index bb52fbb78c..c8483081a6 100644
      #[serde(skip)]
      pending_host_env: Vec<(String, String)>,
  
-@@ -1254,6 +1291,45 @@ pub(crate) fn persist_session_to_storage(
+@@ -1254,6 +1292,45 @@ pub(crate) fn persist_session_to_storage(
      session_id: &str,
      expected_prior: Option<&str>,
      file_watch: &std::sync::Arc<crate::file_watch::FileWatchService>,
@@ -10248,7 +10249,7 @@ index bb52fbb78c..c8483081a6 100644
  ) -> SidWrite {
      if !is_valid_session_id(session_id) {
          tracing::warn!(target: "session.store",
-@@ -1297,6 +1373,15 @@ pub(crate) fn persist_session_to_storage(
+@@ -1297,6 +1374,15 @@ pub(crate) fn persist_session_to_storage(
                      return Ok(SidWrite::Skipped);
                  }
              }
@@ -10264,7 +10265,7 @@ index bb52fbb78c..c8483081a6 100644
              if inst.agent_session_id.as_deref() != expected_prior {
                  tracing::warn!(target: "session.store",
                      instance_id = %instance_id,
-@@ -1382,6 +1467,7 @@ fn tmux_env_session_name_for_instance_id(instance_id: &str) -> Option<String> {
+@@ -1382,6 +1468,7 @@ fn tmux_env_session_name_for_instance_id(instance_id: &str) -> Option<String> {
  #[derive(Debug, Clone, PartialEq, Eq)]
  pub(crate) struct PassiveStatusPatch {
      pub status: Status,
@@ -10272,7 +10273,7 @@ index bb52fbb78c..c8483081a6 100644
      pub idle_entered_at: Option<DateTime<Utc>>,
      /// `None` when the source `Instance` was never touched by a user
      /// (`last_accessed_at` itself `None`); must stay `None` in that case
-@@ -1399,6 +1485,7 @@ impl PassiveStatusPatch {
+@@ -1399,6 +1486,7 @@ impl PassiveStatusPatch {
      pub(crate) fn from_instance(inst: &Instance) -> Self {
          Self {
              status: inst.status,
@@ -10280,7 +10281,7 @@ index bb52fbb78c..c8483081a6 100644
              idle_entered_at: inst.idle_entered_at,
              last_accessed_at: inst.last_accessed_at,
          }
-@@ -1432,7 +1519,7 @@ impl Instance {
+@@ -1432,7 +1520,7 @@ impl Instance {
              pinned_at: None,
              trashed_at: None,
              pre_trash_project_path: None,
@@ -10289,7 +10290,7 @@ index bb52fbb78c..c8483081a6 100644
              plugin_meta: std::collections::BTreeMap::new(),
              created_by_plugin: None,
              plugin_create_idempotency: None,
-@@ -1446,6 +1533,8 @@ impl Instance {
+@@ -1446,6 +1534,8 @@ impl Instance {
              sandbox_info: None,
              terminal_info: None,
              agent_session_id: None,
@@ -10298,7 +10299,7 @@ index bb52fbb78c..c8483081a6 100644
              resume_probe_failed_sid: None,
              resume_intent: ResumeIntent::Default,
              force_fresh_next_launch: false,
-@@ -1590,10 +1679,19 @@ impl Instance {
+@@ -1590,10 +1680,19 @@ impl Instance {
          self.is_idle_dormant() && self.status != Status::Stopped
      }
  
@@ -10321,7 +10322,7 @@ index bb52fbb78c..c8483081a6 100644
          self.status = src.status;
          self.sandbox_info = src.sandbox_info.clone();
      }
-@@ -1602,26 +1700,41 @@ impl Instance {
+@@ -1602,26 +1701,41 @@ impl Instance {
      /// copied only when the sid still matches so peer poller writes that land
      /// between phase 2 and phase 3 of the restart remain authoritative.
      pub fn merge_post_restart(&mut self, src: &Self) {
@@ -10370,7 +10371,7 @@ index bb52fbb78c..c8483081a6 100644
              self.resume_probe_failed_sid = src.resume_probe_failed_sid.clone();
          }
      }
-@@ -1663,13 +1776,17 @@ impl Instance {
+@@ -1663,13 +1777,17 @@ impl Instance {
          // rewrites the runtime field it observes before reading
          // (`pane_dead_observed` is rewritten by the TUI's status poller
          // before its TUI-only consumers read).
@@ -10390,7 +10391,7 @@ index bb52fbb78c..c8483081a6 100644
          disk.source_profile = std::mem::take(&mut self.source_profile);
          disk.ever_confirmed_present = self.ever_confirmed_present;
          disk.unknown_since = self.unknown_since;
-@@ -1731,6 +1848,32 @@ impl Instance {
+@@ -1731,6 +1849,32 @@ impl Instance {
          }
      }
  
@@ -10423,7 +10424,7 @@ index bb52fbb78c..c8483081a6 100644
      /// Splice TUI-mirrored, persisted fields from `src` onto `self`. Used by
      /// `HomeView::save` for fields the TUI is the canonical disk writer of
      /// (the daemon's `status_poll_loop` keeps these in memory only). The
-@@ -1741,9 +1884,12 @@ impl Instance {
+@@ -1741,9 +1885,12 @@ impl Instance {
      /// are NOT here; they go through `apply_user_action` per-action so peer
      /// writers (CLI) cannot be clobbered by a stale TUI snapshot.
      pub fn merge_from_tui(&mut self, src: &Self) {
@@ -10439,7 +10440,7 @@ index bb52fbb78c..c8483081a6 100644
          // Launch-config fields are TUI-authoritative and only mutated after
          // creation by the restart dialog (engine / command / args swap). They
          // have no peer writer, so a plain copy is safe. Syncing them here is
-@@ -1765,11 +1911,9 @@ impl Instance {
+@@ -1765,11 +1912,9 @@ impl Instance {
      /// poller-produced patch loses to a newer explicit user touch instead of
      /// racing it.
      ///
@@ -10454,7 +10455,7 @@ index bb52fbb78c..c8483081a6 100644
      ///
      /// The `>=` guard on `last_accessed_at` compares `chrono::Utc::now()`
      /// values, which delegate to `SystemTime::now()` (wall clock, not
-@@ -1784,6 +1928,17 @@ impl Instance {
+@@ -1784,6 +1929,17 @@ impl Instance {
      /// Callers relying on the observable `last_accessed_at` change must
      /// re-read the field after `merge_passive_status_patch` returns.
      pub(crate) fn merge_passive_status_patch(&mut self, id: &str, patch: &PassiveStatusPatch) {
@@ -10472,7 +10473,7 @@ index bb52fbb78c..c8483081a6 100644
          self.status = patch.status;
          self.idle_entered_at = patch.idle_entered_at;
          let Some(incoming) = patch.last_accessed_at else {
-@@ -1866,13 +2021,9 @@ impl Instance {
+@@ -1866,13 +2022,9 @@ impl Instance {
          if pre.status != post.status {
              self.status = post.status;
          }
@@ -10489,7 +10490,7 @@ index bb52fbb78c..c8483081a6 100644
          self.last_accessed_at = self.last_accessed_at.max(post.last_accessed_at);
  
          let archived_changed = pre.archived_at != post.archived_at;
-@@ -1974,76 +2125,91 @@ impl Instance {
+@@ -1974,76 +2126,91 @@ impl Instance {
          self.trashed_at.is_some()
      }
  
@@ -10509,15 +10510,15 @@ index bb52fbb78c..c8483081a6 100644
 -    /// fresh `Trash` claim being seized by a purge or restore; returns
 -    /// `Err(holder)` when another operation holds a still-fresh claim that
 -    /// `want` may not seize.
-+    /// Acquire exclusive durable ownership of the next lifecycle generation.
-     ///
+-    ///
 -    /// Seizure order: `Trash` is the weakest claim. A teardown marks state,
 -    /// it does not gate user intent, so `Purge` and `Restore` take over a
 -    /// fresh `Trash` claim and the teardown yields via its pre-move re-check
 -    /// and the locked relocation commit. `Trash` itself never seizes a fresh
 -    /// `Purge` or `Restore` claim, and `Purge`/`Restore` still exclude each
 -    /// other as before.
--    ///
++    /// Acquire exclusive durable ownership of the next lifecycle generation.
+     ///
 -    /// Must be called inside a `Storage::update` closure so the check-and-set
 -    /// runs under the storage flock, the only cross-process serialization
 -    /// point. The whole destructive/irreversible phase (purge teardown, restore
@@ -10637,7 +10638,7 @@ index bb52fbb78c..c8483081a6 100644
              true
          } else {
              false
-@@ -2275,6 +2441,258 @@ impl Instance {
+@@ -2275,6 +2442,258 @@ impl Instance {
          super::profile_config::resolve_config_or_warn(&profile).environment
      }
  
@@ -10896,7 +10897,7 @@ index bb52fbb78c..c8483081a6 100644
      pub fn is_sub_session(&self) -> bool {
          self.parent_session_id.is_some()
      }
-@@ -2592,21 +3010,24 @@ impl Instance {
+@@ -2592,21 +3011,24 @@ impl Instance {
                  }
              }
              "omp" => {
@@ -10928,7 +10929,7 @@ index bb52fbb78c..c8483081a6 100644
                  }
              }
              "codex" => {
-@@ -2794,21 +3215,60 @@ impl Instance {
+@@ -2794,21 +3216,60 @@ impl Instance {
          if !self.tmux_alive_cached() {
              return;
          }
@@ -11000,7 +11001,7 @@ index bb52fbb78c..c8483081a6 100644
              self.resume_probe_failed_sid = None;
              tracing::info!(
                  target: "session.store",
-@@ -3106,24 +3566,20 @@ impl Instance {
+@@ -3106,24 +3567,20 @@ impl Instance {
              CONTAINER_TERMINAL_AUTODETECT_CMD,
          );
  
@@ -11033,7 +11034,7 @@ index bb52fbb78c..c8483081a6 100644
              )?;
              self.apply_container_terminal_tmux_options(index);
          }
-@@ -3195,6 +3651,137 @@ impl Instance {
+@@ -3195,6 +3652,137 @@ impl Instance {
      pub fn start(&mut self) -> Result<()> {
          self.start_with_size(None)
      }
@@ -11171,7 +11172,7 @@ index bb52fbb78c..c8483081a6 100644
  
      pub fn start_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
          self.start_with_size_opts(size, false).map(|_| ())
-@@ -3207,64 +3794,165 @@ impl Instance {
+@@ -3207,100 +3795,255 @@ impl Instance {
          size: Option<(u16, u16)>,
          skip_on_launch: bool,
      ) -> Result<LaunchSidOutcome> {
@@ -11294,6 +11295,7 @@ index bb52fbb78c..c8483081a6 100644
 -        let launch_sid = if is_existing {
 -            Some(
 -                self.agent_session_id
+-                    .clone()
 +    fn ensure_reservation_current(&self, storage: &super::storage::Storage) -> Result<()> {
 +        if self.reservation_is_current(storage)? {
 +            return Ok(());
@@ -11377,10 +11379,10 @@ index bb52fbb78c..c8483081a6 100644
 +        let launch_sid = if prepared.is_existing {
 +            Some(
 +                self.agent_session_id
-                     .clone()
++                    .clone()
                      .expect("existing launch command carries agent_session_id"),
              )
-@@ -3272,35 +3960,89 @@ impl Instance {
+         } else {
              None
          };
  
@@ -11487,7 +11489,7 @@ index bb52fbb78c..c8483081a6 100644
          );
  
          Ok(match launch_sid {
-@@ -3309,46 +4051,88 @@ impl Instance {
+@@ -3309,46 +4052,88 @@ impl Instance {
          })
      }
  
@@ -11607,7 +11609,7 @@ index bb52fbb78c..c8483081a6 100644
  
              let launch_cmd = self.get_launch_command();
              let base_cmd = if self.extra_args.is_empty() {
-@@ -3401,30 +4185,74 @@ impl Instance {
+@@ -3401,30 +4186,74 @@ impl Instance {
                  .sandbox_info
                  .as_ref()
                  .ok_or_else(|| anyhow::anyhow!("sandbox_info missing for sandboxed instance"))?;
@@ -11693,7 +11695,7 @@ index bb52fbb78c..c8483081a6 100644
      }
  
      /// Resolve on_launch hooks from the full config chain (global > profile > repo).
-@@ -3646,65 +4474,21 @@ impl Instance {
+@@ -3646,65 +4475,21 @@ impl Instance {
          }
      }
  
@@ -11769,7 +11771,7 @@ index bb52fbb78c..c8483081a6 100644
  
          if self.command.is_empty() {
              match crate::agents::get_agent(&self.tool) {
-@@ -3727,15 +4511,20 @@ impl Instance {
+@@ -3727,15 +4512,20 @@ impl Instance {
                      }
                      let is_existing = self.apply_session_flags(&mut cmd, "host agent");
                      apply_agent_launch_env(&mut cmd, agent);
@@ -11795,7 +11797,7 @@ index bb52fbb78c..c8483081a6 100644
              }
          } else {
              let mut cmd = self.command.clone();
-@@ -3749,12 +4538,17 @@ impl Instance {
+@@ -3749,12 +4539,17 @@ impl Instance {
              }
              let is_existing = self.apply_session_flags(&mut cmd, "host custom");
              apply_agent_launch_env(&mut cmd, agent);
@@ -11817,7 +11819,7 @@ index bb52fbb78c..c8483081a6 100644
              ))
          }
      }
-@@ -3766,7 +4560,29 @@ impl Instance {
+@@ -3766,7 +4561,29 @@ impl Instance {
          profile: &str,
          expected_prior_sid: Option<&str>,
          expected_prior_intent: ResumeIntent,
@@ -11847,7 +11849,7 @@ index bb52fbb78c..c8483081a6 100644
          let outcome = self.persist_session_id(profile, expected_prior_sid, expected_prior_intent);
  
          // Skip outcomes leave AOE_CAPTURED_SESSION_ID untouched: this path
-@@ -3783,7 +4599,7 @@ impl Instance {
+@@ -3783,7 +4600,7 @@ impl Instance {
              crate::tmux::env::AOE_INSTANCE_ID_KEY,
              &self.id,
          )];
@@ -11856,7 +11858,7 @@ index bb52fbb78c..c8483081a6 100644
              entries.push((
                  session_name,
                  crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
-@@ -3807,7 +4623,7 @@ impl Instance {
+@@ -3807,7 +4624,7 @@ impl Instance {
              }
          }
  
@@ -11865,7 +11867,7 @@ index bb52fbb78c..c8483081a6 100644
  
          self.status = Status::Starting;
          self.last_start_time = Some(std::time::Instant::now());
-@@ -3846,20 +4662,80 @@ impl Instance {
+@@ -3846,20 +4663,80 @@ impl Instance {
          }
      }
  
@@ -11960,7 +11962,7 @@ index bb52fbb78c..c8483081a6 100644
      fn persist_session_id(
          &mut self,
          profile: &str,
-@@ -4414,6 +5290,10 @@ impl Instance {
+@@ -4414,6 +5291,10 @@ impl Instance {
      }
  
      pub fn maybe_start_poller(&mut self) {
@@ -11971,7 +11973,7 @@ index bb52fbb78c..c8483081a6 100644
          if !self.supports_session_poller() {
              return;
          }
-@@ -4423,6 +5303,20 @@ impl Instance {
+@@ -4423,6 +5304,20 @@ impl Instance {
              .tmux_env_session_name()
              .or_else(|| self.tmux_session().ok().map(|s| s.name().to_string()))
              .unwrap_or_default();
@@ -11992,7 +11994,7 @@ index bb52fbb78c..c8483081a6 100644
          let mut poller = SessionPoller::new(tmux_session_name.clone());
          let instance_id = self.id.clone();
          let initial_known = self.agent_session_id.clone();
-@@ -4431,6 +5325,39 @@ impl Instance {
+@@ -4431,6 +5326,39 @@ impl Instance {
          // fresh poller starts, so the first immediate poll won't re-import the
          // invalidated sid.
          let extra_excludes = self.retroactive_capture_excludes.clone();
@@ -12032,7 +12034,7 @@ index bb52fbb78c..c8483081a6 100644
  
          let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
              "claude" => {
-@@ -4518,29 +5445,6 @@ impl Instance {
+@@ -4518,29 +5446,6 @@ impl Instance {
                      ))
                  }
              }
@@ -12062,7 +12064,7 @@ index bb52fbb78c..c8483081a6 100644
              "codex" => {
                  if self.is_sandboxed() {
                      let container_name = match self.sandbox_info.as_ref() {
-@@ -4660,6 +5564,31 @@ impl Instance {
+@@ -4660,6 +5565,31 @@ impl Instance {
          }
      }
  
@@ -12094,7 +12096,7 @@ index bb52fbb78c..c8483081a6 100644
      fn stop_poller(&self) {
          if let Some(ref poller_arc) = self.session_id_poller {
              match poller_arc.lock() {
-@@ -4668,6 +5597,74 @@ impl Instance {
+@@ -4668,6 +5598,74 @@ impl Instance {
              }
          }
      }
@@ -12169,7 +12171,7 @@ index bb52fbb78c..c8483081a6 100644
  
      pub fn restart_with_size(&mut self, size: Option<(u16, u16)>) -> Result<StartOutcome> {
          self.restart_with_size_opts(size, false)
-@@ -4687,7 +5684,7 @@ impl Instance {
+@@ -4687,7 +5685,7 @@ impl Instance {
      /// down. Caller is responsible for the subsequent
      /// `start_with_size_opts` to recreate the session with the agent
      /// command.
@@ -12178,7 +12180,7 @@ index bb52fbb78c..c8483081a6 100644
          let session = self.tmux_session()?;
          if !session.exists() {
              return Ok(());
-@@ -4712,11 +5709,34 @@ impl Instance {
+@@ -4712,11 +5710,34 @@ impl Instance {
          Ok(())
      }
  
@@ -12218,7 +12220,7 @@ index bb52fbb78c..c8483081a6 100644
      pub fn restart_with_size_opts(
          &mut self,
          size: Option<(u16, u16)>,
-@@ -4729,20 +5749,13 @@ impl Instance {
+@@ -4729,20 +5750,13 @@ impl Instance {
          )
      }
  
@@ -12241,7 +12243,7 @@ index bb52fbb78c..c8483081a6 100644
      }
  
      /// Settle-based pane probe used by the resume-fallback cascade.
-@@ -4836,160 +5849,147 @@ impl Instance {
+@@ -4836,160 +5850,147 @@ impl Instance {
          skip_on_launch: bool,
          resume_policy: ResumeAttemptPolicy,
      ) -> Result<StartOutcome> {
@@ -12378,12 +12380,12 @@ index bb52fbb78c..c8483081a6 100644
 +            Err(error) => {
 +                self.fail_reserved_launch(&storage, &error, false);
 +                return Err(error);
-+            }
+             }
 +        };
 +        let result = (|| {
 +            if restart {
 +                self.kill_clean_locked()?;
-             }
++            }
 +            let launch_outcome = self.spawn_prepared_launch(size, &profile, prepared)?;
 +            let outcome =
 +                self.finish_resume_launch(launch_outcome, skipped_failed_resume_sid, &profile)?;
@@ -12517,7 +12519,7 @@ index bb52fbb78c..c8483081a6 100644
          tracing::warn!(
              target: "session.store",
              "start: resume with sid {} for session {} crashed pane within probe; \
-@@ -4997,21 +5997,17 @@ impl Instance {
+@@ -4997,21 +5998,17 @@ impl Instance {
              stale_sid,
              self.id,
          );
@@ -12546,7 +12548,7 @@ index bb52fbb78c..c8483081a6 100644
              .with_context(|| format!("kill_clean before resume fallback for {}", self.id))?;
          self.status = Status::Error;
          self.last_error = Some(format!(
-@@ -5019,10 +6015,8 @@ impl Instance {
+@@ -5019,10 +6016,8 @@ impl Instance {
              stale_sid
          ));
          self.last_error_check = Some(std::time::Instant::now());
@@ -12557,7 +12559,7 @@ index bb52fbb78c..c8483081a6 100644
      /// Smart-send precondition: bring this session's tmux pane to a state
      /// where `send_keys_with_delay` is safe.
      ///
-@@ -5159,59 +6153,220 @@ impl Instance {
+@@ -5159,59 +6154,220 @@ impl Instance {
          }
      }
  
@@ -12814,7 +12816,7 @@ index bb52fbb78c..c8483081a6 100644
      }
  
      /// Update status using pre-fetched pane metadata to avoid per-instance
-@@ -5339,7 +6494,7 @@ impl Instance {
+@@ -5339,7 +6495,7 @@ impl Instance {
              return;
          }
  
@@ -12823,7 +12825,7 @@ index bb52fbb78c..c8483081a6 100644
              if let Some(last_check) = self.last_error_check {
                  if last_check.elapsed().as_secs() < 30 {
                      return;
-@@ -5556,8 +6711,14 @@ impl Instance {
+@@ -5556,8 +6712,14 @@ impl Instance {
                  return false;
              }
              let shell_check = metadata
@@ -12840,7 +12842,7 @@ index bb52fbb78c..c8483081a6 100644
                  .unwrap_or_else(|| session.is_pane_running_shell());
              tracing::trace!(target: "session.store",
                  "status '{}': is_shell_stale check: expects_shell={}, shell_check={}",
-@@ -5738,50 +6899,187 @@ fn apply_agent_launch_env(cmd: &mut String, agent: Option<&'static crate::agents
+@@ -5738,50 +6900,187 @@ fn apply_agent_launch_env(cmd: &mut String, agent: Option<&'static crate::agents
  /// so this reads the container's value, not the host's.
  const CONTAINER_TERMINAL_AUTODETECT_CMD: &str = r#"sh -c 'exec "$(command -v "$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f7)" 2>/dev/null || command -v "$SHELL" 2>/dev/null || command -v bash || command -v sh)" -l'"#;
  
@@ -13065,7 +13067,7 @@ index bb52fbb78c..c8483081a6 100644
  }
  
  fn resolve_detected_status(
-@@ -6744,9 +8042,528 @@ mod tests {
+@@ -6744,9 +8043,528 @@ mod tests {
          let mut disk2 = pre2.clone();
  
          disk2.merge_user_action_diff(&pre2, &post2);
@@ -13595,7 +13597,7 @@ index bb52fbb78c..c8483081a6 100644
  
      #[test]
      fn test_mark_idle_dormant_sets_marker() {
-@@ -6814,6 +8631,19 @@ mod tests {
+@@ -6814,6 +8632,19 @@ mod tests {
              Some("daemon-sid"),
              "peer-written sid must survive merge"
          );
@@ -13615,7 +13617,7 @@ index bb52fbb78c..c8483081a6 100644
      }
  
      #[test]
-@@ -6835,7 +8665,50 @@ mod tests {
+@@ -6835,7 +8666,50 @@ mod tests {
              Some("peer-fresh-sid"),
              "restart merge must not clobber peer sid write"
          );
@@ -13667,7 +13669,7 @@ index bb52fbb78c..c8483081a6 100644
      }
  
      #[test]
-@@ -7137,194 +9010,95 @@ mod tests {
+@@ -7137,194 +9011,95 @@ mod tests {
          assert!(back.is_trashed());
      }
  
@@ -13927,7 +13929,7 @@ index bb52fbb78c..c8483081a6 100644
      // A non-fork session omits fork_pending on the wire (skip_serializing_if),
      // so legacy sessions.json without the key deserializes to None and no
      // migration is needed. A seeded fork id round-trips.
-@@ -7478,6 +9252,7 @@ mod tests {
+@@ -7478,6 +9253,7 @@ mod tests {
  
          let now = Utc::now();
          let patch = PassiveStatusPatch {
@@ -13935,7 +13937,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: Some(now),
              last_accessed_at: Some(now),
-@@ -7494,6 +9269,18 @@ mod tests {
+@@ -7494,6 +9270,18 @@ mod tests {
          assert_eq!(disk.archived_at, before.archived_at);
          assert_eq!(disk.favorited_at, before.favorited_at);
          assert_eq!(disk.pinned_at, before.pinned_at);
@@ -13954,7 +13956,7 @@ index bb52fbb78c..c8483081a6 100644
      }
  
      #[test]
-@@ -7507,6 +9294,7 @@ mod tests {
+@@ -7507,6 +9295,7 @@ mod tests {
          disk.last_accessed_at = None;
  
          let patch = PassiveStatusPatch {
@@ -13962,7 +13964,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: Some(Utc::now()),
              last_accessed_at: None,
-@@ -7534,6 +9322,7 @@ mod tests {
+@@ -7534,6 +9323,7 @@ mod tests {
          disk.idle_entered_at = None;
  
          let stale_patch = PassiveStatusPatch {
@@ -13970,7 +13972,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: Some(peer_touch - chrono::Duration::minutes(5)),
              last_accessed_at: Some(peer_touch - chrono::Duration::minutes(5)),
-@@ -7564,6 +9353,7 @@ mod tests {
+@@ -7564,6 +9354,7 @@ mod tests {
          disk.last_accessed_at = Some(ts);
  
          let patch = PassiveStatusPatch {
@@ -13978,7 +13980,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(ts),
-@@ -7609,6 +9399,7 @@ mod tests {
+@@ -7609,6 +9400,7 @@ mod tests {
          disk.last_accessed_at = Some(ts);
  
          let patch = PassiveStatusPatch {
@@ -13986,7 +13988,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(ts),
-@@ -7642,6 +9433,7 @@ mod tests {
+@@ -7642,6 +9434,7 @@ mod tests {
          disk.last_accessed_at = Some(older);
  
          let patch = PassiveStatusPatch {
@@ -13994,7 +13996,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(newer),
-@@ -7663,6 +9455,7 @@ mod tests {
+@@ -7663,6 +9456,7 @@ mod tests {
  
          let newer = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14002,7 +14004,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(newer),
-@@ -7681,6 +9474,7 @@ mod tests {
+@@ -7681,6 +9475,7 @@ mod tests {
  
          let ts = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14010,7 +14012,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(ts),
-@@ -7695,6 +9489,7 @@ mod tests {
+@@ -7695,6 +9490,7 @@ mod tests {
          let mut disk = Instance::new("session", "/tmp/test");
          let ts = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14018,7 +14020,7 @@ index bb52fbb78c..c8483081a6 100644
              status: Status::Idle,
              idle_entered_at: Some(ts),
              last_accessed_at: Some(ts),
-@@ -7716,6 +9511,7 @@ mod tests {
+@@ -7716,6 +9512,7 @@ mod tests {
          disk.merge_passive_status_patch(
              &disk.id.clone(),
              &PassiveStatusPatch {
@@ -14026,7 +14028,7 @@ index bb52fbb78c..c8483081a6 100644
                  status: Status::Running,
                  idle_entered_at: None,
                  last_accessed_at: Some(t0),
-@@ -7724,6 +9520,7 @@ mod tests {
+@@ -7724,6 +9521,7 @@ mod tests {
          disk.merge_passive_status_patch(
              &disk.id.clone(),
              &PassiveStatusPatch {
@@ -14034,7 +14036,7 @@ index bb52fbb78c..c8483081a6 100644
                  status: Status::Idle,
                  idle_entered_at: Some(t1),
                  last_accessed_at: Some(t1),
-@@ -8179,8 +9976,19 @@ mod tests {
+@@ -8179,8 +9977,19 @@ mod tests {
              eprintln!("tmux not available; skipping");
              return;
          }
@@ -14054,7 +14056,7 @@ index bb52fbb78c..c8483081a6 100644
          let created_name = crate::tmux::Session::generate_name(&inst.id, &inst.title);
          let _ = crate::tmux::tmux_command()
              .args(["kill-session", "-t", &created_name])
-@@ -8378,74 +10186,27 @@ mod tests {
+@@ -8378,74 +10187,27 @@ mod tests {
  
      #[test]
      fn test_yolo_envvar_survives_suspend_wrapper() {
@@ -14136,7 +14138,7 @@ index bb52fbb78c..c8483081a6 100644
          }
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8459,11 +10220,9 @@ mod tests {
+@@ -8459,11 +10221,9 @@ mod tests {
          let original = std::env::var("SHELL").ok();
          std::env::set_var("SHELL", "/bin/zsh");
          let wrapped = wrap_command_ignore_suspend("claude");
@@ -14150,7 +14152,7 @@ index bb52fbb78c..c8483081a6 100644
          );
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8477,17 +10236,11 @@ mod tests {
+@@ -8477,17 +10237,11 @@ mod tests {
          let original = std::env::var("SHELL").ok();
          std::env::set_var("SHELL", "/usr/bin/fish");
          let wrapped = wrap_command_ignore_suspend("claude");
@@ -14172,7 +14174,7 @@ index bb52fbb78c..c8483081a6 100644
          );
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8502,9 +10255,8 @@ mod tests {
+@@ -8502,9 +10256,8 @@ mod tests {
          std::env::set_var("SHELL", "/usr/bin/nu");
          let wrapped = wrap_command_ignore_suspend("claude");
          assert!(
@@ -14184,7 +14186,7 @@ index bb52fbb78c..c8483081a6 100644
          );
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -9332,7 +11084,7 @@ mod tests {
+@@ -9332,7 +11085,7 @@ mod tests {
      fn test_has_custom_command_unknown_tool() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "unknown_agent".to_string();
@@ -14193,7 +14195,7 @@ index bb52fbb78c..c8483081a6 100644
          assert!(inst.has_custom_command());
      }
  
-@@ -9373,6 +11125,302 @@ mod tests {
+@@ -9373,6 +11126,302 @@ mod tests {
          assert!(inst.has_custom_command());
      }
  
@@ -14496,7 +14498,7 @@ index bb52fbb78c..c8483081a6 100644
      #[test]
      fn test_expects_shell() {
          let mut inst = Instance::new("test", "/tmp/test");
-@@ -9403,8 +11451,8 @@ mod tests {
+@@ -9403,8 +11452,8 @@ mod tests {
      fn test_build_host_command_basic() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "codex".to_string();
@@ -14507,7 +14509,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          assert!(cmd.is_some());
          assert!(cmd.as_ref().unwrap().contains("codex"));
-@@ -9415,8 +11463,8 @@ mod tests {
+@@ -9415,8 +11464,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "codex".to_string();
          inst.yolo_mode = true;
@@ -14518,7 +14520,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          let agent = crate::agents::get_agent("codex").unwrap();
-@@ -9432,8 +11480,8 @@ mod tests {
+@@ -9432,8 +11481,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "claude".to_string();
          inst.agent_session_id = Some("ses_abc123def456".to_string());
@@ -14529,7 +14531,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          assert!(cmd_str.contains("ses_abc123def456"));
-@@ -9444,8 +11492,8 @@ mod tests {
+@@ -9444,8 +11493,8 @@ mod tests {
      fn test_build_host_command_antigravity_forces_color() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "antigravity".to_string();
@@ -14540,7 +14542,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9461,8 +11509,8 @@ mod tests {
+@@ -9461,8 +11510,8 @@ mod tests {
          // accepts chat-scoped flags. Bare `kiro-cli` rejects --trust-all-tools.
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "kiro".to_string();
@@ -14551,7 +14553,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          assert!(cmd.unwrap().contains("kiro-cli chat"));
      }
-@@ -9473,8 +11521,8 @@ mod tests {
+@@ -9473,8 +11522,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "kiro".to_string();
          inst.yolo_mode = true;
@@ -14562,7 +14564,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          let chat_pos = cmd_str
-@@ -9496,8 +11544,8 @@ mod tests {
+@@ -9496,8 +11545,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "kiro".to_string();
          inst.command = "kiro-cli chat --trust-all-tools".to_string();
@@ -14573,7 +14575,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          // Exactly one "chat" token (no doubled `chat chat`).
-@@ -9544,8 +11592,8 @@ mod tests {
+@@ -9544,8 +11593,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "antigravity".to_string();
          inst.command = "agy --some-flag".to_string();
@@ -14584,7 +14586,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9559,8 +11607,8 @@ mod tests {
+@@ -9559,8 +11608,8 @@ mod tests {
      fn test_build_host_command_codex_forces_color() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "codex".to_string();
@@ -14595,7 +14597,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9574,8 +11622,8 @@ mod tests {
+@@ -9574,8 +11623,8 @@ mod tests {
      fn test_build_host_command_color_env_is_limited_to_color_sensitive_agents() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "cursor".to_string();
@@ -14606,7 +14608,7 @@ index bb52fbb78c..c8483081a6 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9981,7 +12029,7 @@ mod tests {
+@@ -9981,7 +12030,7 @@ mod tests {
              let end = source.find("pub fn ensure_pane_ready").unwrap();
              let fallback_source = &source[start..end];
  
@@ -14615,7 +14617,7 @@ index bb52fbb78c..c8483081a6 100644
              assert!(fallback_source.contains("LaunchSidOutcome::Existing { sid }"));
              assert!(
                  !fallback_source.contains("should_attempt_resume(self.agent_session_id.as_deref()")
-@@ -9997,18 +12045,16 @@ mod tests {
+@@ -9997,18 +12046,16 @@ mod tests {
                  std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/session/instance.rs"),
              )
              .unwrap();
@@ -14637,7 +14639,7 @@ index bb52fbb78c..c8483081a6 100644
  
              assert!(local_marker < cleanup);
              assert!(persisted_marker < cleanup);
-@@ -12805,7 +14851,7 @@ mod tests {
+@@ -12805,7 +14852,7 @@ mod tests {
      }
  
      mod publish_captured_sid {
@@ -14646,7 +14648,7 @@ index bb52fbb78c..c8483081a6 100644
          use serial_test::serial;
          use std::collections::HashSet;
          use tempfile::{tempdir, TempDir};
-@@ -12912,6 +14958,70 @@ mod tests {
+@@ -12912,6 +14959,70 @@ mod tests {
                  })
                  .unwrap();
          }
@@ -14717,7 +14719,7 @@ index bb52fbb78c..c8483081a6 100644
  
          #[test]
          #[serial]
-@@ -12961,7 +15071,7 @@ mod tests {
+@@ -12961,7 +15072,7 @@ mod tests {
  
          #[test]
          #[serial]
@@ -14726,7 +14728,7 @@ index bb52fbb78c..c8483081a6 100644
              if skip_if_no_tmux() {
                  return;
              }
-@@ -12970,15 +15080,153 @@ mod tests {
+@@ -12970,15 +15081,153 @@ mod tests {
  
              let profile = "publish-applied";
              let mut inst = make_inst(profile, "fpaw");
@@ -14881,7 +14883,7 @@ index bb52fbb78c..c8483081a6 100644
          }
  
          #[test]
-@@ -12999,7 +15247,7 @@ mod tests {
+@@ -12999,7 +15248,7 @@ mod tests {
              let tmux = TmuxSession::create(&inst.id, &inst.title);
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -14890,7 +14892,7 @@ index bb52fbb78c..c8483081a6 100644
  
              assert_eq!(
                  captured_env(tmux.name()).as_deref(),
-@@ -13025,7 +15273,13 @@ mod tests {
+@@ -13025,7 +15274,13 @@ mod tests {
              let tmux = TmuxSession::create(&inst.id, &inst.title);
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -14905,7 +14907,7 @@ index bb52fbb78c..c8483081a6 100644
  
              assert_eq!(inst.agent_session_id.as_deref(), Some(PEER_SID));
              assert_eq!(captured_env(tmux.name()).as_deref(), Some(PEER_SID));
-@@ -13054,7 +15308,13 @@ mod tests {
+@@ -13054,7 +15309,13 @@ mod tests {
              .unwrap();
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -14920,7 +14922,7 @@ index bb52fbb78c..c8483081a6 100644
  
              assert!(inst.agent_session_id.is_none());
              assert!(captured_env(tmux.name()).is_none());
-@@ -13082,7 +15342,7 @@ mod tests {
+@@ -13082,7 +15343,7 @@ mod tests {
              .unwrap();
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -14929,7 +14931,7 @@ index bb52fbb78c..c8483081a6 100644
  
              assert_eq!(
                  captured_env(tmux.name()).as_deref(),
-@@ -13118,7 +15378,7 @@ mod tests {
+@@ -13118,7 +15379,7 @@ mod tests {
              .unwrap();
  
              inst.agent_session_id = Some("bad sid!".to_string());
@@ -14938,7 +14940,7 @@ index bb52fbb78c..c8483081a6 100644
  
              assert_eq!(
                  captured_env(tmux.name()).as_deref(),
-@@ -13144,7 +15404,7 @@ mod tests {
+@@ -13144,7 +15405,7 @@ mod tests {
              let tmux = TmuxSession::create(&inst.id, &inst.title);
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -14948,7 +14950,7 @@ index bb52fbb78c..c8483081a6 100644
              assert_eq!(inst.agent_session_id.as_deref(), Some(VALID_SID));
              assert_eq!(inst.resume_intent, ResumeIntent::Default);
 diff --git a/src/session/mod.rs b/src/session/mod.rs
-index ff3193f1ab..0007c6ff35 100644
+index ff3193f1ab..3e17741f04 100644
 --- a/src/session/mod.rs
 +++ b/src/session/mod.rs
 @@ -69,15 +69,17 @@ pub use groups::{
@@ -14969,7 +14971,7 @@ index ff3193f1ab..0007c6ff35 100644
 +};
 +pub(crate) use instance::{
 +    persist_omp_session_to_storage, persist_session_to_storage, PassiveStatusPatch, ResumeIntent,
-+    SidWrite,
++    SidWrite, NEWER_GENERATION_BUSY_REASON,
  };
 -pub(crate) use instance::{persist_session_to_storage, PassiveStatusPatch, ResumeIntent, SidWrite};
  
@@ -18731,7 +18733,7 @@ index 3e6e8f256f..a8be995b47 100644
          }
      }
 diff --git a/src/tui/home/operations.rs b/src/tui/home/operations.rs
-index 68bb580a65..e78d2d65c1 100644
+index 68bb580a65..520153c717 100644
 --- a/src/tui/home/operations.rs
 +++ b/src/tui/home/operations.rs
 @@ -1,7 +1,9 @@
@@ -19362,7 +19364,7 @@ index 68bb580a65..e78d2d65c1 100644
 -        Ok(crate::session::claim::RestoreCommit::PurgeStoleClaim) => {
 -            RestoreFromTrash::PurgeInProgress
 +        Ok(crate::session::claim::RestoreCommit::Superseded) => {
-+            RestoreFromTrash::Busy("busy with a newer lifecycle generation".to_string())
++            RestoreFromTrash::Busy(crate::session::NEWER_GENERATION_BUSY_REASON.to_string())
          }
          Ok(crate::session::claim::RestoreCommit::AlreadyGone) => RestoreFromTrash::AlreadyGone,
 -        Err(e) => {
