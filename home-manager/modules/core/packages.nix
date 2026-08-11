@@ -68,10 +68,10 @@ in
     ++ lib.optionals (isServer && isLinux) [
     ]
     ++ lib.optionals isDesktop [
+      pkgs.antigravity-cli
       pkgs.bruno
       pkgs.cloudfoundry-cli
       pkgs.codex
-      pkgs.gemini-cli
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nil
