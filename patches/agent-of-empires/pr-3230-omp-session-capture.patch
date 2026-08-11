@@ -7988,7 +7988,7 @@ index cb63c303d..4d3c7734e 100644
      }
  }
 diff --git a/src/session/deletion.rs b/src/session/deletion.rs
-index e43eef234..5ffc325be 100644
+index e43eef234..15d89db02 100644
 --- a/src/session/deletion.rs
 +++ b/src/session/deletion.rs
 @@ -2,11 +2,15 @@
@@ -8008,7 +8008,7 @@ index e43eef234..5ffc325be 100644
  
  pub struct DeletionRequest {
      pub session_id: String,
-@@ -26,12 +30,520 @@ pub struct DeletionRequest {
+@@ -26,12 +30,527 @@ pub struct DeletionRequest {
      pub keep_scratch: bool,
  }
  
@@ -8169,9 +8169,16 @@ index e43eef234..5ffc325be 100644
 +    }
 +
 +    /// Run best-effort hooks without a lifecycle or storage flock held.
-+    pub fn run_hooks(mut self) -> Self {
++    pub fn run_hooks(self) -> Self {
++        self.run_hooks_with(run_on_destroy_hooks)
++    }
++
++    fn run_hooks_with<F>(mut self, run_hooks: F) -> Self
++    where
++        F: FnOnce(&Instance, bool),
++    {
 +        self.lifecycle_lock = None;
-+        run_on_destroy_hooks(&self.request.instance, self.request.detach_hooks);
++        run_hooks(&self.request.instance, self.request.detach_hooks);
 +        self
 +    }
 +
@@ -8529,7 +8536,7 @@ index e43eef234..5ffc325be 100644
  }
  
  /// Whether `workspace_dir` has the workspace layout AoE creates and may
-@@ -71,12 +583,20 @@ fn is_protected_default_branch(main_repo: &Path, branch: &str) -> bool {
+@@ -71,12 +590,20 @@ fn is_protected_default_branch(main_repo: &Path, branch: &str) -> bool {
          .is_ok_and(|names| names.contains(branch))
  }
  
@@ -8550,7 +8557,7 @@ index e43eef234..5ffc325be 100644
  /// Core deletion routine, parameterized over how the sandbox container is torn
  /// down so the container-removal contract can be exercised without a live
  /// runtime.
-@@ -85,9 +605,18 @@ pub fn perform_deletion(request: &DeletionRequest) -> DeletionResult {
+@@ -85,9 +612,18 @@ pub fn perform_deletion(request: &DeletionRequest) -> DeletionResult {
  /// must be invoked unconditionally; it must not be gated behind a separate
  /// existence probe, whose transient failure would skip removal and orphan a
  /// live container.
@@ -8569,7 +8576,7 @@ index e43eef234..5ffc325be 100644
  ) -> DeletionResult {
      let mut errors = Vec::new();
      let mut messages = Vec::new();
-@@ -106,10 +635,8 @@ fn perform_deletion_with(
+@@ -106,10 +642,8 @@ fn perform_deletion_with(
          "perform_deletion: starting"
      );
  
@@ -8582,7 +8589,7 @@ index e43eef234..5ffc325be 100644
  
      // Stage 2: sever the live agent BEFORE we touch the working tree it
      // may be writing to. Killing the tmux session terminates the user's
-@@ -120,7 +647,11 @@ fn perform_deletion_with(
+@@ -120,7 +654,11 @@ fn perform_deletion_with(
      // first, container second, tmux last), which raced the in-container
      // agent and produced flaky deletions on Docker + worktree sessions.
      tracing::debug!(target: "session.delete", session_id = %request.session_id, stage = "tmux_kill", "perform_deletion: stage");
@@ -8595,7 +8602,7 @@ index e43eef234..5ffc325be 100644
  
      let is_sandboxed = request
          .instance
-@@ -154,6 +685,82 @@ fn perform_deletion_with(
+@@ -154,6 +692,82 @@ fn perform_deletion_with(
          &[]
      };
  
@@ -8678,7 +8685,7 @@ index e43eef234..5ffc325be 100644
      let mut preserved_worktree_paths: std::collections::HashSet<PathBuf> =
          std::collections::HashSet::new();
  
-@@ -240,37 +847,18 @@ fn perform_deletion_with(
+@@ -240,37 +854,18 @@ fn perform_deletion_with(
              }
          }
      }
@@ -8726,7 +8733,7 @@ index e43eef234..5ffc325be 100644
      // Stage 4: worktree cleanup. Container is gone, agent is gone, no
      // bind mount holds the directory open, and (for sandboxed sessions)
      // the preclean above wiped any root-owned files. Must happen
-@@ -510,7 +1098,13 @@ fn perform_deletion_with(
+@@ -510,7 +1105,13 @@ fn perform_deletion_with(
              }
          }
      }
@@ -8740,7 +8747,7 @@ index e43eef234..5ffc325be 100644
      // Scratch directory cleanup. Runs unconditionally for scratch sessions
      // regardless of `request.delete_worktree`, since the scratch directory
      // is the entire reason the session has any on-disk state. Skipped when
-@@ -589,28 +1183,6 @@ fn perform_deletion_with(
+@@ -589,28 +1190,6 @@ fn perform_deletion_with(
              ));
          }
      }
@@ -8769,7 +8776,7 @@ index e43eef234..5ffc325be 100644
  }
  
  /// Map a container [`Teardown`](crate::containers::Teardown) outcome onto a
-@@ -739,6 +1311,170 @@ mod tests {
+@@ -739,6 +1318,169 @@ mod tests {
          assert_eq!(result.session_id, request.session_id);
      }
  
@@ -8863,15 +8870,6 @@ index e43eef234..5ffc325be 100644
 +        let profile = "purge-unlocked-hooks";
 +        let ready = temp.path().join("ready");
 +        let release = temp.path().join("release");
-+        let hook = format!(
-+            ": > {}; while [ ! -e {} ]; do sleep 0.01; done",
-+            crate::session::environment::shell_escape(&ready.to_string_lossy()),
-+            crate::session::environment::shell_escape(&release.to_string_lossy()),
-+        );
-+        crate::session::config::update_config(|global| {
-+            global.hooks.on_destroy = vec![hook];
-+        })
-+        .unwrap();
 +
 +        let storage = Storage::new_unwatched(profile).unwrap();
 +        let mut instance = Instance::new("purge unlocked hooks", temp.path().to_str().unwrap());
@@ -8902,8 +8900,16 @@ index e43eef234..5ffc325be 100644
 +            };
 +
 +        let (purge_tx, purge_rx) = std::sync::mpsc::channel();
++        let ready_for_hook = ready.clone();
++        let release_for_hook = release.clone();
 +        let purge = std::thread::spawn(move || {
-+            purge_tx.send(transaction.run_hooks().complete()).unwrap();
++            let after_hooks = transaction.run_hooks_with(|_, _| {
++                std::fs::write(&ready_for_hook, b"ready").unwrap();
++                while !release_for_hook.exists() {
++                    std::thread::sleep(std::time::Duration::from_millis(10));
++                }
++            });
++            purge_tx.send(after_hooks.complete()).unwrap();
 +        });
 +        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
 +        while !ready.exists() && std::time::Instant::now() < deadline {
@@ -8940,7 +8946,7 @@ index e43eef234..5ffc325be 100644
      #[test]
      fn test_deletion_result_success_even_with_delete_worktree_flag_when_no_worktree() {
          let instance = create_test_instance();
-@@ -1423,6 +2159,76 @@ mod tests {
+@@ -1423,6 +2165,76 @@ mod tests {
              );
          }
  
@@ -9017,7 +9023,7 @@ index e43eef234..5ffc325be 100644
          /// A repo attached onto a branch the user already had records
          /// `branch_preexisting`. Its worktree is still aoe's to remove, but the
          /// branch is not, and the two decisions are independent: getting them
-@@ -1964,76 +2770,6 @@ mod tests {
+@@ -1964,76 +2776,6 @@ mod tests {
              );
          }
  
@@ -9993,7 +9999,7 @@ index bf8a63054..2b2798e99 100644
          }
      }
 diff --git a/src/session/instance.rs b/src/session/instance.rs
-index a600d1495..1856e0155 100644
+index a600d1495..8afade9fd 100644
 --- a/src/session/instance.rs
 +++ b/src/session/instance.rs
 @@ -3,6 +3,7 @@
@@ -10064,7 +10070,7 @@ index a600d1495..1856e0155 100644
  
  #[derive(Debug, Clone, Serialize, Deserialize)]
  pub struct TerminalInfo {
-@@ -532,51 +565,60 @@ pub enum SessionBucket {
+@@ -532,51 +565,61 @@ pub enum SessionBucket {
      Trashed,
  }
  
@@ -10082,9 +10088,10 @@ index a600d1495..1856e0155 100644
 -/// teardown yields via its pre-move re-check and the locked relocation
 -/// commit, so a `d` followed by an immediate restore stays instant.
 +/// A transition first acquires the per-instance lifecycle flock, then records
-+/// a fresh generation under `Storage::update`. The same flock stays held
-+/// through hooks, external side effects, and the exact-generation commit.
-+/// `status` is presentation state and never proves ownership.
++/// a fresh generation under `Storage::update`. The durable reservation stays
++/// held through hooks, external side effects, and the exact-generation commit;
++/// callers may release the flock while running reentrant hooks. `status` is
++/// presentation state and never proves ownership.
  ///
 -/// Compat: `ClaimOp` has no `#[serde(other)]` fallback, so an aoe binary
 -/// that predates the `Trash` variant fails to deserialize the whole
@@ -10160,7 +10167,7 @@ index a600d1495..1856e0155 100644
      pub at: DateTime<Utc>,
  }
  
-@@ -741,21 +783,15 @@ pub struct Instance {
+@@ -741,21 +784,15 @@ pub struct Instance {
      #[serde(default, skip_serializing_if = "Option::is_none")]
      pub pre_trash_project_path: Option<String>,
  
@@ -10190,7 +10197,7 @@ index a600d1495..1856e0155 100644
  
      /// Namespaced per-session plugin data, keyed by plugin id. Each plugin
      /// owns only its own slot (`plugin_meta["<id>"]`), an opaque JSON value it
-@@ -851,6 +887,14 @@ pub struct Instance {
+@@ -851,6 +888,14 @@ pub struct Instance {
          deserialize_with = "deserialize_session_id"
      )]
      pub agent_session_id: Option<String>,
@@ -10205,7 +10212,7 @@ index a600d1495..1856e0155 100644
  
      /// Session ids this row used under a *previous* `tool`, keyed by that
      /// tool's name, so an engine swap back (`claude` -> `pi` -> `claude`)
-@@ -1042,20 +1086,16 @@ pub struct Instance {
+@@ -1042,20 +1087,16 @@ pub struct Instance {
      #[serde(skip)]
      pub unknown_since: Option<std::time::Instant>,
  
@@ -10235,7 +10242,7 @@ index a600d1495..1856e0155 100644
      #[serde(skip)]
      pending_host_env: Vec<(String, String)>,
  
-@@ -1290,6 +1330,45 @@ pub(crate) fn persist_session_to_storage(
+@@ -1290,6 +1331,45 @@ pub(crate) fn persist_session_to_storage(
      session_id: &str,
      expected_prior: Option<&str>,
      file_watch: &std::sync::Arc<crate::file_watch::FileWatchService>,
@@ -10281,7 +10288,7 @@ index a600d1495..1856e0155 100644
  ) -> SidWrite {
      if !is_valid_session_id(session_id) {
          tracing::warn!(target: "session.store",
-@@ -1333,6 +1412,15 @@ pub(crate) fn persist_session_to_storage(
+@@ -1333,6 +1413,15 @@ pub(crate) fn persist_session_to_storage(
                      return Ok(SidWrite::Skipped);
                  }
              }
@@ -10297,7 +10304,7 @@ index a600d1495..1856e0155 100644
              if inst.agent_session_id.as_deref() != expected_prior {
                  tracing::warn!(target: "session.store",
                      instance_id = %instance_id,
-@@ -1418,6 +1506,7 @@ fn tmux_env_session_name_for_instance_id(instance_id: &str) -> Option<String> {
+@@ -1418,6 +1507,7 @@ fn tmux_env_session_name_for_instance_id(instance_id: &str) -> Option<String> {
  #[derive(Debug, Clone, PartialEq, Eq)]
  pub(crate) struct PassiveStatusPatch {
      pub status: Status,
@@ -10305,7 +10312,7 @@ index a600d1495..1856e0155 100644
      pub idle_entered_at: Option<DateTime<Utc>>,
      /// `None` when the source `Instance` was never touched by a user
      /// (`last_accessed_at` itself `None`); must stay `None` in that case
-@@ -1435,6 +1524,7 @@ impl PassiveStatusPatch {
+@@ -1435,6 +1525,7 @@ impl PassiveStatusPatch {
      pub(crate) fn from_instance(inst: &Instance) -> Self {
          Self {
              status: inst.status,
@@ -10313,7 +10320,7 @@ index a600d1495..1856e0155 100644
              idle_entered_at: inst.idle_entered_at,
              last_accessed_at: inst.last_accessed_at,
          }
-@@ -1468,7 +1558,7 @@ impl Instance {
+@@ -1468,7 +1559,7 @@ impl Instance {
              pinned_at: None,
              trashed_at: None,
              pre_trash_project_path: None,
@@ -10322,7 +10329,7 @@ index a600d1495..1856e0155 100644
              plugin_meta: std::collections::BTreeMap::new(),
              created_by_plugin: None,
              plugin_create_idempotency: None,
-@@ -1483,6 +1573,8 @@ impl Instance {
+@@ -1483,6 +1574,8 @@ impl Instance {
              sandbox_info: None,
              terminal_info: None,
              agent_session_id: None,
@@ -10331,7 +10338,7 @@ index a600d1495..1856e0155 100644
              resume_probe_failed_sid: None,
              resume_intent: ResumeIntent::Default,
              force_fresh_next_launch: false,
-@@ -1627,10 +1719,19 @@ impl Instance {
+@@ -1627,10 +1720,19 @@ impl Instance {
          self.is_idle_dormant() && self.status != Status::Stopped
      }
  
@@ -10354,7 +10361,7 @@ index a600d1495..1856e0155 100644
          self.status = src.status;
          self.sandbox_info = src.sandbox_info.clone();
      }
-@@ -1639,26 +1740,41 @@ impl Instance {
+@@ -1639,26 +1741,41 @@ impl Instance {
      /// copied only when the sid still matches so peer poller writes that land
      /// between phase 2 and phase 3 of the restart remain authoritative.
      pub fn merge_post_restart(&mut self, src: &Self) {
@@ -10403,7 +10410,7 @@ index a600d1495..1856e0155 100644
              self.resume_probe_failed_sid = src.resume_probe_failed_sid.clone();
          }
      }
-@@ -1700,13 +1816,17 @@ impl Instance {
+@@ -1700,13 +1817,17 @@ impl Instance {
          // rewrites the runtime field it observes before reading
          // (`pane_dead_observed` is rewritten by the TUI's status poller
          // before its TUI-only consumers read).
@@ -10423,7 +10430,7 @@ index a600d1495..1856e0155 100644
          disk.source_profile = std::mem::take(&mut self.source_profile);
          disk.ever_confirmed_present = self.ever_confirmed_present;
          disk.unknown_since = self.unknown_since;
-@@ -1768,6 +1888,32 @@ impl Instance {
+@@ -1768,6 +1889,32 @@ impl Instance {
          }
      }
  
@@ -10456,7 +10463,7 @@ index a600d1495..1856e0155 100644
      /// Splice TUI-mirrored, persisted fields from `src` onto `self`. Used by
      /// `HomeView::save` for fields the TUI is the canonical disk writer of
      /// (the daemon's `status_poll_loop` keeps these in memory only). The
-@@ -1778,9 +1924,12 @@ impl Instance {
+@@ -1778,9 +1925,12 @@ impl Instance {
      /// are NOT here; they go through `apply_user_action` per-action so peer
      /// writers (CLI) cannot be clobbered by a stale TUI snapshot.
      pub fn merge_from_tui(&mut self, src: &Self) {
@@ -10472,7 +10479,7 @@ index a600d1495..1856e0155 100644
          // Launch-config fields are TUI-authoritative and only mutated after
          // creation by the restart dialog (engine / command / args swap). They
          // have no peer writer, so a plain copy is safe. Syncing them here is
-@@ -1871,11 +2020,9 @@ impl Instance {
+@@ -1871,11 +2021,9 @@ impl Instance {
      /// poller-produced patch loses to a newer explicit user touch instead of
      /// racing it.
      ///
@@ -10487,7 +10494,7 @@ index a600d1495..1856e0155 100644
      ///
      /// The `>=` guard on `last_accessed_at` compares `chrono::Utc::now()`
      /// values, which delegate to `SystemTime::now()` (wall clock, not
-@@ -1890,6 +2037,17 @@ impl Instance {
+@@ -1890,6 +2038,17 @@ impl Instance {
      /// Callers relying on the observable `last_accessed_at` change must
      /// re-read the field after `merge_passive_status_patch` returns.
      pub(crate) fn merge_passive_status_patch(&mut self, id: &str, patch: &PassiveStatusPatch) {
@@ -10505,7 +10512,7 @@ index a600d1495..1856e0155 100644
          self.status = patch.status;
          self.idle_entered_at = patch.idle_entered_at;
          let Some(incoming) = patch.last_accessed_at else {
-@@ -1972,13 +2130,9 @@ impl Instance {
+@@ -1972,13 +2131,9 @@ impl Instance {
          if pre.status != post.status {
              self.status = post.status;
          }
@@ -10522,7 +10529,7 @@ index a600d1495..1856e0155 100644
          self.last_accessed_at = self.last_accessed_at.max(post.last_accessed_at);
  
          let archived_changed = pre.archived_at != post.archived_at;
-@@ -2080,76 +2234,91 @@ impl Instance {
+@@ -2080,76 +2235,91 @@ impl Instance {
          self.trashed_at.is_some()
      }
  
@@ -10670,7 +10677,7 @@ index a600d1495..1856e0155 100644
              true
          } else {
              false
-@@ -2381,6 +2550,258 @@ impl Instance {
+@@ -2381,6 +2551,258 @@ impl Instance {
          super::profile_config::resolve_config_or_warn(&profile).environment
      }
  
@@ -10929,7 +10936,7 @@ index a600d1495..1856e0155 100644
      pub fn is_sub_session(&self) -> bool {
          self.parent_session_id.is_some()
      }
-@@ -2695,21 +3116,24 @@ impl Instance {
+@@ -2695,21 +3117,24 @@ impl Instance {
                  }
              }
              "omp" => {
@@ -10961,7 +10968,7 @@ index a600d1495..1856e0155 100644
                  }
              }
              "codex" => {
-@@ -2905,21 +3329,60 @@ impl Instance {
+@@ -2905,21 +3330,60 @@ impl Instance {
          if !self.tmux_alive_cached() {
              return;
          }
@@ -11033,7 +11040,7 @@ index a600d1495..1856e0155 100644
              self.resume_probe_failed_sid = None;
              tracing::info!(
                  target: "session.store",
-@@ -3224,24 +3687,20 @@ impl Instance {
+@@ -3224,24 +3688,20 @@ impl Instance {
              CONTAINER_TERMINAL_AUTODETECT_CMD,
          );
  
@@ -11066,7 +11073,7 @@ index a600d1495..1856e0155 100644
              )?;
              self.apply_container_terminal_tmux_options(index);
          }
-@@ -3313,6 +3772,137 @@ impl Instance {
+@@ -3313,6 +3773,137 @@ impl Instance {
      pub fn start(&mut self) -> Result<()> {
          self.start_with_size(None)
      }
@@ -11204,7 +11211,7 @@ index a600d1495..1856e0155 100644
  
      pub fn start_with_size(&mut self, size: Option<(u16, u16)>) -> Result<()> {
          self.start_with_size_opts(size, false).map(|_| ())
-@@ -3325,64 +3915,165 @@ impl Instance {
+@@ -3325,64 +3916,165 @@ impl Instance {
          size: Option<(u16, u16)>,
          skip_on_launch: bool,
      ) -> Result<LaunchSidOutcome> {
@@ -11413,7 +11420,7 @@ index a600d1495..1856e0155 100644
                      .clone()
                      .expect("existing launch command carries agent_session_id"),
              )
-@@ -3390,35 +4081,89 @@ impl Instance {
+@@ -3390,35 +4082,89 @@ impl Instance {
              None
          };
  
@@ -11520,7 +11527,7 @@ index a600d1495..1856e0155 100644
          );
  
          Ok(match launch_sid {
-@@ -3427,46 +4172,88 @@ impl Instance {
+@@ -3427,46 +4173,88 @@ impl Instance {
          })
      }
  
@@ -11640,7 +11647,7 @@ index a600d1495..1856e0155 100644
  
              let launch_cmd = self.get_launch_command();
              let base_cmd = if self.extra_args.is_empty() {
-@@ -3525,33 +4312,75 @@ impl Instance {
+@@ -3525,33 +4313,75 @@ impl Instance {
                  &self.source_profile,
                  &self.id,
              )?;
@@ -11729,7 +11736,7 @@ index a600d1495..1856e0155 100644
      }
  
      /// Resolve on_launch hooks from the full config chain (global > profile > repo).
-@@ -3773,65 +4602,21 @@ impl Instance {
+@@ -3773,65 +4603,21 @@ impl Instance {
          }
      }
  
@@ -11805,7 +11812,7 @@ index a600d1495..1856e0155 100644
  
          if self.command.is_empty() {
              match crate::agents::get_agent(&self.tool) {
-@@ -3854,15 +4639,20 @@ impl Instance {
+@@ -3854,15 +4640,20 @@ impl Instance {
                      }
                      let is_existing = self.apply_session_flags(&mut cmd, "host agent");
                      apply_agent_launch_env(&mut cmd, agent);
@@ -11831,7 +11838,7 @@ index a600d1495..1856e0155 100644
              }
          } else {
              let mut cmd = self.command.clone();
-@@ -3876,12 +4666,17 @@ impl Instance {
+@@ -3876,12 +4667,17 @@ impl Instance {
              }
              let is_existing = self.apply_session_flags(&mut cmd, "host custom");
              apply_agent_launch_env(&mut cmd, agent);
@@ -11853,7 +11860,7 @@ index a600d1495..1856e0155 100644
              ))
          }
      }
-@@ -3893,7 +4688,29 @@ impl Instance {
+@@ -3893,7 +4689,29 @@ impl Instance {
          profile: &str,
          expected_prior_sid: Option<&str>,
          expected_prior_intent: ResumeIntent,
@@ -11883,7 +11890,7 @@ index a600d1495..1856e0155 100644
          let outcome = self.persist_session_id(profile, expected_prior_sid, expected_prior_intent);
  
          // Skip outcomes leave AOE_CAPTURED_SESSION_ID untouched: this path
-@@ -3910,7 +4727,7 @@ impl Instance {
+@@ -3910,7 +4728,7 @@ impl Instance {
              crate::tmux::env::AOE_INSTANCE_ID_KEY,
              &self.id,
          )];
@@ -11892,7 +11899,7 @@ index a600d1495..1856e0155 100644
              entries.push((
                  session_name,
                  crate::tmux::env::AOE_CAPTURED_SESSION_ID_KEY,
-@@ -3934,7 +4751,7 @@ impl Instance {
+@@ -3934,7 +4752,7 @@ impl Instance {
              }
          }
  
@@ -11901,7 +11908,7 @@ index a600d1495..1856e0155 100644
  
          self.status = Status::Starting;
          self.last_start_time = Some(std::time::Instant::now());
-@@ -3973,20 +4790,80 @@ impl Instance {
+@@ -3973,20 +4791,80 @@ impl Instance {
          }
      }
  
@@ -11996,7 +12003,7 @@ index a600d1495..1856e0155 100644
      fn persist_session_id(
          &mut self,
          profile: &str,
-@@ -4553,6 +5430,10 @@ impl Instance {
+@@ -4553,6 +5431,10 @@ impl Instance {
      }
  
      pub fn maybe_start_poller(&mut self) {
@@ -12007,7 +12014,7 @@ index a600d1495..1856e0155 100644
          if !self.supports_session_poller() {
              return;
          }
-@@ -4562,6 +5443,20 @@ impl Instance {
+@@ -4562,6 +5444,20 @@ impl Instance {
              .tmux_env_session_name()
              .or_else(|| self.tmux_session().ok().map(|s| s.name().to_string()))
              .unwrap_or_default();
@@ -12028,7 +12035,7 @@ index a600d1495..1856e0155 100644
          let mut poller = SessionPoller::new(tmux_session_name.clone());
          let instance_id = self.id.clone();
          let initial_known = self.agent_session_id.clone();
-@@ -4570,6 +5465,39 @@ impl Instance {
+@@ -4570,6 +5466,39 @@ impl Instance {
          // while preventing the poller from adopting a conversation another row
          // parked during a tool swap.
          let extra_excludes = self.retroactive_capture_exclusion_set();
@@ -12068,7 +12075,7 @@ index a600d1495..1856e0155 100644
  
          let poll_fn: Box<dyn Fn() -> Option<String> + Send + 'static> = match tool {
              "claude" => {
-@@ -4657,29 +5585,6 @@ impl Instance {
+@@ -4657,29 +5586,6 @@ impl Instance {
                      ))
                  }
              }
@@ -12098,7 +12105,7 @@ index a600d1495..1856e0155 100644
              "codex" => {
                  if self.is_sandboxed() {
                      let container_name = match self.sandbox_info.as_ref() {
-@@ -4799,6 +5704,31 @@ impl Instance {
+@@ -4799,6 +5705,31 @@ impl Instance {
          }
      }
  
@@ -12130,7 +12137,7 @@ index a600d1495..1856e0155 100644
      fn stop_poller(&self) {
          if let Some(ref poller_arc) = self.session_id_poller {
              match poller_arc.lock() {
-@@ -4807,6 +5737,74 @@ impl Instance {
+@@ -4807,6 +5738,74 @@ impl Instance {
              }
          }
      }
@@ -12205,7 +12212,7 @@ index a600d1495..1856e0155 100644
  
      pub fn restart_with_size(&mut self, size: Option<(u16, u16)>) -> Result<StartOutcome> {
          self.restart_with_size_opts(size, false)
-@@ -4826,7 +5824,7 @@ impl Instance {
+@@ -4826,7 +5825,7 @@ impl Instance {
      /// down. Caller is responsible for the subsequent
      /// `start_with_size_opts` to recreate the session with the agent
      /// command.
@@ -12214,7 +12221,7 @@ index a600d1495..1856e0155 100644
          let session = self.tmux_session()?;
          if !session.exists() {
              return Ok(());
-@@ -4851,11 +5849,34 @@ impl Instance {
+@@ -4851,11 +5850,34 @@ impl Instance {
          Ok(())
      }
  
@@ -12254,7 +12261,7 @@ index a600d1495..1856e0155 100644
      pub fn restart_with_size_opts(
          &mut self,
          size: Option<(u16, u16)>,
-@@ -4868,20 +5889,13 @@ impl Instance {
+@@ -4868,20 +5890,13 @@ impl Instance {
          )
      }
  
@@ -12277,7 +12284,7 @@ index a600d1495..1856e0155 100644
      }
  
      /// Settle-based pane probe used by the resume-fallback cascade.
-@@ -4975,160 +5989,147 @@ impl Instance {
+@@ -4975,160 +5990,147 @@ impl Instance {
          skip_on_launch: bool,
          resume_policy: ResumeAttemptPolicy,
      ) -> Result<StartOutcome> {
@@ -12553,7 +12560,7 @@ index a600d1495..1856e0155 100644
          tracing::warn!(
              target: "session.store",
              "start: resume with sid {} for session {} crashed pane within probe; \
-@@ -5136,21 +6137,17 @@ impl Instance {
+@@ -5136,21 +6138,17 @@ impl Instance {
              stale_sid,
              self.id,
          );
@@ -12582,7 +12589,7 @@ index a600d1495..1856e0155 100644
              .with_context(|| format!("kill_clean before resume fallback for {}", self.id))?;
          self.status = Status::Error;
          self.last_error = Some(format!(
-@@ -5158,10 +6155,8 @@ impl Instance {
+@@ -5158,10 +6156,8 @@ impl Instance {
              stale_sid
          ));
          self.last_error_check = Some(std::time::Instant::now());
@@ -12593,7 +12600,7 @@ index a600d1495..1856e0155 100644
      /// Smart-send precondition: bring this session's tmux pane to a state
      /// where `send_keys_with_delay` is safe.
      ///
-@@ -5298,7 +6293,7 @@ impl Instance {
+@@ -5298,7 +6294,7 @@ impl Instance {
          }
      }
  
@@ -12602,7 +12609,7 @@ index a600d1495..1856e0155 100644
          self.stop_poller();
          let session = self.tmux_session()?;
          if session.exists() {
-@@ -5307,50 +6302,211 @@ impl Instance {
+@@ -5307,50 +6303,211 @@ impl Instance {
          Ok(())
      }
  
@@ -12837,7 +12844,7 @@ index a600d1495..1856e0155 100644
      }
  
      /// Update status using pre-fetched pane metadata to avoid per-instance
-@@ -5478,7 +6634,7 @@ impl Instance {
+@@ -5478,7 +6635,7 @@ impl Instance {
              return;
          }
  
@@ -12846,7 +12853,7 @@ index a600d1495..1856e0155 100644
              if let Some(last_check) = self.last_error_check {
                  if last_check.elapsed().as_secs() < 30 {
                      return;
-@@ -5705,8 +6861,14 @@ impl Instance {
+@@ -5705,8 +6862,14 @@ impl Instance {
                  return false;
              }
              let shell_check = metadata
@@ -12863,7 +12870,7 @@ index a600d1495..1856e0155 100644
                  .unwrap_or_else(|| session.is_pane_running_shell());
              tracing::trace!(target: "session.store",
                  "status '{}': is_shell_stale check: expects_shell={}, shell_check={}",
-@@ -5887,63 +7049,194 @@ fn apply_agent_launch_env(cmd: &mut String, agent: Option<&'static crate::agents
+@@ -5887,63 +7050,194 @@ fn apply_agent_launch_env(cmd: &mut String, agent: Option<&'static crate::agents
  /// so this reads the container's value, not the host's.
  const CONTAINER_TERMINAL_AUTODETECT_CMD: &str = r#"sh -c 'exec "$(command -v "$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f7)" 2>/dev/null || command -v "$SHELL" 2>/dev/null || command -v bash || command -v sh)" -l'"#;
  
@@ -13108,7 +13115,7 @@ index a600d1495..1856e0155 100644
  }
  
  fn resolve_detected_status(
-@@ -6906,9 +8199,528 @@ mod tests {
+@@ -6906,9 +8200,528 @@ mod tests {
          let mut disk2 = pre2.clone();
  
          disk2.merge_user_action_diff(&pre2, &post2);
@@ -13638,7 +13645,7 @@ index a600d1495..1856e0155 100644
  
      #[test]
      fn test_mark_idle_dormant_sets_marker() {
-@@ -6976,6 +8788,19 @@ mod tests {
+@@ -6976,6 +8789,19 @@ mod tests {
              Some("daemon-sid"),
              "peer-written sid must survive merge"
          );
@@ -13658,7 +13665,7 @@ index a600d1495..1856e0155 100644
      }
  
      #[test]
-@@ -6998,6 +8823,49 @@ mod tests {
+@@ -6998,6 +8824,49 @@ mod tests {
              "restart merge must not clobber peer sid write"
          );
          assert!(stored.is_snoozed(), "peer snooze must survive merge");
@@ -13708,7 +13715,7 @@ index a600d1495..1856e0155 100644
      }
  
      #[test]
-@@ -7278,215 +9146,116 @@ mod tests {
+@@ -7278,215 +9147,116 @@ mod tests {
      }
  
      #[test]
@@ -14014,7 +14021,7 @@ index a600d1495..1856e0155 100644
      // A non-fork session omits fork_pending on the wire (skip_serializing_if),
      // so legacy sessions.json without the key deserializes to None and no
      // migration is needed. A seeded fork id round-trips.
-@@ -7640,6 +9409,7 @@ mod tests {
+@@ -7640,6 +9410,7 @@ mod tests {
  
          let now = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14022,7 +14029,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: Some(now),
              last_accessed_at: Some(now),
-@@ -7656,6 +9426,18 @@ mod tests {
+@@ -7656,6 +9427,18 @@ mod tests {
          assert_eq!(disk.archived_at, before.archived_at);
          assert_eq!(disk.favorited_at, before.favorited_at);
          assert_eq!(disk.pinned_at, before.pinned_at);
@@ -14041,7 +14048,7 @@ index a600d1495..1856e0155 100644
      }
  
      #[test]
-@@ -7669,6 +9451,7 @@ mod tests {
+@@ -7669,6 +9452,7 @@ mod tests {
          disk.last_accessed_at = None;
  
          let patch = PassiveStatusPatch {
@@ -14049,7 +14056,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: Some(Utc::now()),
              last_accessed_at: None,
-@@ -7696,6 +9479,7 @@ mod tests {
+@@ -7696,6 +9480,7 @@ mod tests {
          disk.idle_entered_at = None;
  
          let stale_patch = PassiveStatusPatch {
@@ -14057,7 +14064,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: Some(peer_touch - chrono::Duration::minutes(5)),
              last_accessed_at: Some(peer_touch - chrono::Duration::minutes(5)),
-@@ -7726,6 +9510,7 @@ mod tests {
+@@ -7726,6 +9511,7 @@ mod tests {
          disk.last_accessed_at = Some(ts);
  
          let patch = PassiveStatusPatch {
@@ -14065,7 +14072,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(ts),
-@@ -7771,6 +9556,7 @@ mod tests {
+@@ -7771,6 +9557,7 @@ mod tests {
          disk.last_accessed_at = Some(ts);
  
          let patch = PassiveStatusPatch {
@@ -14073,7 +14080,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(ts),
-@@ -7804,6 +9590,7 @@ mod tests {
+@@ -7804,6 +9591,7 @@ mod tests {
          disk.last_accessed_at = Some(older);
  
          let patch = PassiveStatusPatch {
@@ -14081,7 +14088,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(newer),
-@@ -7825,6 +9612,7 @@ mod tests {
+@@ -7825,6 +9613,7 @@ mod tests {
  
          let newer = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14089,7 +14096,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(newer),
-@@ -7843,6 +9631,7 @@ mod tests {
+@@ -7843,6 +9632,7 @@ mod tests {
  
          let ts = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14097,7 +14104,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: None,
              last_accessed_at: Some(ts),
-@@ -7857,6 +9646,7 @@ mod tests {
+@@ -7857,6 +9647,7 @@ mod tests {
          let mut disk = Instance::new("session", "/tmp/test");
          let ts = Utc::now();
          let patch = PassiveStatusPatch {
@@ -14105,7 +14112,7 @@ index a600d1495..1856e0155 100644
              status: Status::Idle,
              idle_entered_at: Some(ts),
              last_accessed_at: Some(ts),
-@@ -7878,6 +9668,7 @@ mod tests {
+@@ -7878,6 +9669,7 @@ mod tests {
          disk.merge_passive_status_patch(
              &disk.id.clone(),
              &PassiveStatusPatch {
@@ -14113,7 +14120,7 @@ index a600d1495..1856e0155 100644
                  status: Status::Running,
                  idle_entered_at: None,
                  last_accessed_at: Some(t0),
-@@ -7886,6 +9677,7 @@ mod tests {
+@@ -7886,6 +9678,7 @@ mod tests {
          disk.merge_passive_status_patch(
              &disk.id.clone(),
              &PassiveStatusPatch {
@@ -14121,7 +14128,7 @@ index a600d1495..1856e0155 100644
                  status: Status::Idle,
                  idle_entered_at: Some(t1),
                  last_accessed_at: Some(t1),
-@@ -8341,8 +10133,19 @@ mod tests {
+@@ -8341,8 +10134,19 @@ mod tests {
              eprintln!("tmux not available; skipping");
              return;
          }
@@ -14141,7 +14148,7 @@ index a600d1495..1856e0155 100644
          let created_name = crate::tmux::Session::generate_name(&inst.id, &inst.title);
          let _ = crate::tmux::tmux_command()
              .args(["kill-session", "-t", &created_name])
-@@ -8540,74 +10343,27 @@ mod tests {
+@@ -8540,74 +10344,27 @@ mod tests {
  
      #[test]
      fn test_yolo_envvar_survives_suspend_wrapper() {
@@ -14223,7 +14230,7 @@ index a600d1495..1856e0155 100644
          }
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8621,11 +10377,9 @@ mod tests {
+@@ -8621,11 +10378,9 @@ mod tests {
          let original = std::env::var("SHELL").ok();
          std::env::set_var("SHELL", "/bin/zsh");
          let wrapped = wrap_command_ignore_suspend("claude", "/tmp/proj");
@@ -14237,7 +14244,7 @@ index a600d1495..1856e0155 100644
          );
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8639,17 +10393,11 @@ mod tests {
+@@ -8639,17 +10394,11 @@ mod tests {
          let original = std::env::var("SHELL").ok();
          std::env::set_var("SHELL", "/usr/bin/fish");
          let wrapped = wrap_command_ignore_suspend("claude", "/tmp/proj");
@@ -14259,7 +14266,7 @@ index a600d1495..1856e0155 100644
          );
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8664,9 +10412,8 @@ mod tests {
+@@ -8664,9 +10413,8 @@ mod tests {
          std::env::set_var("SHELL", "/usr/bin/nu");
          let wrapped = wrap_command_ignore_suspend("claude", "/tmp/proj");
          assert!(
@@ -14271,7 +14278,7 @@ index a600d1495..1856e0155 100644
          );
          match original {
              Some(v) => std::env::set_var("SHELL", v),
-@@ -8689,23 +10436,15 @@ mod tests {
+@@ -8689,23 +10437,15 @@ mod tests {
          let working_dir = temp.path().join("some project's dir");
          std::fs::create_dir(&working_dir).unwrap();
          let wrapped = wrap_command_ignore_suspend("pwd", working_dir.to_str().unwrap());
@@ -14302,7 +14309,7 @@ index a600d1495..1856e0155 100644
          );
          let output = std::process::Command::new("bash")
              .args(["-c", &wrapped])
-@@ -9591,7 +11330,7 @@ mod tests {
+@@ -9591,7 +11331,7 @@ mod tests {
      fn test_has_custom_command_unknown_tool() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "unknown_agent".to_string();
@@ -14311,7 +14318,7 @@ index a600d1495..1856e0155 100644
          assert!(inst.has_custom_command());
      }
  
-@@ -9632,6 +11371,302 @@ mod tests {
+@@ -9632,6 +11372,302 @@ mod tests {
          assert!(inst.has_custom_command());
      }
  
@@ -14614,7 +14621,7 @@ index a600d1495..1856e0155 100644
      #[test]
      fn test_expects_shell() {
          let mut inst = Instance::new("test", "/tmp/test");
-@@ -9662,8 +11697,8 @@ mod tests {
+@@ -9662,8 +11698,8 @@ mod tests {
      fn test_build_host_command_basic() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "codex".to_string();
@@ -14625,7 +14632,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          assert!(cmd.is_some());
          assert!(cmd.as_ref().unwrap().contains("codex"));
-@@ -9674,8 +11709,8 @@ mod tests {
+@@ -9674,8 +11710,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "codex".to_string();
          inst.yolo_mode = true;
@@ -14636,7 +14643,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          let agent = crate::agents::get_agent("codex").unwrap();
-@@ -9691,8 +11726,8 @@ mod tests {
+@@ -9691,8 +11727,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "claude".to_string();
          inst.agent_session_id = Some("ses_abc123def456".to_string());
@@ -14647,7 +14654,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          assert!(cmd_str.contains("ses_abc123def456"));
-@@ -9703,8 +11738,8 @@ mod tests {
+@@ -9703,8 +11739,8 @@ mod tests {
      fn test_build_host_command_antigravity_forces_color() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "antigravity".to_string();
@@ -14658,7 +14665,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9720,8 +11755,8 @@ mod tests {
+@@ -9720,8 +11756,8 @@ mod tests {
          // accepts chat-scoped flags. Bare `kiro-cli` rejects --trust-all-tools.
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "kiro".to_string();
@@ -14669,7 +14676,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          assert!(cmd.unwrap().contains("kiro-cli chat"));
      }
-@@ -9732,8 +11767,8 @@ mod tests {
+@@ -9732,8 +11768,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "kiro".to_string();
          inst.yolo_mode = true;
@@ -14680,7 +14687,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          let chat_pos = cmd_str
-@@ -9755,8 +11790,8 @@ mod tests {
+@@ -9755,8 +11791,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "kiro".to_string();
          inst.command = "kiro-cli chat --trust-all-tools".to_string();
@@ -14691,7 +14698,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
          // Exactly one "chat" token (no doubled `chat chat`).
-@@ -9803,8 +11838,8 @@ mod tests {
+@@ -9803,8 +11839,8 @@ mod tests {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "antigravity".to_string();
          inst.command = "agy --some-flag".to_string();
@@ -14702,7 +14709,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9818,8 +11853,8 @@ mod tests {
+@@ -9818,8 +11854,8 @@ mod tests {
      fn test_build_host_command_codex_forces_color() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "codex".to_string();
@@ -14713,7 +14720,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -9833,8 +11868,8 @@ mod tests {
+@@ -9833,8 +11869,8 @@ mod tests {
      fn test_build_host_command_color_env_is_limited_to_color_sensitive_agents() {
          let mut inst = Instance::new("test", "/tmp/test");
          inst.tool = "cursor".to_string();
@@ -14724,7 +14731,7 @@ index a600d1495..1856e0155 100644
              .unwrap();
          let cmd_str = cmd.unwrap();
  
-@@ -10240,7 +12275,7 @@ mod tests {
+@@ -10240,7 +12276,7 @@ mod tests {
              let end = source.find("pub fn ensure_pane_ready").unwrap();
              let fallback_source = &source[start..end];
  
@@ -14733,7 +14740,7 @@ index a600d1495..1856e0155 100644
              assert!(fallback_source.contains("LaunchSidOutcome::Existing { sid }"));
              assert!(
                  !fallback_source.contains("should_attempt_resume(self.agent_session_id.as_deref()")
-@@ -10256,18 +12291,16 @@ mod tests {
+@@ -10256,18 +12292,16 @@ mod tests {
                  std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/session/instance.rs"),
              )
              .unwrap();
@@ -14755,7 +14762,7 @@ index a600d1495..1856e0155 100644
  
              assert!(local_marker < cleanup);
              assert!(persisted_marker < cleanup);
-@@ -13206,7 +15239,7 @@ mod tests {
+@@ -13206,7 +15240,7 @@ mod tests {
      }
  
      mod publish_captured_sid {
@@ -14764,7 +14771,7 @@ index a600d1495..1856e0155 100644
          use serial_test::serial;
          use std::collections::HashSet;
          use tempfile::{tempdir, TempDir};
-@@ -13313,6 +15346,70 @@ mod tests {
+@@ -13313,6 +15347,70 @@ mod tests {
                  })
                  .unwrap();
          }
@@ -14835,7 +14842,7 @@ index a600d1495..1856e0155 100644
  
          #[test]
          #[serial]
-@@ -13362,7 +15459,7 @@ mod tests {
+@@ -13362,7 +15460,7 @@ mod tests {
  
          #[test]
          #[serial]
@@ -14844,7 +14851,7 @@ index a600d1495..1856e0155 100644
              if skip_if_no_tmux() {
                  return;
              }
-@@ -13371,15 +15468,153 @@ mod tests {
+@@ -13371,15 +15469,153 @@ mod tests {
  
              let profile = "publish-applied";
              let mut inst = make_inst(profile, "fpaw");
@@ -14999,7 +15006,7 @@ index a600d1495..1856e0155 100644
          }
  
          #[test]
-@@ -13400,7 +15635,7 @@ mod tests {
+@@ -13400,7 +15636,7 @@ mod tests {
              let tmux = TmuxSession::create(&inst.id, &inst.title);
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -15008,7 +15015,7 @@ index a600d1495..1856e0155 100644
  
              assert_eq!(
                  captured_env(tmux.name()).as_deref(),
-@@ -13426,7 +15661,13 @@ mod tests {
+@@ -13426,7 +15662,13 @@ mod tests {
              let tmux = TmuxSession::create(&inst.id, &inst.title);
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -15023,7 +15030,7 @@ index a600d1495..1856e0155 100644
  
              assert_eq!(inst.agent_session_id.as_deref(), Some(PEER_SID));
              assert_eq!(captured_env(tmux.name()).as_deref(), Some(PEER_SID));
-@@ -13455,7 +15696,13 @@ mod tests {
+@@ -13455,7 +15697,13 @@ mod tests {
              .unwrap();
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -15038,7 +15045,7 @@ index a600d1495..1856e0155 100644
  
              assert!(inst.agent_session_id.is_none());
              assert!(captured_env(tmux.name()).is_none());
-@@ -13483,7 +15730,7 @@ mod tests {
+@@ -13483,7 +15731,7 @@ mod tests {
              .unwrap();
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -15047,7 +15054,7 @@ index a600d1495..1856e0155 100644
  
              assert_eq!(
                  captured_env(tmux.name()).as_deref(),
-@@ -13519,7 +15766,7 @@ mod tests {
+@@ -13519,7 +15767,7 @@ mod tests {
              .unwrap();
  
              inst.agent_session_id = Some("bad sid!".to_string());
@@ -15056,7 +15063,7 @@ index a600d1495..1856e0155 100644
  
              assert_eq!(
                  captured_env(tmux.name()).as_deref(),
-@@ -13545,7 +15792,7 @@ mod tests {
+@@ -13545,7 +15793,7 @@ mod tests {
              let tmux = TmuxSession::create(&inst.id, &inst.title);
  
              inst.agent_session_id = Some(VALID_SID.to_string());
@@ -17252,7 +17259,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          assert_eq!(map.len(), 3);
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index ea3ea1067..838af40e2 100644
+index ea3ea1067..5a7d2d382 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -4,14 +4,14 @@ use anyhow::{bail, Result};
@@ -17699,7 +17706,7 @@ index ea3ea1067..838af40e2 100644
      #[test]
      #[serial_test::serial]
      fn capture_with_cursor_stays_consistent_under_streaming_load() {
-@@ -3319,49 +3638,216 @@ mod tests {
+@@ -3319,49 +3638,218 @@ mod tests {
      }
  
      #[test]
@@ -17883,6 +17890,8 @@ index ea3ea1067..838af40e2 100644
 +            .args(["-c", &wrapper])
 +            .env("PATH", "/usr/bin:/bin")
 +            .env_remove("DOCKER_HOST")
++            .env_remove("BASH_ENV")
++            .env_remove("ENV")
 +            .status()
 +            .unwrap();
 +        assert!(status.success());
@@ -19786,7 +19795,7 @@ index e3b6a6b16..7a0cc7739 100644
  //! no `CODEX_HOME`, fell back to a directory it could not write, and died
  //! during startup.
 diff --git a/tests/e2e/cli_session_id_capture.rs b/tests/e2e/cli_session_id_capture.rs
-index b5c61dc8b..0b37b5d04 100644
+index b5c61dc8b..9be367b99 100644
 --- a/tests/e2e/cli_session_id_capture.rs
 +++ b/tests/e2e/cli_session_id_capture.rs
 @@ -45,6 +45,39 @@ fn agent_session_id(h: &TuiTestHarness, title: &str) -> Option<String> {
@@ -19829,7 +19838,7 @@ index b5c61dc8b..0b37b5d04 100644
  fn sh_quote(path: &Path) -> String {
      format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
  }
-@@ -635,3 +668,526 @@ fn read_command_backfills_agent_session_id_for_opencode_sqlite_path() {
+@@ -635,3 +668,547 @@ fn read_command_backfills_agent_session_id_for_opencode_sqlite_path() {
           with no daemon or TUI"
      );
  }
@@ -19854,6 +19863,25 @@ index b5c61dc8b..0b37b5d04 100644
 +        ),
 +    )
 +    .expect("write project OMP dotenv");
++}
++
++fn install_path_preserving_test_shell(h: &mut TuiTestHarness, path_bin: &Path) {
++    let shell = h.home_path().join("omp-test-shell");
++    fs::write(
++        &shell,
++        format!(
++            "#!/bin/sh\n[ \"${{1-}}\" = -l ] && shift\nexport PATH={}:\"$PATH\"\nexec /bin/sh \"$@\"\n",
++            sh_quote(path_bin)
++        ),
++    )
++    .expect("write OMP test shell");
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::PermissionsExt;
++        fs::set_permissions(&shell, fs::Permissions::from_mode(0o755))
++            .expect("chmod OMP test shell");
++    }
++    h.set_env("SHELL", shell.to_str().expect("UTF-8 OMP test shell"));
 +}
 +
 +fn launched_tmux_name(h: &TuiTestHarness, title: &str) -> String {
@@ -20002,6 +20030,7 @@ index b5c61dc8b..0b37b5d04 100644
 +    let control = h.home_path().join("omp-toggle-control");
 +    fs::create_dir_all(&control).expect("create fake OMP control directory");
 +    let bin = h.install_path_command("omp");
++    install_path_preserving_test_shell(h, &bin);
 +    let script = format!(
 +        "#!/bin/sh\n\
 +         control={control}\n\
@@ -20071,6 +20100,7 @@ index b5c61dc8b..0b37b5d04 100644
 +    old_project: &Path,
 +) {
 +    let bin = h.install_path_command("omp");
++    install_path_preserving_test_shell(h, &bin);
 +    let control = h.home_path().join("omp-control");
 +    fs::create_dir_all(&control).expect("create fake OMP control directory");
 +    let metadata_stale = write_stale_omp_session(metadata_store, old_project);
