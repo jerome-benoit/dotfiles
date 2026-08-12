@@ -17,7 +17,7 @@ let
   ];
 
   # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
-  version = "0.7.1";
+  version = "0.7.2";
 
   src = pkgs.fetchzip {
     url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${version}/prime-agent-${version}.tgz";
