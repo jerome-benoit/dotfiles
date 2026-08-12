@@ -531,7 +531,7 @@ index 23bc65674..98c6f19ee 100644
      }
  }
 diff --git a/src/cli/session.rs b/src/cli/session.rs
-index 9c575bfe6..637ca2840 100644
+index e232247ef..e3edded4e 100644
 --- a/src/cli/session.rs
 +++ b/src/cli/session.rs
 @@ -1,11 +1,13 @@
@@ -946,7 +946,7 @@ index 9c575bfe6..637ca2840 100644
      let title = working.title.clone();
      let session_id = working.id.clone();
      let tool = working.tool.clone();
-@@ -1451,8 +1442,11 @@ async fn restart_session(profile: &str, args: SessionIdArgs) -> Result<()> {
+@@ -1455,8 +1446,11 @@ async fn restart_session(profile: &str, args: SessionIdArgs) -> Result<()> {
          true,
      );
  
@@ -960,7 +960,7 @@ index 9c575bfe6..637ca2840 100644
      let landed = storage.update(|instances, _groups| {
          if let Some(stored) = instances.iter_mut().find(|i| i.id == session_id) {
              stored.merge_post_restart(&working);
-@@ -2039,8 +2033,17 @@ async fn set_session_id(profile: &str, args: SetSessionIdArgs) -> Result<()> {
+@@ -2017,8 +2011,17 @@ async fn set_session_id(profile: &str, args: SetSessionIdArgs) -> Result<()> {
      };
  
      let storage = Storage::open_unwatched(profile)?;
@@ -979,7 +979,7 @@ index 9c575bfe6..637ca2840 100644
              #[cfg(feature = "serve")]
              if inst.is_structured() {
                  anyhow::bail!(
-@@ -2053,6 +2056,7 @@ async fn set_session_id(profile: &str, args: SetSessionIdArgs) -> Result<()> {
+@@ -2031,6 +2034,7 @@ async fn set_session_id(profile: &str, args: SetSessionIdArgs) -> Result<()> {
              Ok((inst.title.clone(), inst.tool.clone()))
          })
      })?;
@@ -1482,7 +1482,7 @@ index ebc0e5960..288a2ff44 100644
      }
  
 diff --git a/src/server/api/sessions.rs b/src/server/api/sessions.rs
-index 8f476cf12..865a774f4 100644
+index 03f099c8f..b9c530303 100644
 --- a/src/server/api/sessions.rs
 +++ b/src/server/api/sessions.rs
 @@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
@@ -2672,7 +2672,7 @@ index 8f476cf12..865a774f4 100644
      {
          let mut instances = state.instances.write().await;
          instances.retain(|i| i.id != id);
-@@ -4106,52 +4002,31 @@ pub(crate) async fn reconcile_trashed_worktrees(state: &Arc<AppState>) {
+@@ -4116,52 +4012,31 @@ pub(crate) async fn reconcile_trashed_worktrees(state: &Arc<AppState>) {
              .map(|i| (i.id.clone(), i.source_profile.clone()))
              .collect()
      };
@@ -2738,7 +2738,7 @@ index 8f476cf12..865a774f4 100644
                  continue;
              }
          };
-@@ -4159,27 +4034,12 @@ pub(crate) async fn reconcile_trashed_worktrees(state: &Arc<AppState>) {
+@@ -4169,27 +4044,12 @@ pub(crate) async fn reconcile_trashed_worktrees(state: &Arc<AppState>) {
              continue;
          }
          let moved = reconciled.1;
@@ -2771,7 +2771,7 @@ index 8f476cf12..865a774f4 100644
          }
      }
  }
-@@ -5879,31 +5739,49 @@ fn public_create_session_error(e: &anyhow::Error) -> String {
+@@ -5889,31 +5749,49 @@ fn public_create_session_error(e: &anyhow::Error) -> String {
  /// `agent_session_id = None` and generate (and persist) a new UUID,
  /// silently orphaning the previous Claude conversation.
  fn apply_post_restart_identity_sync(live: &mut Instance, before: &Instance, started: &Instance) {
@@ -2828,7 +2828,7 @@ index 8f476cf12..865a774f4 100644
  }
  
  /// Narrow sibling of [`apply_post_restart_sync`] that propagates only the
-@@ -5918,6 +5796,9 @@ fn apply_post_restart_sync(live: &mut Instance, before: &Instance, started: &Ins
+@@ -5928,6 +5806,9 @@ fn apply_post_restart_sync(live: &mut Instance, before: &Instance, started: &Ins
  /// post-cascade `finalize_launch`) would briefly mis-paint a broken pane
  /// as `Starting` until the 2s status poll loop reconciles.
  fn apply_cascade_state_sync(live: &mut Instance, before: &Instance, started: &Instance) {
@@ -2838,7 +2838,7 @@ index 8f476cf12..865a774f4 100644
      apply_post_restart_identity_sync(live, before, started);
      live.retroactive_capture_excludes = started.retroactive_capture_excludes.clone();
  }
-@@ -6057,25 +5938,13 @@ pub async fn ensure_session(
+@@ -6067,25 +5948,13 @@ pub async fn ensure_session(
      let restart_result = tokio::task::spawn_blocking(
          move || -> Result<(Instance, crate::session::StartOutcome), Box<(Instance, anyhow::Error)>> {
              let mut inst = instance;
@@ -2870,7 +2870,7 @@ index 8f476cf12..865a774f4 100644
                  None,
                  false,
                  crate::session::ResumeAttemptPolicy::Allow,
-@@ -6130,9 +5999,10 @@ pub async fn ensure_session(
+@@ -6140,9 +6009,10 @@ pub async fn ensure_session(
              tracing::warn!(target: "http.api.sessions", "ensure_session restart failed for {id}: {msg}");
              let mut instances = state.instances.write().await;
              if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
@@ -2884,7 +2884,7 @@ index 8f476cf12..865a774f4 100644
              }
              (
                  StatusCode::INTERNAL_SERVER_ERROR,
-@@ -8628,6 +8498,11 @@ mod tests {
+@@ -8638,6 +8508,11 @@ mod tests {
          let mut started = make_test_instance();
          started.status = Status::Starting;
          started.agent_session_id = Some("claude-uuid-restart".to_string());
@@ -2896,7 +2896,7 @@ index 8f476cf12..865a774f4 100644
          started.last_start_time = Some(std::time::Instant::now());
  
          apply_post_restart_sync(&mut live, &before, &started);
-@@ -8638,7 +8513,41 @@ mod tests {
+@@ -8648,7 +8523,41 @@ mod tests {
              live.agent_session_id.as_deref(),
              Some("claude-uuid-restart")
          );
@@ -2938,7 +2938,7 @@ index 8f476cf12..865a774f4 100644
      }
  
      #[test]
-@@ -8738,6 +8647,34 @@ mod tests {
+@@ -8748,6 +8657,34 @@ mod tests {
          );
      }
  
@@ -2973,7 +2973,7 @@ index 8f476cf12..865a774f4 100644
      #[test]
      fn apply_post_restart_sync_preserves_peer_marker_for_same_sid() {
          let mut before = make_test_instance();
-@@ -9972,9 +9909,10 @@ pub async fn send_message(
+@@ -9982,9 +9919,10 @@ pub async fn send_message(
                      // must be copied back from the clone).
                      let mut instances = state.instances.write().await;
                      if let Some(i) = instances.iter_mut().find(|i| i.id == id) {
@@ -2988,10 +2988,10 @@ index 8f476cf12..865a774f4 100644
                      (
                          StatusCode::INTERNAL_SERVER_ERROR,
 diff --git a/src/server/mod.rs b/src/server/mod.rs
-index ba4201c8a..c51e88a57 100644
+index 72c385a6e..779c02a68 100644
 --- a/src/server/mod.rs
 +++ b/src/server/mod.rs
-@@ -5778,6 +5778,30 @@ pub(crate) fn derive_acp_status(event: &crate::acp::Event) -> Option<StatusInten
+@@ -5852,6 +5852,30 @@ pub(crate) fn derive_acp_status(event: &crate::acp::Event) -> Option<StatusInten
      }
  }
  
@@ -3022,7 +3022,7 @@ index ba4201c8a..c51e88a57 100644
  async fn drain_session_id_updates_in_state(state: &Arc<AppState>) {
      // Drain poller observations into sessions.json so daemon-only sessions
      // persist post-`/clear` sids (#2291). Snapshot + spawn_blocking + reapply,
-@@ -5785,30 +5809,60 @@ async fn drain_session_id_updates_in_state(state: &Arc<AppState>) {
+@@ -5859,30 +5883,60 @@ async fn drain_session_id_updates_in_state(state: &Arc<AppState>) {
      let snapshot = state.instances.read().await.clone();
      let file_watch = state.file_watch.clone();
      match tokio::task::spawn_blocking(move || {
@@ -3095,7 +3095,7 @@ index ba4201c8a..c51e88a57 100644
                  }
              }
          }
-@@ -6053,6 +6107,43 @@ mod tests {
+@@ -6132,6 +6186,43 @@ mod tests {
      fn vecs(v: &[&str]) -> Vec<String> {
          v.iter().map(|s| s.to_string()).collect()
      }
@@ -3139,7 +3139,7 @@ index ba4201c8a..c51e88a57 100644
  
      /// `idempotency_locks` must not grow for the daemon's lifetime: keys are
      /// caller-supplied and unbounded, so an entry nobody holds is pruned on
-@@ -7556,6 +7647,7 @@ mod tests {
+@@ -7659,6 +7750,7 @@ mod tests {
              .insert(
                  a1_id.clone(),
                  crate::session::PassiveStatusPatch {
@@ -3147,7 +3147,7 @@ index ba4201c8a..c51e88a57 100644
                      status: Status::Idle,
                      idle_entered_at: None,
                      last_accessed_at: Some(new_ts),
-@@ -7568,6 +7660,7 @@ mod tests {
+@@ -7671,6 +7763,7 @@ mod tests {
              .insert(
                  b1_id.clone(),
                  crate::session::PassiveStatusPatch {
@@ -3156,7 +3156,7 @@ index ba4201c8a..c51e88a57 100644
                      idle_entered_at: None,
                      last_accessed_at: Some(new_ts),
 diff --git a/src/session/capture.rs b/src/session/capture.rs
-index f0b1986fd..aba872199 100644
+index 98a8f63e3..8613acbf2 100644
 --- a/src/session/capture.rs
 +++ b/src/session/capture.rs
 @@ -1,12 +1,16 @@
@@ -3290,28 +3290,22 @@ index f0b1986fd..aba872199 100644
              let session_id = match fields.0 {
                  Some(id) if !id.is_empty() && !exclusion.contains(&id) => id,
                  _ => continue,
-@@ -615,8 +656,18 @@ fn capture_pi_family_session_id(
+@@ -615,6 +656,14 @@ fn capture_pi_family_session_id(
          return Ok(id.clone());
      }
  
--    // Third fallback: when all JSONL headers fail to parse, pick the most
--    // recently modified session directory and extract a UUID from its files.
 +    // A session for this project exists on disk but every cwd match was
 +    // excluded (e.g. the just-crashed sid the resume cascade cleared). Return
-+    // an error rather than the project-agnostic newest-dir fallback below,
-+    // which would otherwise resume a different project's session.
++    // an error rather than the project-scoped newest-dir fallback below, which
++    // would otherwise resume a different project's session.
 +    if saw_cwd_match {
 +        anyhow::bail!("All Pi sessions matching project path are excluded");
 +    }
 +
-+    // Third fallback: reached only when no header's recorded cwd matched the
-+    // project path (headers failed to parse, so no project session could be
-+    // identified); pick the most recently modified session directory and
-+    // extract a UUID from its files.
-     let mut dirs_by_mtime: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
-     if let Ok(entries) = resilient_read_dir(&sessions_dir) {
-         for entry in entries {
-@@ -677,33 +728,27 @@ pub(crate) fn pi_poll_fn(
+     // Third fallback: when JSONL headers fail to parse (no `id` field),
+     // extract a UUID from the filename. Only consider directories whose
+     // encoded name matches the target project path, so we never grab a
+@@ -684,33 +733,27 @@ pub(crate) fn pi_poll_fn(
      }
  }
  
@@ -3364,7 +3358,7 @@ index f0b1986fd..aba872199 100644
  const PI_CONTAINER_LIST_SCRIPT: &str = r#"SESS_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/sessions"
  [ -d "$SESS_DIR" ] || exit 0
  for d in "$SESS_DIR"/*/; do
-@@ -711,7 +756,7 @@ for d in "$SESS_DIR"/*/; do
+@@ -718,7 +761,7 @@ for d in "$SESS_DIR"/*/; do
      [ -f "$f" ] || continue
      ts=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
      printf '===PI:%s===\n' "$ts"
@@ -3373,7 +3367,7 @@ index f0b1986fd..aba872199 100644
      printf '\n===END===\n'
    done
  done
-@@ -1235,10 +1280,24 @@ const OPENCODE_COMMAND_TIMEOUT_SECS: u64 = 5;
+@@ -1242,10 +1285,24 @@ const OPENCODE_COMMAND_TIMEOUT_SECS: u64 = 5;
  
  /// Spawn `cmd`, read stdout to EOF on a worker thread, and wait for the
  /// process to exit. Kills the child if `timeout` elapses first.
@@ -3399,7 +3393,7 @@ index f0b1986fd..aba872199 100644
  ) -> Result<Vec<u8>> {
      cmd.stdout(Stdio::piped()).stderr(Stdio::null());
      let mut child = cmd
-@@ -1246,18 +1305,27 @@ fn run_with_timeout(
+@@ -1253,18 +1310,27 @@ fn run_with_timeout(
          .with_context(|| format!("Failed to spawn '{}'", label))?;
  
      let stdout_pipe = child.stdout.take();
@@ -3432,7 +3426,7 @@ index f0b1986fd..aba872199 100644
              Ok(None) => {
                  if std::time::Instant::now() >= deadline {
                      let _ = child.kill();
-@@ -1266,12 +1334,31 @@ fn run_with_timeout(
+@@ -1273,12 +1339,31 @@ fn run_with_timeout(
                  }
                  std::thread::sleep(Duration::from_millis(50));
              }
@@ -3467,7 +3461,7 @@ index f0b1986fd..aba872199 100644
      if !status.success() {
          anyhow::bail!("{} command failed", label);
      }
-@@ -2706,6 +2793,20 @@ mod tests {
+@@ -2713,6 +2798,20 @@ mod tests {
      use crate::session::test_support::EnvGuard;
      use serial_test::serial;
  
@@ -3488,7 +3482,7 @@ index f0b1986fd..aba872199 100644
      #[test]
      fn canonicalize_or_raw_normalizes_deleted_dirs_lexically() {
          // A stopped worktree session's directory is often deleted while its
-@@ -3176,6 +3277,66 @@ mod tests {
+@@ -3183,6 +3282,66 @@ mod tests {
          );
      }
  
@@ -3555,7 +3549,7 @@ index f0b1986fd..aba872199 100644
      /// Real e2e: run the same shell script we ship to `docker exec` against a
      /// Pi session dir on disk, and feed the stdout into the parser to confirm
      /// it picks up the live UUID. Set `AOE_PI_E2E_DIR=/path/to/.pi/agent` and
-@@ -3278,92 +3439,11 @@ mod tests {
+@@ -3285,92 +3444,11 @@ mod tests {
          }
      }
  
@@ -3649,7 +3643,7 @@ index f0b1986fd..aba872199 100644
          let sessions_dir = tmp.path().join("sessions");
          let project_encoded = encode_pi_project_path("/home/user/project");
          let project_dir = sessions_dir.join(&project_encoded);
-@@ -3372,17 +3452,20 @@ mod tests {
+@@ -3379,17 +3457,20 @@ mod tests {
          let uuid_old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
          let uuid_new = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
  
@@ -3673,7 +3667,7 @@ index f0b1986fd..aba872199 100644
  
          let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
          std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
-@@ -3436,6 +3519,51 @@ mod tests {
+@@ -3443,6 +3524,51 @@ mod tests {
          }
      }
  
@@ -3725,7 +3719,7 @@ index f0b1986fd..aba872199 100644
      #[test]
      #[serial]
      fn test_capture_pi_session_id_cwd_fallback_most_recent_wins() {
-@@ -3447,21 +3575,23 @@ mod tests {
+@@ -3454,21 +3580,23 @@ mod tests {
  
          let dir_a = sessions_dir.join("--wrong-name-a--");
          std::fs::create_dir_all(&dir_a).unwrap();
@@ -3753,25 +3747,25 @@ index f0b1986fd..aba872199 100644
  
          let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
          std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
-@@ -3526,8 +3656,6 @@ mod tests {
+@@ -3537,8 +3665,6 @@ mod tests {
          )
          .unwrap();
  
 -        std::thread::sleep(std::time::Duration::from_millis(50));
 -
-         let dir_new = sessions_dir.join("--new-dir--");
-         std::fs::create_dir_all(&dir_new).unwrap();
-         std::fs::write(
-@@ -3535,6 +3663,8 @@ mod tests {
-             "also not valid json\n",
+         // Create a non-matching directory (different project) with a *newer*
+         // session — must still be ignored, so this pins the scoping filter
+         // rather than the mtime sort alone.
+@@ -3549,6 +3675,8 @@ mod tests {
+             "not valid json\n",
          )
          .unwrap();
-+        set_mtime_secs(&dir_old, 1_700_000_000);
-+        set_mtime_secs(&dir_new, 1_700_000_100);
++        set_mtime_secs(&dir_match, 1_700_000_000);
++        set_mtime_secs(&dir_other, 1_700_000_100);
  
-         let old_val = std::env::var("PI_CODING_AGENT_DIR").ok();
-         std::env::set_var("PI_CODING_AGENT_DIR", tmp.path());
-@@ -5389,4 +5519,23 @@ mod tests {
+         let _env = EnvGuard::set(&[("PI_CODING_AGENT_DIR", tmp.path())]);
+ 
+@@ -5428,4 +5556,23 @@ mod tests {
              None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
          }
      }
@@ -17063,7 +17057,7 @@ index 154c39689..834660f12 100644
  
  /// Remove a hidden environment variable from a tmux session
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
-index 0dfecdf5a..9cad28319 100644
+index 1978ccfd8..609035162 100644
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
 @@ -14,7 +14,7 @@ pub(crate) mod utils;
@@ -17075,7 +17069,7 @@ index 0dfecdf5a..9cad28319 100644
  pub use status_bar::{get_session_info_for_current, get_status_for_current_session};
  pub(crate) use status_detection::{
      claude_pane_is_ambiguous_typed_prompt, claude_pane_marker_fingerprint,
-@@ -224,6 +224,7 @@ pub const TOOL_PREFIX: &str = if cfg!(debug_assertions) {
+@@ -240,6 +240,7 @@ pub const TOOL_PREFIX: &str = if cfg!(debug_assertions) {
  pub struct PaneMetadata {
      pub pane_dead: bool,
      pub pane_current_command: Option<String>,
@@ -17083,7 +17077,7 @@ index 0dfecdf5a..9cad28319 100644
  }
  
  static SESSION_CACHE: RwLock<SessionCache> = RwLock::new(SessionCache {
-@@ -607,7 +608,7 @@ pub fn batch_pane_metadata() -> anyhow::Result<HashMap<String, PaneMetadata>> {
+@@ -645,7 +646,7 @@ pub fn batch_pane_metadata() -> anyhow::Result<HashMap<String, PaneMetadata>> {
              "list-panes",
              "-a",
              "-F",
@@ -17092,7 +17086,7 @@ index 0dfecdf5a..9cad28319 100644
          ])
          .output();
  
-@@ -708,18 +709,29 @@ fn parse_pane_metadata(output: &str) -> HashMap<String, PaneMetadata> {
+@@ -746,18 +747,29 @@ fn parse_pane_metadata(output: &str) -> HashMap<String, PaneMetadata> {
      let mut map = HashMap::new();
  
      for line in output.lines() {
@@ -17128,7 +17122,7 @@ index 0dfecdf5a..9cad28319 100644
              continue;
          }
  
-@@ -732,12 +744,14 @@ fn parse_pane_metadata(output: &str) -> HashMap<String, PaneMetadata> {
+@@ -770,12 +782,14 @@ fn parse_pane_metadata(output: &str) -> HashMap<String, PaneMetadata> {
          map.insert(
              session_name.to_string(),
              PaneMetadata {
@@ -17146,7 +17140,7 @@ index 0dfecdf5a..9cad28319 100644
              },
          );
      }
-@@ -1317,6 +1331,7 @@ mod tests {
+@@ -1355,6 +1369,7 @@ mod tests {
                          PaneMetadata {
                              pane_dead: false,
                              pane_current_command: None,
@@ -17154,7 +17148,7 @@ index 0dfecdf5a..9cad28319 100644
                          },
                      )
                  })
-@@ -1514,17 +1529,43 @@ mod tests {
+@@ -1579,17 +1594,43 @@ mod tests {
  
      #[test]
      fn test_parse_pane_metadata_basic() {
@@ -17200,7 +17194,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          let meta = map.get(&format!("{P}proj_abc12345")).unwrap();
          assert!(meta.pane_dead);
-@@ -1532,8 +1573,9 @@ mod tests {
+@@ -1597,8 +1638,9 @@ mod tests {
  
      #[test]
      fn test_parse_pane_metadata_filters_non_aoe_sessions() {
@@ -17212,7 +17206,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          assert_eq!(map.len(), 1);
          assert!(map.contains_key(&format!("{P}proj_abc12345")));
-@@ -1541,7 +1583,8 @@ mod tests {
+@@ -1606,7 +1648,8 @@ mod tests {
  
      #[test]
      fn test_parse_pane_metadata_filters_non_zero_panes() {
@@ -17222,7 +17216,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          assert_eq!(map.len(), 1);
          let meta = map.get(&format!("{P}proj_abc12345")).unwrap();
-@@ -1551,7 +1594,8 @@ mod tests {
+@@ -1616,7 +1659,8 @@ mod tests {
      #[test]
      fn test_parse_pane_metadata_first_window_wins() {
          // Two windows both have pane 0, first window's data should be kept
@@ -17232,7 +17226,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          assert_eq!(map.len(), 1);
          let meta = map.get(&format!("{P}proj_abc12345")).unwrap();
-@@ -1566,14 +1610,14 @@ mod tests {
+@@ -1631,14 +1675,14 @@ mod tests {
  
      #[test]
      fn test_parse_pane_metadata_malformed_lines() {
@@ -17249,7 +17243,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          let meta = map.get(&format!("{P}proj_abc12345")).unwrap();
          assert!(meta.pane_current_command.is_none());
-@@ -1582,7 +1626,7 @@ mod tests {
+@@ -1647,7 +1691,7 @@ mod tests {
      #[test]
      fn test_parse_pane_metadata_multiple_sessions() {
          let output = format!(
@@ -17259,7 +17253,7 @@ index 0dfecdf5a..9cad28319 100644
          let map = parse_pane_metadata(&output);
          assert_eq!(map.len(), 3);
 diff --git a/src/tmux/session.rs b/src/tmux/session.rs
-index ea3ea1067..5a7d2d382 100644
+index b8d11178b..c505c4ad4 100644
 --- a/src/tmux/session.rs
 +++ b/src/tmux/session.rs
 @@ -4,14 +4,14 @@ use anyhow::{bail, Result};
@@ -17519,7 +17513,7 @@ index ea3ea1067..5a7d2d382 100644
      pub fn capture_pane(&self, lines: usize) -> Result<String> {
          if !self.exists() {
              return Ok(String::new());
-@@ -1591,6 +1737,160 @@ fn raw_byte_batches(bytes: &[u8]) -> Vec<Vec<String>> {
+@@ -1639,6 +1785,160 @@ fn raw_byte_batches(bytes: &[u8]) -> Vec<Vec<String>> {
          .collect()
  }
  
@@ -17677,10 +17671,10 @@ index ea3ea1067..5a7d2d382 100644
 +    format!("'{}'", value.replace('\'', "'\\''"))
 +}
 +
- /// Build the argument list for tmux new-session command. Shared by the
- /// agent session and the paired/container terminal sessions (their
- /// invocations are identical; only the session-name prefix differs).
-@@ -1929,6 +2229,25 @@ mod tests {
+ /// Whether `text` should get a trailing space appended before being typed
+ /// via the literal (non-paste-buffer) keystroke path in
+ /// [`Session::send_keys_with_delay`]. A message that opens with `/` triggers
+@@ -2072,6 +2372,25 @@ mod tests {
          assert!(merge_cursor_probes(None, None).is_none());
      }
  
@@ -17706,7 +17700,7 @@ index ea3ea1067..5a7d2d382 100644
      #[test]
      #[serial_test::serial]
      fn capture_with_cursor_stays_consistent_under_streaming_load() {
-@@ -3319,49 +3638,218 @@ mod tests {
+@@ -3462,49 +3781,218 @@ mod tests {
      }
  
      #[test]
@@ -17826,11 +17820,7 @@ index ea3ea1067..5a7d2d382 100644
 +            "printf '%s' \"$MULTILINE_SECRET\" > {}; printf '%s' \"${{AOE_TEST_STALE+x}}\" > {}",
 +            script_shell_escape(&output.to_string_lossy()),
 +            script_shell_escape(&stale_output.to_string_lossy())
-         );
--        let values: Vec<&String> = args
--            .iter()
--            .filter(|a| a.starts_with("CLAUDE_CONFIG_DIR="))
--            .collect();
++        );
 +        let wrapper = file.wrap_command(Some(&command)).unwrap();
 +        let status = std::process::Command::new("sh")
 +            .args(["-c", &wrapper])
@@ -17895,14 +17885,18 @@ index ea3ea1067..5a7d2d382 100644
 +            .status()
 +            .unwrap();
 +        assert!(status.success());
++        assert_eq!(
++            std::fs::read_to_string(host_output).unwrap(),
++            "/usr/bin:/bin\nunset"
+         );
+-        let values: Vec<&String> = args
+-            .iter()
+-            .filter(|a| a.starts_with("CLAUDE_CONFIG_DIR="))
+-            .collect();
          assert_eq!(
 -            values,
 -            vec!["CLAUDE_CONFIG_DIR=/desktop", "CLAUDE_CONFIG_DIR=/minted"],
 -            "both -e flags must survive, minted last"
-+            std::fs::read_to_string(host_output).unwrap(),
-+            "/usr/bin:/bin\nunset"
-+        );
-+        assert_eq!(
 +            std::fs::read_to_string(payload_output).unwrap(),
 +            "PATH=/repo-controlled/bin\n\
 +             DOCKER_HOST=tcp://repo-controlled.example\n\
@@ -17959,10 +17953,10 @@ index ea3ea1067..5a7d2d382 100644
      }
  
 diff --git a/src/tmux/terminal_session.rs b/src/tmux/terminal_session.rs
-index 7929c18be..007114d94 100644
+index b94201603..2d99b107d 100644
 --- a/src/tmux/terminal_session.rs
 +++ b/src/tmux/terminal_session.rs
-@@ -791,8 +791,10 @@ mod tests {
+@@ -825,8 +825,10 @@ mod tests {
          }
  
          let key = "XDG_AOE_TERM_ENV_TEST_3075";
@@ -17975,7 +17969,7 @@ index 7929c18be..007114d94 100644
  
          let guard = TmuxTestSession::new("aoe_test_term_host_fwd");
          let session = PairedTerminal {
-@@ -808,11 +810,6 @@ mod tests {
+@@ -842,11 +844,6 @@ mod tests {
              .and_then(|o| String::from_utf8(o.stdout).ok())
              .map(|s| s.trim().to_string());
  
@@ -17987,7 +17981,7 @@ index 7929c18be..007114d94 100644
          created.expect("create host terminal");
          assert_eq!(
              shown.as_deref(),
-@@ -835,8 +832,7 @@ mod tests {
+@@ -869,8 +866,7 @@ mod tests {
          }
  
          let key = "XDG_AOE_TERM_ENV_TEST_3075_CTR";
@@ -17997,7 +17991,7 @@ index 7929c18be..007114d94 100644
  
          let guard = TmuxTestSession::new("aoe_test_term_ctr_excl");
          let session = PairedTerminal {
-@@ -855,11 +851,6 @@ mod tests {
+@@ -889,11 +885,6 @@ mod tests {
              .and_then(|o| String::from_utf8(o.stdout).ok())
              .map(|s| s.trim().to_string());
  
@@ -18010,7 +18004,7 @@ index 7929c18be..007114d94 100644
          assert_eq!(
              shown.as_deref(),
 diff --git a/src/tmux/utils.rs b/src/tmux/utils.rs
-index e3a2c91d7..f4da645be 100644
+index b9580f131..390895d69 100644
 --- a/src/tmux/utils.rs
 +++ b/src/tmux/utils.rs
 @@ -4,6 +4,8 @@ use crate::session::config::{resolve_tmux_setting, Config, TmuxSetting, TmuxSett
@@ -18080,7 +18074,7 @@ index e3a2c91d7..f4da645be 100644
  }
  
  /// Returns the tmux prefix key formatted for display (e.g. "Ctrl+a", "Ctrl+b").
-@@ -529,6 +568,22 @@ mod tests {
+@@ -533,6 +572,22 @@ mod tests {
          }
      }
  
@@ -20433,7 +20427,7 @@ index bedd5933b..3a88c0ac0 100644
      pub fn stop_daemon_on_drop(&mut self) {
          self.stop_daemon_on_drop = true;
 diff --git a/tests/e2e/kiro_launch.rs b/tests/e2e/kiro_launch.rs
-index d07efa12c..5a542293b 100644
+index 61d59ba91..10a6313bf 100644
 --- a/tests/e2e/kiro_launch.rs
 +++ b/tests/e2e/kiro_launch.rs
 @@ -7,13 +7,13 @@
@@ -20479,9 +20473,9 @@ index d07efa12c..5a542293b 100644
 -}
 -
  /// Run `aoe add --launch ...` for a kiro session and return the command tmux
- /// was told to run. `--launch` creates the tmux session and then attempts a
- /// foreground attach, which fails under the test's non-TTY stdio; that attach
-@@ -104,11 +87,12 @@ fn launch_kiro_and_read_command(
+ /// was told to run. `--launch` starts the tmux session and, since the test
+ /// harness's `run_cli` has no controlling terminal, skips the interactive
+@@ -105,11 +88,12 @@ fn launch_kiro_and_read_command(
  ) -> (String, TmuxSessionGuard) {
      // `aoe add --tool kiro` verifies `kiro-cli` is on PATH before persisting the
      // session, so without a stub it bails (and never writes sessions.json) in
@@ -20499,7 +20493,7 @@ index d07efa12c..5a542293b 100644
  
      let project = h.project_path();
      let mut args = vec![
-@@ -125,14 +109,36 @@ fn launch_kiro_and_read_command(
+@@ -131,14 +115,36 @@ fn launch_kiro_and_read_command(
  
      let session = launched_tmux_name(h, title);
      let socket = h.home_path().join("tmux.sock");
