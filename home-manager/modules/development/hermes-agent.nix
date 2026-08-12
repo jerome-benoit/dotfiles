@@ -287,15 +287,5 @@ in
           execStart = "${lib.getExe' cfg.package "hermes"} dashboard --no-open --skip-build --host ${cfg.dashboardHost} --port ${toString cfg.dashboardPort}";
         });
 
-    xdg.desktopEntries = lib.mkIf (cfg.enableDesktop && !isDarwin && cfg.desktopPackage != null) {
-      hermes-desktop = {
-        name = "Hermes Desktop";
-        exec = "${lib.getExe cfg.desktopPackage} %U";
-        comment = "Hermes Agent desktop app";
-        terminal = false;
-        categories = [ "Development" ];
-        settings.StartupWMClass = "Hermes";
-      };
-    };
   };
 }
