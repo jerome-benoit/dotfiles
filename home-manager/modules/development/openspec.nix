@@ -11,7 +11,7 @@ let
 
   baseOpenspecPackage = inputs.openspec.packages.${system}.default or null;
   pnpmPackage = pkgs.pnpm_10;
-  pnpmDepsHash = "sha256-l/0tc/9pzjwHcjGT9/exBZTiHhRJpUFuiam2+fQYcbw=";
+  pnpmDepsHash = "sha256-j3vQpV2NjQehWl2D6LuUs2XIxf+KAkcUh7g3RY0Hl+M=";
 
   openspecPackage =
     if baseOpenspecPackage != null then
