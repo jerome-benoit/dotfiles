@@ -82,7 +82,7 @@ in
     xdg.configFile."sway/config.d/30-autostart.conf".text = ''
       # Generated from Home Manager.
 
-      exec --no-startup-id 'login_shell=$$(getent passwd "$$(id -un)" | cut -d: -f7); [ -x "$$login_shell" ] && exec "$$login_shell" -lc "command -v codex-desktop >/dev/null 2>&1 && exec codex-desktop"'
+      exec --no-startup-id 'login_shell=$$(getent passwd "$$(id -un)" | cut -d: -f7); [ -x "$$login_shell" ] && exec "$$login_shell" -lc "command -v chatgpt >/dev/null 2>&1 && exec chatgpt"'
       exec --no-startup-id 'login_shell=$$(getent passwd "$$(id -un)" | cut -d: -f7); [ -x "$$login_shell" ] && exec "$$login_shell" -lc "command -v obsidian >/dev/null 2>&1 && exec obsidian"'
     '';
 
