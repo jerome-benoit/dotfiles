@@ -17,11 +17,11 @@ let
   ];
 
   # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
-  version = "0.7.1";
+  version = "0.7.2";
 
   src = pkgs.fetchzip {
     url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${version}/prime-agent-${version}.tgz";
-    hash = "sha256-o0zZuv+Xam0BNn112wkDP7SfDh24VfMMBJKSLBynIAI="; # @ci:src-hash-prime-agent
+    hash = "sha256-mXUeEkG6M9sgXLnWbapXmVA50Vv6kViYWvIBSV094W8="; # @ci:src-hash-prime-agent
   };
 
   # Native/runtime deps external to the esbuild bundle, absent from the tarball; pinned to prime-agent's package-lock.
@@ -30,7 +30,7 @@ let
   zeromqVersion = "6.5.0"; # @ci:npm-version zeromq
   cmakeTsVersion = "1.0.2"; # @ci:npm-version cmake-ts
   photonVersion = "0.3.4"; # @ci:npm-version @silvia-odwyer/photon-node
-  undiciVersion = "7.28.0"; # @ci:npm-version undici
+  undiciVersion = "7.29.0"; # @ci:npm-version undici
 
   zeromqSrc = pkgs.fetchzip {
     url = "https://registry.npmjs.org/zeromq/-/zeromq-${zeromqVersion}.tgz";
@@ -48,7 +48,7 @@ let
   # cli-main dynamically imports "undici" (kept external from the esbuild bundle); it has no runtime deps.
   undiciSrc = pkgs.fetchzip {
     url = "https://registry.npmjs.org/undici/-/undici-${undiciVersion}.tgz";
-    hash = "sha256-j0xXiurS8I7UkOHltqn6o6ndDs4igkAAE0A3VPRxa9c="; # @ci:npm-hash undici
+    hash = "sha256-xtWGZuAjA6c8p3EjgweXN6Au1sMLg9JZOKPXNFCMIjs="; # @ci:npm-hash undici
   };
 
   # zeromq ships prebuilt N-API addons for every platform; keep only the host os/arch and drop the musl
