@@ -111,7 +111,7 @@
       constants = import ./constants.nix;
       personalSecrets = import ./secrets/default.nix;
       forAllSystems = nixpkgs.lib.genAttrs (
-        builtins.attrValues (nixpkgs.lib.mapAttrs (_: sys: sys.arch) constants.systems)
+        nixpkgs.lib.mapAttrsToList (_: sys: sys.arch) constants.systems
       );
 
       # Force LLD on darwin; cctools ld64 hardening SIGTRAPs at link (NixOS/nixpkgs#540054).

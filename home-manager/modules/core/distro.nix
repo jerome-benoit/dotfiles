@@ -38,9 +38,7 @@ in
 {
   options.modules.core.distro = {
     id = lib.mkOption {
-      type = lib.types.nullOr (
-        lib.types.either distroIdsEnumType (lib.types.enum [ constants.systems.darwin.name ])
-      );
+      type = lib.types.nullOr (lib.types.enum (supportedDistros ++ [ constants.systems.darwin.name ]));
       default = distroId;
       description = "OS distribution ID";
       readOnly = true;
