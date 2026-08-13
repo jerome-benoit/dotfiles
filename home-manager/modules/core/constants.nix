@@ -147,6 +147,7 @@ in
       type = lib.types.attrsOf lib.types.str;
       default = {
         faust = "faust";
+        morphee = "morphee";
         nemesis = "nemesis";
         ns3108029 = personalSecrets.hosts.server;
         rigel = "rigel";
@@ -264,39 +265,6 @@ in
         hunk-header-decoration-style = "#569cd6 box";
       };
       description = "Shared delta pager configuration";
-      readOnly = true;
-    };
-    deltaConfigToCli = lib.mkOption {
-      type = lib.types.functionTo lib.types.str;
-      default =
-        cfg:
-        let
-          boolFlag = name: value: lib.optional value "--${name}";
-          strFlag = name: value: [ "--${name}='${value}'" ];
-          intFlag = name: value: [ "--${name}=${toString value}" ];
-          enumFlag = name: value: [ "--${name}=${value}" ];
-        in
-        lib.strings.concatStringsSep " " (
-          lib.lists.flatten [
-            "--paging=never"
-            (boolFlag "navigate" cfg.navigate)
-            (boolFlag "line-numbers" cfg.line-numbers)
-            (boolFlag "side-by-side" cfg.side-by-side)
-            (boolFlag "hyperlinks" cfg.hyperlinks)
-            (strFlag "hyperlinks-file-link-format" cfg.hyperlinks-file-link-format)
-            (boolFlag "dark" cfg.dark)
-            (strFlag "syntax-theme" cfg.syntax-theme)
-            (enumFlag "true-color" cfg.true-color)
-            (intFlag "max-line-length" cfg.max-line-length)
-            (strFlag "features" cfg.features)
-            (strFlag "whitespace-error-style" cfg.whitespace-error-style)
-            (strFlag "file-style" cfg.file-style)
-            (strFlag "file-decoration-style" cfg.file-decoration-style)
-            (strFlag "hunk-header-style" cfg.hunk-header-style)
-            (strFlag "hunk-header-decoration-style" cfg.hunk-header-decoration-style)
-          ]
-        );
-      description = "Function to convert deltaConfig to CLI flags string";
       readOnly = true;
     };
   };

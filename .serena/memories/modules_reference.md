@@ -27,7 +27,6 @@ Personal data comes from `personalSecrets` (SOPS-encrypted), non-secret constant
 - `timezone` - "Europe/Paris" (configurable)
 - `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
 - `deltaConfig` - Shared delta pager configuration submodule (readonly)
-- `deltaConfigToCli` - Function to convert deltaConfig to CLI flags string (readonly)
 
 ### sops.nix
 
@@ -55,6 +54,9 @@ Shared library functions:
 
 - `config.modules.core.lib.mkSystemPackage` - Placeholder package for system-managed binaries
 - `config.modules.core.lib.mkPlatformPackage` - Nix package on Darwin, system stub on Linux
+- `config.modules.core.lib.mkUnstableVersion` - Version string from a flake input (0-unstable-YYYY-MM-DD+shortRev)
+- `config.modules.core.lib.mkUnstableVersionWithBase` - mkUnstableVersion with an explicit base version
+- `config.modules.core.lib.deltaConfigToCli` - Converts `modules.core.constants.deltaConfig` to delta CLI flags string (readonly)
 
 ### home-manager.nix
 

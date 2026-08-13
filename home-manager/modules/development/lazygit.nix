@@ -9,7 +9,7 @@ let
   cfg = config.modules.development.lazygit;
   theme = config.modules.themes.current;
   constants = config.modules.core.constants;
-  deltaFlags = constants.deltaConfigToCli constants.deltaConfig;
+  deltaFlags = config.modules.core.lib.deltaConfigToCli constants.deltaConfig;
 in
 {
   options.modules.development.lazygit = {
