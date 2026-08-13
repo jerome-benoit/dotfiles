@@ -23,10 +23,10 @@ let
     in
     if sysfsVersion != "" then sysfsVersion else cfg.nvidiaDriverVersion;
 
-  driverMajor =
-    if detectedNvidiaVersion != null then lib.toInt (lib.versions.major detectedNvidiaVersion) else 0;
-
   nvidiaVersionKnown = detectedNvidiaVersion != null;
+
+  driverMajor =
+    if nvidiaVersionKnown then lib.toInt (lib.versions.major detectedNvidiaVersion) else 0;
 
   # Driver→CUDA matrix, descending. NVIDIA CUDA Release Notes, Table 3.
   cudaMatrix = [

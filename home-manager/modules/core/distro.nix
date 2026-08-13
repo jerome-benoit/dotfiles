@@ -9,6 +9,7 @@ let
   constants = config.modules.core.constants;
   supportedDistros = builtins.attrValues constants.distros;
   distroIdsEnumType = lib.types.enum supportedDistros;
+  allDistroIds = supportedDistros ++ [ constants.systems.darwin.name ];
 
   detectDistro =
     if !pkgs.stdenv.hostPlatform.isLinux then
@@ -38,7 +39,7 @@ in
 {
   options.modules.core.distro = {
     id = lib.mkOption {
-      type = lib.types.nullOr (lib.types.enum (supportedDistros ++ [ constants.systems.darwin.name ]));
+      type = lib.types.nullOr (lib.types.enum allDistroIds);
       default = distroId;
       description = "OS distribution ID";
       readOnly = true;

@@ -40,9 +40,8 @@ in
     };
   };
 
-  # --- sops-nix activation ordering fixes ---
-
   home = {
+    # --- sops-nix activation ordering fixes ---
     # Linux: ensure sops-nix activation runs after systemd daemon-reload (Mic92/sops-nix#581)
     activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.isLinux (
       lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
