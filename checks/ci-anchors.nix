@@ -20,9 +20,16 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # a version assignment, otherwise the extraction reads an unrelated line
   check_version_after() { # <file> <marker> <name>
     local line
-    line=''$(grep -A1 "''$2" "''$1" | tail -1)
+    line=''$(grep -A1 "''$2" "''$1" | tail -1 || true)
+    [ -n "''$line" ] \
+      || fail "''$3: renovate marker not found, or not immediately followed by a version line (workflow grep -A1 | tail -1)"
     printf '%s\n' "''$line" | grep -qE '^[[:space:]]*version = "[^"]+"' \
       || fail "''$3: line after renovate marker is not 'version = ...' (workflow grep -A1 | tail -1)"
+    # the workflow sed extracts the first "..." on that line: a ''${...} interpolation
+    # would be extracted as-is and produce an invalid URL at bump time
+    if printf '%s\n' "''$line" | grep -q '\''${'; then
+      fail "''$3: version must be a literal string, no \''${...} interpolation (workflow sed would extract it)"
+    fi
   }
 
   # --- pi.nix ---
@@ -45,6 +52,8 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   awk '
     /src = pkgs\.fetchzip \{/ { in_src = 1 }
     /npmDeps = pkgs\.fetchNpmDeps \{/ { in_src = 0; in_npm = 1 }
+    in_src && /^[[:space:]]*\};/ { in_src = 0 }
+    in_npm && /^[[:space:]]*\};/ { in_npm = 0 }
     in_src && /@ci:src-hash/ { src_ok = 1 }
     in_npm && /@ci:npm-deps-hash/ { npm_ok = 1 }
     END { exit !(src_ok && npm_ok) }
@@ -53,6 +62,12 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # --- omp.nix ---
   OMP="''$DEV/omp.nix"
   check_version_after "''$OMP" '# renovate: datasource=github-releases depName=can1357/oh-my-pi' "omp.nix"
+  # the workflow hard-codes this download URL (fix-nix-hashes.yml): tag format
+  # and asset name must keep the v''${finalAttrs.version}/omp-''${platformKey} shape
+  grep -q 'url = "https://github.com/can1357/oh-my-pi/releases/download/v''${finalAttrs\.version}/omp-''${platformKey}"' "''$OMP" \
+    || fail "omp.nix: url template must be .../releases/download/v\''${finalAttrs.version}/omp-\''${platformKey} (workflow hard-coded URL)"
+  # keep in LC_ALL=C sorted order (the workflow derives keys dynamically; this exact
+  # set is the intentional contract - adding a platform requires bumping it in the PR)
   EXPECTED_OMP_KEYS="darwin-arm64
   linux-arm64
   linux-x64"
@@ -68,13 +83,23 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # --- prime-agent.nix ---
   PA="''$DEV/prime-agent.nix"
   check_version_after "''$PA" '# renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent' "prime-agent.nix"
+  # the workflow hard-codes this release URL (fix-nix-hashes.yml): keep the
+  # v''${version}/prime-agent-''${version}.tgz shape
+  grep -q 'url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v''${version}/prime-agent-''${version}\.tgz"' "''$PA" \
+    || fail "prime-agent.nix: url template must be .../releases/download/v\''${version}/prime-agent-\''${version}.tgz (workflow hard-coded URL)"
   grep -qE "''${HASH_RE}src-hash-prime-agent''$" "''$PA" || fail "prime-agent.nix: @ci:src-hash-prime-agent not a trailing sha256 hash line"
+  # keep in LC_ALL=C sorted order; add a dep = bump this set + the case below in the PR
   EXPECTED_PA_KEYS="@silvia-odwyer/photon-node
   cmake-ts
   undici
   zeromq"
   VKEYS=''$(grep -oE '@ci:npm-version [^ ]+''$' "''$PA" | sed 's/@ci:npm-version //' | LC_ALL=C sort -u)
   HKEYS=''$(grep -oE '@ci:npm-hash [^ ]+''$' "''$PA" | sed 's/@ci:npm-hash //' | LC_ALL=C sort -u)
+  # two @ci:npm-hash markers on one line would let the workflow match the line for
+  # the wrong dep (index() prefix match) while sort -u hides the duplicate: reject
+  if grep -E '@ci:npm-hash .*@ci:npm-hash' "''$PA"; then
+    fail "prime-agent.nix: duplicate @ci:npm-hash markers on a single line"
+  fi
   [ "''$VKEYS" = "''$HKEYS" ] || fail "prime-agent.nix: npm-version/npm-hash key mismatch: v=[''$VKEYS] h=[''$HKEYS]"
   [ "''$VKEYS" = "''$EXPECTED_PA_KEYS" ] || fail "prime-agent.nix: npm dep key set mismatch: got=[''$VKEYS]"
   for k in ''$VKEYS; do
@@ -91,11 +116,15 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     grep -qE "^[[:space:]]*''${base}Version = \"[^\"]+\"; # @ci:npm-version ''${k}''$" "''$PA" \
       || fail "prime-agent.nix: @ci:npm-version ''${k} not bound to ''${base}Version"
     awk -v k="''$k" -v base="''$base" '
-      index($0, base "Src = pkgs.fetchzip {") { in_blk = 1 }
-      in_blk && index($0, "@ci:npm-hash " k) { ok = 1 }
+      index($0, base "Src = pkgs.fetchzip {") { in_blk = 1; next }
+      in_blk && /^[[:space:]]*\};/ { in_blk = 0; next }
+      in_blk && index($0, "@ci:npm-hash " k) && index($0, "hash = \"sha256-") { ok = 1 }
       END { exit !ok }
-    ' "''$PA" || fail "prime-agent.nix: @ci:npm-hash ''${k} not bound to ''${base}Src block"
+    ' "''$PA" || fail "prime-agent.nix: @ci:npm-hash ''${k} not bound to ''${base}Src block (on a sha256 hash assignment)"
   done
+  # presence-only: semantic sync between the marker and kernelPython (pip -> nixpkgs
+  # mapping) is a tracked follow-up - the workflow itself compares the marker against
+  # upstream bootstrap.ts only, never against kernelPython
   grep -q '# @ci:rlm-extra-packages ' "''$PA" || fail "prime-agent.nix: @ci:rlm-extra-packages marker missing"
 
   touch ''$out
