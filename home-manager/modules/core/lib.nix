@@ -190,15 +190,15 @@
           {
             package,
             enabled ? true,
-            warning,
+            warning ? null,
             ...
           }:
-          lib.optional (enabled && package == null) warning
+          lib.optional (enabled && package == null && warning != null) warning
         ) entries;
       };
       description = ''
         Turns optional package entries into the { packages, warnings } lists feeding home.packages and warnings.
-        Each entry is { package, enabled ? true, warning }.
+        Each entry is { package, enabled ? true, warning ? null } (warning only emitted for null packages).
 
         Usage:
           optionalPackages = mkOptionalPackages [
