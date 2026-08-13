@@ -43,12 +43,12 @@ in
   home = {
     # --- sops-nix activation ordering fixes ---
     # Linux: ensure sops-nix activation runs after systemd daemon-reload (Mic92/sops-nix#581)
-    activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.isLinux (
+    activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (
       lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
     );
 
     # macOS: ensure sops-nix activation runs after plist is installed (Mic92/sops-nix#910)
-    activation.sops-nix = lib.mkIf pkgs.stdenv.isDarwin (
+    activation.sops-nix = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
       lib.mkForce (
         lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
           /bin/launchctl bootout gui/$(id -u ${config.home.username})/org.nix-community.home.sops-nix || true
