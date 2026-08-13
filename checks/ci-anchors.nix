@@ -19,14 +19,18 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # | sed -n 's/.*"\([^"]*\)".*/\1/p'`: the line right after the marker must be
   # a version assignment, otherwise the extraction reads an unrelated line
   check_version_after() { # <file> <marker> <name>
+    [ "''$(grep -cF "''$2" "''$1" || true)" -eq 1 ] \
+      || fail "''$3: expected exactly one renovate marker line (workflow grep -A1 | tail -1 takes the last)"
     local line
     line=''$(grep -A1 "''$2" "''$1" | tail -1 || true)
     [ -n "''$line" ] \
       || fail "''$3: renovate marker not found, or not immediately followed by a version line (workflow grep -A1 | tail -1)"
-    printf '%s\n' "''$line" | grep -qE '^[[:space:]]*version = "[^"]+"' \
-      || fail "''$3: line after renovate marker is not 'version = ...' (workflow grep -A1 | tail -1)"
-    # the workflow sed extracts the first "..." on that line: a ''${...} interpolation
-    # would be extracted as-is and produce an invalid URL at bump time
+    # the workflow sed is greedy ('s/.*"\([^"]*\)".*/\1/p'): it captures the LAST
+    # quoted string on the line, so the version assignment must be clean up to EOL
+    printf '%s\n' "''$line" | grep -qE '^[[:space:]]*version = "[^"]+";[[:space:]]*(#[^"]*)?$' \
+      || fail "''$3: line after renovate marker is not a clean 'version = "...";' assignment (workflow sed greedy)"
+    # the workflow sed would extract a ''${...} interpolation as-is and produce
+    # an invalid URL at bump time
     if printf '%s\n' "''$line" | grep -q '\''${'; then
       fail "''$3: version must be a literal string, no \''${...} interpolation (workflow sed would extract it)"
     fi
@@ -42,10 +46,11 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   [ "''$(grep -c 'url = "' "''$PI")" -eq 1 ] \
     || fail "pi.nix: expected exactly one 'url = \"' line (workflow URL_TEMPLATE | head -1)"
   # the workflow substitutes ''${finalAttrs.version} in URL_TEMPLATE: the placeholder must be present
-  grep -q 'url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent[^"]*''${finalAttrs\.version}' "''$PI" \
-    || fail "pi.nix: url line must contain \''${finalAttrs.version} placeholder (workflow sed substitution)"
+  grep -q 'url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-''${finalAttrs\.version}\.tgz"' "''$PI" \
+    || fail "pi.nix: url template must be .../-/pi-coding-agent-''${finalAttrs.version}.tgz (workflow URL_TEMPLATE)"
   for a in src-hash npm-deps-hash; do
-    grep -qE "''${HASH_RE}''${a}''$" "''$PI" || fail "pi.nix: @ci:''${a} not a trailing sha256 hash line"
+    [ "''$(grep -cE "''${HASH_RE}''${a}''$" "''$PI" || true)" -eq 1 ] \
+      || fail "pi.nix: expected exactly one @ci:''${a} trailing sha256 hash line"
   done
   # bind each anchor to its fetch block (src = pkgs.fetchzip { ... @ci:src-hash
   # ... }, npmDeps = pkgs.fetchNpmDeps { ... @ci:npm-deps-hash ... })
@@ -54,8 +59,10 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     /npmDeps = pkgs\.fetchNpmDeps \{/ { in_src = 0; in_npm = 1 }
     in_src && /^[[:space:]]*\};/ { in_src = 0 }
     in_npm && /^[[:space:]]*\};/ { in_npm = 0 }
-    in_src && /@ci:src-hash/ { src_ok = 1 }
-    in_npm && /@ci:npm-deps-hash/ { npm_ok = 1 }
+    # anchor + hash on the same line, inside the block: a renamed anchor inside
+    # the block with a fake EOL line outside would otherwise pass both greps
+    in_src && /@ci:src-hash''$/ && /hash = "sha256-/ { src_ok = 1 }
+    in_npm && /@ci:npm-deps-hash''$/ && /hash = "sha256-/ { npm_ok = 1 }
     END { exit !(src_ok && npm_ok) }
   ' "''$PI" || fail "pi.nix: @ci:src-hash/@ci:npm-deps-hash not bound to their src/npmDeps blocks"
 
@@ -71,8 +78,13 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   EXPECTED_OMP_KEYS="darwin-arm64
   linux-arm64
   linux-x64"
-  KEYS=''$(grep -oE '@ci:src-hash-[a-z0-9-]+' "''$OMP" | sed 's/@ci:src-hash-//' | LC_ALL=C sort -u)
+  KEYS=''$(grep -oE '@ci:src-hash-[a-z0-9-]+' "''$OMP" | sed 's/@ci:src-hash-//' | LC_ALL=C sort -u || true)
+  [ -n "''$KEYS" ] || fail "omp.nix: no @ci:src-hash-* anchors found"
   [ "''$KEYS" = "''$EXPECTED_OMP_KEYS" ] || fail "omp.nix: @ci:src-hash-<key> set mismatch: got=[''$KEYS]"
+  # every map key must carry a marker, else the workflow (which derives keys from
+  # markers only) would never rewrite that platform's hash
+  MAPKEYS=''$(grep -oE '^[[:space:]]*"[a-z0-9-]+" = "sha256-' "''$OMP" | sed -E 's/^[[:space:]]*"([a-z0-9-]+)".*/\1/' | LC_ALL=C sort -u || true)
+  [ "''$MAPKEYS" = "''$KEYS" ] || fail "omp.nix: hash-map keys without marker: got=[''$MAPKEYS] expected markers=[''$KEYS]"
   for k in ''$KEYS; do
     # the workflow rewrites the physical line carrying @ci:src-hash-<key>: it
     # must be the hash assignment of the <key> map entry, not a swapped one
@@ -87,17 +99,23 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # v''${version}/prime-agent-''${version}.tgz shape
   grep -q 'url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v''${version}/prime-agent-''${version}\.tgz"' "''$PA" \
     || fail "prime-agent.nix: url template must be .../releases/download/v\''${version}/prime-agent-\''${version}.tgz (workflow hard-coded URL)"
-  grep -qE "''${HASH_RE}src-hash-prime-agent''$" "''$PA" || fail "prime-agent.nix: @ci:src-hash-prime-agent not a trailing sha256 hash line"
+  awk '
+    /src = pkgs\.fetchzip \{/ { in_src = 1 }
+    in_src && /^[[:space:]]*\};/ { in_src = 0 }
+    in_src && /@ci:src-hash-prime-agent''$/ && /hash = "sha256-/ { src_ok = 1 }
+    END { exit !src_ok }
+  ' "''$PA" || fail "prime-agent.nix: @ci:src-hash-prime-agent not bound to the src fetch block (on a sha256 hash assignment)"
   # keep in LC_ALL=C sorted order; add a dep = bump this set + the case below in the PR
   EXPECTED_PA_KEYS="@silvia-odwyer/photon-node
   cmake-ts
   undici
   zeromq"
-  VKEYS=''$(grep -oE '@ci:npm-version [^ ]+''$' "''$PA" | sed 's/@ci:npm-version //' | LC_ALL=C sort -u)
-  HKEYS=''$(grep -oE '@ci:npm-hash [^ ]+''$' "''$PA" | sed 's/@ci:npm-hash //' | LC_ALL=C sort -u)
+  VKEYS=''$(grep -oE '@ci:npm-version [^ ]+''$' "''$PA" | sed 's/@ci:npm-version //' | LC_ALL=C sort -u || true)
+  HKEYS=''$(grep -oE '@ci:npm-hash [^ ]+''$' "''$PA" | sed 's/@ci:npm-hash //' | LC_ALL=C sort -u || true)
+  [ -n "''$VKEYS" ] || fail "prime-agent.nix: no @ci:npm-version markers found"
   # two @ci:npm-hash markers on one line would let the workflow match the line for
   # the wrong dep (index() prefix match) while sort -u hides the duplicate: reject
-  if grep -E '@ci:npm-hash .*@ci:npm-hash' "''$PA"; then
+  if grep -qE '@ci:npm-hash .*@ci:npm-hash' "''$PA"; then
     fail "prime-agent.nix: duplicate @ci:npm-hash markers on a single line"
   fi
   [ "''$VKEYS" = "''$HKEYS" ] || fail "prime-agent.nix: npm-version/npm-hash key mismatch: v=[''$VKEYS] h=[''$HKEYS]"
