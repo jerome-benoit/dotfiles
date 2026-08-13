@@ -14,12 +14,12 @@ let
   platformKey = "${hp.node.platform}-${hp.node.arch}";
 
   # renovate: datasource=github-releases depName=can1357/oh-my-pi
-  version = "17.2.15";
+  version = "17.3.0";
 
   hashes = {
-    "linux-x64" = "sha256-+ohJQfky9PXSBGrLqXF5Cuaq4Y/UgGRysB8EHeZwNoo="; # @ci:src-hash-linux-x64
-    "linux-arm64" = "sha256-NlB7o9mDMvUmSdIgCerYbxVKsAfLFp1oaQ+isBEXaa0="; # @ci:src-hash-linux-arm64
-    "darwin-arm64" = "sha256-4oDSW8etiJyHrxAai5yLeqmFPDc6yyWe2mAHqWWawqU="; # @ci:src-hash-darwin-arm64
+    "linux-x64" = "sha256-KH8HNm8piW7x40VCPat5uCqNwMFZM4PiDf3WKp3S55k="; # @ci:src-hash-linux-x64
+    "linux-arm64" = "sha256-j/1tTQuAA7Qiirzazo7TiC2pgeltmubBklXMRLZ/jzc="; # @ci:src-hash-linux-arm64
+    "darwin-arm64" = "sha256-8+V2lIxke18U5M6vB9iuv2F72kIpDHperBiG+0wLE/Y="; # @ci:src-hash-darwin-arm64
   };
 
   ompPackage =
