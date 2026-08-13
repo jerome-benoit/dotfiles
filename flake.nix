@@ -3,59 +3,101 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
-    home-manager.url = "github:nix-community/home-manager";
-    home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    sops-nix.url = "github:Mic92/sops-nix";
-    sops-nix.inputs.nixpkgs.follows = "nixpkgs";
-    opencode.url = "github:anomalyco/opencode";
-    opencode.inputs.nixpkgs.follows = "nixpkgs";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    opencode = {
+      url = "github:anomalyco/opencode";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     opencode-nvim = {
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
     };
-    agent-of-empires.url = "github:agent-of-empires/agent-of-empires";
-    agent-of-empires.inputs.nixpkgs.follows = "nixpkgs";
-    agent-of-empires.inputs.flake-parts.follows = "flake-parts";
-    herdr.url = "github:ogulcancelik/herdr";
-    herdr.inputs.nixpkgs.follows = "nixpkgs";
+    agent-of-empires = {
+      url = "github:agent-of-empires/agent-of-empires";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-parts.follows = "flake-parts";
+      };
+    };
+    herdr = {
+      url = "github:ogulcancelik/herdr";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     agtx = {
       url = "github:fynnfluegge/agtx";
       flake = false;
     };
-    openspec.url = "github:Fission-AI/OpenSpec";
-    openspec.inputs.nixpkgs.follows = "nixpkgs";
-    qmd.url = "github:tobi/qmd";
-    qmd.inputs.nixpkgs.follows = "nixpkgs";
-    qmd.inputs.flake-utils.follows = "flake-utils";
-    colibri.url = "github:JustVugg/colibri";
-    colibri.inputs.nixpkgs.follows = "nixpkgs";
-    colibri.inputs.flake-utils.follows = "flake-utils";
-    nix-openclaw.url = "github:openclaw/nix-openclaw";
-    nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
-    nix-openclaw.inputs.home-manager.follows = "home-manager";
-    nix-openclaw.inputs.flake-utils.follows = "flake-utils";
-    nix-openclaw.inputs.nix-openclaw-tools.follows = "nix-openclaw-tools";
-    nix-openclaw.inputs.qmd.follows = "qmd";
+    openspec = {
+      url = "github:Fission-AI/OpenSpec";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    qmd = {
+      url = "github:tobi/qmd";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+      };
+    };
+    colibri = {
+      url = "github:JustVugg/colibri";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+      };
+    };
+    nix-openclaw = {
+      url = "github:openclaw/nix-openclaw";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        home-manager.follows = "home-manager";
+        flake-utils.follows = "flake-utils";
+        nix-openclaw-tools.follows = "nix-openclaw-tools";
+        qmd.follows = "qmd";
+      };
+    };
     flake-utils.url = "github:numtide/flake-utils";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix-openclaw-tools.url = "github:openclaw/nix-openclaw-tools";
-    nix-openclaw-tools.inputs.nixpkgs.follows = "nixpkgs";
+    nix-openclaw-tools = {
+      url = "github:openclaw/nix-openclaw-tools";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # See .serena/memories/processes/hermes_agent_sync_main_patched.md
-    hermes-agent.url = "github:jerome-benoit/hermes-agent/main-patched";
-    hermes-agent.inputs.nixpkgs.follows = "nixpkgs";
-    hermes-agent.inputs.flake-parts.follows = "flake-parts";
-    hermes-agent.inputs.pyproject-nix.follows = "pyproject-nix";
-    hermes-agent.inputs.uv2nix.follows = "uv2nix";
-    hermes-agent.inputs.pyproject-build-systems.follows = "pyproject-build-systems";
-    pyproject-nix.url = "github:pyproject-nix/pyproject.nix";
-    pyproject-nix.inputs.nixpkgs.follows = "nixpkgs";
-    uv2nix.url = "github:pyproject-nix/uv2nix";
-    uv2nix.inputs.nixpkgs.follows = "nixpkgs";
-    uv2nix.inputs.pyproject-nix.follows = "pyproject-nix";
-    pyproject-build-systems.url = "github:pyproject-nix/build-system-pkgs";
-    pyproject-build-systems.inputs.nixpkgs.follows = "nixpkgs";
-    pyproject-build-systems.inputs.pyproject-nix.follows = "pyproject-nix";
-    pyproject-build-systems.inputs.uv2nix.follows = "uv2nix";
+    hermes-agent = {
+      url = "github:jerome-benoit/hermes-agent/main-patched";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-parts.follows = "flake-parts";
+        pyproject-nix.follows = "pyproject-nix";
+        uv2nix.follows = "uv2nix";
+        pyproject-build-systems.follows = "pyproject-build-systems";
+      };
+    };
+    pyproject-nix = {
+      url = "github:pyproject-nix/pyproject.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    uv2nix = {
+      url = "github:pyproject-nix/uv2nix";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        pyproject-nix.follows = "pyproject-nix";
+      };
+    };
+    pyproject-build-systems = {
+      url = "github:pyproject-nix/build-system-pkgs";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        pyproject-nix.follows = "pyproject-nix";
+        uv2nix.follows = "uv2nix";
+      };
+    };
   };
 
   outputs =

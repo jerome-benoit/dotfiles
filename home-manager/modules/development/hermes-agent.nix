@@ -213,36 +213,38 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages =
-      lib.optional (cfg.package != null) cfg.package
-      ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;
+    home = {
+      packages =
+        lib.optional (cfg.package != null) cfg.package
+        ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;
+
+      activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
+        lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
+          run mkdir -p "${configDir}"
+          if [[ -f "${config.sops.secrets."hermes-env".path}" ]]; then
+            run ln -sf "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
+          elif [[ ! -e "${configDir}/.env" && ! -L "${configDir}/.env" ]]; then
+            run touch "${configDir}/.env"
+            run chmod 600 "${configDir}/.env"
+          fi
+        ''
+      );
+
+      activation.hermesAgentConfig = lib.mkIf (cfg.package != null && cfg.settings != { }) (
+        lib.hm.dag.entryAfter [ "hermesAgentBootstrap" ] ''
+          if [[ ! -f "${configDir}/config.yaml" ]]; then
+            run cp "${managedConfig}" "${configDir}/config.yaml"
+            run chmod 644 "${configDir}/config.yaml"
+          fi
+        ''
+      );
+    };
 
     warnings =
       lib.optional (cfg.package == null) "hermesAgent: package not available for system ${system}"
       ++ lib.optional (
         cfg.enableDesktop && cfg.desktopPackage == null
       ) "hermesAgent: desktopPackage not available for system ${system}";
-
-    home.activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
-      lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
-        run mkdir -p "${configDir}"
-        if [[ -f "${config.sops.secrets."hermes-env".path}" ]]; then
-          run ln -sf "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
-        elif [[ ! -e "${configDir}/.env" && ! -L "${configDir}/.env" ]]; then
-          run touch "${configDir}/.env"
-          run chmod 600 "${configDir}/.env"
-        fi
-      ''
-    );
-
-    home.activation.hermesAgentConfig = lib.mkIf (cfg.package != null && cfg.settings != { }) (
-      lib.hm.dag.entryAfter [ "hermesAgentBootstrap" ] ''
-        if [[ ! -f "${configDir}/config.yaml" ]]; then
-          run cp "${managedConfig}" "${configDir}/config.yaml"
-          run chmod 644 "${configDir}/config.yaml"
-        fi
-      ''
-    );
 
     launchd.agents.hermes-agent-gateway =
       lib.mkIf (cfg.enableGateway && isDarwin && cfg.package != null)
