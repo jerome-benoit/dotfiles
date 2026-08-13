@@ -43,6 +43,18 @@ let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if desktop != null then desktop.override { opencode = opencodePackage; } else null;
+
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.opencodePackage;
+      warning = "opencode: TUI and CLI package not available for system ${system}";
+    }
+    {
+      package = cfg.desktopPackage;
+      enabled = cfg.enableDesktop;
+      warning = "opencode: Desktop package not available for system ${system}";
+    }
+  ];
 in
 {
   options.modules.development.opencode = {
@@ -54,16 +66,14 @@ in
       description = "Whether to enable OpenCode Desktop integration";
     };
 
-    opencodePackage = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    opencodePackage = config.modules.core.lib.mkOptionalPackageOption {
       default = opencodePackage;
       defaultText = lib.literalExpression "inputs.opencode.packages.\${system}.default";
       description = "OpenCode TUI and CLI package";
       example = lib.literalExpression "inputs.opencode.packages.\${system}.default";
     };
 
-    desktopPackage = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
       default = null;
       defaultText = lib.literalExpression "null";
       description = "OpenCode Desktop package";
@@ -73,16 +83,7 @@ in
   config = lib.mkIf cfg.enable {
     modules.development.opencode.desktopPackage = lib.mkIf cfg.enableDesktop mkDesktopPackage;
 
-    home.packages =
-      lib.optional (cfg.opencodePackage != null) cfg.opencodePackage
-      ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;
-
-    warnings =
-      lib.optional (
-        cfg.opencodePackage == null
-      ) "opencode: TUI and CLI package not available for system ${system}"
-      ++ lib.optional (
-        cfg.enableDesktop && cfg.desktopPackage == null
-      ) "opencode: Desktop package not available for system ${system}";
+    home.packages = optionalPackages.packages;
+    warnings = optionalPackages.warnings;
   };
 }

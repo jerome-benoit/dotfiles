@@ -34,13 +34,19 @@ let
       )
     else
       null;
+
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.package;
+      warning = "openspec: package not available for system ${system}";
+    }
+  ];
 in
 {
   options.modules.development.openspec = {
     enable = lib.mkEnableOption "openspec configuration";
 
-    package = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    package = config.modules.core.lib.mkOptionalPackageOption {
       default = openspecPackage;
       defaultText = lib.literalExpression "inputs.openspec.packages.\${system}.default";
       description = "OpenSpec CLI package";
@@ -49,10 +55,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.package != null) cfg.package;
-
-    warnings = lib.optional (
-      cfg.package == null
-    ) "openspec: package not available for system ${system}";
+    home.packages = optionalPackages.packages;
+    warnings = optionalPackages.warnings;
   };
 }

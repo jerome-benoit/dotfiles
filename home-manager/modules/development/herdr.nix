@@ -68,13 +68,19 @@ let
     [theme]
     name = "${resolvedTheme}"
   '';
+
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.package;
+      warning = "herdr: package not available for system ${system}";
+    }
+  ];
 in
 {
   options.modules.development.herdr = {
     enable = lib.mkEnableOption "herdr configuration";
 
-    package = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    package = config.modules.core.lib.mkOptionalPackageOption {
       default = herdrPackage;
       defaultText = lib.literalExpression "inputs.herdr.packages.\${system}.default or .herdr or null";
       description = "Herdr package";
@@ -90,9 +96,9 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.package != null) cfg.package;
+    home.packages = optionalPackages.packages;
 
-    warnings = lib.optional (cfg.package == null) "herdr: package not available for system ${system}";
+    warnings = optionalPackages.warnings;
 
     # Seed once; never overwrite the user's edits.
     home.activation.herdrConfig = lib.mkIf (cfg.package != null) (

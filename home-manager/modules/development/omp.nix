@@ -75,13 +75,18 @@ let
           ];
         };
       });
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.package;
+      warning = "omp: no prebuilt binary for system ${hp.system}";
+    }
+  ];
 in
 {
   options.modules.development.omp = {
     enable = lib.mkEnableOption "omp (oh-my-pi) coding agent";
 
-    package = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    package = config.modules.core.lib.mkOptionalPackageOption {
       default = ompPackage;
       defaultText = lib.literalExpression "prebuilt omp release binary for the host platform";
       description = "omp coding agent package (null on unsupported systems)";
@@ -89,7 +94,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.package != null) cfg.package;
-    warnings = lib.optional (cfg.package == null) "omp: no prebuilt binary for system ${hp.system}";
+    home.packages = optionalPackages.packages;
+    warnings = optionalPackages.warnings;
   };
 }
