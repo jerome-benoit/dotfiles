@@ -12,8 +12,10 @@ let
   commonSettings = {
     signature = "${config.home.homeDirectory}/.signature";
     envelope = {
-      list.datetime-local-tz = true;
-      list.page-size = 50;
+      list = {
+        datetime-local-tz = true;
+        page-size = 50;
+      };
     };
     message = {
       read.format = "auto";
