@@ -11,11 +11,17 @@ let
 
   commonSettings = {
     signature = "${config.home.homeDirectory}/.signature";
-    envelope.list.datetime-local-tz = true;
-    envelope.list.page-size = 50;
-    message.read.format = "auto";
-    message.send.save-copy = true;
-    message.delete.style = "folder";
+    envelope = {
+      list = {
+        datetime-local-tz = true;
+        page-size = 50;
+      };
+    };
+    message = {
+      read.format = "auto";
+      send.save-copy = true;
+      delete.style = "folder";
+    };
   };
 in
 {

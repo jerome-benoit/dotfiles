@@ -33,18 +33,18 @@ let
               Key fingerprint : ${gpgFingerprint}
             '';
 
-            programs.git.settings.user = {
-              email = lib.mkForce email;
-              signingKey = lib.mkForce gpgKeyId;
+            programs = {
+              git.settings.user = {
+                email = lib.mkForce email;
+                signingKey = lib.mkForce gpgKeyId;
+              };
+              zsh.shellAliases = {
+                hm = lib.mkForce "_hm_switch --specialisation ${name}";
+                hmw = "_hm_switch --specialisation work";
+                hmp = "_hm_switch --specialisation personal";
+              };
+              ssh.settings = lib.mkIf sshEnabled sshSettings;
             };
-
-            programs.zsh.shellAliases = {
-              hm = lib.mkForce "_hm_switch --specialisation ${name}";
-              hmw = "_hm_switch --specialisation work";
-              hmp = "_hm_switch --specialisation personal";
-            };
-
-            programs.ssh.settings = lib.mkIf sshEnabled sshSettings;
 
             modules.themes.active = lib.mkForce theme;
           }

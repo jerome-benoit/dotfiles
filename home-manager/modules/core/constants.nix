@@ -157,11 +157,7 @@ in
     };
     hostname = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
-      default =
-        if builtins.pathExists /etc/hostname then
-          lib.removeSuffix "\n" (builtins.readFile /etc/hostname)
-        else
-          null;
+      default = if builtins.pathExists /etc/hostname then lib.fileContents /etc/hostname else null;
       description = "Hostname";
       readOnly = true;
     };

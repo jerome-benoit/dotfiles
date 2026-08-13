@@ -17,19 +17,16 @@ let
     let
       sysfsVersion =
         if nvidiaDetected && builtins.pathExists /sys/module/nvidia/version then
-          lib.removeSuffix "\n" (builtins.readFile (builtins.fetchurl "file:///sys/module/nvidia/version"))
+          lib.fileContents (builtins.fetchurl "file:///sys/module/nvidia/version")
         else
           "";
     in
     if sysfsVersion != "" then sysfsVersion else cfg.nvidiaDriverVersion;
 
-  driverMajor =
-    if detectedNvidiaVersion != null then
-      lib.toInt (lib.head (lib.splitString "." detectedNvidiaVersion))
-    else
-      0;
-
   nvidiaVersionKnown = detectedNvidiaVersion != null;
+
+  driverMajor =
+    if nvidiaVersionKnown then lib.toInt (lib.versions.major detectedNvidiaVersion) else 0;
 
   # Driver→CUDA matrix, descending. NVIDIA CUDA Release Notes, Table 3.
   cudaMatrix = [

@@ -1,4 +1,3 @@
 disabled = [
-  "repeated_keys",
   "manual_inherit_from",
 ]

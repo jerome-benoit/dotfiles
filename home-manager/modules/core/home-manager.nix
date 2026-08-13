@@ -15,20 +15,20 @@ in
   config = lib.mkIf cfg.enable {
     programs.home-manager.enable = true;
 
-    nix.package = lib.mkDefault pkgs.nix;
-
-    nix.settings = {
-      experimental-features = [
-        "nix-command"
-        "flakes"
-      ];
-      warn-dirty = false;
-    };
-
-    nix.gc = {
-      automatic = true;
-      dates = "weekly";
-      options = "--delete-older-than 30d";
+    nix = {
+      package = lib.mkDefault pkgs.nix;
+      settings = {
+        experimental-features = [
+          "nix-command"
+          "flakes"
+        ];
+        warn-dirty = false;
+      };
+      gc = {
+        automatic = true;
+        dates = "weekly";
+        options = "--delete-older-than 30d";
+      };
     };
   };
 }
