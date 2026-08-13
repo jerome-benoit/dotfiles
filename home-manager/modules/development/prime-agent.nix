@@ -198,13 +198,18 @@ let
           ];
         };
       };
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.package;
+      warning = "prime-agent: no supported build for system ${hp.system}";
+    }
+  ];
 in
 {
   options.modules.development.primeAgent = {
     enable = lib.mkEnableOption "Prime Agent (RLM coding/research agent)";
 
-    package = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    package = config.modules.core.lib.mkOptionalPackageOption {
       default = primeAgentPackage;
       defaultText = lib.literalExpression "prime-agent assembled from the release tarball for the host platform";
       description = "prime-agent package (null on unsupported systems)";
@@ -212,9 +217,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.package != null) cfg.package;
-    warnings = lib.optional (
-      cfg.package == null
-    ) "prime-agent: no supported build for system ${hp.system}";
+    home.packages = optionalPackages.packages;
+    warnings = optionalPackages.warnings;
   };
 }

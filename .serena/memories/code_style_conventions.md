@@ -221,12 +221,25 @@ assertions = [
 
 ## Warnings Pattern
 
-Emit warnings for non-fatal issues:
+Emit warnings for non-fatal issues, e.g. when an optional package is unavailable on the host system.
+For the optional-package pattern (see `modules/core/lib.nix` `mkOptionalPackageOption`/`mkOptionalPackages`):
 
 ```nix
-warnings =
-  lib.optional (cfg.opencodePackage == null)
-    "opencode: TUI and CLI package not available for system ${system}";
+optionalPackages = config.modules.core.lib.mkOptionalPackages [
+  {
+    package = cfg.package;
+    warning = "module: package not available for system ${system}";
+  }
+];
+
+warnings = optionalPackages.warnings;
+home.packages = optionalPackages.packages;
+```
+
+For standalone warnings, use `lib.optional` directly:
+
+```nix
+warnings = lib.optional (cfg.opencodePackage == null) "module: warning text";
 ```
 
 ## Lib Functions Reference

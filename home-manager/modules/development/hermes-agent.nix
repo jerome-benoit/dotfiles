@@ -87,6 +87,18 @@ let
   configDir = "${homeDir}/.hermes";
   managedConfig = yamlFormat.generate "hermes-agent-config.yaml" cfg.settings;
 
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.package;
+      warning = "hermesAgent: package not available for system ${system}";
+    }
+    {
+      package = cfg.desktopPackage;
+      enabled = cfg.enableDesktop;
+      warning = "hermesAgent: desktopPackage not available for system ${system}";
+    }
+  ];
+
   launchdEnv = {
     HOME = homeDir;
     HERMES_HOME = configDir;
@@ -189,15 +201,13 @@ in
       ];
     };
 
-    package = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    package = config.modules.core.lib.mkOptionalPackageOption {
       default = hermesAgentPackage;
       defaultText = lib.literalExpression "hermesPackages.packages.default";
       description = "hermes-agent package";
     };
 
-    desktopPackage = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
       default = hermesDesktopPackage;
       defaultText = lib.literalExpression "hermesAgentWithExtras.hermesDesktop";
       description = "hermes-agent desktop package";
@@ -214,9 +224,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home = {
-      packages =
-        lib.optional (cfg.package != null) cfg.package
-        ++ lib.optional (cfg.enableDesktop && cfg.desktopPackage != null) cfg.desktopPackage;
+      packages = optionalPackages.packages;
 
       activation.hermesAgentBootstrap = lib.mkIf (cfg.package != null) (
         lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
@@ -240,11 +248,7 @@ in
       );
     };
 
-    warnings =
-      lib.optional (cfg.package == null) "hermesAgent: package not available for system ${system}"
-      ++ lib.optional (
-        cfg.enableDesktop && cfg.desktopPackage == null
-      ) "hermesAgent: desktopPackage not available for system ${system}";
+    warnings = optionalPackages.warnings;
 
     launchd.agents.hermes-agent-gateway =
       lib.mkIf (cfg.enableGateway && isDarwin && cfg.package != null)

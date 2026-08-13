@@ -145,5 +145,75 @@
       '';
       readOnly = true;
     };
+
+    mkOptionalPackageOption = lib.mkOption {
+      type = lib.types.functionTo lib.types.attrs;
+      default =
+        {
+          default,
+          defaultText,
+          description,
+          example ? null,
+        }:
+        lib.mkOption {
+          type = lib.types.nullOr lib.types.package;
+          inherit default defaultText description;
+        }
+        // lib.optionalAttrs (example != null) { inherit example; };
+      description = ''
+        Creates an optional package option: null when the package is unavailable on the host system.
+        Pair with mkOptionalPackages to install it only when non-null and warn otherwise.
+
+        Usage:
+          package = mkOptionalPackageOption {
+            default = myPackage;   # null on unsupported systems
+            defaultText = lib.literalExpression "inputs.foo.packages.''${system}.default";
+            description = "Foo package";
+            example = lib.literalExpression "inputs.foo.packages.''${system}.default"; # optional
+          };
+      '';
+      readOnly = true;
+    };
+
+    mkOptionalPackages = lib.mkOption {
+      type = lib.types.functionTo (lib.types.attrsOf lib.types.anything);
+      default =
+        entries:
+        let
+          entry =
+            {
+              package,
+              enabled ? true,
+              warning ? null,
+              ...
+            }:
+            {
+              inherit package enabled warning;
+            };
+        in
+        {
+          packages = lib.concatMap (e: lib.optional (e.enabled && e.package != null) e.package) (
+            map entry entries
+          );
+          warnings = lib.concatMap (
+            e: lib.optional (e.enabled && e.package == null && e.warning != null) e.warning
+          ) (map entry entries);
+        };
+      description = ''
+        Turns optional package entries into the { packages, warnings } lists feeding home.packages and warnings.
+        Each entry is { package, enabled ? true, warning ? null } (warning only emitted for null packages).
+
+        Usage:
+          optionalPackages = mkOptionalPackages [
+            { package = cfg.package; warning = "foo: package not available for system ''${system}"; }
+            { package = cfg.desktopPackage; enabled = cfg.enableDesktop; warning = "foo: desktop not available"; }
+          ];
+          config = lib.mkIf cfg.enable {
+            home.packages = optionalPackages.packages;
+            warnings = optionalPackages.warnings;
+          };
+      '';
+      readOnly = true;
+    };
   };
 }

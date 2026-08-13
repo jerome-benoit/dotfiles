@@ -32,6 +32,13 @@ let
     [session]
     default_tool = "${cfg.defaultTool}"
   '';
+
+  optionalPackages = config.modules.core.lib.mkOptionalPackages [
+    {
+      package = cfg.package;
+      warning = "aoe: package not available for system ${system}";
+    }
+  ];
 in
 {
   options.modules.development.aoe = {
@@ -43,8 +50,7 @@ in
       description = "Whether to build with embedded web dashboard (aoe-with-web)";
     };
 
-    package = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
+    package = config.modules.core.lib.mkOptionalPackageOption {
       default = aoePackage;
       defaultText = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default or .aoe-with-web";
       description = "Agent of Empires package";
@@ -88,9 +94,9 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = lib.optional (cfg.package != null) cfg.package;
+    home.packages = optionalPackages.packages;
 
-    warnings = lib.optional (cfg.package == null) "aoe: package not available for system ${system}";
+    warnings = optionalPackages.warnings;
 
     home.activation.aoeConfig = lib.mkIf (cfg.package != null && cfg.defaultTool != null) (
       let
