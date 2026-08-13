@@ -57,8 +57,8 @@ Shared library functions:
 - `config.modules.core.lib.mkUnstableVersion` - Version string from a flake input (0-unstable-YYYY-MM-DD+shortRev)
 - `config.modules.core.lib.mkUnstableVersionWithBase` - mkUnstableVersion with an explicit base version
 - `config.modules.core.lib.deltaConfigToCli` - Converts `modules.core.constants.deltaConfig` to delta CLI flags string (readonly)
-- `config.modules.core.lib.mkOptionalPackageOption` - Creates a `nullOr package` option (default/defaultText/description/example)
-- `config.modules.core.lib.mkOptionalPackages` - Entry list `{ package, enabled ? true, warning ? null }` to `{ packages, warnings }`
+- `config.modules.core.lib.mkOptionalPackageOption` - Creates a `nullOr package` option (default/defaultText/description/example) (readonly)
+- `config.modules.core.lib.mkOptionalPackages` - Entry list `{ package, enabled ? true, warning ? null }` to `{ packages, warnings }` (readonly)
 
 ### home-manager.nix
 

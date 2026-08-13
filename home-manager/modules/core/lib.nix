@@ -177,25 +177,28 @@
 
     mkOptionalPackages = lib.mkOption {
       type = lib.types.functionTo (lib.types.attrsOf lib.types.anything);
-      default = entries: {
-        packages = lib.concatMap (
-          {
-            package,
-            enabled ? true,
-            ...
-          }:
-          lib.optional (enabled && package != null) package
-        ) entries;
-        warnings = lib.concatMap (
-          {
-            package,
-            enabled ? true,
-            warning ? null,
-            ...
-          }:
-          lib.optional (enabled && package == null && warning != null) warning
-        ) entries;
-      };
+      default =
+        entries:
+        let
+          entry =
+            {
+              package,
+              enabled ? true,
+              warning ? null,
+              ...
+            }:
+            {
+              inherit package enabled warning;
+            };
+        in
+        {
+          packages = lib.concatMap (e: lib.optional (e.enabled && e.package != null) e.package) (
+            map entry entries
+          );
+          warnings = lib.concatMap (
+            e: lib.optional (e.enabled && e.package == null && e.warning != null) e.warning
+          ) (map entry entries);
+        };
       description = ''
         Turns optional package entries into the { packages, warnings } lists feeding home.packages and warnings.
         Each entry is { package, enabled ? true, warning ? null } (warning only emitted for null packages).
