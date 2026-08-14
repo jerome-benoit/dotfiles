@@ -76,7 +76,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     /src = pkgs\.fetchurl \{/ { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
     in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
-    in_src && index($0, "hash = hashes.''${platformKey}") { hash_ref_ok = 1 }
+    in_src && $0 ~ /^[[:space:]]*hash = hashes\./ && index($0, "hash = hashes.''${platformKey};") { hash_ref_ok = 1 }
     END { exit !(url_ok && hash_ref_ok) }
   ' "''$OMP" || fail "omp.nix: src fetch block must have the v\''${finalAttrs.version}/omp-\''${platformKey} url and hash = hashes.<key> (workflow hard-coded URL)"
   # keep in LC_ALL=C sorted order (the workflow derives keys dynamically; this exact
