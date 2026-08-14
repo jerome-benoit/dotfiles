@@ -22,6 +22,11 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     # to end at EOL (a suffixed depName would silently stop renovate bumps)
     [ "''$(grep -cE "^[[:space:]]*''$2[[:space:]]*$" "''$1" || true)" -eq 1 ] \
       || fail "''$3: expected exactly one renovate marker line ending at EOL (depName must not be suffixed)"
+    # the workflow greps the marker as a substring: an impostor marker (suffixed
+    # depName) followed by a plausible version line would be picked up by
+    # grep -A1 | tail -1 and extract the wrong version
+    [ "''$(grep -cF "''$2" "''$1" || true)" -eq 1 ] \
+      || fail "''$3: expected exactly one renovate marker occurrence (workflow grep -A1 substring)"
     local line
     line=''$(grep -A1 "''$2" "''$1" | tail -1 || true)
     [ -n "''$line" ] \
@@ -173,7 +178,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # the workflow must still contain its exact rewrite patterns (bot C24): if a
   # pattern is renamed or dropped there, the bump silently skips the hash
   WF=''$DEV/../../../.github/workflows/fix-nix-hashes.yml
-  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages'; do
+  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' "@ci:src-hash-'\""; do
     grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
   done
 
