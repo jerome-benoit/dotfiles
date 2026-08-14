@@ -58,7 +58,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   awk -v pat='url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-''${finalAttrs.version}.tgz";' '
     /^[[:space:]]*src = pkgs\.fetchzip / { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
-    in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
+    in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#[^"]*)?$/ { url_ok = 1 }
     END { exit !url_ok }
   ' "''$PI" || fail "pi.nix: url template must be .../-/pi-coding-agent-\''${finalAttrs.version}.tgz (workflow URL_TEMPLATE)"
   for a in src-hash npm-deps-hash; do
@@ -92,7 +92,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   awk -v pat='url = "https://github.com/can1357/oh-my-pi/releases/download/v''${finalAttrs.version}/omp-''${platformKey}";' '
     /^[[:space:]]*src = pkgs\.fetchurl / { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
-    in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
+    in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#[^"]*)?$/ { url_ok = 1 }
     in_src && $0 ~ /^[[:space:]]*hash = hashes\./ && index($0, "hash = hashes.''${platformKey};") { hash_ref_ok = 1 }
     END { exit !(url_ok && hash_ref_ok) }
   ' "''$OMP" || fail "omp.nix: src fetch block must have the v\''${finalAttrs.version}/omp-\''${platformKey} url and hash = hashes.<key> (workflow hard-coded URL)"
@@ -129,7 +129,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   awk -v pat='url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v''${version}/prime-agent-''${version}.tgz";' '
     /^[[:space:]]*src = pkgs\.fetchzip / { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
-    in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
+    in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#[^"]*)?$/ { url_ok = 1 }
     in_src && /^[[:space:]]*hash = "sha256-[A-Za-z0-9+/=]+"; # @ci:src-hash-prime-agent''$/ { src_hash_ok = 1 }
     END { exit !(url_ok && src_hash_ok) }
   ' "''$PA" || fail "prime-agent.nix: src fetch block must have the v\''${version}/prime-agent-\''${version}.tgz url and @ci:src-hash-prime-agent hash"
@@ -195,11 +195,17 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   RJ=''$DEV/../../../renovate.json
   grep -qF '"customManagers"' "''$RJ" && grep -qF '"managerFilePatterns"' "''$RJ" \
     || fail "renovate.json: customManagers/managerFilePatterns missing (renovate would stop bumping)"
+  grep -qF '"managerFilePatterns": ["/\\.nix$/"]' "''$RJ" \
+    || fail "renovate.json: managerFilePatterns must match /\\.nix$/ (renovate would stop scanning)"
   grep -qF '"#\\s*renovate:' "''$RJ" \
     || fail "renovate.json: matchStrings pattern missing (renovate would stop bumping)"
   grep -qF '(?<datasource>' "''$RJ" && grep -qF '(?<depName>' "''$RJ" \
     || fail "renovate.json: matchStrings named groups missing (renovate would stop bumping)"
-  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
+  grep -qF '(?<currentValue>' "''$RJ" && grep -qF 'depName=' "''$RJ" \
+    || fail "renovate.json: currentValue group or depName= missing (renovate would stop bumping)"
+  grep -qF 'version\\s' "''$RJ" && grep -qF '\"(?<currentValue>' "''$RJ" \
+    || fail "renovate.json: version capture pattern missing (renovate would stop bumping)"
+  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' '@ci:npm-version .+' 'grep -A1' '.*"\([^"]*\)".*/\1/p' '.*url = "\(.*\)".*/\1/p' 'releases/download/v''${VERSION}/omp-''${key}' 'v''${VERSION}/prime-agent-''${VERSION}.tgz' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
     grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
   done
 
