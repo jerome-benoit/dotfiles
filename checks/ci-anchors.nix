@@ -113,6 +113,9 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     in_src && /^[[:space:]]*hash = "sha256-[A-Za-z0-9+/=]+"; # @ci:src-hash-prime-agent''$/ { src_hash_ok = 1 }
     END { exit !(url_ok && src_hash_ok) }
   ' "''$PA" || fail "prime-agent.nix: src fetch block must have the v\''${version}/prime-agent-\''${version}.tgz url and @ci:src-hash-prime-agent hash"
+  # workflow matches EVERY line ending with this marker: exactly one active occurrence
+  [ "''$(grep -cE "^[[:space:]]*hash = \"sha256-[A-Za-z0-9+/=]+\"; # @ci:src-hash-prime-agent''$" "''$PA" || true)" -eq 1 ] \
+    || fail "prime-agent.nix: expected exactly one @ci:src-hash-prime-agent hash line"
   # keep in LC_ALL=C sorted order; add a dep = bump this set + the case below in the PR
   EXPECTED_PA_KEYS="@silvia-odwyer/photon-node
   cmake-ts
