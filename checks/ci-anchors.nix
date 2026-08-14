@@ -50,9 +50,10 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   PI="''$DEV/pi.nix"
   check_version_after "''$PI" '# renovate: datasource=npm depName=@earendil-works/pi-coding-agent' "pi.nix"
   # the workflow extracts URL_TEMPLATE via `sed -n 's/.*url = "\(.*\)".*/\1/p' | head -1` on the
-  # WHOLE file: exactly one 'url = "' line anywhere (a comment would be picked up if it came first)
-  [ "''$(grep -c 'url = "' "''$PI" || true)" -eq 1 ] \
-    || fail "pi.nix: expected exactly one 'url = \"' line (workflow URL_TEMPLATE | head -1)"
+  # WHOLE file: the FIRST 'url = "' line must be the active src assignment (a
+  # comment BEFORE it would be picked up; one AFTER it is harmless)
+  [ "''$(grep -n 'url = "' "''$PI" | head -1 | cut -d: -f1)" = "''$(grep -nE '^[[:space:]]*url = "https://registry\.npmjs\.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-\''${finalAttrs\.version}\.tgz";' "''$PI" | head -1 | cut -d: -f1 || true)" ] \
+    || fail "pi.nix: first 'url = \"' line must be the active src assignment (workflow URL_TEMPLATE | head -1)"
   # url template bound to the src fetch block, clean up to EOL (workflow:
   # sed -n 's/.*url = "\(.*\)".*/\1/p' | head -1 - greedy, matches anywhere)
   awk -v pat='url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-''${finalAttrs.version}.tgz";' '
@@ -203,9 +204,13 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     || fail "renovate.json: matchStrings named groups missing (renovate would stop bumping)"
   grep -qF '(?<currentValue>' "''$RJ" && grep -qF 'depName=' "''$RJ" \
     || fail "renovate.json: currentValue group or depName= missing (renovate would stop bumping)"
+  grep -qF '(?<versioning>' "''$RJ" && grep -qF '"versioningTemplate"' "''$RJ" \
+    || fail "renovate.json: versioning group/template missing (renovate would stop bumping)"
+  grep -qF '\\n[^\\n]*version' "''$RJ" \
+    || fail "renovate.json: marker-to-version adjacency missing (renovate would stop bumping)"
   grep -qF 'version\\s' "''$RJ" && grep -qF '\"(?<currentValue>' "''$RJ" \
     || fail "renovate.json: version capture pattern missing (renovate would stop bumping)"
-  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' '@ci:npm-version .+' 'grep -A1' '.*"\([^"]*\)".*/\1/p' '.*url = "\(.*\)".*/\1/p' 'releases/download/v''${VERSION}/omp-''${key}' 'v''${VERSION}/prime-agent-''${VERSION}.tgz' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
+  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' '@ci:npm-version .+' 'grep -A1' 'sub(/"sha256-[^"]*"/' '.*"\([^"]*\)".*/\1/p' '.*url = "\(.*\)".*/\1/p' 'releases/download/v''${VERSION}/omp-''${key}' 'v''${VERSION}/prime-agent-''${VERSION}.tgz' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
     grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
   done
 
