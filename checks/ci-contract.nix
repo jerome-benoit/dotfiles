@@ -88,6 +88,7 @@ let
       lockStorePath = plainString piPackage.contractLockStorePath;
       expectedPiPostPatch = "rm -f npm-shrinkwrap.json\ncp ${lockStorePath} package-lock.json";
       expectedPiNpmPostPatch = "cp ${lockStorePath} package-lock.json";
+      expectedKernelAssignment = "--set PRIME_AGENT_KERNEL_PYTHON ${primeAgentPackage.kernelPython}/bin/python3";
       expectedKernelNames = lib.sort builtins.lessThan (
         [
           "jupyter-client"
@@ -203,7 +204,7 @@ let
       && builtins.all (
         requirement: builtins.elem requirement kernelEnvironmentPaths
       ) kernelRequirementPaths
-      && usesIn primeAgentPackage.kernelPython primeAgentPackage.installPhase
+      && usesIn expectedKernelAssignment primeAgentPackage.installPhase
       && usesIn primeAgentPackage.kernelPython primeAgentPackage.preInstallCheck
     ) (message "prime-agent.nix kernel environment differs from its pinned requirements");
 
@@ -358,11 +359,26 @@ let
     fi
   '';
   updateTestNpm = pkgs.writeShellScriptBin "npm" ''
-    if [ "$1" != install ]; then
+    set -euo pipefail
+    if [ "$#" -ne 5 ] || [ "$1" != install ] || [ "$2" != --package-lock-only ] \
+      || [ "$3" != --ignore-scripts ] || [ "$4" != --no-audit ] || [ "$5" != --no-fund ]; then
       echo "unexpected npm invocation: $*" >&2
       exit 1
     fi
-    printf '%s\n' '{"name":"pi-contract-fixture","lockfileVersion":3,"packages":{}}' > package-lock.json
+    if [ ! -f package.json ]; then
+      echo "npm fixture requires an extracted package.json" >&2
+      exit 1
+    fi
+    name=$(jq -er '.name | select(type == "string" and length > 0)' package.json) \
+      || {
+        echo "npm fixture package.json requires a name" >&2
+        exit 1
+      }
+    jq -n --arg name "$name" '{
+      name: $name,
+      lockfileVersion: 3,
+      packages: {"": {name: $name}}
+    }' > package-lock.json
   '';
 in
 assert
@@ -453,8 +469,11 @@ pkgs.runCommandLocal "check-ci-contract"
       --arg src sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
       --arg npm sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= \
       '.src.hash == $src and .npmDepsHash == $npm' "$piPin" >/dev/null
-    jq -e '.name == "pi-contract-fixture" and .lockfileVersion == 3' \
-      home-manager/modules/development/pi-package-lock.json >/dev/null
+    jq -e '
+      .name == "pi-contract-fixture"
+      and .lockfileVersion == 3
+      and .packages[""].name == "pi-contract-fixture"
+    ' home-manager/modules/development/pi-package-lock.json >/dev/null
 
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.9"' "$ompPin" > "$TMPDIR/pin.json"
