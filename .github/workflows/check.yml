@@ -13,6 +13,7 @@ on:
       - "statix.toml"
       - ".github/workflows/check.yml"
       - ".github/workflows/fix-nix-hashes.yml"
+      - "renovate.json"
   pull_request:
     branches: [main]
     paths:
@@ -25,6 +26,7 @@ on:
       - "statix.toml"
       - ".github/workflows/check.yml"
       - ".github/workflows/fix-nix-hashes.yml"
+      - "renovate.json"
   workflow_dispatch:
 
 permissions:
