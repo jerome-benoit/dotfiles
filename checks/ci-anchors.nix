@@ -136,6 +136,8 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # workflow matches EVERY line ending with this marker: exactly one active occurrence
   [ "''$(grep -cE "^[[:space:]]*hash = \"sha256-[A-Za-z0-9+/=]+\"; # @ci:src-hash-prime-agent''$" "''$PA" || true)" -eq 1 ] \
     || fail "prime-agent.nix: expected exactly one @ci:src-hash-prime-agent hash line"
+  [ "''$(grep -cF '@ci:src-hash-prime-agent' "''$PA" || true)" -eq 1 ] \
+    || fail "prime-agent.nix: expected exactly one @ci:src-hash-prime-agent marker occurrence (workflow suffix match)"
   # keep in LC_ALL=C sorted order; add a dep = bump this set + the case below in the PR
   EXPECTED_PA_KEYS="@silvia-odwyer/photon-node
   cmake-ts
@@ -193,6 +195,8 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   RJ=''$DEV/../../../renovate.json
   grep -qF '"customManagers"' "''$RJ" && grep -qF '"managerFilePatterns"' "''$RJ" \
     || fail "renovate.json: customManagers/managerFilePatterns missing (renovate would stop bumping)"
+  grep -qF '"#\\s*renovate:' "''$RJ" \
+    || fail "renovate.json: matchStrings pattern missing (renovate would stop bumping)"
   for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
     grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
   done
