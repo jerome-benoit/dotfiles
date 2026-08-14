@@ -18,8 +18,10 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # the workflow extracts VERSION via `grep -A1 '<renovate marker>' | tail -1
   # | sed -n 's/.*"\([^"]*\)".*/\1/p'` (greedy: last quoted string on the line)
   check_version_after() { # <file> <marker> <name>
-    [ "''$(grep -cF "''$2" "''$1" || true)" -eq 1 ] \
-      || fail "''$3: expected exactly one renovate marker line (workflow grep -A1 | tail -1 takes the last)"
+    # renovate.json captures depName up to the next whitespace: require the marker
+    # to end at EOL (a suffixed depName would silently stop renovate bumps)
+    [ "''$(grep -cE "^[[:space:]]*''$2[[:space:]]*$" "''$1" || true)" -eq 1 ] \
+      || fail "''$3: expected exactly one renovate marker line ending at EOL (depName must not be suffixed)"
     local line
     line=''$(grep -A1 "''$2" "''$1" | tail -1 || true)
     [ -n "''$line" ] \
@@ -43,7 +45,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # url template bound to the src fetch block, clean up to EOL (workflow:
   # sed -n 's/.*url = "\(.*\)".*/\1/p' | head -1 - greedy, matches anywhere)
   awk -v pat='url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-''${finalAttrs.version}.tgz";' '
-    /src = pkgs\.fetchzip \{/ { in_src = 1; next }
+    /^[[:space:]]*src = pkgs\.fetchzip / { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
     in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
     END { exit !url_ok }
@@ -58,8 +60,8 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   done
   # bind each anchor to its fetch block, on the same active hash line
   awk '
-    /src = pkgs\.fetchzip \{/ { in_src = 1 }
-    /npmDeps = pkgs\.fetchNpmDeps \{/ { in_src = 0; in_npm = 1 }
+    /^[[:space:]]*src = pkgs\.fetchzip / { in_src = 1 }
+    /^[[:space:]]*npmDeps = pkgs\.fetchNpmDeps / { in_src = 0; in_npm = 1 }
     in_src && /^[[:space:]]*\};/ { in_src = 0 }
     in_npm && /^[[:space:]]*\};/ { in_npm = 0 }
     in_src && /^[[:space:]]*hash = "sha256-[A-Za-z0-9+/=]+"; # @ci:src-hash''$/ { src_ok = 1 }
@@ -73,7 +75,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # the workflow hard-codes this download URL (fix-nix-hashes.yml): keep the
   # v''${finalAttrs.version}/omp-''${platformKey} shape, bound to the src fetch block
   awk -v pat='url = "https://github.com/can1357/oh-my-pi/releases/download/v''${finalAttrs.version}/omp-''${platformKey}";' '
-    /src = pkgs\.fetchurl \{/ { in_src = 1; next }
+    /^[[:space:]]*src = pkgs\.fetchurl / { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
     in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
     in_src && $0 ~ /^[[:space:]]*hash = hashes\./ && index($0, "hash = hashes.''${platformKey};") { hash_ref_ok = 1 }
@@ -99,6 +101,9 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     # exactly one active assignment per key (workflow rewrites every matching line)
     [ "''$(grep -cE "^[[:space:]]*\"''${k}\" = \"sha256-[A-Za-z0-9+/=]+\"; # @ci:src-hash-''${k}''$" "''$OMP" || true)" -eq 1 ] \
       || fail "omp.nix: expected exactly one @ci:src-hash-''${k} bound to its ''${k} hash-map key"
+    # workflow matches EVERY line ending with the suffix: count globally
+    [ "''$(grep -cE "@ci:src-hash-''${k}''$" "''$OMP" || true)" -eq 1 ] \
+      || fail "omp.nix: expected exactly one @ci:src-hash-''${k} marker line anywhere"
   done
 
   # --- prime-agent.nix ---
@@ -107,7 +112,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # the workflow hard-codes this release URL (fix-nix-hashes.yml): keep the
   # v''${version}/prime-agent-''${version}.tgz shape, bound to the src fetch block
   awk -v pat='url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v''${version}/prime-agent-''${version}.tgz";' '
-    /src = pkgs\.fetchzip \{/ { in_src = 1; next }
+    /^[[:space:]]*src = pkgs\.fetchzip / { in_src = 1; next }
     in_src && /^[[:space:]]*\};/ { in_src = 0; next }
     in_src && index($0, pat) && $0 ~ /^[[:space:]]*url = / && $0 ~ /;[[:space:]]*(#.*)?$/ { url_ok = 1 }
     in_src && /^[[:space:]]*hash = "sha256-[A-Za-z0-9+/=]+"; # @ci:src-hash-prime-agent''$/ { src_hash_ok = 1 }
@@ -144,10 +149,11 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     [ "''$(grep -cE "^[[:space:]]*''${base}Version = \"[^\"]+\"; # @ci:npm-version ''${k}''$" "''$PA" || true)" -eq 1 ] \
       || fail "prime-agent.nix: expected exactly one @ci:npm-version ''${k} bound to ''${base}Version"
     # workflow index() rewrites EVERY line ending with the marker: exactly one
-    [ "''$(grep -cE "@ci:npm-version ''${k}''$" "''$PA" || true)" -eq 1 ] \
-      || fail "prime-agent.nix: expected exactly one @ci:npm-version ''${k} marker line"
-    awk -v k="''$k" -v base="''$base" -v pat="registry.npmjs.org/''${k}/-/''${k##*/}-\''${''${base}Version}.tgz" '
-      index($0, base "Src = pkgs.fetchzip {") { in_blk = 1; next }
+    # workflow index($0, "@ci:npm-version " key) matches substrings: count those too
+    [ "''$(grep -cF "@ci:npm-version ''${k}" "''$PA" || true)" -eq 1 ] \
+      || fail "prime-agent.nix: expected exactly one @ci:npm-version ''${k} marker occurrence (workflow index() substring)"
+    awk -v k="''$k" -v base="''$base" -v pat="https://registry.npmjs.org/''${k}/-/''${k##*/}-\''${''${base}Version}.tgz" '
+      $0 ~ ("^[[:space:]]*" base "Src = pkgs.fetchzip ") { in_blk = 1; next }
       in_blk && /^[[:space:]]*\};/ { in_blk = 0; next }
       in_blk && index($0, pat) && $0 ~ /^[[:space:]]*url = / { url_ok = 1 }
       in_blk && $0 ~ /^[[:space:]]*hash = "sha256-[A-Za-z0-9+/=]+"/ && $0 ~ ("@ci:npm-hash " k "$") { hash_ok = 1 }
@@ -155,12 +161,21 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     ' "''$PA" || fail "prime-agent.nix: @ci:npm-hash ''${k} / url not bound to ''${base}Src block (active hash assignment)"
     [ "''$(grep -cE "^[[:space:]]*hash = \"sha256-[A-Za-z0-9+/=]+\"; # @ci:npm-hash ''${k}''$" "''$PA" || true)" -eq 1 ] \
       || fail "prime-agent.nix: expected exactly one @ci:npm-hash ''${k} hash line"
+    [ "''$(grep -cF "@ci:npm-hash ''${k}" "''$PA" || true)" -eq 1 ] \
+      || fail "prime-agent.nix: expected exactly one @ci:npm-hash ''${k} marker occurrence (workflow index() substring)"
   done
   # presence-only: semantic sync between the marker and kernelPython (pip -> nixpkgs
   # mapping) is a tracked follow-up - the workflow itself compares the marker against
   # upstream bootstrap.ts only, never against kernelPython. Require a non-empty list.
   grep -qE '# @ci:rlm-extra-packages [[:alnum:]-]+' "''$PA" \
     || fail "prime-agent.nix: @ci:rlm-extra-packages marker missing or empty"
+
+  # the workflow must still contain its exact rewrite patterns (bot C24): if a
+  # pattern is renamed or dropped there, the bump silently skips the hash
+  WF=''$DEV/../../../.github/workflows/fix-nix-hashes.yml
+  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages'; do
+    grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
+  done
 
   touch ''$out
 ''
