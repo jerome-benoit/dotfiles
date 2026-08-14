@@ -35,6 +35,12 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     # must be clean up to EOL with no stray quotes after it
     printf '%s\n' "''$line" | grep -qE '^[[:space:]]*version = "[^"]+";[[:space:]]*(#[^"]*)?$' \
       || fail "''$3: line after renovate marker is not a clean 'version = \"...\";' assignment (workflow sed greedy)"
+    # the extracted version must be the FIRST version line of the file: a marker
+    # moved above a nested package version (e.g. rlm in prime-agent.nix) would
+    # make the workflow update the wrong release
+    first=''$(grep -m1 -E '^[[:space:]]*version = "' "''$1" || true)
+    [ -n "''$first" ] && [ "''$line" = "''$first" ] \
+      || fail "''$3: version line after marker must be the package's top-level version"
     if printf '%s\n' "''$line" | grep -q '\''${'; then
       fail "''$3: version must be a literal string, no \''${...} interpolation (workflow sed would extract it)"
     fi
@@ -63,6 +69,10 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     [ "''$(grep -cF "@ci:''${a}" "''$PI" || true)" -eq 1 ] \
       || fail "pi.nix: expected exactly one @ci:''${a} marker anywhere (workflow matches non-EOL)"
   done
+  # the workflow regenerates and copies ./pi-package-lock.json: the module must
+  # consume exactly that lock file (a refactor to another lock would stale the npm hash)
+  grep -qF './pi-package-lock.json' "''$PI" \
+    || fail "pi.nix: ./pi-package-lock.json reference missing (workflow copies the regenerated lock)"
   # bind each anchor to its fetch block, on the same active hash line
   awk '
     /^[[:space:]]*src = pkgs\.fetchzip / { in_src = 1 }
@@ -172,13 +182,18 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   # presence-only: semantic sync between the marker and kernelPython (pip -> nixpkgs
   # mapping) is a tracked follow-up - the workflow itself compares the marker against
   # upstream bootstrap.ts only, never against kernelPython. Require a non-empty list.
-  grep -qE '# @ci:rlm-extra-packages [[:alnum:]-]+' "''$PA" \
-    || fail "prime-agent.nix: @ci:rlm-extra-packages marker missing or empty"
+  [ "''$(grep -cE '# @ci:rlm-extra-packages [[:alnum:]-]+' "''$PA" || true)" -eq 1 ] \
+    || fail "prime-agent.nix: expected exactly one non-empty @ci:rlm-extra-packages marker (workflow head -1)"
 
   # the workflow must still contain its exact rewrite patterns (bot C24): if a
   # pattern is renamed or dropped there, the bump silently skips the hash
   WF=''$DEV/../../../.github/workflows/fix-nix-hashes.yml
-  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' "@ci:src-hash-'\""; do
+  # renovate.json must still recognize the markers (bot C32): a changed custom
+  # manager pattern silently stops the bumps this automation relies on
+  RJ=''$DEV/../../../renovate.json
+  grep -qF '"customManagers"' "''$RJ" && grep -qF '"managerFilePatterns"' "''$RJ" \
+    || fail "renovate.json: customManagers/managerFilePatterns missing (renovate would stop bumping)"
+  for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
     grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
   done
 
