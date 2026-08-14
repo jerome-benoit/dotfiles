@@ -247,6 +247,8 @@
           pkgs = nixpkgs.legacyPackages.${arch};
           baseChecks = import ./checks {
             inherit
+              home-manager
+              nixpkgs
               self
               pkgs
               ;

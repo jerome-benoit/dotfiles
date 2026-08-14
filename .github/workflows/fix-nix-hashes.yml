@@ -4,9 +4,9 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "home-manager/modules/development/pi.nix"
-      - "home-manager/modules/development/omp.nix"
-      - "home-manager/modules/development/prime-agent.nix"
+      - "home-manager/modules/development/pins/pi.json"
+      - "home-manager/modules/development/pins/omp.json"
+      - "home-manager/modules/development/pins/prime-agent.json"
 
 permissions:
   contents: write
@@ -23,149 +23,32 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-
-      - name: Detect changed packages
-        id: detect
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          if git diff "origin/$BASE_REF" --name-only | grep -q 'home-manager/modules/development/pi.nix'; then
-            echo "pi=true" >> "$GITHUB_OUTPUT"
-          fi
-          if git diff "origin/$BASE_REF" --name-only | grep -q 'home-manager/modules/development/omp.nix'; then
-            echo "omp=true" >> "$GITHUB_OUTPUT"
-          fi
-          if git diff "origin/$BASE_REF" --name-only | grep -q 'home-manager/modules/development/prime-agent.nix'; then
-            echo "prime_agent=true" >> "$GITHUB_OUTPUT"
-          fi
+          persist-credentials: false
 
       - name: Install Nix
-        if: steps.detect.outputs.pi == 'true' || steps.detect.outputs.omp == 'true' || steps.detect.outputs.prime_agent == 'true'
-        uses: nixbuild/nix-quick-install-action@v35
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
+          github_access_token: ""
           nix_conf: |
             extra-experimental-features = nix-command flakes
 
       - name: Setup Node.js
-        if: steps.detect.outputs.pi == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
 
-      - name: Update pi-coding-agent hashes
-        if: steps.detect.outputs.pi == 'true'
+      - name: Fix Nix hashes
         env:
-          PI_NIX: home-manager/modules/development/pi.nix
-          PI_LOCK: home-manager/modules/development/pi-package-lock.json
-        run: |
-          set -euo pipefail
+          BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/fix-nix-hashes.sh update "origin/$BASE_REF"
 
-          VERSION=$(grep -A1 '# renovate: datasource=npm depName=@earendil-works/pi-coding-agent' "$PI_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
-          [[ -n "$VERSION" ]] || { echo "::error::Failed to extract version from $PI_NIX (renovate marker missing?)"; exit 1; }
-
-          URL_TEMPLATE=$(sed -n 's/.*url = "\(.*\)".*/\1/p' "$PI_NIX" | head -1)
-          [[ -n "$URL_TEMPLATE" ]] || { echo "::error::Failed to extract URL template from $PI_NIX"; exit 1; }
-
-          URL=$(printf '%s\n' "$URL_TEMPLATE" | sed "s/\${finalAttrs\.version}/$VERSION/g")
-
-          FETCH_HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
-          [[ "$FETCH_HASH" == sha256-* ]] || { echo "::error::Invalid fetch hash: $FETCH_HASH"; exit 1; }
-          awk -v h="$FETCH_HASH" '/@ci:src-hash$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PI_NIX" > "$PI_NIX.tmp" && mv "$PI_NIX.tmp" "$PI_NIX"
-
-          WORKDIR="$(mktemp -d)"
-          curl -sfSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
-          cd "$WORKDIR"
-          rm -f npm-shrinkwrap.json
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-
-          NPM_HASH=$(nix run nixpkgs#prefetch-npm-deps -- ./package-lock.json)
-          [[ "$NPM_HASH" == sha256-* ]] || { echo "::error::Invalid npm deps hash: $NPM_HASH"; exit 1; }
-          awk -v h="$NPM_HASH" '/@ci:npm-deps-hash/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$GITHUB_WORKSPACE/$PI_NIX" > "$GITHUB_WORKSPACE/$PI_NIX.tmp" && mv "$GITHUB_WORKSPACE/$PI_NIX.tmp" "$GITHUB_WORKSPACE/$PI_NIX"
-          cp package-lock.json "$GITHUB_WORKSPACE/$PI_LOCK"
-
-      - name: Update omp hashes
-        if: steps.detect.outputs.omp == 'true'
+      - name: Push Nix hash fix
         env:
-          OMP_NIX: home-manager/modules/development/omp.nix
-        run: |
-          set -euo pipefail
-
-          VERSION=$(grep -A1 '# renovate: datasource=github-releases depName=can1357/oh-my-pi' "$OMP_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
-          [[ -n "$VERSION" ]] || { echo "::error::Failed to extract omp version from $OMP_NIX (renovate marker missing?)"; exit 1; }
-
-          KEYS=$(grep -oE '@ci:src-hash-[a-z0-9-]+' "$OMP_NIX" | sed 's/@ci:src-hash-//' | sort -u)
-          [[ -n "$KEYS" ]] || { echo "::error::No @ci:src-hash-<key> markers in $OMP_NIX"; exit 1; }
-          for key in $KEYS; do
-            URL="https://github.com/can1357/oh-my-pi/releases/download/v${VERSION}/omp-${key}"
-            HASH=$(nix store prefetch-file --json "$URL" | jq -r '.hash')
-            [[ "$HASH" == sha256-* ]] || { echo "::error::Invalid omp hash for $key: $HASH"; exit 1; }
-            awk -v h="$HASH" '/@ci:src-hash-'"$key"'$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$OMP_NIX" > "$OMP_NIX.tmp" && mv "$OMP_NIX.tmp" "$OMP_NIX"
-          done
-
-      - name: Update prime-agent hashes + guard kernel deps
-        if: steps.detect.outputs.prime_agent == 'true'
-        env:
-          PA_NIX: home-manager/modules/development/prime-agent.nix
-        run: |
-          set -euo pipefail
-
-          VERSION=$(grep -A1 '# renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent' "$PA_NIX" | tail -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
-          [[ -n "$VERSION" ]] || { echo "::error::Failed to extract prime-agent version from $PA_NIX (renovate marker missing?)"; exit 1; }
-
-          URL="https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${VERSION}/prime-agent-${VERSION}.tgz"
-          HASH=$(nix store prefetch-file --unpack --json "$URL" | jq -r '.hash')
-          [[ "$HASH" == sha256-* ]] || { echo "::error::Invalid prime-agent hash: $HASH"; exit 1; }
-          awk -v h="$HASH" '/@ci:src-hash-prime-agent$/ {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
-
-          # bundle-external Node deps: resync each version + fetchzip hash from the upstream lock at this tag,
-          # so a bump can't silently keep stale mirrored deps that load at runtime but mismatch the bundle.
-          LOCK="$(mktemp)"
-          curl -sfSL "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${VERSION}/package-lock.json" -o "$LOCK" \
-            || { echo "::error::upstream package-lock.json missing for v${VERSION}"; exit 1; }
-          MARKERS=$(grep -oE '@ci:npm-version .+' "$PA_NIX" | sed 's/@ci:npm-version //')
-          [[ -n "$MARKERS" ]] || { echo "::error::no @ci:npm-version markers in $PA_NIX (renamed/removed?)"; exit 1; }
-          while IFS= read -r key; do
-            newver=$(jq -r --arg k "node_modules/$key" '.packages[$k].version // empty' "$LOCK")
-            [[ -n "$newver" ]] || { echo "::error::node_modules/$key absent from upstream lock (v${VERSION})"; exit 1; }
-            awk -v key="$key" -v v="$newver" 'index($0, "@ci:npm-version " key) {sub(/"[^"]*"/, "\"" v "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
-            base=${key##*/}
-            DURL="https://registry.npmjs.org/${key}/-/${base}-${newver}.tgz"
-            DHASH=$(nix store prefetch-file --unpack --json "$DURL" | jq -r '.hash')
-            [[ "$DHASH" == sha256-* ]] || { echo "::error::Invalid hash for ${key}@${newver}: $DHASH"; exit 1; }
-            awk -v key="$key" -v h="$DHASH" 'index($0, "@ci:npm-hash " key) {sub(/"sha256-[^"]*"/, "\"" h "\"")} 1' "$PA_NIX" > "$PA_NIX.tmp" && mv "$PA_NIX.tmp" "$PA_NIX"
-          done <<< "$MARKERS"
-
-          # kernel deps drift guard: fail the bump if upstream's DEFAULT_RLM_EXTRA_PACKAGES (+ dill) drifts from
-          # the pinned @ci:rlm-extra-packages manifest (why it's hand-maintained: see prime-agent.nix kernelPython).
-          BOOT="https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${VERSION}/packages/coding-agent/src/core/kernel/bootstrap.ts"
-          BT=$(curl -sfSL "$BOOT") || { echo "::error::cannot fetch bootstrap.ts for v${VERSION} (path moved? refresh the guard)"; exit 1; }
-          UPSTREAM=$(printf '%s\n' "$BT" | grep -oE 'uvArg:[[:space:]]*"[^"]+"' | sed -E 's/.*"([^"]+)".*/\1/' | sort -u | paste -sd' ' -)
-          [[ -n "$UPSTREAM" ]] || { echo "::error::no uvArg entries parsed from bootstrap.ts (format changed?)"; exit 1; }
-          EXPECTED=$(grep -oE '@ci:rlm-extra-packages .+' "$PA_NIX" | head -1 | sed 's/.*@ci:rlm-extra-packages //' | tr -s ' ' '\n' | sort -u | paste -sd' ' -)
-          if [[ "$UPSTREAM" != "$EXPECTED" ]]; then
-            echo "::error::DEFAULT_RLM_EXTRA_PACKAGES drift for v${VERSION}: upstream=[$UPSTREAM] pinned=[$EXPECTED]; refresh kernelPython + the @ci:rlm-extra-packages marker in $PA_NIX"; exit 1
-          fi
-          SNAP=$(printf '%s\n' "$BT" | grep -oE 'STATE_SNAPSHOT_REQUIREMENT[[:space:]]*=[[:space:]]*"[^"]+"' | sed -E 's/.*"([^"]+)".*/\1/')
-          [[ "$SNAP" == "dill" ]] || { echo "::error::STATE_SNAPSHOT_REQUIREMENT changed to '${SNAP}' (was dill); update kernelPython in $PA_NIX"; exit 1; }
-
-      - name: Commit hash fixes
-        env:
-          PI_NIX: home-manager/modules/development/pi.nix
-          PI_LOCK: home-manager/modules/development/pi-package-lock.json
-          OMP_NIX: home-manager/modules/development/omp.nix
-          PA_NIX: home-manager/modules/development/prime-agent.nix
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$PI_NIX" "$PI_LOCK" "$OMP_NIX" "$PA_NIX"
-          if ! git diff --cached --quiet; then
-            git commit -m "fix: update nix hashes for version bump"
-            git push
-          fi
+          PUSH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: bash scripts/fix-nix-hashes.sh push "$GITHUB_REPOSITORY" "$HEAD_REF"

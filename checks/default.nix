@@ -1,8 +1,18 @@
 {
   self,
   pkgs,
+  nixpkgs,
+  home-manager,
 }:
 {
+  ci-contract = import ./ci-contract.nix {
+    inherit
+      home-manager
+      nixpkgs
+      self
+      pkgs
+      ;
+  };
   formatting = (import ./formatting.nix { inherit self pkgs; }).check;
   symlinks = import ./symlinks.nix { inherit self pkgs; };
   statix = import ./statix.nix { inherit self pkgs; };

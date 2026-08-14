@@ -12,6 +12,9 @@ on:
       - "patches/**"
       - "statix.toml"
       - ".github/workflows/check.yml"
+      - ".github/workflows/fix-nix-hashes.yml"
+      - "renovate.json"
+      - "scripts/fix-nix-hashes.sh"
   pull_request:
     branches: [main]
     paths:
@@ -23,6 +26,9 @@ on:
       - "patches/**"
       - "statix.toml"
       - ".github/workflows/check.yml"
+      - ".github/workflows/fix-nix-hashes.yml"
+      - "renovate.json"
+      - "scripts/fix-nix-hashes.sh"
   workflow_dispatch:
 
 permissions:
@@ -51,11 +57,13 @@ jobs:
     timeout-minutes: 240
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Free disk space (Linux)
         if: runner.os == 'Linux'
-        uses: wimpysworld/nothing-but-nix@v10
+        uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7 # v10
         with:
           hatchet-protocol: rampage
           witness-carnage: true
@@ -76,15 +84,16 @@ jobs:
           sudo rm -rf /Applications/Firefox.app
 
       - name: Install Nix
-        uses: nixbuild/nix-quick-install-action@v35
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
+          github_access_token: ""
           nix_conf: |
             keep-outputs = true
             keep-env-derivations = true
             ${{ matrix.extra_nix_conf }}
 
       - name: Restore and save Nix store
-        uses: nix-community/cache-nix-action@v7
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
