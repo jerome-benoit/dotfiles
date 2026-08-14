@@ -100,6 +100,9 @@ validate_effective_contract() {
   ' "$effective" >/dev/null || fail "Pi effective values do not consume their pin"
 
   version=$(jq -r .version "$omp")
+  jq -e --slurpfile pin "$omp" \
+    '.omp.version == $pin[0].version' "$effective" >/dev/null \
+    || fail "OMP effective version does not consume its pin"
   while IFS= read -r key; do
     template=$(jq -r .urlTemplate "$omp")
     expected=$(render_url "$template" "$version" "$key")
@@ -171,12 +174,13 @@ validate_workflows() {
     || fail "fix workflow must invoke the shared updater exactly once"
   [ "$base_ref" = '${{ github.base_ref }}' ] || fail "fix workflow base ref changed"
 
+  expected_paths=$(printf '%s\n' \
+    flake.nix flake.lock 'home-manager/**' 'checks/**' constants.nix \
+    'patches/**' statix.toml "$CHECK_WORKFLOW_REL" "$FIX_WORKFLOW_REL" renovate.json "$SCRIPT_REL" \
+    | LC_ALL=C sort)
   for query in '.on.push.paths[]' '.on.pull_request.paths[]'; do
     actual=$(sorted_workflow_paths "$check" "$query")
-    for required in "$FIX_WORKFLOW_REL" renovate.json "$SCRIPT_REL"; do
-      printf '%s\n' "$actual" | grep -Fxq "$required" \
-        || fail "check workflow $query misses $required"
-    done
+    [ "$actual" = "$expected_paths" ] || fail "check workflow $query paths differ from its contract"
   done
 }
 
@@ -185,8 +189,21 @@ validate_renovate() {
   local config=$root/renovate.json
 
   renovate-config-validator --strict "$config" >/dev/null
+  jq -e '
+    (keys == ["$schema", "customManagers", "extends", "lockFileMaintenance", "nix"])
+    and .extends == [
+      "config:recommended",
+      "abandonments:recommended",
+      ":configMigration",
+      "group:allNonMajor",
+      "schedule:daily"
+    ]
+    and .nix == {"enabled": true}
+  ' "$config" >/dev/null || fail "Renovate top-level contract changed"
   manager_count=$(jq --arg files "$PIN_MANAGER_PATTERN" --arg match "$PIN_MANAGER_MATCH" \
     --arg versioning "$VERSIONING_TEMPLATE" '[.customManagers[]? | select(
+      (keys == ["customType", "managerFilePatterns", "matchStrings", "versioningTemplate"])
+      and
       .customType == "regex"
       and .managerFilePatterns == [$files]
       and .matchStrings == [$match]
@@ -199,13 +216,11 @@ validate_renovate() {
   cp "$root/$PI_PIN_REL" "$tmp/$PI_PIN_REL"
   cp "$root/$OMP_PIN_REL" "$tmp/$OMP_PIN_REL"
   cp "$root/$PRIME_PIN_REL" "$tmp/$PRIME_PIN_REL"
-  jq --arg files "$PIN_MANAGER_PATTERN" '[.customManagers[] | select(.managerFilePatterns == [$files])] | {customManagers: .}' \
-    "$config" > "$tmp/renovate.json"
+  cp "$config" "$tmp/renovate.json"
   logs=$tmp/renovate.log
   (
     cd "$tmp"
-    LOG_LEVEL=debug LOG_FORMAT=json renovate --platform=local --dry-run=extract \
-      --enabled-managers=custom.regex > "$logs"
+    LOG_LEVEL=debug LOG_FORMAT=json renovate --platform=local --dry-run=extract > "$logs"
   )
   jq -s -e \
     --arg ompVersion "$(jq -r .version "$root/$OMP_PIN_REL")" \

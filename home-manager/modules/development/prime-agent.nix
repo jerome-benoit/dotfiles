@@ -88,19 +88,19 @@ let
   };
 
   # The manifest names and this pip-to-nixpkgs mapping must stay identical.
-  kernelPython = py.withPackages (
-    ps:
+  kernelRequirements =
     let
+      ps = py.pkgs;
       rlmPackages = import ./pins/rlm-packages.nix { inherit ps scipy tyro; };
     in
     assert builtins.attrNames rlmPackages == pins.rlmExtraPackages;
-    [
-      rlm
-      ps.${pins.snapshotRequirement}
-      ps.jupyter-client
-    ]
-    ++ builtins.attrValues rlmPackages
-  );
+    rlmPackages
+    // {
+      inherit rlm;
+      "${pins.snapshotRequirement}" = ps.${pins.snapshotRequirement};
+      jupyter-client = ps.jupyter-client;
+    };
+  kernelPython = py.withPackages (_ps: builtins.attrValues kernelRequirements);
 
   supported = builtins.elem hp.system platforms;
 
@@ -112,7 +112,7 @@ let
         pname = "prime-agent";
         inherit version src;
         passthru = {
-          inherit kernelPython;
+          inherit kernelPython kernelRequirements;
           runtimeSources = {
             "@silvia-odwyer/photon-node" = photonSrc;
             cmake-ts = cmakeTsSrc;
@@ -164,10 +164,17 @@ let
         doInstallCheck = true;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
-        # Exercise the real runtime plumbing versionCheckHook misses: load the external native deps
-        # (zeromq — also validates cmake-ts + the ELF patch — and undici) and the kernel import surface.
+        # Exercise the real runtime plumbing versionCheckHook misses: load every external native dep
+        # (zeromq also validates cmake-ts + the ELF patch) and the kernel import surface.
         preInstallCheck = ''
-          ( cd $out/lib/prime-agent && ${lib.getExe pkgs.nodejs_22} -e 'require("zeromq"); require("undici")' )
+          (
+            cd $out/lib/prime-agent
+            ${lib.getExe pkgs.nodejs_22} -e '
+              require("zeromq");
+              require("@silvia-odwyer/photon-node");
+              require("undici");
+            '
+          )
           ${kernelPython}/bin/python3 -c 'import rlm, ipykernel'
         '';
 
