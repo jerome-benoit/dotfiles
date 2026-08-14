@@ -111,6 +111,15 @@ let
       stdenv.mkDerivation {
         pname = "prime-agent";
         inherit version src;
+        passthru = {
+          inherit kernelPython;
+          runtimeSources = {
+            "@silvia-odwyer/photon-node" = photonSrc;
+            cmake-ts = cmakeTsSrc;
+            undici = undiciSrc;
+            zeromq = zeromqAddon;
+          };
+        };
 
         nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
 

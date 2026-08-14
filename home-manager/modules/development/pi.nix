@@ -17,6 +17,10 @@ let
     pname = "pi-coding-agent";
     version = pins.version;
     src = pins.src;
+    passthru = {
+      contractLockFile = pins.lockFile;
+      contractLockStorePath = "${pins.lockFile}";
+    };
 
     npmDeps = pkgs.fetchNpmDeps {
       name = "${finalAttrs.pname}-${finalAttrs.version}-npm-deps";
