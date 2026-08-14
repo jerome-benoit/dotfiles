@@ -290,6 +290,17 @@ set_json() {
   mv "$output" "$file"
 }
 
+path_changed_from_base() {
+  local base=$1 path=$2 status
+
+  if git diff --quiet "$base" -- "$path"; then
+    return 1
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] || fail "cannot compare $path against base ref $base"
+}
+
 update_pi() {
   local root=$1 pin=$2 lock_output=$3
   local version template url fetch_hash workdir npm_hash
@@ -370,11 +381,19 @@ update_contract() {
   root=$(git rev-parse --show-toplevel)
   cd "$root"
   require_command jq
+  git rev-parse --verify --quiet "${base}^{commit}" >/dev/null \
+    || fail "base ref does not resolve to a commit: $base"
   validate_pin_files "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL"
 
-  git diff "$base" --name-only -- "$PI_PIN_REL" | grep -Fxq "$PI_PIN_REL" && pi_changed=true || true
-  git diff "$base" --name-only -- "$OMP_PIN_REL" | grep -Fxq "$OMP_PIN_REL" && omp_changed=true || true
-  git diff "$base" --name-only -- "$PRIME_PIN_REL" | grep -Fxq "$PRIME_PIN_REL" && prime_changed=true || true
+  if path_changed_from_base "$base" "$PI_PIN_REL"; then
+    pi_changed=true
+  fi
+  if path_changed_from_base "$base" "$OMP_PIN_REL"; then
+    omp_changed=true
+  fi
+  if path_changed_from_base "$base" "$PRIME_PIN_REL"; then
+    prime_changed=true
+  fi
   if ! $pi_changed && ! $omp_changed && ! $prime_changed; then
     echo "No dependency pin changes detected"
     return

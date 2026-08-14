@@ -235,6 +235,23 @@ let
     builtins.toJSON effectiveContract
   );
   ompSourceArchives = map pkgs.fetchurl (builtins.attrValues sources.omp.sources);
+  updateTestRlmExtraPackages = [
+    "beautifulsoup4"
+    "httpx"
+    "lxml"
+    "numpy"
+    "pandas"
+    "pydantic"
+    "python-dotenv"
+    "pyyaml"
+    "requests"
+    "scipy"
+    "tomli"
+    "tyro"
+  ];
+  updateTestBootstrap = lib.concatMapStringsSep "\n" (
+    dependency: ''const dep = { uvArg: "${dependency}" };''
+  ) updateTestRlmExtraPackages;
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
     if [ "$#" -eq 4 ] && [ "$1" = run ] \
@@ -324,15 +341,14 @@ let
       }' > "$output"
     elif [[ $invocation == *"/v9.9.9/packages/coding-agent/src/core/kernel/bootstrap.ts"* ]] \
       || [[ $invocation == *"/v9.9.10/packages/coding-agent/src/core/kernel/bootstrap.ts"* ]]; then
-      pin=home-manager/modules/development/pins/prime-agent.json
-      jq -r '.rlmExtraPackages[] | "const dep = { uvArg: \"" + . + "\" };"' "$pin"
+      printf '%s\n' ${lib.escapeShellArg updateTestBootstrap}
       if [ -n "''${MOCK_RLM_DRIFT:-}" ]; then
         printf '%s\n' 'const drift = { uvArg: "unpinned-package" };'
       fi
       if [ -n "''${MOCK_SNAPSHOT_DRIFT:-}" ]; then
         printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "cloudpickle";'
       else
-        jq -r '"const STATE_SNAPSHOT_REQUIREMENT = \"" + .snapshotRequirement + "\";"' "$pin"
+        printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "dill";'
       fi
     elif [[ $invocation == *"pi-coding-agent-9.9.9.tgz"* ]]; then
       cat "$MOCK_PI_TARBALL"
@@ -396,6 +412,27 @@ pkgs.runCommandLocal "check-ci-contract"
     git remote add origin "$remote"
     git push --quiet -u origin HEAD
 
+    assert_remote_head() {
+      local localHead remoteHead
+      localHead=$(git rev-parse HEAD)
+      remoteHead=$(git --git-dir="$remote" rev-parse refs/heads/renovate/ci-contract)
+      if [ "$remoteHead" != "$localHead" ]; then
+        echo "updater did not push HEAD: local=$localHead remote=$remoteHead" >&2
+        return 1
+      fi
+    }
+
+    before=$(git rev-parse HEAD)
+    if bash ${self}/scripts/fix-nix-hashes.sh update refs/heads/ci-contract-missing \
+      > "$TMPDIR/base-ref.log" 2>&1; then
+      echo "update accepted a missing base ref" >&2
+      exit 1
+    fi
+    grep -Fq "ERROR: base ref does not resolve to a commit:" "$TMPDIR/base-ref.log"
+    test "$(git rev-parse HEAD)" = "$before"
+    git diff --quiet
+    assert_remote_head
+
     piPin=home-manager/modules/development/pins/pi.json
     ompPin=home-manager/modules/development/pins/omp.json
     primePin=home-manager/modules/development/pins/prime-agent.json
@@ -410,6 +447,7 @@ pkgs.runCommandLocal "check-ci-contract"
     git add "$piPin"
     git commit --quiet -m "renovate: bump Pi"
     bash ${self}/scripts/fix-nix-hashes.sh update "$base"
+    assert_remote_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg src sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
@@ -424,6 +462,7 @@ pkgs.runCommandLocal "check-ci-contract"
     git add "$ompPin"
     git commit --quiet -m "renovate: bump OMP"
     bash ${self}/scripts/fix-nix-hashes.sh update "$base"
+    assert_remote_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg darwin sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD= \
@@ -442,6 +481,7 @@ pkgs.runCommandLocal "check-ci-contract"
     git add "$primePin"
     git commit --quiet -m "renovate: bump Prime Agent"
     bash ${self}/scripts/fix-nix-hashes.sh update "$base"
+    assert_remote_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg src sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP= \
