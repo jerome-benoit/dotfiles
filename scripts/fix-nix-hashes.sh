@@ -143,12 +143,29 @@ sorted_workflow_paths() {
   yq -r "$query" "$workflow" | LC_ALL=C sort
 }
 
+validate_action_ref() {
+  local ref=$1 action=$2 digest
+  digest=${ref#"$action@"}
+  [ "$digest" != "$ref" ] && [[ $digest =~ ^[0-9a-f]{40}$ ]] \
+    || fail "$action must be pinned to a full commit SHA"
+}
+
 validate_workflows() {
   local root=$1
   local fix=$root/$FIX_WORKFLOW_REL check=$root/$CHECK_WORKFLOW_REL
-  local expected_paths actual condition run base_ref
+  local expected_paths actual condition run base_ref push_run
+  local fix_checkout fix_nix fix_node check_checkout check_disk check_nix check_cache
 
   actionlint "$fix" "$check"
+
+  [ "$(yq -r '[.jobs.fix-hashes.steps[] | select(has("uses"))] | length' "$fix")" -eq 3 ] \
+    || fail "fix workflow must use exactly three actions"
+  fix_checkout=$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/checkout@")) | .uses' "$fix")
+  fix_nix=$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^nixbuild/nix-quick-install-action@")) | .uses' "$fix")
+  fix_node=$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/setup-node@")) | .uses' "$fix")
+  validate_action_ref "$fix_checkout" actions/checkout
+  validate_action_ref "$fix_nix" nixbuild/nix-quick-install-action
+  validate_action_ref "$fix_node" actions/setup-node
 
   expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PI_PIN_REL" "$PRIME_PIN_REL" | LC_ALL=C sort)
   actual=$(sorted_workflow_paths "$fix" '.on.pull_request.paths[]')
@@ -159,13 +176,18 @@ validate_workflows() {
   [ "$condition" = "startsWith(github.head_ref, 'renovate/')" ] \
     || fail "fix workflow Renovate branch guard changed"
 
-  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses == "actions/checkout@v7") | .with.ref' "$fix")" = '${{ github.head_ref }}' ] \
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/checkout@")) | .with.ref' "$fix")" = '${{ github.head_ref }}' ] \
     || fail "fix workflow checkout must use the PR head"
-  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses == "actions/checkout@v7") | .with.fetch-depth' "$fix")" = 0 ] \
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/checkout@")) | .with.fetch-depth' "$fix")" = 0 ] \
     || fail "fix workflow checkout must fetch history"
-  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses == "nixbuild/nix-quick-install-action@v35") | .uses' "$fix")" = nixbuild/nix-quick-install-action@v35 ] \
-    || fail "fix workflow must install Nix"
-  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses == "actions/setup-node@v7") | .with.node-version' "$fix")" = 24 ] \
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/checkout@")) | .with.persist-credentials' "$fix")" = false ] \
+    || fail "fix workflow checkout must not persist credentials"
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/checkout@")) | .with.token // ""' "$fix")" = "" ] \
+    || fail "fix workflow checkout must not receive an explicit token"
+  [ -n "$fix_nix" ] || fail "fix workflow must install Nix"
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^nixbuild/nix-quick-install-action@")) | .with.github_access_token' "$fix")" = "" ] \
+    || fail "fix workflow Nix installer must not persist the GitHub token"
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/setup-node@")) | .with.node-version' "$fix")" = 24 ] \
     || fail "fix workflow must install Node.js 24"
 
   run=$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Fix Nix hashes") | .run' "$fix")
@@ -173,6 +195,21 @@ validate_workflows() {
   [ "$run" = 'bash scripts/fix-nix-hashes.sh update "origin/$BASE_REF"' ] \
     || fail "fix workflow must invoke the shared updater exactly once"
   [ "$base_ref" = '${{ github.base_ref }}' ] || fail "fix workflow base ref changed"
+  actual=$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Fix Nix hashes") | .env | keys | .[]' "$fix")
+  [ "$actual" = BASE_REF ] || fail "fix workflow updater must not receive push credentials"
+
+  push_run=$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Push Nix hash fix") | .run' "$fix")
+  [ "$push_run" = 'bash scripts/fix-nix-hashes.sh push "$GITHUB_REPOSITORY" "$HEAD_REF"' ] \
+    || fail "fix workflow must isolate the authenticated push"
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Push Nix hash fix") | .env.PUSH_TOKEN' "$fix")" = '${{ github.token }}' ] \
+    || fail "fix workflow push token changed"
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Push Nix hash fix") | .env.GITHUB_REPOSITORY' "$fix")" = '${{ github.repository }}' ] \
+    || fail "fix workflow push repository changed"
+  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Push Nix hash fix") | .env.HEAD_REF' "$fix")" = '${{ github.head_ref }}' ] \
+    || fail "fix workflow push branch changed"
+  expected_paths=$(printf '%s\n' GITHUB_REPOSITORY HEAD_REF PUSH_TOKEN | LC_ALL=C sort)
+  actual=$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Push Nix hash fix") | .env | keys | .[]' "$fix" | LC_ALL=C sort)
+  [ "$actual" = "$expected_paths" ] || fail "fix workflow push environment differs from its contract"
 
   expected_paths=$(printf '%s\n' \
     flake.nix flake.lock 'home-manager/**' 'checks/**' constants.nix \
@@ -182,6 +219,21 @@ validate_workflows() {
     actual=$(sorted_workflow_paths "$check" "$query")
     [ "$actual" = "$expected_paths" ] || fail "check workflow $query paths differ from its contract"
   done
+
+  [ "$(yq -r '[.jobs.check.steps[] | select(has("uses"))] | length' "$check")" -eq 4 ] \
+    || fail "check workflow must use exactly four actions"
+  check_checkout=$(yq -r '.jobs.check.steps[] | select(.uses | test("^actions/checkout@")) | .uses' "$check")
+  check_disk=$(yq -r '.jobs.check.steps[] | select(.uses | test("^wimpysworld/nothing-but-nix@")) | .uses' "$check")
+  check_nix=$(yq -r '.jobs.check.steps[] | select(.uses | test("^nixbuild/nix-quick-install-action@")) | .uses' "$check")
+  check_cache=$(yq -r '.jobs.check.steps[] | select(.uses | test("^nix-community/cache-nix-action@")) | .uses' "$check")
+  validate_action_ref "$check_checkout" actions/checkout
+  validate_action_ref "$check_disk" wimpysworld/nothing-but-nix
+  validate_action_ref "$check_nix" nixbuild/nix-quick-install-action
+  validate_action_ref "$check_cache" nix-community/cache-nix-action
+  [ "$(yq -r '.jobs.check.steps[] | select(.uses | test("^nixbuild/nix-quick-install-action@")) | .with.github_access_token' "$check")" = "" ] \
+    || fail "check workflow Nix installer must not persist the GitHub token"
+  [ "$(yq -r '.jobs.check.steps[] | select(.uses | test("^actions/checkout@")) | .with.persist-credentials' "$check")" = false ] \
+    || fail "check workflow checkout must not persist credentials"
 }
 
 validate_renovate() {
@@ -290,15 +342,15 @@ set_json() {
   mv "$output" "$file"
 }
 
-path_changed_from_base() {
-  local base=$1 path=$2 status
+path_changed_since() {
+  local commit=$1 path=$2 status
 
-  if git diff --quiet "$base" -- "$path"; then
+  if git diff --quiet "$commit" HEAD -- "$path"; then
     return 1
   else
     status=$?
   fi
-  [ "$status" -eq 1 ] || fail "cannot compare $path against base ref $base"
+  [ "$status" -eq 1 ] || fail "cannot compare $path between $commit and HEAD"
 }
 
 update_pi() {
@@ -316,7 +368,7 @@ update_pi() {
     cd "$workdir"
     rm -f npm-shrinkwrap.json
     npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-    npm_hash=$(nix run nixpkgs#prefetch-npm-deps -- ./package-lock.json)
+    npm_hash=$(nix run --inputs-from "$root" nixpkgs#prefetch-npm-deps -- ./package-lock.json)
     [[ $npm_hash == sha256-* ]] || fail "invalid Pi npm hash: $npm_hash"
     cp package-lock.json "$lock_output"
     set_json "$pin" --arg src "$fetch_hash" --arg npm "$npm_hash" \
@@ -377,21 +429,23 @@ update_prime_agent() {
 }
 
 update_contract() {
-  local base=$1 root work pi_changed=false omp_changed=false prime_changed=false
+  local base=$1 root work merge_base pi_changed=false omp_changed=false prime_changed=false
   root=$(git rev-parse --show-toplevel)
   cd "$root"
   require_command jq
   git rev-parse --verify --quiet "${base}^{commit}" >/dev/null \
     || fail "base ref does not resolve to a commit: $base"
+  merge_base=$(git merge-base "$base" HEAD) \
+    || fail "cannot determine merge base between $base and HEAD"
   validate_pin_files "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL"
 
-  if path_changed_from_base "$base" "$PI_PIN_REL"; then
+  if path_changed_since "$merge_base" "$PI_PIN_REL"; then
     pi_changed=true
   fi
-  if path_changed_from_base "$base" "$OMP_PIN_REL"; then
+  if path_changed_since "$merge_base" "$OMP_PIN_REL"; then
     omp_changed=true
   fi
-  if path_changed_from_base "$base" "$PRIME_PIN_REL"; then
+  if path_changed_since "$merge_base" "$PRIME_PIN_REL"; then
     prime_changed=true
   fi
   if ! $pi_changed && ! $omp_changed && ! $prime_changed; then
@@ -423,7 +477,37 @@ update_contract() {
   git add "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL" "$PI_LOCK_REL"
   if ! git diff --cached --quiet; then
     git commit -m "fix: update nix hashes for version bump"
-    git push
+  fi
+}
+
+push_hash_fix() {
+  local repository=$1 head_ref=$2 askpass status
+  [ -n "${PUSH_TOKEN:-}" ] || fail "PUSH_TOKEN is required"
+  [[ $repository =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
+    || fail "invalid GitHub repository: $repository"
+  git check-ref-format --branch "$head_ref" >/dev/null 2>&1 \
+    || fail "invalid GitHub head ref: $head_ref"
+
+  umask 077
+  askpass=$(mktemp)
+  cat > "$askpass" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case ${1:-} in
+  Password*) printf '%s\n' "$PUSH_TOKEN" ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod 700 "$askpass"
+  if GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= -c core.hooksPath=/dev/null push \
+      "https://x-access-token@github.com/${repository}.git" \
+      "HEAD:refs/heads/${head_ref}"; then
+    rm -f "$askpass"
+  else
+    status=$?
+    rm -f "$askpass"
+    return "$status"
   fi
 }
 
@@ -436,7 +520,12 @@ case ${1:-} in
     [ "$#" -eq 2 ] || fail "usage: $0 update <base-ref>"
     update_contract "$2"
     ;;
+  push)
+    [ "$#" -eq 3 ] || fail "usage: $0 push <repository> <head-ref>"
+    require_command git
+    push_hash_fix "$2" "$3"
+    ;;
   *)
-    fail "usage: $0 {validate <root> <effective-contract.json>|update <base-ref>}"
+    fail "usage: $0 {validate <root> <effective-contract.json>|update <base-ref>|push <repository> <head-ref>}"
     ;;
 esac

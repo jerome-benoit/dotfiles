@@ -76,6 +76,8 @@ let
 
   plainString = builtins.unsafeDiscardStringContext;
   usesIn = dependency: script: lib.hasInfix (plainString (toString dependency)) (plainString script);
+  hasExactTrimmedLine =
+    expected: script: builtins.elem expected (map lib.trim (lib.splitString "\n" (plainString script)));
   consumerContractValid =
     system:
     let
@@ -88,7 +90,9 @@ let
       lockStorePath = plainString piPackage.contractLockStorePath;
       expectedPiPostPatch = "rm -f npm-shrinkwrap.json\ncp ${lockStorePath} package-lock.json";
       expectedPiNpmPostPatch = "cp ${lockStorePath} package-lock.json";
-      expectedKernelAssignment = "--set PRIME_AGENT_KERNEL_PYTHON ${primeAgentPackage.kernelPython}/bin/python3";
+      expectedKernelAssignment = lib.trim ''
+        --set PRIME_AGENT_KERNEL_PYTHON ${primeAgentPackage.kernelPython}/bin/python3 \
+      '';
       expectedKernelNames = lib.sort builtins.lessThan (
         [
           "jupyter-client"
@@ -204,7 +208,7 @@ let
       && builtins.all (
         requirement: builtins.elem requirement kernelEnvironmentPaths
       ) kernelRequirementPaths
-      && usesIn expectedKernelAssignment primeAgentPackage.installPhase
+      && hasExactTrimmedLine expectedKernelAssignment primeAgentPackage.installPhase
       && usesIn primeAgentPackage.kernelPython primeAgentPackage.preInstallCheck
     ) (message "prime-agent.nix kernel environment differs from its pinned requirements");
 
@@ -255,9 +259,10 @@ let
   ) updateTestRlmExtraPackages;
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
-    if [ "$#" -eq 4 ] && [ "$1" = run ] \
-      && [ "$2" = "nixpkgs#prefetch-npm-deps" ] && [ "$3" = -- ] \
-      && [ "$4" = ./package-lock.json ]; then
+    if [ "$#" -eq 6 ] && [ "$1" = run ] \
+      && [ "$2" = --inputs-from ] && [ "$3" = "$MOCK_FLAKE_ROOT" ] \
+      && [ "$4" = "nixpkgs#prefetch-npm-deps" ] && [ "$5" = -- ] \
+      && [ "$6" = ./package-lock.json ]; then
       hash=sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
     elif [ "$#" -eq 5 ] && [ "$1" = store ] && [ "$2" = prefetch-file ] \
       && [ "$3" = --unpack ] && [ "$4" = --json ]; then
@@ -314,21 +319,14 @@ let
     fi
   '';
   updateTestCurl = pkgs.writeShellScriptBin "curl" ''
-    invocation=" $* "
-    output=
-    while [ "$#" -gt 0 ]; do
-      if [ "$1" = -o ]; then
-        output=$2
-        shift 2
-      else
-        shift
-      fi
-    done
-    if [ -n "$output" ]; then
-      case "$invocation" in
-        *"/v9.9.9/package-lock.json"* | *"/v9.9.10/package-lock.json"*) ;;
+    set -euo pipefail
+    if [ "$#" -eq 4 ] && [ "$1" = -sfSL ] && [ "$3" = -o ]; then
+      case "$2" in
+        "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.9/package-lock.json" | \
+          "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.10/package-lock.json")
+          ;;
         *)
-          echo "unexpected package-lock URL:$invocation" >&2
+          echo "unexpected package-lock URL:$2" >&2
           exit 1
           ;;
       esac
@@ -339,22 +337,31 @@ let
           "node_modules/undici": { version: "10.0.3" },
           "node_modules/zeromq": { version: "10.0.4" }
         }
-      }' > "$output"
-    elif [[ $invocation == *"/v9.9.9/packages/coding-agent/src/core/kernel/bootstrap.ts"* ]] \
-      || [[ $invocation == *"/v9.9.10/packages/coding-agent/src/core/kernel/bootstrap.ts"* ]]; then
-      printf '%s\n' ${lib.escapeShellArg updateTestBootstrap}
-      if [ -n "''${MOCK_RLM_DRIFT:-}" ]; then
-        printf '%s\n' 'const drift = { uvArg: "unpinned-package" };'
-      fi
-      if [ -n "''${MOCK_SNAPSHOT_DRIFT:-}" ]; then
-        printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "cloudpickle";'
-      else
-        printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "dill";'
-      fi
-    elif [[ $invocation == *"pi-coding-agent-9.9.9.tgz"* ]]; then
-      cat "$MOCK_PI_TARBALL"
+      }' > "$4"
+    elif [ "$#" -eq 2 ] && [ "$1" = -sfSL ]; then
+      case "$2" in
+        "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.9/packages/coding-agent/src/core/kernel/bootstrap.ts" | \
+          "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.10/packages/coding-agent/src/core/kernel/bootstrap.ts")
+          printf '%s\n' ${lib.escapeShellArg updateTestBootstrap}
+          if [ -n "''${MOCK_RLM_DRIFT:-}" ]; then
+            printf '%s\n' 'const drift = { uvArg: "unpinned-package" };'
+          fi
+          if [ -n "''${MOCK_SNAPSHOT_DRIFT:-}" ]; then
+            printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "cloudpickle";'
+          else
+            printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "dill";'
+          fi
+          ;;
+        "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz")
+          cat "$MOCK_PI_TARBALL"
+          ;;
+        *)
+          echo "unexpected curl URL:$2" >&2
+          exit 1
+          ;;
+      esac
     else
-      echo "unexpected curl invocation:$invocation" >&2
+      echo "unexpected curl invocation:$*" >&2
       exit 1
     fi
   '';
@@ -428,14 +435,45 @@ pkgs.runCommandLocal "check-ci-contract"
     git remote add origin "$remote"
     git push --quiet -u origin HEAD
 
+    remote_head() {
+      git --git-dir="$remote" rev-parse refs/heads/renovate/ci-contract
+    }
+
     assert_remote_head() {
       local localHead remoteHead
       localHead=$(git rev-parse HEAD)
-      remoteHead=$(git --git-dir="$remote" rev-parse refs/heads/renovate/ci-contract)
+      remoteHead=$(remote_head)
       if [ "$remoteHead" != "$localHead" ]; then
-        echo "updater did not push HEAD: local=$localHead remote=$remoteHead" >&2
+        echo "fixture push did not publish HEAD: local=$localHead remote=$remoteHead" >&2
         return 1
       fi
+    }
+
+    assert_remote_unchanged() {
+      local expected=$1 actual
+      actual=$(remote_head)
+      if [ "$actual" != "$expected" ]; then
+        echo "updater pushed unexpectedly: expected=$expected actual=$actual" >&2
+        return 1
+      fi
+    }
+
+    assert_tracked_clean() {
+      if ! git diff --quiet; then
+        echo "updater left unstaged changes" >&2
+        git diff --stat >&2
+        return 1
+      fi
+      if ! git diff --cached --quiet; then
+        echo "updater left staged changes" >&2
+        git diff --cached --stat >&2
+        return 1
+      fi
+    }
+
+    push_fixture_head() {
+      git push --quiet origin HEAD
+      assert_remote_head
     }
 
     before=$(git rev-parse HEAD)
@@ -446,7 +484,7 @@ pkgs.runCommandLocal "check-ci-contract"
     fi
     grep -Fq "ERROR: base ref does not resolve to a commit:" "$TMPDIR/base-ref.log"
     test "$(git rev-parse HEAD)" = "$before"
-    git diff --quiet
+    assert_tracked_clean
     assert_remote_head
 
     piPin=home-manager/modules/development/pins/pi.json
@@ -457,13 +495,25 @@ pkgs.runCommandLocal "check-ci-contract"
     tar czf "$TMPDIR/pi-source.tgz" -C "$TMPDIR/pi-source" package
     export MOCK_PI_TARBALL="$TMPDIR/pi-source.tgz"
     export PATH="${updateTestNix}/bin:${updateTestCurl}/bin:${updateTestNpm}/bin:$PATH"
+    export MOCK_FLAKE_ROOT="$fixture"
+
+    git switch --quiet -c main "$base"
+    jq '.version = "9.9.10"' "$ompPin" > "$TMPDIR/base-omp.json"
+    mv "$TMPDIR/base-omp.json" "$ompPin"
+    git add "$ompPin"
+    git commit --quiet -m "main: advance OMP independently"
+    git push --quiet origin HEAD:main
+    git switch --quiet renovate/ci-contract
+    cp "$ompPin" "$TMPDIR/branch-omp.json"
 
     jq '.version = "9.9.9"' "$piPin" > "$TMPDIR/pin.json"
     mv "$TMPDIR/pin.json" "$piPin"
     git add "$piPin"
     git commit --quiet -m "renovate: bump Pi"
-    bash ${self}/scripts/fix-nix-hashes.sh update "$base"
-    assert_remote_head
+    remoteBefore=$(remote_head)
+    bash ${self}/scripts/fix-nix-hashes.sh update origin/main
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg src sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
@@ -474,14 +524,17 @@ pkgs.runCommandLocal "check-ci-contract"
       and .lockfileVersion == 3
       and .packages[""].name == "pi-contract-fixture"
     ' home-manager/modules/development/pi-package-lock.json >/dev/null
+    cmp "$TMPDIR/branch-omp.json" "$ompPin"
 
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.9"' "$ompPin" > "$TMPDIR/pin.json"
     mv "$TMPDIR/pin.json" "$ompPin"
     git add "$ompPin"
     git commit --quiet -m "renovate: bump OMP"
+    remoteBefore=$(remote_head)
     bash ${self}/scripts/fix-nix-hashes.sh update "$base"
-    assert_remote_head
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg darwin sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD= \
@@ -499,8 +552,10 @@ pkgs.runCommandLocal "check-ci-contract"
     mv "$TMPDIR/pin.json" "$primePin"
     git add "$primePin"
     git commit --quiet -m "renovate: bump Prime Agent"
+    remoteBefore=$(remote_head)
     bash ${self}/scripts/fix-nix-hashes.sh update "$base"
-    assert_remote_head
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg src sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP= \
@@ -524,6 +579,8 @@ pkgs.runCommandLocal "check-ci-contract"
     mv "$TMPDIR/prime-agent.json" "$primePin"
     git add "$primePin"
     git commit --quiet -m "renovate: bump Prime Agent with RLM drift"
+    push_fixture_head
+    remoteBefore=$(remote_head)
     before=$(git rev-parse HEAD)
     if MOCK_RLM_DRIFT=1 bash ${self}/scripts/fix-nix-hashes.sh update "$base" \
       > "$TMPDIR/drift.log" 2>&1; then
@@ -532,7 +589,8 @@ pkgs.runCommandLocal "check-ci-contract"
     fi
     grep -Fq "Prime Agent RLM package drift:" "$TMPDIR/drift.log"
     test "$(git rev-parse HEAD)" = "$before"
-    git diff --quiet
+    assert_tracked_clean
+    assert_remote_unchanged "$remoteBefore"
     if MOCK_SNAPSHOT_DRIFT=1 bash ${self}/scripts/fix-nix-hashes.sh update "$base" \
       > "$TMPDIR/snapshot.log" 2>&1; then
       echo "update accepted a changed Prime Agent snapshot requirement" >&2
@@ -541,6 +599,7 @@ pkgs.runCommandLocal "check-ci-contract"
     grep -Fq "Prime Agent snapshot requirement drift: upstream=cloudpickle" \
       "$TMPDIR/snapshot.log"
     test "$(git rev-parse HEAD)" = "$before"
-    git diff --quiet
+    assert_tracked_clean
+    assert_remote_unchanged "$remoteBefore"
     touch "$out"
   ''
