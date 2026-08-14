@@ -1,0 +1,45 @@
+{
+  "renovate": "datasource=github-releases depName=PrimeIntellect-ai/prime-agent",
+  "version": "0.7.2",
+  "src": {
+    "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}.tgz",
+    "hash": "sha256-mXUeEkG6M9sgXLnWbapXmVA50Vv6kViYWvIBSV094W8="
+  },
+  "npm": {
+    "@silvia-odwyer/photon-node": {
+      "version": "0.3.4",
+      "urlTemplate": "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-{version}.tgz",
+      "hash": "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8="
+    },
+    "cmake-ts": {
+      "version": "1.0.2",
+      "urlTemplate": "https://registry.npmjs.org/cmake-ts/-/cmake-ts-{version}.tgz",
+      "hash": "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac="
+    },
+    "undici": {
+      "version": "7.29.0",
+      "urlTemplate": "https://registry.npmjs.org/undici/-/undici-{version}.tgz",
+      "hash": "sha256-xtWGZuAjA6c8p3EjgweXN6Au1sMLg9JZOKPXNFCMIjs="
+    },
+    "zeromq": {
+      "version": "6.5.0",
+      "urlTemplate": "https://registry.npmjs.org/zeromq/-/zeromq-{version}.tgz",
+      "hash": "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM="
+    }
+  },
+  "rlmExtraPackages": [
+    "beautifulsoup4",
+    "httpx",
+    "lxml",
+    "numpy",
+    "pandas",
+    "pydantic",
+    "python-dotenv",
+    "pyyaml",
+    "requests",
+    "scipy",
+    "tomli",
+    "tyro"
+  ],
+  "snapshotRequirement": "dill"
+}

@@ -9,31 +9,26 @@ let
   cfg = config.modules.development.omp;
   stdenv = pkgs.stdenvNoCC;
   hp = stdenv.hostPlatform;
+  pins =
+    (import ./pins {
+      inherit lib;
+      inherit (pkgs) fetchurl fetchzip;
+    }).omp;
 
   # hp.node.{platform,arch} yields the upstream asset names (linux-x64, linux-arm64, darwin-arm64).
   platformKey = "${hp.node.platform}-${hp.node.arch}";
 
-  # renovate: datasource=github-releases depName=can1357/oh-my-pi
-  version = "17.3.4";
-
-  hashes = {
-    "linux-x64" = "sha256-P85LJWKAZLDNe/vGJF7NraMxdQ7Us0Gspr0pukR4qrU="; # @ci:src-hash-linux-x64
-    "linux-arm64" = "sha256-jifnv+SfwPM/bLC1ASirhf5UAzMNHftbs0zx90Is3Og="; # @ci:src-hash-linux-arm64
-    "darwin-arm64" = "sha256-dqbCL4ukujGePVKK3NkhlJ4DOPKxMEJyHmS5kPb//hY="; # @ci:src-hash-darwin-arm64
-  };
+  version = pins.version;
 
   ompPackage =
-    if !(hashes ? ${platformKey}) then
+    if !(pins.sources ? ${platformKey}) then
       null
     else
-      stdenv.mkDerivation (finalAttrs: {
+      stdenv.mkDerivation {
         pname = "omp";
         inherit version;
 
-        src = pkgs.fetchurl {
-          url = "https://github.com/can1357/oh-my-pi/releases/download/v${finalAttrs.version}/omp-${platformKey}";
-          hash = hashes.${platformKey};
-        };
+        src = pins.sources.${platformKey};
 
         dontUnpack = true;
         dontBuild = true;
@@ -74,7 +69,7 @@ let
             "x86_64-linux"
           ];
         };
-      });
+      };
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
     {
       package = cfg.package;

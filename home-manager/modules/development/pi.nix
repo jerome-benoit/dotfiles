@@ -7,29 +7,29 @@
 
 let
   cfg = config.modules.development.pi;
+  pins =
+    (import ./pins {
+      inherit lib;
+      inherit (pkgs) fetchurl fetchzip;
+    }).pi;
 
   piPackage = pkgs.buildNpmPackage (finalAttrs: {
     pname = "pi-coding-agent";
-    # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-    version = "0.84.2";
-
-    src = pkgs.fetchzip {
-      url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${finalAttrs.version}.tgz";
-      hash = "sha256-9dv6prGh2inmg4pEFkC8OsU/Eh18L3wCvcUde5rOMdc="; # @ci:src-hash
-    };
+    version = pins.version;
+    src = pins.src;
 
     npmDeps = pkgs.fetchNpmDeps {
       name = "${finalAttrs.pname}-${finalAttrs.version}-npm-deps";
       unpackPhase = "true";
       postPatch = ''
-        cp ${./pi-package-lock.json} package-lock.json
+        cp ${pins.lockFile} package-lock.json
       '';
-      hash = "sha256-cKitVE175ZKdeY+kxT1m7TROrLNSNLAIZRYFlufw/jM="; # @ci:npm-deps-hash
+      hash = pins.npmDepsHash;
     };
 
     postPatch = ''
       rm -f npm-shrinkwrap.json
-      cp ${./pi-package-lock.json} package-lock.json
+      cp ${pins.lockFile} package-lock.json
     '';
 
     dontNpmBuild = true;

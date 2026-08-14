@@ -9,6 +9,11 @@ let
   cfg = config.modules.development.primeAgent;
   stdenv = pkgs.stdenvNoCC;
   hp = stdenv.hostPlatform;
+  pins =
+    (import ./pins {
+      inherit lib;
+      inherit (pkgs) fetchurl fetchzip;
+    }).primeAgent;
 
   platforms = [
     "aarch64-darwin"
@@ -16,40 +21,18 @@ let
     "x86_64-linux"
   ];
 
-  # renovate: datasource=github-releases depName=PrimeIntellect-ai/prime-agent
-  version = "0.7.2";
+  version = pins.version;
+  src = pins.src;
 
-  src = pkgs.fetchzip {
-    url = "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v${version}/prime-agent-${version}.tgz";
-    hash = "sha256-mXUeEkG6M9sgXLnWbapXmVA50Vv6kViYWvIBSV094W8="; # @ci:src-hash-prime-agent
-  };
+  # Native/runtime deps external to the esbuild bundle, pinned with the Prime Agent release data.
+  zeromqVersion = pins.npm.zeromq.version;
 
-  # Native/runtime deps external to the esbuild bundle, absent from the tarball; pinned to prime-agent's package-lock.
-  # Versions + hashes are resynced from the upstream lock (.packages["node_modules/<name>"].version) by fix-nix-hashes.yml on a
-  # bump — the @ci:npm-version/@ci:npm-hash markers below are the rewrite anchors; keep one dep per marked line.
-  zeromqVersion = "6.5.0"; # @ci:npm-version zeromq
-  cmakeTsVersion = "1.0.2"; # @ci:npm-version cmake-ts
-  photonVersion = "0.3.4"; # @ci:npm-version @silvia-odwyer/photon-node
-  undiciVersion = "7.29.0"; # @ci:npm-version undici
-
-  zeromqSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/zeromq/-/zeromq-${zeromqVersion}.tgz";
-    hash = "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM="; # @ci:npm-hash zeromq
-  };
-  # zeromq's load-addon.js does require("cmake-ts/build/loader"); cmake-ts is a runtime dep absent from its tarball.
-  cmakeTsSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/cmake-ts/-/cmake-ts-${cmakeTsVersion}.tgz";
-    hash = "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac="; # @ci:npm-hash cmake-ts
-  };
-  photonSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-${photonVersion}.tgz";
-    hash = "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8="; # @ci:npm-hash @silvia-odwyer/photon-node
-  };
-  # cli-main dynamically imports "undici" (kept external from the esbuild bundle); it has no runtime deps.
-  undiciSrc = pkgs.fetchzip {
-    url = "https://registry.npmjs.org/undici/-/undici-${undiciVersion}.tgz";
-    hash = "sha256-xtWGZuAjA6c8p3EjgweXN6Au1sMLg9JZOKPXNFCMIjs="; # @ci:npm-hash undici
-  };
+  zeromqSrc = pins.npm.zeromq.src;
+  # zeromq's load-addon.js requires cmake-ts/build/loader at runtime.
+  cmakeTsSrc = pins.npm.cmake-ts.src;
+  photonSrc = pins.npm."@silvia-odwyer/photon-node".src;
+  # cli-main dynamically imports undici, which is external to the esbuild bundle.
+  undiciSrc = pins.npm.undici.src;
 
   # zeromq ships prebuilt N-API addons for every platform; keep only the host os/arch and drop the musl
   # variants (autoPatchelfHook can't resolve musl's libc on a glibc stdenv). Patched writable here so the
@@ -104,27 +87,20 @@ let
     doCheck = false;
   };
 
-  # PRIME_AGENT_KERNEL_PYTHON must cover ipykernel + rlm + every DEFAULT_RLM_EXTRA_PACKAGES; a missing one
-  # silently drops the agent to the uv/network venv path. pip->nixpkgs names aren't 1:1, so the set is
-  # hand-mirrored below (dill tracked separately) and fix-nix-hashes.yml fails a bump on upstream drift.
-  # @ci:rlm-extra-packages beautifulsoup4 httpx lxml numpy pandas pydantic python-dotenv pyyaml requests scipy tomli tyro
-  kernelPython = py.withPackages (ps: [
-    rlm
-    tyro
-    ps.dill
-    ps.jupyter-client
-    ps.requests
-    ps.httpx
-    ps.pyyaml
-    ps.tomli
-    ps.python-dotenv
-    ps.pandas
-    ps.numpy
-    scipy
-    ps.beautifulsoup4
-    ps.lxml
-    ps.pydantic
-  ]);
+  # The manifest names and this pip-to-nixpkgs mapping must stay identical.
+  kernelPython = py.withPackages (
+    ps:
+    let
+      rlmPackages = import ./pins/rlm-packages.nix { inherit ps scipy tyro; };
+    in
+    assert builtins.attrNames rlmPackages == pins.rlmExtraPackages;
+    [
+      rlm
+      ps.${pins.snapshotRequirement}
+      ps.jupyter-client
+    ]
+    ++ builtins.attrValues rlmPackages
+  );
 
   supported = builtins.elem hp.system platforms;
 
