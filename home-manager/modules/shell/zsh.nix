@@ -7,7 +7,6 @@
 
 let
   cfg = config.modules.shell.zsh;
-  constants = config.modules.core.constants;
   distroId = config.modules.core.distro.id;
   distroIds = config.modules.core.distro.ids;
   profileModules = config.modules.core.profile.modules;
@@ -200,11 +199,7 @@ in
           if [[ -n "$_gh_token" ]]; then
             export NIX_CONFIG="access-tokens = github.com=$_gh_token"
           fi
-          _gh_sap_token=$(gh auth token --hostname "${constants.work.gheHostname}" 2>/dev/null)
-          if [[ -n "$_gh_sap_token" ]]; then
-            export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
-          fi
-          unset _gh_token _gh_sap_token
+          unset _gh_token
         fi
       '';
 

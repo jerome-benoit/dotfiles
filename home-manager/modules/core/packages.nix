@@ -7,7 +7,6 @@
 }:
 let
   cfg = config.modules.core.packages;
-  constants = config.modules.core.constants;
   openclawEnabled = config.modules.development.openclaw.enable or false;
   openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.stdenv.hostPlatform.system};
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
@@ -139,7 +138,6 @@ in
     home = {
       file.".Brewfile" = lib.mkIf (isDesktop && isDarwin) {
         text = ''
-          tap "hAIperspace/hai", "https://${constants.work.gheHostname}/hAIperspace/hai-homebrew"
           tap "moltenbits/tap"
           cask "chatgpt"
           cask "docker-desktop"
@@ -148,7 +146,6 @@ in
           cask "gpg-suite@nightly"
           cask "growlrrr"
           cask "podman-desktop"
-          brew "hai"
           brew "mole"
           brew "podman"
           brew "podman-compose"
@@ -164,25 +161,12 @@ in
           fi
 
           if [[ -n "$_brew" ]]; then
-            _gh_sap_token=$(${lib.getExe pkgs.gh} auth token --hostname "${constants.work.gheHostname}" 2>/dev/null || true)
-            if [[ -z "$_gh_sap_token" ]]; then
-              errorEcho "gh CLI not authenticated for ${constants.work.gheHostname} — required for hAIperspace/hai"
-              errorEcho "  Fix: gh auth login --hostname ${constants.work.gheHostname}"
-              errorEcho "  Skipping Homebrew bundle install"
-            else
-              export HOMEBREW_GITHUB_API_TOKEN="$_gh_sap_token"
+            "$_brew" trust --tap moltenbits/tap 2>/dev/null || true
+            "$_brew" trust --cask moltenbits/tap/growlrrr 2>/dev/null || true
 
-              "$_brew" trust --tap haiperspace/hai 2>/dev/null || true
-              "$_brew" trust --formula haiperspace/hai/hai 2>/dev/null || true
-              "$_brew" trust --tap moltenbits/tap 2>/dev/null || true
-              "$_brew" trust --cask moltenbits/tap/growlrrr 2>/dev/null || true
-
-              verboseEcho "Installing Homebrew packages from Brewfile"
-              run "$_brew" bundle install --global
-              run "$_brew" bundle cleanup --global --force
-
-              unset _gh_sap_token
-            fi
+            verboseEcho "Installing Homebrew packages from Brewfile"
+            run "$_brew" bundle install --global
+            run "$_brew" bundle cleanup --global --force
           else
             warnEcho "Homebrew not found"
           fi
