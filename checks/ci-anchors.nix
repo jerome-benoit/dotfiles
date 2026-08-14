@@ -20,7 +20,7 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
   check_version_after() { # <file> <marker> <name>
     # renovate.json captures depName up to the next whitespace: require the marker
     # to end at EOL (a suffixed depName would silently stop renovate bumps)
-    [ "''$(grep -cE "^[[:space:]]*''$2[[:space:]]*$" "''$1" || true)" -eq 1 ] \
+    [ "''$(grep -cE "^[[:space:]]*''$2([[:space:]]+versioning=[^[:space:]]+)?[[:space:]]*$" "''$1" || true)" -eq 1 ] \
       || fail "''$3: expected exactly one renovate marker line ending at EOL (depName must not be suffixed)"
     # the workflow greps the marker as a substring: an impostor marker (suffixed
     # depName) followed by a plausible version line would be picked up by
@@ -197,6 +197,8 @@ pkgs.runCommandLocal "check-ci-anchors" { nativeBuildInputs = [ pkgs.gawk ]; } '
     || fail "renovate.json: customManagers/managerFilePatterns missing (renovate would stop bumping)"
   grep -qF '"#\\s*renovate:' "''$RJ" \
     || fail "renovate.json: matchStrings pattern missing (renovate would stop bumping)"
+  grep -qF '(?<datasource>' "''$RJ" && grep -qF '(?<depName>' "''$RJ" \
+    || fail "renovate.json: matchStrings named groups missing (renovate would stop bumping)"
   for pat in '/@ci:src-hash$' '/@ci:npm-deps-hash/' '/@ci:src-hash-prime-agent$' '"@ci:npm-version " key' '"@ci:npm-hash " key' '@ci:rlm-extra-packages' '@ci:src-hash-[a-z0-9-]+' "depName=@earendil-works/pi-coding-agent'" "depName=can1357/oh-my-pi'" "depName=PrimeIntellect-ai/prime-agent'" "@ci:src-hash-'\""; do
     grep -qF "''$pat" "''$WF" || fail "fix-nix-hashes.yml: missing rewrite pattern ''$pat (contract drift)"
   done
