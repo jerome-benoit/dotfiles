@@ -104,7 +104,7 @@ let
 
     # `make install` compiles every engine reachable here (GLM in the chosen
     # variant, olmoe, deepseek_v4 on COLI_V4_SUPPORTED platforms) and stages them
-    # under $out — in buildPhase (compilation) so it precedes checkPhase's test-c.
+    # under $out here (compilation), leaving installPhase for the coli wrapper.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
@@ -119,12 +119,14 @@ let
     '';
     doCheck = build.doCheck;
 
-    # `coli --version` exercises the wrapper end-to-end offline (argparse exits
-    # before any engine/model load), catching a broken wrapper at build time. Not
-    # versionCheckHook: our -unstable- version suffix never matches coli's output.
+    # Offline check: assert the engines were staged + the wrapper runs (`coli
+    # --version` argparse-exits before any model load). Not versionCheckHook:
+    # our -unstable- version suffix never matches coli's `colibri <base>` output.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
+      test -x $out/lib/colibri/colibri
+      test -x $out/lib/colibri/olmoe
       $out/bin/coli --version
       runHook postInstallCheck
     '';
