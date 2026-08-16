@@ -119,15 +119,16 @@ let
     '';
     doCheck = build.doCheck;
 
-    # Offline check: assert the colibri + olmoe engine binaries are staged and the
-    # wrapper runs (`coli --version` argparse-exits before any model load). Not
-    # versionCheckHook: our -unstable- suffix never matches coli's `colibri <base>`.
+    # Offline check: engines staged + the wrapper runs (`coli --version` argparse-exits
+    # before any model load) + the serve import surface (openai_server -> v4_dsml) resolves.
+    # Not versionCheckHook: our -unstable- suffix never matches coli's output.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
       test -x $out/lib/colibri/colibri
       test -x $out/lib/colibri/olmoe
       $out/bin/coli --version
+      PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python -c 'import openai_server'
       runHook postInstallCheck
     '';
 
@@ -135,6 +136,9 @@ let
     # pinning it routes every model to GLM instead of dispatching per config.
     installPhase = ''
       runHook preInstall
+      # `make install` omits c/v4_dsml.py (openai_server.py imports it); stage it if
+      # missing so `coli serve`/`web` work; the guard self-clears if upstream stages it.
+      [ -e "$out/lib/colibri/v4_dsml.py" ] || install -m 644 c/v4_dsml.py "$out/lib/colibri/"
       mv $out/bin/coli $out/lib/colibri/coli
       ln -s ../lib/colibri/colibri $out/bin/glm
       makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
