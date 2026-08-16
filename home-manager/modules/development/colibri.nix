@@ -40,7 +40,7 @@ let
     ];
   };
 
-  # Per-platform knobs: extra inputs, `make glm` args, an optional pre-make line, and doCheck.
+  # Per-platform knobs: extra inputs, `make` args, an optional pre-make line, and doCheck.
   darwinBuild = {
     extraBuildInputs = [
       pkgs.llvmPackages.openmp
@@ -102,10 +102,9 @@ let
     buildInputs = build.extraBuildInputs;
     nativeCheckInputs = [ pkgs.python3 ];
 
-    # `make install` compiles every engine reachable here: GLM (chosen variant),
-    # olmoe, and deepseek_v4 — the last only where COLI_V4_SUPPORTED=1 (aarch64
-    # darwin/linux, x86-64 linux/win; not x86-64 darwin) — and stages them under
-    # $out. In buildPhase (compilation) so it precedes checkPhase's test-c.
+    # `make install` compiles every engine reachable here (GLM in the chosen
+    # variant, olmoe, deepseek_v4 on COLI_V4_SUPPORTED platforms) and stages them
+    # under $out — in buildPhase (compilation) so it precedes checkPhase's test-c.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
@@ -120,10 +119,9 @@ let
     '';
     doCheck = build.doCheck;
 
-    # `coli --version` exercises the wrapper end-to-end (offline; argparse exits
-    # before any engine/model load), catching a broken wrapper target at build
-    # time. Not versionCheckHook: the derivation version carries an -unstable-…
-    # suffix that `coli --version` (base version only) would never match.
+    # `coli --version` exercises the wrapper end-to-end offline (argparse exits
+    # before any engine/model load), catching a broken wrapper at build time. Not
+    # versionCheckHook: our -unstable- version suffix never matches coli's output.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
