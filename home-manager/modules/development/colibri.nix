@@ -40,7 +40,7 @@ let
     ];
   };
 
-  # Per-platform knobs: extra inputs, `make glm` args, an optional pre-make line, and doCheck.
+  # Per-platform knobs: extra inputs, `make` args, an optional pre-make line, and doCheck.
   darwinBuild = {
     extraBuildInputs = [
       pkgs.llvmPackages.openmp
@@ -75,11 +75,13 @@ let
       doCheck = false;
     };
 
+  archBaseline = if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
+
   cpuBuild = {
-    extraBuildInputs = [ ];
+    extraBuildInputs = [ pkgs.stdenv.cc.cc.lib ]; # libgomp.so.1 in the runtime closure
     extraNativeBuildInputs = [ ];
     preMake = "";
-    makeArgs = "ARCH=${if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a"}"; # portable ISA baselines
+    makeArgs = "ARCH=${archBaseline}"; # portable ISA baseline
     doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
   };
 
@@ -97,31 +99,17 @@ let
     inherit src;
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
-    buildInputs = [ pkgs.gmp ] ++ build.extraBuildInputs;
+    buildInputs = build.extraBuildInputs;
     nativeCheckInputs = [ pkgs.python3 ];
 
+    # Build+stage every engine into $out (GLM chosen variant, olmoe, deepseek_v4
+    # on COLI_V4_SUPPORTED platforms); the compile belongs in buildPhase, leaving
+    # installPhase to assemble the coli wrapper + glm alias.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
-      make -C c glm ${build.makeArgs}
+      make -C c install ${build.makeArgs} DESTDIR=$out PREFIX= BINDIR=/bin LIBEXECDIR=/lib/colibri
       runHook postBuild
-    '';
-
-    # Self-contained layout `coli` resolves at runtime; install c/colibri as the engine `glm`.
-    installPhase = ''
-      runHook preInstall
-      mkdir -p $out/lib/colibri/tools $out/bin
-      cp c/colibri $out/lib/colibri/glm
-      cp c/coli    $out/lib/colibri/coli
-      chmod +x $out/lib/colibri/coli
-      cp c/openai_server.py c/resource_plan.py c/doctor.py c/version.py $out/lib/colibri/
-      cp -r c/tools/* $out/lib/colibri/tools/
-      ln -s ../lib/colibri/glm $out/bin/glm
-      makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
-        --add-flags "$out/lib/colibri/coli" \
-        --set-default COLI_ENGINE "$out/lib/colibri/glm" \
-        --set PYTHONPATH "$out/lib/colibri:${pythonEnv}/${pkgs.python3.sitePackages}"
-      runHook postInstall
     '';
 
     checkPhase = ''
@@ -131,8 +119,32 @@ let
     '';
     doCheck = build.doCheck;
 
+    # Offline check: assert the colibri + olmoe engine binaries are staged and the
+    # wrapper runs (`coli --version` argparse-exits before any model load). Not
+    # versionCheckHook: our -unstable- suffix never matches coli's `colibri <base>`.
+    doInstallCheck = true;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      test -x $out/lib/colibri/colibri
+      test -x $out/lib/colibri/olmoe
+      $out/bin/coli --version
+      runHook postInstallCheck
+    '';
+
+    # Wrap the raw `coli` script through pythonEnv. COLI_ENGINE stays unset:
+    # pinning it routes every model to GLM instead of dispatching per config.
+    installPhase = ''
+      runHook preInstall
+      mv $out/bin/coli $out/lib/colibri/coli
+      ln -s ../lib/colibri/colibri $out/bin/glm
+      makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
+        --add-flags "$out/lib/colibri/coli" \
+        --set PYTHONPATH "$out/lib/colibri:${pythonEnv}/${pkgs.python3.sitePackages}"
+      runHook postInstall
+    '';
+
     meta = {
-      description = "Run GLM-5.2 (744B MoE) on a consumer machine — pure C, experts streamed from disk";
+      description = "Run large MoE models in pure C, experts streamed from disk";
       homepage = "https://github.com/JustVugg/colibri";
       license = lib.licenses.asl20;
       platforms = lib.platforms.linux ++ lib.platforms.darwin;
@@ -142,7 +154,7 @@ let
 in
 {
   options.modules.development.colibri = {
-    enable = lib.mkEnableOption "colibri GLM-5.2 MoE inference engine";
+    enable = lib.mkEnableOption "colibri MoE inference engine (GLM-5.2, OLMoE, DeepSeek V4 Flash)";
 
     package = lib.mkOption {
       type = lib.types.package;
