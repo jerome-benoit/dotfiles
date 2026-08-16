@@ -102,9 +102,9 @@ let
     buildInputs = build.extraBuildInputs;
     nativeCheckInputs = [ pkgs.python3 ];
 
-    # `make install` compiles every engine reachable here (GLM in the chosen
-    # variant, olmoe, deepseek_v4 on COLI_V4_SUPPORTED platforms) and stages them
-    # under $out here (compilation), leaving installPhase for the coli wrapper.
+    # Build+stage every engine into $out (GLM chosen variant, olmoe, deepseek_v4
+    # on COLI_V4_SUPPORTED platforms); the compile belongs in buildPhase, leaving
+    # installPhase to assemble the coli wrapper + glm alias.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
@@ -119,9 +119,9 @@ let
     '';
     doCheck = build.doCheck;
 
-    # Offline check: assert the engines were staged + the wrapper runs (`coli
-    # --version` argparse-exits before any model load). Not versionCheckHook:
-    # our -unstable- version suffix never matches coli's `colibri <base>` output.
+    # Offline check: assert the colibri + olmoe engine binaries are staged and the
+    # wrapper runs (`coli --version` argparse-exits before any model load). Not
+    # versionCheckHook: our -unstable- suffix never matches coli's `colibri <base>`.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
