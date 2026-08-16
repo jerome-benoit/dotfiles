@@ -117,6 +117,7 @@ in
         pkgs.poetry
         pkgs.poppler-utils
         pkgs.python3
+        pkgs.python3Packages.huggingface-hub
         pkgs.python3Packages.virtualenv
         pkgs.qpdf
         pkgs.ruff
