@@ -75,6 +75,8 @@ let
       doCheck = false;
     };
 
+  archBaseline = if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
+
   cpuBuild = {
     extraBuildInputs = [ pkgs.stdenv.cc.cc.lib ]; # libgomp.so.1 in the runtime closure
     extraNativeBuildInputs = [ ];
@@ -82,8 +84,6 @@ let
     makeArgs = "ARCH=${archBaseline}"; # portable ISA baseline
     doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
   };
-
-  archBaseline = if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
 
   build =
     if isDarwin then
@@ -102,9 +102,9 @@ let
     buildInputs = build.extraBuildInputs;
     nativeCheckInputs = [ pkgs.python3 ];
 
-    # `install` builds every engine reachable here (GLM in the chosen variant,
-    # olmoe, and deepseek_v4 gated on COLI_V4_SUPPORTED) and stages them for
-    # coli. In buildPhase so checkPhase's `make test-c` reuses the objects.
+    # `make install` compiles every engine reachable here (GLM in the chosen
+    # variant, olmoe, and deepseek_v4 gated on COLI_V4_SUPPORTED) and stages them
+    # under $out. In buildPhase (compilation) so it precedes checkPhase's test-c.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
@@ -119,11 +119,20 @@ let
     '';
     doCheck = build.doCheck;
 
+    # `coli --version` exercises the wrapper end-to-end (offline; argparse exits
+    # before any engine/model load), catching a broken wrapper target at build time.
+    doInstallCheck = true;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      $out/bin/coli --version
+      runHook postInstallCheck
+    '';
+
     # Wrap the raw `coli` script through pythonEnv. COLI_ENGINE stays unset:
     # pinning it routes every model to GLM instead of dispatching per config.
     installPhase = ''
       runHook preInstall
-      rm $out/bin/coli
+      mv $out/bin/coli $out/lib/colibri/coli
       ln -s ../lib/colibri/colibri $out/bin/glm
       makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
         --add-flags "$out/lib/colibri/coli" \
@@ -132,7 +141,7 @@ let
     '';
 
     meta = {
-      description = "Run large MoE models (GLM-5.2, OLMoE, DeepSeek V4 Flash) on a consumer machine — pure C, experts streamed from disk";
+      description = "Run MoE models (GLM-5.2, OLMoE; DeepSeek V4 Flash where supported) on a consumer machine — pure C";
       homepage = "https://github.com/JustVugg/colibri";
       license = lib.licenses.asl20;
       platforms = lib.platforms.linux ++ lib.platforms.darwin;
@@ -142,7 +151,7 @@ let
 in
 {
   options.modules.development.colibri = {
-    enable = lib.mkEnableOption "colibri MoE inference engine (GLM-5.2, OLMoE, DeepSeek V4 Flash)";
+    enable = lib.mkEnableOption "colibri MoE inference engine (GLM-5.2, OLMoE; DeepSeek V4 Flash where supported)";
 
     package = lib.mkOption {
       type = lib.types.package;
