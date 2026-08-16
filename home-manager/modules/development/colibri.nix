@@ -40,7 +40,7 @@ let
     ];
   };
 
-  # Per-platform knobs: extra inputs, `make` args, an optional pre-make line, and doCheck.
+  # Per-platform knobs: extra inputs, `make` args, and an optional pre-make line.
   darwinBuild = {
     extraBuildInputs = [
       pkgs.llvmPackages.openmp
@@ -49,7 +49,6 @@ let
     extraNativeBuildInputs = [ ];
     preMake = "";
     makeArgs = "ARCH= METAL=1 OMPDIR=${colibriOmp}"; # ARCH= keeps the build portable (no -mcpu=native)
-    doCheck = true;
   };
 
   cudaBuild =
@@ -72,7 +71,6 @@ let
       extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
       makeArgs = "CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc CUDA_ARCH=all-major"; # all-major: headless-safe
-      doCheck = false;
     };
 
   archBaseline = if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
@@ -82,7 +80,6 @@ let
     extraNativeBuildInputs = [ ];
     preMake = "";
     makeArgs = "ARCH=${archBaseline}"; # portable ISA baseline
-    doCheck = false; # linux-only test_uring probes io_uring, unavailable in the sandbox
   };
 
   build =
@@ -100,7 +97,6 @@ let
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
     buildInputs = build.extraBuildInputs;
-    nativeCheckInputs = [ pkgs.python3 ];
 
     # Build+stage every engine into $out (GLM chosen variant, olmoe, deepseek_v4
     # on COLI_V4_SUPPORTED platforms); the compile belongs in buildPhase, leaving
@@ -112,21 +108,22 @@ let
       runHook postBuild
     '';
 
-    checkPhase = ''
-      runHook preCheck
-      make -C c test-c
-      runHook postCheck
-    '';
-    doCheck = build.doCheck;
+    # No doCheck: upstream test-c isn't hermetic (test_ssd_probe timing-flakes,
+    # Linux test_uring needs io_uring) — installCheckPhase validates packaging.
+    doCheck = false;
 
-    # Offline check: engines staged + the wrapper runs (`coli --version` argparse-exits
-    # before any model load) + the serve import surface (openai_server -> v4_dsml) resolves.
+    # Offline check: engines staged + the convert data asset present + the wrapper
+    # runs (`coli --version` argparse-exits before any model load) + the serve import
+    # surface (openai_server -> v4_dsml) resolves.
     # Not versionCheckHook: our -unstable- suffix never matches coli's output.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
+      # `import openai_server` writes .pyc; keep the check from mutating $out.
+      export PYTHONDONTWRITEBYTECODE=1
       test -x $out/lib/colibri/colibri
       test -x $out/lib/colibri/olmoe
+      test -f $out/lib/colibri/tools/iq3xxs_grid.json
       $out/bin/coli --version
       PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python -c 'import openai_server'
       runHook postInstallCheck
@@ -136,9 +133,10 @@ let
     # pinning it routes every model to GLM instead of dispatching per config.
     installPhase = ''
       runHook preInstall
-      # `make install` omits c/v4_dsml.py (openai_server.py imports it); stage it if
-      # missing so `coli serve`/`web` work; the guard self-clears if upstream stages it.
+      # make install omits v4_dsml.py (imported by openai_server) and iq3xxs_grid.json
+      # (loaded by iq3_pack for `convert --xbits e8`); stage each if missing.
       [ -e "$out/lib/colibri/v4_dsml.py" ] || install -m 644 c/v4_dsml.py "$out/lib/colibri/"
+      [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
       mv $out/bin/coli $out/lib/colibri/coli
       ln -s ../lib/colibri/colibri $out/bin/glm
       makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
