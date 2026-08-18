@@ -11,6 +11,11 @@ on:
       - "constants.nix"
       - "patches/**"
       - "statix.toml"
+      - "Makefile"
+      - "scripts/**"
+      - "secrets/**"
+      - ".sops.yaml"
+      - ".gitignore"
       - ".github/workflows/check.yml"
       - ".github/workflows/fix-nix-hashes.yml"
       - "renovate.json"
@@ -29,6 +34,11 @@ on:
       - ".github/workflows/fix-nix-hashes.yml"
       - "renovate.json"
       - "scripts/fix-nix-hashes.sh"
+      - "Makefile"
+      - "scripts/**"
+      - "secrets/**"
+      - ".sops.yaml"
+      - ".gitignore"
   workflow_dispatch:
 
 permissions:

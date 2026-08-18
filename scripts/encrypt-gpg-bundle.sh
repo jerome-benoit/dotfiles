@@ -9,15 +9,15 @@ AGE_KEY="${AGE_KEY:-$HOME/.config/sops/age/keys.txt}"
 [ -r "$AGE_KEY" ] || { echo "missing $AGE_KEY (the project's age identity)" >&2; exit 1; }
 
 FP="${1:-}"
-if [ -z "$FP" ] && [ -f secrets/personal.dec.json ]; then
-  FP=$(jq -r '.identity.gpg.fingerprint // empty' secrets/personal.dec.json 2>/dev/null || true)
+if [ -z "$FP" ] && [ -f secrets/private.dec.json ]; then
+  FP=$(jq -r '.identity.gpg.fingerprint // empty' secrets/private.dec.json 2>/dev/null || true)
 fi
 if [ -z "$FP" ]; then
   FP=$(git config --get user.signingkey 2>/dev/null || true)
 fi
 if [ -z "$FP" ]; then
   echo "Usage: $0 <fingerprint-or-keyid>" >&2
-  echo "  or run 'make decrypt-personal' first, or set git config user.signingkey." >&2
+  echo "  or run 'make decrypt-private' first, or set git config user.signingkey." >&2
   exit 1
 fi
 

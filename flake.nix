@@ -109,7 +109,7 @@
     }@inputs:
     let
       constants = import ./constants.nix;
-      personalSecrets = import ./secrets/default.nix;
+      privateConfig = import ./secrets/default.nix;
       forAllSystems = nixpkgs.lib.genAttrs (
         nixpkgs.lib.mapAttrsToList (_: sys: sys.arch) constants.systems
       );
@@ -197,6 +197,7 @@
       mkHomeConfiguration =
         {
           arch,
+          profile,
           username,
         }:
         home-manager.lib.homeManagerConfiguration {
@@ -205,8 +206,9 @@
             inherit
               inputs
               username
+              profile
               constants
-              personalSecrets
+              privateConfig
               self
               ;
           };
@@ -219,17 +221,20 @@
     in
     {
       homeConfigurations = {
-        "${personalSecrets.identity.username}" = mkHomeConfiguration {
+        "${privateConfig.identity.username}" = mkHomeConfiguration {
           arch = constants.systems.linux.arch;
-          username = personalSecrets.identity.username;
+          profile = constants.profiles.desktop;
+          username = privateConfig.identity.username;
         };
         "almalinux" = mkHomeConfiguration {
           arch = constants.systems.linux.arch;
+          profile = constants.profiles.server;
           username = "almalinux";
         };
-        "${personalSecrets.work.username}" = mkHomeConfiguration {
+        "${privateConfig.work.username}" = mkHomeConfiguration {
           arch = constants.systems.darwin.arch;
-          username = personalSecrets.work.username;
+          profile = constants.profiles.desktop;
+          username = privateConfig.work.username;
         };
       };
 
@@ -252,18 +257,19 @@
               self
               pkgs
               ;
+            inherit (inputs) sops-nix;
           };
           homeConfigChecks =
             if arch == "x86_64-linux" then
               {
-                "home-${personalSecrets.identity.username}" =
-                  self.homeConfigurations.${personalSecrets.identity.username}.activationPackage;
+                "home-${privateConfig.identity.username}" =
+                  self.homeConfigurations.${privateConfig.identity.username}.activationPackage;
                 home-almalinux = self.homeConfigurations.almalinux.activationPackage;
               }
             else if arch == "aarch64-darwin" then
               {
-                "home-${personalSecrets.work.username}" =
-                  self.homeConfigurations.${personalSecrets.work.username}.activationPackage;
+                "home-${privateConfig.work.username}" =
+                  self.homeConfigurations.${privateConfig.work.username}.activationPackage;
               }
             else
               { };

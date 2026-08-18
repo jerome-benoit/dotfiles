@@ -2,6 +2,7 @@
   lib,
   config,
   pkgs,
+  profile,
   username,
   ...
 }:
@@ -13,8 +14,6 @@ let
   crushSupported = hostname != hosts.faust;
   isSway = hostname == hosts.zeus;
 
-  profileName =
-    if hostname == hosts.ns3108029 then constants.profiles.server else constants.profiles.desktop;
   profileModules = config.modules.core.profile.modules;
 in
 {
@@ -30,15 +29,16 @@ in
 
   modules = {
     core = {
+      email.enable = profileModules.core.email;
       gpg.enable = true;
       home-manager.enable = true;
-      gpu.enable = pkgs.stdenv.hostPlatform.isLinux && profileName == constants.profiles.desktop;
+      gpu.enable = pkgs.stdenv.hostPlatform.isLinux && profile == constants.profiles.desktop;
       packages = {
         enable = true;
         inherit crushSupported;
       };
       specialisations.enable = true;
-      profile.name = profileName;
+      profile.name = profile;
     };
 
     shell = {

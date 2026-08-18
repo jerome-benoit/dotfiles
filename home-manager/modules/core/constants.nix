@@ -1,7 +1,7 @@
 {
   lib,
   constants,
-  personalSecrets,
+  privateConfig,
   ...
 }:
 
@@ -44,26 +44,26 @@ in
     identity = {
       fullName = lib.mkOption {
         type = lib.types.str;
-        default = personalSecrets.identity.fullName;
+        default = privateConfig.identity.fullName;
         description = "The user's full name";
         readOnly = true;
       };
       username = lib.mkOption {
         type = lib.types.strMatching "^[a-z_][a-z0-9_-]{0,30}$";
-        default = personalSecrets.identity.username;
-        description = "Personal machine username";
+        default = privateConfig.identity.username;
+        description = "Default personal machine username";
         readOnly = true;
       };
       gpg = {
         keyId = lib.mkOption {
           type = lib.types.strMatching "^([0-9A-Fa-f]{8}|[0-9A-Fa-f]{16})$";
-          default = personalSecrets.identity.gpg.keyId;
+          default = privateConfig.identity.gpg.keyId;
           description = "The user's GPG key ID";
           readOnly = true;
         };
         fingerprint = lib.mkOption {
           type = lib.types.strMatching "^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{4}([ :]?[0-9A-Fa-f]{4}){9})$";
-          default = personalSecrets.identity.gpg.fingerprint;
+          default = privateConfig.identity.gpg.fingerprint;
           description = "The user's GPG key fingerprint";
           readOnly = true;
         };
@@ -71,7 +71,7 @@ in
       telegram = {
         userId = lib.mkOption {
           type = lib.types.strMatching "^[0-9]+$";
-          default = personalSecrets.identity.telegram.userId;
+          default = privateConfig.identity.telegram.userId;
           description = "Telegram user ID for bot integrations";
           readOnly = true;
         };
@@ -80,66 +80,46 @@ in
     personal = {
       email = lib.mkOption {
         type = lib.types.strMatching emailRegex;
-        default = personalSecrets.personal.email;
+        default = privateConfig.personal.email;
         description = "The user's personal email address";
-        readOnly = true;
-      };
-      secondaryEmail = lib.mkOption {
-        type = lib.types.strMatching emailRegex;
-        default = personalSecrets.personal.secondaryEmail;
-        description = "The user's secondary email address";
         readOnly = true;
       };
       domain = lib.mkOption {
         type = lib.types.str;
-        default = personalSecrets.personal.domain;
+        default = privateConfig.personal.domain;
         description = "The user's personal domain";
         readOnly = true;
-      };
-      mail = {
-        imapHost = lib.mkOption {
-          type = lib.types.str;
-          default = personalSecrets.personal.mail.imapHost;
-          description = "IMAP server hostname";
-          readOnly = true;
-        };
-        smtpHost = lib.mkOption {
-          type = lib.types.str;
-          default = personalSecrets.personal.mail.smtpHost;
-          description = "SMTP server hostname";
-          readOnly = true;
-        };
       };
     };
     work = {
       email = lib.mkOption {
         type = lib.types.strMatching emailRegex;
-        default = personalSecrets.work.email;
+        default = privateConfig.work.email;
         description = "The user's work email address";
         readOnly = true;
       };
       employer = lib.mkOption {
         type = lib.types.str;
-        default = personalSecrets.work.employer;
+        default = privateConfig.work.employer;
         description = "The user's employer name";
         readOnly = true;
       };
       jobTitle = lib.mkOption {
         type = lib.types.str;
-        default = personalSecrets.work.jobTitle;
+        default = privateConfig.work.jobTitle;
         description = "The user's job title";
         readOnly = true;
       };
       gheHostname = lib.mkOption {
         type = lib.types.str;
-        default = personalSecrets.work.gheHostname;
+        default = privateConfig.work.gheHostname;
         description = "GitHub Enterprise hostname";
         readOnly = true;
       };
       username = lib.mkOption {
         type = lib.types.strMatching "^[A-Za-z][A-Za-z0-9_-]{0,30}$";
-        default = personalSecrets.work.username;
-        description = "Work machine username";
+        default = privateConfig.work.username;
+        description = "Work machine username override";
         readOnly = true;
       };
     };
@@ -149,7 +129,7 @@ in
         faust = "faust";
         morphee = "morphee";
         nemesis = "nemesis";
-        ns3108029 = personalSecrets.hosts.server;
+        ns3108029 = privateConfig.hosts.server;
         rigel = "rigel";
         zeus = "zeus";
       };

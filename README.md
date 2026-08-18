@@ -30,16 +30,17 @@ hmp  # personal
 make switch SPEC=work
 ```
 
-### Secrets
+### Private configuration and credentials
 
-Managed via [SOPS](https://github.com/getsops/sops). Personal constants are decrypted at eval-time; application tokens are decrypted at runtime by sops-nix.
+Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.
 
 ```bash
-make decrypt          # Decrypt all secrets to JSON for inspection
-make encrypt          # Re-encrypt after editing
-make edit-personal    # Edit personal constants interactively
-make edit-tokens      # Edit application tokens interactively
-make clean            # Remove plaintext from disk
+make decrypt-private  # Decrypt private configuration only for Nix evaluation
+make decrypt          # Decrypt private configuration and credentials for inspection
+make encrypt          # Re-encrypt private configuration and credentials after editing
+make edit-private     # Edit private configuration interactively
+make edit-credentials # Edit runtime credentials interactively
+make clean            # Remove decrypted private configuration, credentials, and temporary files
 ```
 
 ### GPG keypair

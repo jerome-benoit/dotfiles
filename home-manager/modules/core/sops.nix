@@ -12,18 +12,13 @@ in
   sops = {
     age.keyFile = "${homeDir}/.config/sops/age/keys.txt";
 
-    defaultSopsFile = ../../../secrets/tokens.enc.yaml;
+    defaultSopsFile = ../../../secrets/credentials.enc.yaml;
 
     # --- Secrets declarations ---
 
     secrets = {
       "hermes-env" = {
         key = "hermes/personal/envContent";
-        mode = "0600";
-      };
-
-      "himalaya-imap-password" = {
-        key = "himalaya/personal/imapPassword";
         mode = "0600";
       };
 

@@ -52,14 +52,14 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 | Name       | Email source                   | Signature source              |
 | ---------- | ------------------------------ | ----------------------------- |
-| `work`     | personalSecrets.work.email     | work.jobTitle + work.employer |
-| `personal` | personalSecrets.personal.email | identity + personal.domain    |
+| `work`     | privateConfig.work.email       | work.jobTitle + work.employer |
+| `personal` | privateConfig.personal.email   | identity + personal.domain    |
 
 Specialisation switching: `hmw` / `hmp` aliases (available only from within a specialisation), or `make switch SPEC=work`.
 
 ## Known Hosts
 
-Hostnames are defined in `personalSecrets.hosts`. Two profiles exist:
+Hostnames are defined in `privateConfig.hosts`. Two profiles exist:
 
 - One desktop host (bun not supported on this specific one)
 - One remote server
@@ -85,14 +85,18 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │   ├── home.nix                 # Main entry point
 │   └── modules/
 │       ├── default.nix          # Imports all categories
-│       ├── core/                # Core modules (8 files)
+│       ├── core/                # Core modules (12 files)
 │       │   ├── default.nix      # Imports all core modules
-│       │   ├── constants.nix    # User info (email, gpg, hosts, etc.)
+│       │   ├── constants.nix    # User identity, platform and host constants
 │       │   ├── distro.nix       # Linux distro detection
+│       │   ├── email.nix        # Canonical multi-account email model + credentials
+│       │   ├── gpg.nix          # GPG agent and key configuration
+│       │   ├── gpu.nix          # GPU detection and runtime configuration
 │       │   ├── home-manager.nix # Home-manager, nix settings, gc
 │       │   ├── lib.nix          # Shared library functions
 │       │   ├── packages.nix     # Common packages + Homebrew integration
 │       │   ├── profile.nix      # Profile system (desktop/server modules)
+│       │   ├── sops.nix         # Shared SOPS engine and non-domain secrets
 │       │   └── specialisations.nix # Work/personal contexts
 │       ├── shell/               # Shell tools (7 files)
 │       │   ├── direnv.nix       # Directory environment management
@@ -134,17 +138,20 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │           └── default.nix      # Theme registry with mkTheme factory (7 themes)
 ├── statix.toml                  # Statix linter configuration
 ├── secrets/
-│   ├── default.nix              # Secret loader (impure: reads decrypted JSON, pure: placeholder)
-│   ├── personal.enc.yaml        # Encrypted personal data (identity, work, hosts)
-│   ├── tokens.enc.yaml          # Encrypted app tokens (hermes, shell, himalaya)
+│   ├── default.nix              # Private configuration loader (impure JSON, pure placeholder)
+│   ├── private.enc.yaml         # Private identity, email account metadata, work and hosts
+│   ├── credentials.enc.yaml     # Runtime credentials keyed by owning domain/account
 │   └── ssh/
 │       ├── id_rsa               # Encrypted SSH private key (sops binary format)
 │       └── id_rsa.pub           # SSH public key (plaintext)
 ├── patches/                     # Upstream PR patches
 │   ├── opencode/                # Patches for anomalyco/opencode
 │   └── qmd/                     # Patches for tobi/qmd
-├── checks/                      # Flake checks (5 files)
+├── checks/                      # Flake checks (8 files)
 │   ├── default.nix              # Check aggregator
+│   ├── ci-contract.nix          # Dependency and packaging contract checks
+│   ├── email.nix                # Multi-account selection, TLS and credential pruning
+│   ├── secrets.nix              # Plaintext lifecycle and signal forwarding
 │   ├── formatting.nix           # Nix formatting check (nixfmt)
 │   ├── symlinks.nix             # Broken symlinks detection (platform-aware)
 │   ├── statix.nix               # Nix linter check
@@ -156,14 +163,14 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 
 ## Configuration Flow
 
-1. `flake.nix` defines inputs and creates `homeConfigurations` per user (dynamic names from `personalSecrets`)
-2. `mkHomeConfiguration` passes `arch`, `username`, `constants`, `personalSecrets`, `inputs`, `self` to modules via `extraSpecialArgs`
-3. `secrets/default.nix` loads personal data: (a) impure + file exists → decrypted JSON, (b) pure/CI (`HOME=""`) → placeholder, (c) impure + file missing → `builtins.abort` with "Run 'make decrypt' first"
-4. `home.nix` detects hostname → determines profile → enables modules accordingly
+1. `flake.nix` defines inputs and creates `homeConfigurations` per user (dynamic names from `privateConfig`)
+2. `mkHomeConfiguration` passes explicit `arch`, `profile`, `username`, `constants`, `privateConfig`, `inputs`, and `self` via `extraSpecialArgs`
+3. `secrets/default.nix` loads private configuration: (a) impure + file exists → decrypted JSON, (b) pure/CI (`HOME=""`) → placeholder, (c) impure + file missing → `builtins.abort` with "Run 'make decrypt-private' first"
+4. `home.nix` uses the explicit target profile and detects hostname only for host-specific feature flags
 5. Profile system (`profile.nix`) defines which modules are enabled per profile
 6. Specialisations allow runtime switching between work/personal contexts
 7. Each module follows `options` + `config = lib.mkIf cfg.enable { ... }` pattern
-8. SOPS decrypts app tokens (`tokens.enc.yaml`) at runtime via systemd service (Linux) or launchd (macOS). Personal data (`personal.enc.yaml`) is decrypted at build-time only (by `_hm_switch` / Makefile), then cleaned up.
+8. SOPS decrypts runtime credentials (`credentials.enc.yaml`) via systemd (Linux) or launchd (macOS). Private configuration (`private.enc.yaml`) is decrypted on demand for Nix evaluation (by `_hm_switch` / Makefile), then cleaned up.
 
 ## Key Design Patterns
 
