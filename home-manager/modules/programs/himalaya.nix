@@ -7,12 +7,11 @@
 
 let
   cfg = config.modules.programs.himalaya;
-  constants = config.modules.core.constants;
-  accountName = "piment-noir";
-  account = config.accounts.email.accounts.${accountName};
+  email = config.modules.core.email;
+  tomlFormat = pkgs.formats.toml { };
 
   mkTransport =
-    protocol: transport:
+    account: protocol: transport:
     let
       starttls = transport.tls.enable && transport.tls.useStartTls;
       scheme = if transport.tls.enable && !starttls then "${protocol}s" else protocol;
@@ -22,19 +21,20 @@ let
     {
       inherit starttls;
       server = "${scheme}://${authority}";
-      sasl.${transport.authentication} = {
+      sasl.login = {
         username = account.userName;
         password.command = account.passwordCommand;
       };
     };
 
-  himalayaConfig = (pkgs.formats.toml { }).generate "himalaya-config.toml" {
-    downloads-dir = config.xdg.userDirs.download;
-
-    accounts.${accountName} = {
+  mkAccount =
+    name:
+    let
+      account = config.accounts.email.accounts.${name};
+    in
+    {
       default = account.primary;
-
-      mailbox.alias = {
+      mailbox.alias = lib.filterAttrs (_: value: value != null) {
         inherit (account.folders)
           drafts
           inbox
@@ -42,57 +42,53 @@ let
           trash
           ;
       };
-
-      envelope.list = {
-        datetime-local-tz = true;
-        page-size = 50;
-      };
-
-      imap = mkTransport "imap" account.imap;
-      smtp = mkTransport "smtp" account.smtp;
+    }
+    // lib.optionalAttrs (account.imap != null) {
+      imap = mkTransport account "imap" account.imap;
+    }
+    // lib.optionalAttrs (account.smtp != null) {
+      smtp = mkTransport account "smtp" account.smtp;
     };
-  };
+
+  himalayaConfig = tomlFormat.generate "himalaya-config.toml" (
+    cfg.settings
+    // {
+      accounts = lib.genAttrs email.activeAccounts mkAccount;
+    }
+  );
 in
 {
   options.modules.programs.himalaya = {
     enable = lib.mkEnableOption "himalaya configuration";
+
+    settings = lib.mkOption {
+      type = lib.types.submodule { freeformType = tomlFormat.type; };
+      default = {
+        downloads-dir = config.xdg.userDirs.download;
+        envelope.list = {
+          datetime-local-tz = true;
+          page-size = 50;
+        };
+      };
+      description = "Global Himalaya v2 settings.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = email.enable;
+        message = "himalaya: shared email account configuration must be enabled";
+      }
+    ];
+
     home.packages = [ pkgs.himalaya ];
 
     # Workaround for nix-community/home-manager#9794: the current module emits
-    # Himalaya v1 keys that v2 silently ignores. Remove this native config once
-    # Home Manager generates v2 accounts.
+    # v1 keys that Himalaya v2 silently ignores. Cut over atomically by enabling
+    # programs.himalaya and each active account's himalaya integration,
+    # moving cfg.settings to programs.himalaya.settings, then removing this
+    # writer and direct package installation.
     xdg.configFile."himalaya/config.toml".source = himalayaConfig;
-
-    accounts.email.accounts.${accountName} = {
-      primary = true;
-      address = constants.personal.email;
-      userName = constants.personal.email;
-      realName = constants.identity.fullName;
-      folders = {
-        inbox = "INBOX";
-        sent = "Sent";
-        drafts = "Drafts";
-        trash = "Trash";
-      };
-      passwordCommand = [
-        "cat"
-        config.sops.secrets."himalaya-imap-password".path
-      ];
-      imap = {
-        host = constants.personal.mail.imapHost;
-        port = 993;
-        authentication = "login";
-        tls.enable = true;
-      };
-      smtp = {
-        host = constants.personal.mail.smtpHost;
-        port = 465;
-        authentication = "login";
-        tls.enable = true;
-      };
-    };
   };
 }

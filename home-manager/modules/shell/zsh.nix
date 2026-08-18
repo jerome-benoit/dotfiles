@@ -94,26 +94,15 @@ in
 
         _hm_switch() {
             local nix_dir="$HOME/.nix"
-            local dec_file="$nix_dir/secrets/personal.dec.json"
-            local enc_file="$nix_dir/secrets/personal.enc.yaml"
+            local manager="$nix_dir/scripts/secrets.py"
 
-            if [[ ! -f "$enc_file" ]]; then
-                echo "error: $enc_file not found" >&2
+            if [[ ! -f "$manager" ]]; then
+                echo "error: $manager not found" >&2
                 return 1
             fi
 
-            trap 'rm -f "$dec_file" "''${dec_file}.tmp"' INT TERM HUP
-
-            nix run nixpkgs#sops -- decrypt --output-type json \
-                --output "''${dec_file}.tmp" "$enc_file" || { trap - INT TERM HUP; return 1; }
-            chmod 600 "''${dec_file}.tmp"
-            mv "''${dec_file}.tmp" "$dec_file"
-
-            nh home switch --impure -c "$(whoami)" "$@" -- --impure
-            local rc=$?
-            trap - INT TERM HUP
-            rm -f "$dec_file"
-            return $rc
+            nix run nixpkgs#python3 -- "$manager" run env NH_FLAKE="$nix_dir" \
+                nh home switch --impure -c "$(whoami)" "$@" -- --impure
         }
 
         ${lib.optionalString (profileModules.development.opencode.enable && profileModules.programs.tmux) ''

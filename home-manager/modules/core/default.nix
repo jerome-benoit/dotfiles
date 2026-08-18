@@ -2,6 +2,7 @@
   imports = [
     ./constants.nix
     ./distro.nix
+    ./email.nix
     ./gpg.nix
     ./gpu.nix
     ./home-manager.nix

@@ -65,9 +65,6 @@ atlassian-ide-plugin.xml
 # Cursive Clojure plugin
 .idea/replstate.xml
 
-# SonarLint plugin
-.idea/sonarlint/
-
 # Crashlytics plugin (for Android Studio and IntelliJ)
 com_crashlytics_export_strings.xml
 crashlytics.properties
@@ -157,9 +154,6 @@ tags
 !.vscode/extensions.json
 !.vscode/*.code-snippets
 
-# Local History for Visual Studio Code
-.history/
-
 # Built Visual Studio Code Extensions
 *.vsix
 
@@ -206,3 +200,8 @@ result*
 ### SOPS decrypted secrets — never commit these ###
 secrets/**/*.dec.*
 secrets/**/*.tmp
+secrets/*.tmp.*
+secrets/*.backup.*
+secrets/*.restore.*
+secrets/.secrets-transaction.json
+secrets/.secrets.lock/

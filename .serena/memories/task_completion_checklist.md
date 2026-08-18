@@ -2,10 +2,10 @@
 
 ## Before Committing Any Changes
 
-### 0. Decrypt Secrets (if needed for eval)
+### 0. Decrypt Private Configuration (if needed for evaluation)
 
 ```bash
-make decrypt          # or just make decrypt-personal for lighter eval
+make decrypt-private  # Required for impure Nix evaluation
 ```
 
 ### 1. Format Code

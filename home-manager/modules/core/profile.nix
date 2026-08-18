@@ -9,6 +9,7 @@ let
   constants = config.modules.core.constants;
 
   desktopModules = {
+    core.email = true;
     shell = {
       direnv = true;
       eza = true;
@@ -77,6 +78,7 @@ let
   };
 
   serverModules = {
+    core.email = false;
     shell = {
       direnv = false;
       eza = false;
@@ -161,6 +163,10 @@ in
     modules = lib.mkOption {
       type = lib.types.submodule {
         options = {
+          core = lib.mkOption {
+            type = lib.types.attrsOf lib.types.bool;
+            description = "Core module enable flags";
+          };
           shell = lib.mkOption {
             type = lib.types.attrsOf lib.types.bool;
             description = "Shell module enable flags";

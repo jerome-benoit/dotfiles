@@ -5,38 +5,53 @@
 ### constants.nix
 
 Defines user-level constants accessible via `config.modules.core.constants`.
-Personal data comes from `personalSecrets` (SOPS-encrypted), non-secret constants are inline.
+Private configuration is loaded through the `privateConfig` argument (SOPS-encrypted); non-secret constants are inline.
 
 - `systems` - System architectures (readonly, from root constants.nix)
 - `profiles` - Profile names: desktop, server (readonly)
 - `distros` - Supported distros: almalinux, debian, fedora, ubuntu (readonly)
-- `identity.fullName` - Full name (from personalSecrets)
-- `identity.username` - Username (from personalSecrets)
-- `identity.gpg.keyId` - GPG key ID (from personalSecrets)
-- `identity.gpg.fingerprint` - GPG fingerprint (from personalSecrets)
-- `identity.telegram.userId` - Telegram user ID (from personalSecrets)
-- `personal.email` - Personal email (from personalSecrets)
-- `personal.secondaryEmail` - Secondary email (from personalSecrets)
-- `personal.domain` - Personal domain (from personalSecrets)
-- `work.email` - Work email (from personalSecrets)
-- `work.employer` - Employer name (from personalSecrets)
-- `work.jobTitle` - Job title (from personalSecrets)
-- `work.gheHostname` - GitHub Enterprise hostname (from personalSecrets)
-- `hosts` - Known hostnames (from personalSecrets)
+- `identity.fullName` - Full name (from privateConfig)
+- `identity.username` - Default personal machine username (from privateConfig)
+- `identity.gpg.keyId` - GPG key ID (from privateConfig)
+- `identity.gpg.fingerprint` - GPG fingerprint (from privateConfig)
+- `identity.telegram.userId` - Telegram user ID (from privateConfig)
+- `personal.email` - Personal email (from privateConfig)
+- `personal.domain` - Personal domain (from privateConfig)
+- `work.email` - Work email (from privateConfig)
+- `work.employer` - Employer name (from privateConfig)
+- `work.jobTitle` - Job title (from privateConfig)
+- `work.gheHostname` - GitHub Enterprise hostname (from privateConfig)
+- `work.username` - Work machine username override (from privateConfig)
+- `hosts` - Known hostnames (from privateConfig)
 - `historySize` - 50000 (configurable)
 - `timezone` - "Europe/Paris" (configurable)
 - `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
 - `deltaConfig` - Shared delta pager configuration submodule (readonly)
+
+### email.nix
+
+Canonical multi-account email configuration:
+
+- Private account metadata comes from `privateConfig.email.accounts`
+- Runtime credentials use `email/accounts/<account>/password` in `credentials.enc.yaml`
+- Projects selected account definitions into Home Manager's canonical `accounts.email.accounts`
+- `modules.core.email.defaultAccount` selects the primary account
+- `modules.core.email.selectedAccounts` selects account definitions materialized per profile
+- `modules.core.email.activeAccounts` keeps only canonical accounts whose Home Manager `enable` flag is true
+- Credentials and Himalaya tables are generated only for active accounts
+- Validates account names, selection, transports, nullable optional aliases, and TLS-required password-backed SASL LOGIN
+- Consumer modules must read `accounts.email.accounts`; client-specific settings stay in the client module
 
 ### sops.nix
 
 SOPS secrets management via `sops-nix` home-manager module:
 
 - **Decryption**: age key file (`~/.config/sops/age/keys.txt`, 0600, outside repo)
-- **Default sops file**: `secrets/tokens.enc.yaml`
+- **Default sops file**: `secrets/credentials.enc.yaml`
 - **Activation ordering fix (Linux)**: Mic92/sops-nix#581 (entryBetween reloadSystemd → sops-nix)
 - **Activation ordering fix (macOS)**: Mic92/sops-nix#910 (entryAfter setupLaunchAgents, guarded plist existence)
-- **App secrets**: hermes-env, shell-secrets (from tokens.enc.yaml)
+- **App credentials**: hermes-env, shell-secrets (from credentials.enc.yaml)
+- **Email credentials**: declared per active account by `core/email.nix`
 - **SSH key**: `secrets/ssh/id_rsa` (format=binary, deployed to `~/.ssh/id_rsa`)
 - **SSH pubkey**: `secrets/ssh/id_rsa.pub` (via home.file, plaintext)
 
@@ -311,12 +326,13 @@ SSH configuration:
 
 ### himalaya.nix
 
-CLI email client:
+Himalaya v2 CLI email client:
 
-- Platform-aware password command (macOS keychain / Linux pass)
-- Common settings: signature, datetime-local-tz, auto format
-- Account: configured via personalSecrets (IMAP/SMTP)
-- GPG signing enabled by default
+- Consumes canonical accounts from `accounts.email.accounts`
+- Generates native v2 `imap`, `smtp`, `mailbox.alias`, and SASL LOGIN tables
+- Global client settings remain in `modules.programs.himalaya.settings`
+- Temporary native renderer works around nix-community/home-manager#9794
+- Password commands reference account-owned SOPS credentials; plaintext never enters the Nix store
 
 ### btop.nix
 

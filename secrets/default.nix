@@ -2,7 +2,7 @@
 # In pure eval (CI), $HOME is "" → falls back to placeholder values.
 let
   home = builtins.getEnv "HOME";
-  decFile = "${home}/.nix/secrets/personal.dec.json";
+  privateConfigFile = "${home}/.nix/secrets/private.dec.json";
   placeholder = {
     identity = {
       fullName = "ci-placeholder";
@@ -17,11 +17,38 @@ let
     };
     personal = {
       email = "ci@placeholder.invalid";
-      secondaryEmail = "ci@placeholder.invalid";
       domain = "personal.ci-placeholder.invalid";
-      mail = {
-        imapHost = "mail.ci-placeholder.invalid";
-        smtpHost = "mail.ci-placeholder.invalid";
+    };
+    email = {
+      defaultAccount = "piment-noir";
+      accounts.piment-noir = {
+        identity = "personal";
+        aliases = [ "secondary@placeholder.invalid" ];
+        folders = {
+          inbox = "INBOX";
+          sent = "Sent";
+          drafts = "Drafts";
+          trash = "Trash";
+        };
+        imap = {
+          host = "imap.ci-placeholder.invalid";
+          port = 993;
+          authentication = "login";
+          tls = {
+            enable = true;
+            useStartTls = false;
+          };
+        };
+        smtp = {
+          host = "smtp.ci-placeholder.invalid";
+          port = 465;
+          authentication = "login";
+          tls = {
+            enable = true;
+            useStartTls = false;
+          };
+        };
+        credential.type = "password";
       };
     };
     work = {
@@ -36,9 +63,9 @@ let
     };
   };
 in
-if home != "" && builtins.pathExists decFile then
-  builtins.fromJSON (builtins.readFile decFile)
+if home != "" && builtins.pathExists privateConfigFile then
+  builtins.fromJSON (builtins.readFile privateConfigFile)
 else if home == "" then
   placeholder
 else
-  builtins.abort "Personal secrets not decrypted. Run 'make decrypt' first."
+  builtins.abort "Private configuration not decrypted. Run 'make decrypt-private' first."

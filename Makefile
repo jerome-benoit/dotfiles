@@ -1,48 +1,37 @@
-# SOPS Secrets Management
-SOPS := nix run nixpkgs\#sops --
-FLAKE := .
+# SOPS Private Configuration and Credentials Management
+SECRETS := nix run nixpkgs\#python3 -- ./scripts/secrets.py
 
-.PHONY: help decrypt decrypt-personal encrypt edit-personal edit-tokens encrypt-gpg bootstrap build switch clean
+.PHONY: help decrypt decrypt-private encrypt edit-private edit-credentials encrypt-gpg bootstrap build switch clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-decrypt-personal:
-	@$(SOPS) decrypt --output-type json --output secrets/personal.dec.json.tmp secrets/personal.enc.yaml
-	@chmod 600 secrets/personal.dec.json.tmp
-	@mv secrets/personal.dec.json.tmp secrets/personal.dec.json
+decrypt-private: ## Decrypt private configuration only for Nix evaluation
+	@$(SECRETS) decrypt-private
 
-decrypt: decrypt-personal ## Decrypt all secrets to JSON for inspection
-	@$(SOPS) decrypt --output-type json --output secrets/tokens.dec.json.tmp secrets/tokens.enc.yaml
-	@chmod 600 secrets/tokens.dec.json.tmp
-	@mv secrets/tokens.dec.json.tmp secrets/tokens.dec.json
-	@printf '\033[33m%s\033[0m\n' "Note: plaintext secrets on disk. Run 'make clean' when done."
+decrypt: ## Decrypt private configuration and credentials for inspection
+	@$(SECRETS) decrypt
 
-encrypt: ## Re-encrypt all secrets from JSON (after manual editing)
-	@test -f secrets/personal.dec.json || { printf '%s\n' "Error: secrets/personal.dec.json not found. Run 'make decrypt' first."; exit 1; }
-	@test -f secrets/tokens.dec.json || { printf '%s\n' "Error: secrets/tokens.dec.json not found. Run 'make decrypt' first."; exit 1; }
-	@$(SOPS) encrypt --input-type json --output-type yaml --output secrets/personal.enc.yaml.tmp secrets/personal.dec.json
-	@$(SOPS) encrypt --input-type json --output-type yaml --output secrets/tokens.enc.yaml.tmp secrets/tokens.dec.json
-	@mv secrets/personal.enc.yaml.tmp secrets/personal.enc.yaml
-	@mv secrets/tokens.enc.yaml.tmp secrets/tokens.enc.yaml
+encrypt: ## Re-encrypt private configuration and credentials after editing
+	@$(SECRETS) encrypt
 
-edit-personal: ## Edit personal secrets interactively via SOPS
-	@$(SOPS) secrets/personal.enc.yaml
+edit-private: ## Edit private configuration interactively via SOPS
+	@$(SECRETS) edit-private
 
-edit-tokens: ## Edit application tokens interactively via SOPS
-	@$(SOPS) secrets/tokens.enc.yaml
+edit-credentials: ## Edit runtime credentials interactively via SOPS
+	@$(SECRETS) edit-credentials
 
-encrypt-gpg: decrypt-personal ## (Re)create age-encrypted GPG keypair bundle for home-manager bootstrap
-	@trap 'rm -f secrets/personal.dec.json' EXIT; ./scripts/encrypt-gpg-bundle.sh
+encrypt-gpg: ## (Re)create age-encrypted GPG keypair bundle for home-manager bootstrap
+	@$(SECRETS) run ./scripts/encrypt-gpg-bundle.sh
 
-bootstrap: decrypt-personal ## First-time setup (no nh/home-manager required). Usage: make bootstrap SPEC=work
-	@trap 'rm -f secrets/personal.dec.json' EXIT; nix run home-manager -- switch --flake $(CURDIR) --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
+bootstrap: ## First-time setup with transient private configuration. Usage: make bootstrap SPEC=work
+	@$(SECRETS) run nix run home-manager -- switch --flake $(CURDIR) --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
 
-build: decrypt-personal ## Decrypt then build home-manager configuration (--impure required)
-	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home build --impure -c "$$(whoami)" -- --impure
+build: ## Build Home Manager with transient private configuration (--impure required)
+	@$(SECRETS) run env NH_FLAKE=$(CURDIR) nh home build --impure -c "$$(whoami)" -- --impure
 
-switch: decrypt-personal ## Decrypt then switch home-manager configuration (--impure required). Usage: make switch SPEC=work
-	@trap 'rm -f secrets/personal.dec.json' EXIT; NH_FLAKE=$(CURDIR) nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
+switch: ## Switch Home Manager with transient private configuration. Usage: make switch SPEC=work
+	@$(SECRETS) run env NH_FLAKE=$(CURDIR) nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
 
-clean: ## Remove decrypted secrets and temporary files from disk
-	@rm -f secrets/*.dec.* secrets/*.tmp
+clean: ## Remove decrypted private configuration, credentials, and temporary files
+	@./scripts/clean-secrets.sh
