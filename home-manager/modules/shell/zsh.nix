@@ -95,13 +95,18 @@ in
         _hm_switch() {
             local nix_dir="$HOME/.nix"
             local manager="$nix_dir/scripts/secrets.py"
+            local gpu_env="$nix_dir/scripts/gpu-env.sh"
 
             if [[ ! -f "$manager" ]]; then
                 echo "error: $manager not found" >&2
                 return 1
             fi
+            if [[ ! -x "$gpu_env" ]]; then
+                echo "error: $gpu_env not found or not executable" >&2
+                return 1
+            fi
 
-            nix run nixpkgs#python3 -- "$manager" run env NH_FLAKE="$nix_dir" \
+            "$gpu_env" nix run nixpkgs#python3 -- "$manager" run env NH_FLAKE="$nix_dir" \
                 nh home switch --impure -c "$(whoami)" "$@" -- --impure
         }
 

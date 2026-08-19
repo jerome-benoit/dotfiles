@@ -32,7 +32,7 @@ in
       email.enable = profileModules.core.email;
       gpg.enable = true;
       home-manager.enable = true;
-      gpu.enable = pkgs.stdenv.hostPlatform.isLinux && profile == constants.profiles.desktop;
+      gpu.enable = pkgs.stdenv.hostPlatform.isLinux;
       packages = {
         enable = true;
         inherit crushSupported;
