@@ -40,14 +40,18 @@ let
     else
       baseHermesAgentPackage;
 
+  cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
-  voiceRuntimeLibPath = lib.makeLibraryPath (
-    [ pkgs.portaudio ]
-    ++ lib.optionals (isLinux && config.modules.core.gpu.acceleration == "cuda") [
-      # CTranslate2 4.7.1 wheels dlopen libcublas.so.12; the build toolkit may be CUDA 13.
-      pkgs.cudaPackages_12_9.libcublas
-    ]
-  );
+  voiceRuntimeLibPath =
+    lib.makeLibraryPath (
+      [ pkgs.portaudio ]
+      ++ lib.optionals cudaRuntimeEnabled [
+        # CTranslate2 4.7.1 wheels dlopen libcublas.so.12 independently of the selected CUDA package set.
+        pkgs.cudaPackages_12_9.libcublas
+      ]
+    )
+    # They also dlopen libcuda.so.1, so expose addDriverRunpath.driverLink.
+    + lib.optionalString cudaRuntimeEnabled ":${pkgs.addDriverRunpath.driverLink}/lib";
 
   hermesAgentPackage =
     if hermesAgentWithExtras == null then
