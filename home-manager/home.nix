@@ -11,6 +11,7 @@ let
   hostname = constants.hostname;
   hosts = constants.hosts;
   bunSupported = hostname != hosts.rigel;
+  antigravitySupported = hostname != hosts.rigel;
   crushSupported = hostname != hosts.faust;
   isSway = hostname == hosts.zeus;
 
@@ -35,7 +36,7 @@ in
       gpu.enable = pkgs.stdenv.hostPlatform.isLinux;
       packages = {
         enable = true;
-        inherit crushSupported;
+        inherit antigravitySupported crushSupported;
       };
       specialisations.enable = true;
       profile.name = profile;
