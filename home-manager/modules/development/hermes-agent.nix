@@ -10,6 +10,7 @@ let
   cfg = config.modules.development.hermesAgent;
   system = pkgs.stdenv.hostPlatform.system;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
   homeDir = config.home.homeDirectory;
 
   hermesInputs = inputs.hermes-agent.inputs // {
@@ -40,10 +41,11 @@ let
       baseHermesAgentPackage;
 
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
-  voiceRuntimeLibPath = lib.concatStringsSep ":" (
-    lib.filter (s: s != "") [
-      (lib.makeLibraryPath [ pkgs.portaudio ])
-      config.modules.core.gpu.cudaLibraryPath
+  voiceRuntimeLibPath = lib.makeLibraryPath (
+    [ pkgs.portaudio ]
+    ++ lib.optionals (isLinux && config.modules.core.gpu.acceleration == "cuda") [
+      # CTranslate2 4.7.1 wheels dlopen libcublas.so.12; the build toolkit may be CUDA 13.
+      pkgs.cudaPackages_12_9.libcublas
     ]
   );
 

@@ -85,7 +85,7 @@ let
   build =
     if isDarwin then
       darwinBuild
-    else if config.modules.core.gpu.cudaEnable then
+    else if config.modules.core.gpu.acceleration == "cuda" then
       cudaBuild
     else
       cpuBuild;
@@ -161,8 +161,8 @@ in
     package = lib.mkOption {
       type = lib.types.package;
       default = colibriPackage;
-      defaultText = lib.literalExpression "colibri built from the flake input (GPU-enabled)";
-      description = "colibri package (Metal on darwin, CUDA on Linux when available, else CPU)";
+      defaultText = lib.literalExpression "colibriPackage";
+      description = "colibri package (Metal on Darwin, CUDA on Linux when available, otherwise CPU)";
     };
   };
 

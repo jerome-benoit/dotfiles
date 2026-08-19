@@ -7,11 +7,68 @@
 }:
 let
   cfg = config.modules.core.packages;
+  gpu = config.modules.core.gpu;
+  acceleration = gpu.acceleration;
   openclawEnabled = config.modules.development.openclaw.enable or false;
   openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.stdenv.hostPlatform.system};
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
   isServer = config.modules.core.profile.name == config.modules.core.constants.profiles.server;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  ollama =
+    if acceleration == "cuda" then
+      let
+        cudaPackages = gpu.cudaPackages;
+        cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
+      in
+      (pkgs.ollama-cuda.override { inherit cudaPackages; }).overrideAttrs (previousAttrs: {
+        # Ollama's CUDA sub-build needs the nvcc root with CMake 4.2+ (NixOS/nixpkgs#545092).
+        preBuild = ''
+          export CUDAToolkit_ROOT="${lib.getBin cudaNvcc}"
+        ''
+        + (previousAttrs.preBuild or "");
+      })
+    else if acceleration == "rocm" then
+      pkgs.ollama-rocm.override {
+        rocmGpuTargets = gpu.rocmTargets;
+      }
+    else if acceleration == "vulkan" then
+      pkgs.ollama-vulkan
+    else
+      pkgs.ollama;
+  llamaCpp =
+    if acceleration == "cuda" then
+      pkgs.llama-cpp.override {
+        cudaSupport = true;
+        cudaPackages = gpu.cudaPackages;
+      }
+    else if acceleration == "rocm" then
+      pkgs.llama-cpp.override {
+        rocmSupport = true;
+        rocmGpuTargets = gpu.rocmTargets;
+      }
+    else if acceleration == "vulkan" then
+      pkgs.llama-cpp.override {
+        vulkanSupport = true;
+      }
+    else
+      pkgs.llama-cpp;
+  whisperCpp =
+    if acceleration == "cuda" then
+      pkgs.whisper-cpp.override {
+        cudaSupport = true;
+        cudaPackages = gpu.cudaPackages;
+      }
+    else if acceleration == "rocm" then
+      pkgs.whisper-cpp.override {
+        rocmSupport = true;
+        rocmGpuTargets = lib.concatStringsSep ";" gpu.rocmTargets;
+      }
+    else if acceleration == "vulkan" then
+      pkgs.whisper-cpp.override {
+        vulkanSupport = true;
+      }
+    else
+      pkgs.whisper-cpp;
 in
 {
   options.modules.core.packages = {
@@ -28,26 +85,10 @@ in
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
-      (
-        if config.modules.core.gpu.cudaEnable then
-          let
-            cudaPackages = config.modules.core.gpu.cudaPackages;
-            cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
-          in
-          (pkgs.ollama-cuda.override { inherit cudaPackages; }).overrideAttrs (previousAttrs: {
-            # Ollama's CUDA sub-build needs the nvcc root with CMake 4.2+ (NixOS/nixpkgs#545092).
-            preBuild = ''
-              export CUDAToolkit_ROOT="${lib.getBin cudaNvcc}"
-            ''
-            + (previousAttrs.preBuild or "");
-          })
-        else if config.modules.core.gpu.rocmEnable then
-          pkgs.ollama-rocm
-        else
-          pkgs.ollama
-      )
+      ollama
+      llamaCpp
       pkgs.volta
-      pkgs.whisper-cpp
+      whisperCpp
     ]
     ++ lib.optionals (!openclawEnabled) [
       openclawTools.camsnap
