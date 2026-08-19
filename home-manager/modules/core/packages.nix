@@ -69,6 +69,20 @@ let
       }
     else
       pkgs.whisper-cpp;
+  ggmlCliTools = pkgs.buildEnv {
+    name = "ggml-cli-tools";
+    paths = [
+      llamaCpp
+      whisperCpp
+    ];
+    # Both packages bundle incompatible GGML ABIs under /lib. Their binaries
+    # retain runtime references to their original outputs, so expose only CLI
+    # assets.
+    pathsToLink = [
+      "/bin"
+      "/share"
+    ];
+  };
 in
 {
   options.modules.core.packages = {
@@ -91,9 +105,8 @@ in
       pkgs.mergiraf
       pkgs.nh
       ollama
-      llamaCpp
+      ggmlCliTools
       pkgs.volta
-      whisperCpp
     ]
     ++ lib.optionals (!openclawEnabled) [
       openclawTools.camsnap
