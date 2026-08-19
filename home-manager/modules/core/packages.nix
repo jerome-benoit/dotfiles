@@ -78,6 +78,11 @@ in
       default = true;
       description = "Whether crush is supported on this host";
     };
+    antigravitySupported = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Whether antigravity-cli is supported on this host";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -105,7 +110,6 @@ in
       pkgs.grc
     ]
     ++ lib.optionals isDesktop [
-      pkgs.antigravity-cli
       pkgs.bruno
       pkgs.cloudfoundry-cli
       pkgs.codex
@@ -116,6 +120,9 @@ in
       pkgs.nixfmt
       pkgs.obsidian
       pkgs.yazi
+    ]
+    ++ lib.optionals (isDesktop && cfg.antigravitySupported) [
+      pkgs.antigravity-cli
     ]
     ++ lib.optionals (isDesktop && cfg.crushSupported) [
       pkgs.crush
