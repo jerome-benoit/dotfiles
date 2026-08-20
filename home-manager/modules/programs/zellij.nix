@@ -18,7 +18,7 @@ in
     programs.zellij = {
       enable = true;
       # renovate: datasource=github-releases depName=zellij-org/zellij
-      package = mkPlatformPackage "zellij" { version = "0.44.3"; };
+      package = mkPlatformPackage "zellij" { version = "0.45.0"; };
       enableZshIntegration = false;
 
       settings = {
