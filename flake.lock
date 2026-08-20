@@ -122,11 +122,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1787240939,
-        "narHash": "sha256-HPvkKsayOEKDWtlPiT25WBsK5RC4+FI6XsA+AxdSfK8=",
+        "lastModified": 1787256582,
+        "narHash": "sha256-cRDJ1c8FMT5vG9NxJSAEBRCoqxEDo4tWIk8dPkk9epk=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "2c042bb2ce845ca4c7fbe03df3e7eb041abd0252",
+        "rev": "624dfd4796559042ec13ccf4d4b54374902ab81d",
         "type": "github"
       },
       "original": {
@@ -156,11 +156,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787233173,
-        "narHash": "sha256-OwFzrdIKfqdoNGoEhb2lFWJwj+0Aq5wfynUhyoGL+x8=",
+        "lastModified": 1787261272,
+        "narHash": "sha256-OPhKeFsoHm2uvCZU2VbZxB/4NQ5ZjN0JqoFqHi7E6Rg=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "4e5dafcd3230d8d81db1b887c22fef56b841f420",
+        "rev": "964e46a1154814fd0e05b5469baacd6e06ebd482",
         "type": "github"
       },
       "original": {
@@ -322,11 +322,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787240784,
-        "narHash": "sha256-7qAwLYphUvXTrp19x4squkXmenmBuTHsKDbyDKzbnSo=",
+        "lastModified": 1787252016,
+        "narHash": "sha256-uJd6CM7p+aX6YPZ8xj/ZssYezxpf4m/Dt0RHjsw9gc8=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "ad192a59b5517fb432bc5f4d27f131d605a22beb",
+        "rev": "5e75e5e9901f0d178f425bfb47f1bd46cbe78a59",
         "type": "github"
       },
       "original": {
