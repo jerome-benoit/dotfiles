@@ -380,7 +380,7 @@ let
       },
       events = {
         enabled = true,
-        reload = true,
+        reload = { enabled = true },
         permissions = {
           enabled = true,
         },
@@ -390,7 +390,6 @@ let
       },
       select = {
         prompts = {
-          ask_append = "...",
           ask_this = "@this: ...",
           diagnostics = "Explain @diagnostics",
           document = "Add comments documenting @this",
@@ -410,7 +409,8 @@ let
     local opencode_map = vim.keymap.set
     opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ") end, { desc = "OpenCode: Ask question", silent = true })
     opencode_map({ "n", "x" }, "<leader>om", function() require("opencode").select() end, { desc = "OpenCode: Menu", silent = true })
-    opencode_map({ "n", "t" }, "<leader>ot", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
+    opencode_map("n", "<leader>ot", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
+    opencode_map("t", "<C-.>", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
     opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
     opencode_map("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
 
@@ -448,10 +448,12 @@ let
       pattern = "OpencodeEvent:*",
       callback = function(args)
         local opencode_event = args.data.event
-        if opencode_event.type == "session.idle" then
+        local properties = opencode_event.properties or {}
+        local status = properties.status
+        if opencode_event.type == "session.status" and status and status.type == "idle" then
           vim.notify("OpenCode ready", vim.log.levels.INFO)
         elseif opencode_event.type == "session.error" then
-          vim.notify("OpenCode error: " .. vim.inspect(opencode_event.properties), vim.log.levels.ERROR)
+          vim.notify("OpenCode error: " .. vim.inspect(properties), vim.log.levels.ERROR)
         end
       end,
     })
@@ -541,7 +543,12 @@ in
         pkgs.tree-sitter
       ]
       ++ lib.optionals cfg.plugins.opencode.enable (
-        lib.optional (
+        [
+          pkgs.curl
+          pkgs.lsof
+          (if pkgs.stdenv.hostPlatform.isDarwin then pkgs.uutils-procps else pkgs.procps)
+        ]
+        ++ lib.optional (
           config.modules.development.opencode.opencodePackage != null
         ) config.modules.development.opencode.opencodePackage
       );
