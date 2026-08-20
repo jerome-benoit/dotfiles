@@ -56,16 +56,25 @@ let
       cudaPackages = config.modules.core.gpu.cudaPackages;
       cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
       hostCxx = "${cudaPackages.backendStdenv.cc}/bin/g++";
-      # cudart-only CUDA_HOME (-L/-rpath/lib64); keeps build-only nvcc out of the runtime closure.
+      cudaProfilerApi = cudaPackages.cuda_profiler_api;
+      libcublas = cudaPackages.libcublas;
+      # CUDA=1 resolves cudart, cuda_profiler_api.h, cuBLAS, and cuBLASLt through CUDA_HOME.
       cudaHome = pkgs.symlinkJoin {
         name = "colibri-cuda-home";
-        paths = [ cudaPackages.cuda_cudart ];
+        paths = [
+          cudaPackages.cuda_cudart
+          cudaProfilerApi.include
+          libcublas.include
+          libcublas.lib
+        ];
         postBuild = ''[ -e "$out/lib64" ] || ln -s lib "$out/lib64"'';
       };
     in
     {
       extraBuildInputs = [
         cudaPackages.cuda_cudart
+        cudaProfilerApi
+        libcublas
         pkgs.stdenv.cc.cc.lib
       ];
       extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
@@ -94,13 +103,19 @@ let
     pname = "colibri";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
+    # 1.7.0 copies qwen36 during install without declaring it as a prerequisite.
+    postPatch = ''
+      substituteInPlace c/Makefile \
+        --replace-fail \
+          'install: colibri$(EXE) inkling$(EXE) kimi_k3$(EXE) olmoe$(EXE)' \
+          'install: colibri$(EXE) inkling$(EXE) kimi_k3$(EXE) olmoe$(EXE) qwen36$(EXE)'
+    '';
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
     buildInputs = build.extraBuildInputs;
 
-    # Build+stage every engine into $out (GLM chosen variant, olmoe, deepseek_v4
-    # on COLI_V4_SUPPORTED platforms); the compile belongs in buildPhase, leaving
-    # installPhase to assemble the coli wrapper + glm alias.
+    # Build and stage every supported engine in $out; compilation belongs in
+    # buildPhase, leaving installPhase to assemble the coli wrapper and GLM alias.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
