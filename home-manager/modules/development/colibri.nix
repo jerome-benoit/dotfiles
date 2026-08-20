@@ -103,12 +103,21 @@ let
     pname = "colibri";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
-    # 1.7.0 copies qwen36 during install without declaring it as a prerequisite.
     postPatch = ''
+      # 1.7.0 copies qwen36 during install without declaring it as a prerequisite.
       substituteInPlace c/Makefile \
         --replace-fail \
           'install: colibri$(EXE) inkling$(EXE) kimi_k3$(EXE) olmoe$(EXE)' \
           'install: colibri$(EXE) inkling$(EXE) kimi_k3$(EXE) olmoe$(EXE) qwen36$(EXE)'
+
+      # Metal MoE requires qgs; Inkling uses fmt 1/2/5 here, where qgs is unused.
+      substituteInPlace c/inkling.c \
+        --replace-fail \
+          'coli_metal_moe_block_begin(ns, D, I, 5, sgp, sup, sdp,' \
+          'coli_metal_moe_block_begin(ns, D, I, 5, 0, sgp, sup, sdp,' \
+        --replace-fail \
+          'nb, D, I, q4 ? 2 : 1, mgp, mup, mdp, mgs, mus, mds,' \
+          'nb, D, I, q4 ? 2 : 1, 0, mgp, mup, mdp, mgs, mus, mds,'
     '';
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
