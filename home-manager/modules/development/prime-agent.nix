@@ -61,8 +61,78 @@ let
     '';
   };
 
-  # python311 is eval-broken here: ipykernel -> ipython -> sphinx-9.1.0 (unsupported on 3.11); 3.12 satisfies rlm's requires-python>=3.10.
   py = pkgs.python312;
+  runtimeRoot = "${src}/dist/prime-agent-runtime";
+  runtimeProject = "${runtimeRoot}/pyproject.toml";
+  runtimeLock = "${runtimeRoot}/uv.lock";
+
+  # Prime Agent's private runtime moved to MCP 2 before nixpkgs. Build the
+  # small pure-Python compatibility stack from the exact wheels in its uv.lock
+  # while keeping the broader kernel environment on nixpkgs.
+  mkLockedWheel =
+    name: dependencies: pythonImportsCheck:
+    py.pkgs.buildPythonPackage {
+      pname = name;
+      inherit (pins.python.${name}) version src;
+      format = "wheel";
+      inherit dependencies pythonImportsCheck;
+      doCheck = false;
+    };
+  httpcore2 =
+    mkLockedWheel "httpcore2"
+      [
+        py.pkgs.h11
+        py.pkgs.truststore
+      ]
+      [ "httpcore2" ];
+  httpx2 =
+    mkLockedWheel "httpx2"
+      [
+        py.pkgs.anyio
+        httpcore2
+        py.pkgs.idna
+        py.pkgs.truststore
+        py.pkgs.typing-extensions
+      ]
+      [ "httpx2" ];
+  mcpTypes =
+    mkLockedWheel "mcp-types"
+      [
+        py.pkgs.pydantic
+        py.pkgs.typing-extensions
+      ]
+      [ ];
+  # Its test-only FastAPI stack currently reaches a failing inline-snapshot
+  # documentation suite; MCP consumes only the packaged ASGI library.
+  sseStarlette = py.pkgs.sse-starlette.overridePythonAttrs (previous: {
+    doCheck = false;
+    dependencies = (previous.dependencies or [ ]) ++ [ py.pkgs.starlette ];
+  });
+  mcp2 =
+    mkLockedWheel "mcp"
+      [
+        py.pkgs.anyio
+        httpx2
+        py.pkgs.jsonschema
+        mcpTypes
+        py.pkgs.opentelemetry-api
+        py.pkgs.pydantic
+        py.pkgs.pyjwt
+        py.pkgs.cryptography
+        py.pkgs.python-multipart
+        sseStarlette
+        py.pkgs.starlette
+        py.pkgs.typing-extensions
+        py.pkgs.typing-inspection
+        py.pkgs.uvicorn
+      ]
+      [ "mcp" ];
+  pythonRuntimePackages = {
+    inherit httpcore2 httpx2;
+    mcp = mcp2;
+    mcp-types = mcpTypes;
+  };
+
   # tyro's own bash-completion tests flake building from source on aarch64-darwin; we only consume the library.
   tyro = py.pkgs.tyro.overridePythonAttrs (_: {
     doCheck = false;
@@ -72,22 +142,21 @@ let
     doCheck = false;
   });
 
-  # Kernel-side runtime shim, built from the release's own bundled source so it matches the CLI's RUNTIME_READY_CHECK.
   rlm = py.pkgs.buildPythonPackage {
     pname = "prime-agent-runtime";
     version = "0.1.0";
     pyproject = true;
-    src = "${src}/dist/prime-agent-runtime";
+    src = runtimeRoot;
     build-system = [ py.pkgs.hatchling ];
     dependencies = [
       py.pkgs.ipykernel
+      mcp2
       py.pkgs.nest-asyncio
       tyro
     ];
     doCheck = false;
   };
-
-  # The manifest names and this pip-to-nixpkgs mapping must stay identical.
+  runtimePackage = rlm;
   kernelRequirements =
     let
       ps = py.pkgs;
@@ -112,7 +181,14 @@ let
         pname = "prime-agent";
         inherit version src;
         passthru = {
-          inherit kernelPython kernelRequirements;
+          inherit
+            pythonRuntimePackages
+            kernelPython
+            kernelRequirements
+            runtimeLock
+            runtimePackage
+            runtimeProject
+            ;
           runtimeSources = {
             "@silvia-odwyer/photon-node" = photonSrc;
             cmake-ts = cmakeTsSrc;
@@ -175,7 +251,7 @@ let
               require("undici");
             '
           )
-          ${kernelPython}/bin/python3 -c 'import rlm, ipykernel'
+          ${kernelPython}/bin/python3 -c 'import ipykernel, rlm; from mcp import ClientSession, StdioServerParameters; from mcp.client import streamable_http'
         '';
 
         meta = {

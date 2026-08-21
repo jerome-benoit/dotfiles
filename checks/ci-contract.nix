@@ -12,6 +12,10 @@ let
     fetchurl = arguments: arguments;
     fetchzip = arguments: arguments;
   };
+  primeAgentSource = pkgs.fetchzip sources.primeAgent.src;
+  primeAgentRuntimeRoot = "${primeAgentSource}/dist/prime-agent-runtime";
+  primeAgentRuntimeProject = lib.importTOML "${primeAgentRuntimeRoot}/pyproject.toml";
+  primeAgentRuntimeLock = lib.importTOML "${primeAgentRuntimeRoot}/uv.lock";
   dummyPythonPackages = lib.genAttrs [
     "beautifulsoup4"
     "httpx"
@@ -102,25 +106,28 @@ let
         ++ sources.primeAgent.rlmExtraPackages
       );
       kernelPackages = primeAgentPackage.kernelPython.python.pkgs;
+      pythonRuntimePackages = primeAgentPackage.pythonRuntimePackages;
+      runtimeProject = primeAgentRuntimeProject;
+      runtimeLock = primeAgentRuntimeLock;
+      dependencyName =
+        requirement:
+        let
+          matched = builtins.match "([A-Za-z0-9_.-]+).*" requirement;
+        in
+        builtins.elemAt matched 0;
+      declaredRuntimeDependencies = lib.sort builtins.lessThan (
+        map dependencyName runtimeProject.project.dependencies
+      );
+      expectedRlm = primeAgentPackage.runtimePackage;
+      actualRuntimeDependencies = lib.sort builtins.lessThan (
+        map (dependency: dependency.pname) expectedRlm.dependencies
+      );
       expectedTyro = kernelPackages.tyro.overridePythonAttrs (_: {
         doCheck = false;
       });
       expectedScipy = kernelPackages.scipy.overridePythonAttrs (_: {
         doCheck = false;
       });
-      expectedRlm = kernelPackages.buildPythonPackage {
-        pname = "prime-agent-runtime";
-        version = "0.1.0";
-        pyproject = true;
-        src = "${primeAgentPackage.src}/dist/prime-agent-runtime";
-        build-system = [ kernelPackages.hatchling ];
-        dependencies = [
-          kernelPackages.ipykernel
-          kernelPackages.nest-asyncio
-          expectedTyro
-        ];
-        doCheck = false;
-      };
       expectedMappedKernelRequirements = lib.genAttrs sources.primeAgent.rlmExtraPackages (
         name:
         if name == "scipy" then
@@ -154,6 +161,36 @@ let
           expected = sources.primeAgent.npm.${key}.src;
         in
         actual.url == expected.url && actual.outputHash == expected.hash;
+      pythonRuntimePackageValid =
+        name:
+        let
+          actual = pythonRuntimePackages.${name};
+          expected = sources.primeAgent.python.${name};
+          locked = lib.findFirst (package: package.name == name) null runtimeLock.package;
+          lockedWheels =
+            if locked == null then
+              [ ]
+            else
+              builtins.filter (wheel: lib.hasSuffix "-py3-none-any.whl" wheel.url) locked.wheels;
+          lockedWheel = if builtins.length lockedWheels == 1 then builtins.head lockedWheels else null;
+          lockedWheelHash =
+            if lockedWheel == null then
+              null
+            else
+              builtins.convertHash {
+                hash = lib.removePrefix "sha256:" lockedWheel.hash;
+                hashAlgo = "sha256";
+                toHashFormat = "sri";
+              };
+        in
+        locked != null
+        && lockedWheel != null
+        && actual.version == locked.version
+        && actual.version == expected.version
+        && actual.src.url == lockedWheel.url
+        && actual.src.url == expected.src.url
+        && actual.src.outputHash == lockedWheelHash
+        && actual.src.outputHash == expected.src.hash;
       message = detail: "ci-contract (${system}): ${detail}";
     in
     lib.assertMsg (piPackage.version == sources.pi.version) (
@@ -201,6 +238,21 @@ let
       runtimeCopyCommands
     ) (message "prime-agent.nix does not install every runtime source at its canonical destination")
     && lib.assertMsg (
+      builtins.attrNames pythonRuntimePackages == builtins.attrNames sources.primeAgent.python
+      && builtins.all pythonRuntimePackageValid (builtins.attrNames pythonRuntimePackages)
+      &&
+        primeAgentPackage.runtimeProject
+        == "${primeAgentPackage.src}/dist/prime-agent-runtime/pyproject.toml"
+      && primeAgentPackage.runtimeLock == "${primeAgentPackage.src}/dist/prime-agent-runtime/uv.lock"
+      && runtimeProject.project.name == "prime-agent-runtime"
+      && runtimeProject.project.version == expectedRlm.version
+      && expectedRlm.src == "${primeAgentPackage.src}/dist/prime-agent-runtime"
+      && declaredRuntimeDependencies == actualRuntimeDependencies
+      && builtins.elem pythonRuntimePackages.mcp expectedRlm.dependencies
+      && lib.versionAtLeast pythonRuntimePackages.mcp.version "2"
+      && lib.versionOlder pythonRuntimePackages.mcp.version "3"
+    ) (message "prime-agent.nix runtime package differs from the release Python lock")
+    && lib.assertMsg (
       builtins.attrNames primeAgentPackage.kernelRequirements == expectedKernelNames
       &&
         kernelRequirementIdentity primeAgentPackage.kernelRequirements
@@ -234,6 +286,9 @@ let
       npm = lib.mapAttrs (_key: dependency: {
         inherit (dependency) version src;
       }) sources.primeAgent.npm;
+      python = lib.mapAttrs (_key: dependency: {
+        inherit (dependency) version src;
+      }) sources.primeAgent.python;
     };
   };
   effectiveContractFile = pkgs.writeText "ci-effective-contract.json" (
@@ -270,8 +325,7 @@ let
         "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz")
           hash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           ;;
-        "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.9/prime-agent-9.9.9.tgz" | \
-          "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.10/prime-agent-9.9.10.tgz")
+        file://*)
           hash=sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP=
           ;;
         "https://registry.npmjs.org/cmake-ts/-/cmake-ts-10.0.2.tgz")
@@ -308,6 +362,23 @@ let
           exit 1
           ;;
       esac
+    elif [ "$#" -eq 5 ] && [ "$1" = eval ] && [ "$2" = --impure ] && [ "$3" = --json ] && [ "$4" = --expr ]; then
+      exec ${pkgs.nix}/bin/nix --extra-experimental-features nix-command "$@"
+    elif [ "$#" -eq 7 ] && [ "$1" = hash ] && [ "$2" = convert ] \
+      && [ "$3" = --hash-algo ] && [ "$4" = sha256 ] \
+      && [ "$5" = --to ] && [ "$6" = sri ]; then
+      case "$7" in
+        $(printf 'a%.0s' {1..64})) hash=sha256-1111111111111111111111111111111111111111111= ;;
+        $(printf 'b%.0s' {1..64})) hash=sha256-2222222222222222222222222222222222222222222= ;;
+        $(printf 'c%.0s' {1..64})) hash=sha256-3333333333333333333333333333333333333333333= ;;
+        $(printf 'd%.0s' {1..64})) hash=sha256-4444444444444444444444444444444444444444444= ;;
+        *)
+          echo "unexpected hash conversion:$7" >&2
+          exit 1
+          ;;
+      esac
+      printf '%s\n' "$hash"
+      exit
     else
       echo "unexpected nix invocation:$invocation" >&2
       exit 1
@@ -324,6 +395,11 @@ let
       case "$2" in
         "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.9/package-lock.json" | \
           "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.10/package-lock.json")
+          ;;
+        "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.9/prime-agent-9.9.9.tgz" | \
+          "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.10/prime-agent-9.9.10.tgz")
+          cat "$MOCK_PRIME_TARBALL" > "$4"
+          exit
           ;;
         *)
           echo "unexpected package-lock URL:$2" >&2
@@ -494,6 +570,38 @@ pkgs.runCommandLocal "check-ci-contract"
     printf '%s\n' '{"name":"pi-contract-fixture"}' > "$TMPDIR/pi-source/package/package.json"
     tar czf "$TMPDIR/pi-source.tgz" -C "$TMPDIR/pi-source" package
     export MOCK_PI_TARBALL="$TMPDIR/pi-source.tgz"
+    mkdir -p "$TMPDIR/prime-source/package/dist/prime-agent-runtime"
+    cat > "$TMPDIR/prime-source/package/dist/prime-agent-runtime/pyproject.toml" <<'EOF'
+    [project]
+    name = "prime-agent-runtime"
+    version = "0.1.0"
+    dependencies = ["ipykernel", "mcp>=2,<3", "nest-asyncio", "tyro"]
+    EOF
+    cat > "$TMPDIR/prime-source/package/dist/prime-agent-runtime/uv.lock" <<EOF
+    version = 1
+
+    [[package]]
+    name = "httpcore2"
+    version = "20.0.1"
+    wheels = [{ url = "https://files.pythonhosted.org/mock/httpcore2-20.0.1-py3-none-any.whl", hash = "sha256:$(printf 'a%.0s' {1..64})" }]
+
+    [[package]]
+    name = "httpx2"
+    version = "20.0.2"
+    wheels = [{ url = "https://files.pythonhosted.org/mock/httpx2-20.0.2-py3-none-any.whl", hash = "sha256:$(printf 'b%.0s' {1..64})" }]
+
+    [[package]]
+    name = "mcp"
+    version = "20.0.3"
+    wheels = [{ url = "https://files.pythonhosted.org/mock/mcp-20.0.3-py3-none-any.whl", hash = "sha256:$(printf 'c%.0s' {1..64})" }]
+
+    [[package]]
+    name = "mcp-types"
+    version = "20.0.4"
+    wheels = [{ url = "https://files.pythonhosted.org/mock/mcp_types-20.0.4-py3-none-any.whl", hash = "sha256:$(printf 'd%.0s' {1..64})" }]
+    EOF
+    tar czf "$TMPDIR/prime-source.tgz" -C "$TMPDIR/prime-source" package
+    export MOCK_PRIME_TARBALL="$TMPDIR/prime-source.tgz"
     export PATH="${updateTestNix}/bin:${updateTestCurl}/bin:${updateTestNpm}/bin:$PATH"
     export MOCK_FLAKE_ROOT="$fixture"
 
@@ -562,7 +670,11 @@ pkgs.runCommandLocal "check-ci-contract"
       --arg cmake sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC= \
       --arg photon sha256-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH= \
       --arg undici sha256-UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU= \
-      --arg zeromq sha256-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ= '
+      --arg zeromq sha256-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ= \
+      --arg httpcore2 sha256-1111111111111111111111111111111111111111111= \
+      --arg httpx2 sha256-2222222222222222222222222222222222222222222= \
+      --arg mcp sha256-3333333333333333333333333333333333333333333= \
+      --arg mcpTypes sha256-4444444444444444444444444444444444444444444= '
         .src.hash == $src
         and .npm["cmake-ts"].version == "10.0.2"
         and .npm["cmake-ts"].hash == $cmake
@@ -572,6 +684,15 @@ pkgs.runCommandLocal "check-ci-contract"
         and .npm.undici.hash == $undici
         and .npm.zeromq.version == "10.0.4"
         and .npm.zeromq.hash == $zeromq
+        and .python.httpcore2.version == "20.0.1"
+        and .python.httpcore2.url == "https://files.pythonhosted.org/mock/httpcore2-20.0.1-py3-none-any.whl"
+        and .python.httpcore2.hash == $httpcore2
+        and .python.httpx2.version == "20.0.2"
+        and .python.httpx2.hash == $httpx2
+        and .python.mcp.version == "20.0.3"
+        and .python.mcp.hash == $mcp
+        and .python["mcp-types"].version == "20.0.4"
+        and .python["mcp-types"].hash == $mcpTypes
       ' "$primePin" >/dev/null
 
     base=$(git rev-parse HEAD)
