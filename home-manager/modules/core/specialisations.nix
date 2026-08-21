@@ -98,7 +98,7 @@ in
         theme = "tokyoNightStorm";
         sopsOverrides = lib.mkIf isZeus {
           sops.secrets."hermes-env".key = lib.mkForce "hermes/personal/apiServerEnvContent";
-          modules.development.hermesAgent.dashboardHost = "0.0.0.0";
+          services.hermes-agent.backend.host = "0.0.0.0";
         };
       };
     };
