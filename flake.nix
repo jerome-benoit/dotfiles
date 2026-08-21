@@ -74,6 +74,7 @@
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-parts.follows = "flake-parts";
+        home-manager.follows = "home-manager";
         pyproject-nix.follows = "pyproject-nix";
         uv2nix.follows = "uv2nix";
         pyproject-build-systems.follows = "pyproject-build-systems";
@@ -214,6 +215,7 @@
           };
           modules = [
             inputs.nix-openclaw.homeManagerModules.openclaw
+            inputs.hermes-agent.homeManagerModules.default
             inputs.sops-nix.homeManagerModules.sops
             ./home-manager/home.nix
           ];
