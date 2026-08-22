@@ -23,9 +23,16 @@ let
     "undici"
     "zeromq"
   ];
+  expectedPrimePythonKeys = [
+    "httpcore2"
+    "httpx2"
+    "mcp"
+    "mcp-types"
+  ];
 in
 assert builtins.attrNames ompData.hashes == expectedOmpKeys;
 assert builtins.attrNames primeAgentData.npm == expectedPrimeNpmKeys;
+assert builtins.attrNames primeAgentData.python == expectedPrimePythonKeys;
 assert
   primeAgentData.rlmExtraPackages == lib.sort builtins.lessThan primeAgentData.rlmExtraPackages;
 {
@@ -66,5 +73,14 @@ assert
         };
       }
     ) primeAgentData.npm;
+    python = lib.mapAttrs (
+      _key: dependency:
+      dependency
+      // {
+        src = fetchurl {
+          inherit (dependency) url hash;
+        };
+      }
+    ) primeAgentData.python;
   };
 }

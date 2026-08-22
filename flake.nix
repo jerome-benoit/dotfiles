@@ -267,11 +267,15 @@
                 "home-${privateConfig.identity.username}" =
                   self.homeConfigurations.${privateConfig.identity.username}.activationPackage;
                 home-almalinux = self.homeConfigurations.almalinux.activationPackage;
+                prime-agent-runtime =
+                  self.homeConfigurations.${privateConfig.identity.username}.config.modules.development.primeAgent.package.runtimePackage;
               }
             else if arch == "aarch64-darwin" then
               {
                 "home-${privateConfig.work.username}" =
                   self.homeConfigurations.${privateConfig.work.username}.activationPackage;
+                prime-agent-runtime =
+                  self.homeConfigurations.${privateConfig.work.username}.config.modules.development.primeAgent.package.runtimePackage;
               }
             else
               { };

@@ -61,7 +61,7 @@ validate_pin_files() {
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
-    and (keys == ["npm", "renovate", "rlmExtraPackages", "snapshotRequirement", "src", "version"])
+    and (keys == ["npm", "python", "renovate", "rlmExtraPackages", "snapshotRequirement", "src", "version"])
     and (.renovate == "datasource=github-releases depName=PrimeIntellect-ai/prime-agent")
     and (.version | type == "string" and length > 0)
     and (.snapshotRequirement | type == "string" and length > 0)
@@ -76,6 +76,11 @@ validate_pin_files() {
     and ([.npm[] | keys == ["hash", "urlTemplate", "version"]] | all)
     and ([.npm[].hash | test($hash)] | all)
     and ([.npm[].version | type == "string" and length > 0] | all)
+    and (.python | keys == ["httpcore2", "httpx2", "mcp", "mcp-types"])
+    and ([.python[] | keys == ["hash", "url", "version"]] | all)
+    and ([.python[].hash | test($hash)] | all)
+    and ([.python[].url | test("^https://files\\.pythonhosted\\.org/.+\\.whl$")] | all)
+    and ([.python[].version | type == "string" and length > 0] | all)
     and (.rlmExtraPackages | type == "array" and length > 0)
     and ([.rlmExtraPackages[] | type == "string" and test("^[a-z0-9-]+$")] | all)
     and (.rlmExtraPackages == (.rlmExtraPackages | sort | unique))
@@ -136,6 +141,14 @@ validate_effective_contract() {
       and .primeAgent.npm[$key].src.hash == $pin[0].npm[$key].hash
     ' "$effective" >/dev/null || fail "Prime Agent npm values do not consume pin key $key"
   done < <(jq -r '.npm | keys[]' "$prime")
+
+  while IFS= read -r key; do
+    jq -e --arg key "$key" --slurpfile pin "$prime" '
+      .primeAgent.python[$key].version == $pin[0].python[$key].version
+      and .primeAgent.python[$key].src.url == $pin[0].python[$key].url
+      and .primeAgent.python[$key].src.hash == $pin[0].python[$key].hash
+    ' "$effective" >/dev/null || fail "Prime Agent Python values do not consume pin key $key"
+  done < <(jq -r '.python | keys[]' "$prime")
 }
 
 sorted_workflow_paths() {
@@ -391,11 +404,14 @@ update_omp() {
 
 update_prime_agent() {
   local pin=$1 version template url hash lock key new_version dependency_url dependency_hash
+  local archive runtime_dir runtime_lock runtime_json wheel wheel_hash
   local bootstrap upstream expected snapshot
   version=$(jq -r .version "$pin")
   template=$(jq -r .src.urlTemplate "$pin")
   url=$(render_url "$template" "$version")
-  hash=$(nix store prefetch-file --unpack --json "$url" | jq -r .hash)
+  archive=$(mktemp)
+  curl -sfSL "$url" -o "$archive" || fail "cannot download Prime Agent $version release"
+  hash=$(nix store prefetch-file --unpack --json "file://$archive" | jq -r .hash)
   [[ $hash == sha256-* ]] || fail "invalid Prime Agent source hash: $hash"
   set_json "$pin" --arg hash "$hash" '.src.hash = $hash'
 
@@ -413,6 +429,38 @@ update_prime_agent() {
       '.npm[$key].version = $version | .npm[$key].hash = $hash'
   done < <(jq -r '.npm | keys[]' "$pin")
   rm -f "$lock"
+
+  runtime_dir=$(mktemp -d)
+  tar -xzf "$archive" -C "$runtime_dir"
+  runtime_lock=$runtime_dir/package/dist/prime-agent-runtime/uv.lock
+  [ -f "$runtime_lock" ] || fail "Prime Agent $version runtime uv.lock missing"
+  [ -f "$runtime_dir/package/dist/prime-agent-runtime/pyproject.toml" ] \
+    || fail "Prime Agent $version runtime pyproject.toml missing"
+  runtime_json=$(nix eval --impure --json --expr "builtins.fromTOML (builtins.readFile $runtime_lock)")
+  while IFS= read -r key; do
+    new_version=$(jq -r --arg key "$key" '
+      [.package[] | select(.name == $key)] | if length == 1 then .[0].version else empty end
+    ' <<<"$runtime_json")
+    wheel=$(jq -r --arg key "$key" '
+      [.package[] | select(.name == $key)][0].wheels
+      | map(select(.url | endswith("-py3-none-any.whl")))
+      | if length == 1 then .[0] else empty end
+    ' <<<"$runtime_json")
+    [ -n "$new_version" ] && [ -n "$wheel" ] \
+      || fail "$key has no unique py3-none-any wheel in Prime Agent $version runtime lock"
+    dependency_url=$(jq -r .url <<<"$wheel")
+    wheel_hash=$(jq -r .hash <<<"$wheel")
+    [[ $wheel_hash == sha256:* ]] || fail "invalid uv hash for $key@$new_version"
+    dependency_hash=$(nix hash convert --hash-algo sha256 --to sri "${wheel_hash#sha256:}")
+    set_json "$pin" \
+      --arg key "$key" \
+      --arg version "$new_version" \
+      --arg url "$dependency_url" \
+      --arg hash "$dependency_hash" \
+      '.python[$key].version = $version | .python[$key].url = $url | .python[$key].hash = $hash'
+  done < <(jq -r '.python | keys[]' "$pin")
+  rm -f "$archive"
+  rm -rf "$runtime_dir"
 
   bootstrap=$(curl -sfSL "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${version}/packages/coding-agent/src/core/kernel/bootstrap.ts") \
     || fail "cannot fetch Prime Agent bootstrap.ts for $version"
