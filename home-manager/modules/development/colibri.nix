@@ -103,22 +103,6 @@ let
     pname = "colibri";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
-    postPatch = ''
-      # 1.7.0 copies qwen36 during install without declaring it as a prerequisite.
-      substituteInPlace c/Makefile \
-        --replace-fail \
-          'install: colibri$(EXE) inkling$(EXE) kimi_k3$(EXE) olmoe$(EXE)' \
-          'install: colibri$(EXE) inkling$(EXE) kimi_k3$(EXE) olmoe$(EXE) qwen36$(EXE)'
-
-      # Metal MoE requires qgs; Inkling uses fmt 1/2/5 here, where qgs is unused.
-      substituteInPlace c/inkling.c \
-        --replace-fail \
-          'coli_metal_moe_block_begin(ns, D, I, 5, sgp, sup, sdp,' \
-          'coli_metal_moe_block_begin(ns, D, I, 5, 0, sgp, sup, sdp,' \
-        --replace-fail \
-          'nb, D, I, q4 ? 2 : 1, mgp, mup, mdp, mgs, mus, mds,' \
-          'nb, D, I, q4 ? 2 : 1, 0, mgp, mup, mdp, mgs, mus, mds,'
-    '';
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
     buildInputs = build.extraBuildInputs;
@@ -136,17 +120,18 @@ let
     # Linux test_uring needs io_uring) — installCheckPhase validates packaging.
     doCheck = false;
 
-    # Offline check: engines staged + the convert data asset present + the wrapper
-    # runs (`coli --version` argparse-exits before any model load) + the serve import
-    # surface (openai_server -> v4_dsml) resolves.
-    # Not versionCheckHook: our -unstable- suffix never matches coli's output.
+    # Offline check: all unconditional engines staged + the converter data asset
+    # present + the wrapper runs (`coli --version` exits before model loading) +
+    # the serve import surface resolves. Not versionCheckHook: our unstable
+    # package suffix never matches coli's output.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
       # `import openai_server` writes .pyc; keep the check from mutating $out.
       export PYTHONDONTWRITEBYTECODE=1
-      test -x $out/lib/colibri/colibri
-      test -x $out/lib/colibri/olmoe
+      for engine in colibri inkling kimi_k3 olmoe qwen36; do
+        test -x "$out/lib/colibri/$engine"
+      done
       test -f $out/lib/colibri/tools/iq3xxs_grid.json
       $out/bin/coli --version
       PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python -c 'import openai_server'
@@ -157,10 +142,10 @@ let
     # pinning it routes every model to GLM instead of dispatching per config.
     installPhase = ''
       runHook preInstall
-      # make install omits v4_dsml.py (imported by openai_server) and iq3xxs_grid.json
-      # (loaded by iq3_pack for `convert --xbits e8`); stage each if missing.
-      [ -e "$out/lib/colibri/v4_dsml.py" ] || install -m 644 c/v4_dsml.py "$out/lib/colibri/"
-      [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
+      # Upstream currently omits the iq3_pack data grid. Prefer an upstream
+      # installation on future pins, and only stage the source asset as fallback.
+      [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
+        install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
       mv $out/bin/coli $out/lib/colibri/coli
       ln -s ../lib/colibri/colibri $out/bin/glm
       makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
@@ -180,7 +165,7 @@ let
 in
 {
   options.modules.development.colibri = {
-    enable = lib.mkEnableOption "colibri MoE inference engine (GLM-5.2, OLMoE, DeepSeek V4 Flash)";
+    enable = lib.mkEnableOption "colibri MoE inference engine (GLM-5.2, Inkling, Kimi K3, Qwen3.6, OLMoE, DeepSeek V4 Flash)";
 
     package = lib.mkOption {
       type = lib.types.package;
