@@ -201,6 +201,7 @@ in
       file.".Brewfile" = lib.mkIf (isDesktop && isDarwin) {
         text = ''
           tap "moltenbits/tap"
+          tap "jundot/omlx", "https://github.com/jundot/omlx"
           cask "chatgpt"
           cask "docker-desktop"
           cask "ferdium"
@@ -209,6 +210,7 @@ in
           cask "growlrrr"
           cask "podman-desktop"
           brew "mole"
+          brew "jundot/omlx/omlx"
           brew "podman"
           brew "podman-compose"
         '';
