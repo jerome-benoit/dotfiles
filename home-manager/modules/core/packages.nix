@@ -104,10 +104,14 @@ in
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
-      ollama
       ggmlCliTools
       pkgs.volta
     ]
+    # Platform packages.
+    ++ lib.optionals (!isDarwin) [
+      ollama
+    ]
+    # OpenClaw standalone tools.
     ++ lib.optionals (!openclawEnabled) [
       openclawTools.camsnap
       openclawTools.discrawl
@@ -118,10 +122,12 @@ in
       openclawTools.summarize
       openclawTools.wacrawl
     ]
+    # Server packages.
     ++ lib.optionals isServer [
       pkgs.delta
       pkgs.grc
     ]
+    # Desktop packages.
     ++ lib.optionals isDesktop [
       pkgs.bruno
       pkgs.cloudfoundry-cli
@@ -140,62 +146,62 @@ in
     ++ lib.optionals (isDesktop && cfg.crushSupported) [
       pkgs.crush
     ]
-    ++ lib.optionals (isDesktop && isDarwin) (
-      [
-        pkgs.age
-        pkgs.autoconf
-        pkgs.automake
-        pkgs.bashInteractive
-        pkgs.bat
-        pkgs.chroma
-        pkgs.cmake
-        pkgs.codexbar
-        pkgs.coreutils
-        pkgs.delta
-        pkgs.ffmpeg
-        pkgs.firefox
-        pkgs.gnused
-        pkgs.go
-        pkgs.go-task
-        pkgs.golangci-lint
-        pkgs.google-chrome
-        pkgs.gopls
-        pkgs.grc
-        pkgs.hidden-bar
-        pkgs.hyperfine
-        pkgs.insomnia
-        pkgs.iterm2
-        pkgs.jdk25
-        pkgs.jetbrains.pycharm
-        pkgs.jetbrains.rust-rover
-        pkgs.mitmproxy
-        pkgs.nheko
-        pkgs.ninja
-        pkgs.pandoc
-        pkgs.pass
-        pkgs.pipenv
-        pkgs.pkg-config
-        pkgs.poetry
-        pkgs.poppler-utils
-        pkgs.python3
-        pkgs.python3Packages.huggingface-hub
-        pkgs.python3Packages.virtualenv
-        pkgs.qpdf
-        pkgs.ruff
-        pkgs.rustup
-        pkgs.shellcheck
-        pkgs.uv
-        pkgs.vscode
-        pkgs.yq
-        pkgs.zed-editor
-        pkgs.zoom-us
-      ]
-      ++ lib.optionals (!openclawEnabled) [
-        openclawTools.imsg
-        openclawTools.peekaboo
-        openclawTools.poltergeist
-      ]
-    );
+    # Desktop Darwin packages.
+    ++ lib.optionals (isDesktop && isDarwin) [
+      pkgs.age
+      pkgs.autoconf
+      pkgs.automake
+      pkgs.bashInteractive
+      pkgs.bat
+      pkgs.chroma
+      pkgs.cmake
+      pkgs.codexbar
+      pkgs.coreutils
+      pkgs.delta
+      pkgs.ffmpeg
+      pkgs.firefox
+      pkgs.gnused
+      pkgs.go
+      pkgs.go-task
+      pkgs.golangci-lint
+      pkgs.google-chrome
+      pkgs.gopls
+      pkgs.grc
+      pkgs.hidden-bar
+      pkgs.hyperfine
+      pkgs.insomnia
+      pkgs.iterm2
+      pkgs.jdk25
+      pkgs.jetbrains.pycharm
+      pkgs.jetbrains.rust-rover
+      pkgs.mitmproxy
+      pkgs.nheko
+      pkgs.ninja
+      pkgs.pandoc
+      pkgs.pass
+      pkgs.pipenv
+      pkgs.pkg-config
+      pkgs.poetry
+      pkgs.poppler-utils
+      pkgs.python3
+      pkgs.python3Packages.huggingface-hub
+      pkgs.python3Packages.virtualenv
+      pkgs.qpdf
+      pkgs.ruff
+      pkgs.rustup
+      pkgs.shellcheck
+      pkgs.uv
+      pkgs.vscode
+      pkgs.yq
+      pkgs.zed-editor
+      pkgs.zoom-us
+    ]
+    # Desktop Darwin OpenClaw standalone tools.
+    ++ lib.optionals (isDesktop && isDarwin && !openclawEnabled) [
+      openclawTools.imsg
+      openclawTools.peekaboo
+      openclawTools.poltergeist
+    ];
 
     home = {
       file.".Brewfile" = lib.mkIf (isDesktop && isDarwin) {
@@ -210,6 +216,7 @@ in
           cask "growlrrr"
           cask "podman-desktop"
           brew "mole"
+          brew "ollama"
           brew "jundot/omlx/omlx"
           brew "podman"
           brew "podman-compose"
