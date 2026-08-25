@@ -226,7 +226,7 @@ in
 
           if [[ -n "$_brew" ]]; then
             "$_brew" trust --tap moltenbits/tap 2>/dev/null || true
-            "$_brew" trust --cask moltenbits/tap/growlrrr 2>/dev/null || true
+            "$_brew" trust --tap jundot/omlx 2>/dev/null || true
 
             verboseEcho "Installing Homebrew packages from Brewfile"
             run "$_brew" bundle install --global
