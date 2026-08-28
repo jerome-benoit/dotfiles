@@ -57,7 +57,9 @@ let
         # The binary must be patched before it can generate its completion scripts.
         dontAutoPatchelf = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
         preFixup = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
-          autoPatchelf "$out"
+          ${lib.optionalString hp.isElf ''
+            autoPatchelf "$out"
+          ''}
           completionDir=$(mktemp -d)
           HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
             $out/bin/omp completions bash > "$completionDir/omp.bash"
