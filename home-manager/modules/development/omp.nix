@@ -54,23 +54,22 @@ let
           runHook postInstall
         '';
 
-        # ELF binaries must be patched before they can generate completion scripts.
-        dontAutoPatchelf = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
         preFixup = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
-          ${lib.optionalString hp.isElf ''
-            autoPatchelf "$out"
-          ''}
-          completionDir=$(mktemp -d)
-          HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
-            $out/bin/omp completions bash > "$completionDir/omp.bash"
-          HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
-            $out/bin/omp completions fish > "$completionDir/omp.fish"
-          HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
-            $out/bin/omp completions zsh > "$completionDir/omp.zsh"
-          installShellCompletion --cmd omp \
-            --bash "$completionDir/omp.bash" \
-            --fish "$completionDir/omp.fish" \
-            --zsh "$completionDir/omp.zsh"
+          installOmpCompletions() {
+            local completionDir
+            completionDir=$(mktemp -d)
+            HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+              $out/bin/omp completions bash > "$completionDir/omp.bash"
+            HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+              $out/bin/omp completions fish > "$completionDir/omp.fish"
+            HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+              $out/bin/omp completions zsh > "$completionDir/omp.zsh"
+            installShellCompletion --cmd omp \
+              --bash "$completionDir/omp.bash" \
+              --fish "$completionDir/omp.fish" \
+              --zsh "$completionDir/omp.zsh"
+          }
+          postFixupHooks+=(installOmpCompletions)
         '';
 
         doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
