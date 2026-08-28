@@ -54,7 +54,7 @@ let
           runHook postInstall
         '';
 
-        # The binary must be patched before it can generate its completion scripts.
+        # ELF binaries must be patched before they can generate completion scripts.
         dontAutoPatchelf = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
         preFixup = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
           ${lib.optionalString hp.isElf ''
