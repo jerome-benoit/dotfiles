@@ -36,6 +36,7 @@ let
         dontStrip = true;
 
         nativeBuildInputs = [
+          pkgs.installShellFiles
           pkgs.makeBinaryWrapper
         ]
         ++ lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
@@ -53,10 +54,31 @@ let
           runHook postInstall
         '';
 
-        doInstallCheck = true;
+        # The binary must be patched before it can generate its completion scripts.
+        dontAutoPatchelf = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
+        preFixup = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
+          autoPatchelf "$out"
+          completionDir=$(mktemp -d)
+          HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+            $out/bin/omp completions bash > "$completionDir/omp.bash"
+          HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+            $out/bin/omp completions fish > "$completionDir/omp.fish"
+          HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+            $out/bin/omp completions zsh > "$completionDir/omp.zsh"
+          installShellCompletion --cmd omp \
+            --bash "$completionDir/omp.bash" \
+            --fish "$completionDir/omp.fish" \
+            --zsh "$completionDir/omp.zsh"
+        '';
+
+        doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
-
+        postInstallCheck = ''
+          test -s $out/share/bash-completion/completions/omp.bash
+          test -s $out/share/fish/vendor_completions.d/omp.fish
+          test -s $out/share/zsh/site-functions/_omp
+        '';
         meta = {
           description = "oh-my-pi (omp) coding agent CLI";
           homepage = "https://omp.sh";
