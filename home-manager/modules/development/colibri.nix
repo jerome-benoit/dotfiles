@@ -129,7 +129,7 @@ let
       runHook preInstallCheck
       # `import openai_server` writes .pyc; keep the check from mutating $out.
       export PYTHONDONTWRITEBYTECODE=1
-      for engine in colibri inkling kimi_k3 olmoe qwen36; do
+      for engine in colibri glm53 inkling kimi_k3 olmoe qwen36; do
         test -x "$out/lib/colibri/$engine"
       done
       test -f $out/lib/colibri/tools/iq3xxs_grid.json
