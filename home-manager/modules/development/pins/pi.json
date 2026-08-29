@@ -3,8 +3,8 @@
   "version": "0.84.4",
   "src": {
     "urlTemplate": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-{version}.tgz",
-    "hash": "sha256-dj2bSm+f7MwRZMwE98AcNG93DupfFuVvJ7j0HukQ4tA="
+    "hash": "sha256-rqwhf9iLAwcjm3bgsIPPb3x40b0cXVCq3rJOHhwIIj8="
   },
-  "npmDepsHash": "sha256-6yfPLxA/64CvH38CJ+GcVtYciS+GgsSjDKOExxOB7PM=",
+  "npmDepsHash": "sha256-rSUYLw/RoIZ2f6gMwpSUdDqGECFUnm0KnNu/uCLYbpE=",
   "lockFile": "pi-package-lock.json"
 }
