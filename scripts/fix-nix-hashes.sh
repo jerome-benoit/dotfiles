@@ -6,9 +6,13 @@ PI_PIN_REL=$PIN_DIR_REL/pi.json
 OMP_PIN_REL=$PIN_DIR_REL/omp.json
 PRIME_PIN_REL=$PIN_DIR_REL/prime-agent.json
 PI_LOCK_REL=home-manager/modules/development/pi-package-lock.json
+OPENSPEC_MODULE_REL=home-manager/modules/development/openspec.nix
+FLAKE_LOCK_REL=flake.lock
 FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
 SCRIPT_REL=scripts/fix-nix-hashes.sh
+OPENSPEC_INPUT=openspec
+OPENSPEC_INSTALLABLE=.#homeConfigurations.almalinux.config.modules.development.openspec.package
 
 PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(pi|omp|prime-agent)\.json$/'
 PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"\s*,\s*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
@@ -180,9 +184,9 @@ validate_workflows() {
   validate_action_ref "$fix_nix" nixbuild/nix-quick-install-action
   validate_action_ref "$fix_node" actions/setup-node
 
-  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PI_PIN_REL" "$PRIME_PIN_REL" | LC_ALL=C sort)
+  expected_paths=$(printf '%s\n' "$FLAKE_LOCK_REL" "$OMP_PIN_REL" "$PI_PIN_REL" "$PRIME_PIN_REL" | LC_ALL=C sort)
   actual=$(sorted_workflow_paths "$fix" '.on.pull_request.paths[]')
-  [ "$actual" = "$expected_paths" ] || fail "fix workflow paths do not match the three pin manifests"
+  [ "$actual" = "$expected_paths" ] || fail "fix workflow paths do not match dependency inputs"
   [ "$(yq -r '.on.pull_request.branches[]' "$fix")" = main ] \
     || fail "fix workflow must target main"
   condition=$(yq -r '.jobs.fix-hashes.if' "$fix")
@@ -226,7 +230,8 @@ validate_workflows() {
 
   expected_paths=$(printf '%s\n' \
     flake.nix flake.lock 'home-manager/**' 'checks/**' constants.nix \
-    'patches/**' statix.toml "$CHECK_WORKFLOW_REL" "$FIX_WORKFLOW_REL" renovate.json "$SCRIPT_REL" \
+    'patches/**' statix.toml Makefile 'scripts/**' 'secrets/**' .sops.yaml .gitignore \
+    "$CHECK_WORKFLOW_REL" "$FIX_WORKFLOW_REL" renovate.json "$SCRIPT_REL" \
     | LC_ALL=C sort)
   for query in '.on.push.paths[]' '.on.pull_request.paths[]'; do
     actual=$(sorted_workflow_paths "$check" "$query")
@@ -341,6 +346,7 @@ validate_contract() {
   require_command renovate-config-validator
   require_command yq
   validate_pin_files "$root/$PI_PIN_REL" "$root/$OMP_PIN_REL" "$root/$PRIME_PIN_REL"
+  validate_openspec_module "$root/$OPENSPEC_MODULE_REL"
   validate_effective_contract "$root" "$effective"
   validate_workflows "$root"
   validate_renovate "$root"
@@ -364,6 +370,75 @@ path_changed_since() {
     status=$?
   fi
   [ "$status" -eq 1 ] || fail "cannot compare $path between $commit and HEAD"
+}
+lock_input_fingerprint() {
+  local input=$1
+  jq -c --arg input "$input" '
+    .nodes as $nodes
+    | (.nodes.root.inputs[$input] // null) as $node
+    | if ($node | type) == "string" then ($nodes[$node].locked // null) else null end
+  '
+}
+
+flake_input_changed_since() {
+  local commit=$1 input=$2 before after
+  before=$(git show "$commit:$FLAKE_LOCK_REL" | lock_input_fingerprint "$input") \
+    || fail "cannot read $input from $FLAKE_LOCK_REL at $commit"
+  after=$(lock_input_fingerprint "$input" < "$FLAKE_LOCK_REL") \
+    || fail "cannot read $input from $FLAKE_LOCK_REL at HEAD"
+  [ "$before" != "$after" ]
+}
+
+validate_openspec_module() {
+  local module=$1
+  [ "$(grep -Ec '^  pnpmDepsHash = "sha256-[A-Za-z0-9+/=]+";$' "$module")" -eq 1 ] \
+    || fail "OpenSpec module must contain exactly one literal pnpmDepsHash"
+}
+
+set_openspec_hash() {
+  local module=$1 hash=$2 output
+  [[ $hash =~ $HASH_PATTERN ]] || fail "invalid OpenSpec pnpm hash: $hash"
+  validate_openspec_module "$module"
+  output=$(mktemp)
+  sed -E 's|^  pnpmDepsHash = "sha256-[A-Za-z0-9+/=]+";|  pnpmDepsHash = "'"$hash"'";|' \
+    "$module" > "$output"
+  grep -Fqx '  pnpmDepsHash = "'"$hash"'";' "$output" \
+    || fail "cannot update OpenSpec pnpm hash"
+  mv "$output" "$module"
+}
+
+update_openspec() {
+  local module=$1 backup output hash matches
+  if output=$(nix build --no-link "$OPENSPEC_INSTALLABLE" 2>&1); then
+    echo "OpenSpec pnpm hash is current"
+    return
+  fi
+
+  matches=$(printf '%s\n' "$output" \
+    | sed -nE 's/^[[:space:]]*got:[[:space:]]*(sha256-[A-Za-z0-9+\/=]+)[[:space:]]*$/\1/p' \
+    | LC_ALL=C sort -u)
+  if [ "$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l)" -ne 1 ]; then
+    printf '%s\n' "$output" >&2
+    fail "OpenSpec build did not report exactly one dependency hash"
+  fi
+  hash=$matches
+  [[ $hash =~ $HASH_PATTERN ]] || {
+    printf '%s\n' "$output" >&2
+    fail "OpenSpec build reported an invalid dependency hash"
+  }
+
+  backup=$(mktemp)
+  cp "$module" "$backup"
+  trap 'cp "$backup" "$module"; rm -f "$backup"' EXIT
+  set_openspec_hash "$module" "$hash"
+  if ! output=$(nix build --no-link "$OPENSPEC_INSTALLABLE" 2>&1); then
+    printf '%s\n' "$output" >&2
+    fail "OpenSpec package does not build with the refreshed dependency hash"
+  fi
+
+  trap - EXIT
+  rm -f "$backup"
+  printf 'Updated OpenSpec pnpm hash to %s\n' "$hash"
 }
 
 update_pi() {
@@ -477,7 +552,8 @@ update_prime_agent() {
 }
 
 update_contract() {
-  local base=$1 root work merge_base pi_changed=false omp_changed=false prime_changed=false
+  local base=$1 root work merge_base
+  local pi_changed=false omp_changed=false prime_changed=false openspec_changed=false
   root=$(git rev-parse --show-toplevel)
   cd "$root"
   require_command jq
@@ -486,6 +562,7 @@ update_contract() {
   merge_base=$(git merge-base "$base" HEAD) \
     || fail "cannot determine merge base between $base and HEAD"
   validate_pin_files "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL"
+  validate_openspec_module "$OPENSPEC_MODULE_REL"
 
   if path_changed_since "$merge_base" "$PI_PIN_REL"; then
     pi_changed=true
@@ -496,8 +573,12 @@ update_contract() {
   if path_changed_since "$merge_base" "$PRIME_PIN_REL"; then
     prime_changed=true
   fi
-  if ! $pi_changed && ! $omp_changed && ! $prime_changed; then
-    echo "No dependency pin changes detected"
+  if path_changed_since "$merge_base" "$FLAKE_LOCK_REL" \
+    && flake_input_changed_since "$merge_base" "$OPENSPEC_INPUT"; then
+    openspec_changed=true
+  fi
+  if ! $pi_changed && ! $omp_changed && ! $prime_changed && ! $openspec_changed; then
+    echo "No supported dependency changes detected"
     return
   fi
 
@@ -511,6 +592,7 @@ update_contract() {
   $omp_changed && update_omp "$work/omp.json"
   $prime_changed && update_prime_agent "$work/prime-agent.json"
   validate_pin_files "$work/pi.json" "$work/omp.json" "$work/prime-agent.json"
+  $openspec_changed && update_openspec "$OPENSPEC_MODULE_REL"
 
   $pi_changed && cp "$work/pi.json" "$PI_PIN_REL"
   if $pi_changed; then
@@ -522,7 +604,7 @@ update_contract() {
 
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git add "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL" "$PI_LOCK_REL"
+  git add "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL" "$PI_LOCK_REL" "$OPENSPEC_MODULE_REL"
   if ! git diff --cached --quiet; then
     git commit -m "fix: update nix hashes for version bump"
   fi

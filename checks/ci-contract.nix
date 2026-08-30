@@ -362,6 +362,17 @@ let
           exit 1
           ;;
       esac
+    elif [ "$#" -eq 3 ] && [ "$1" = build ] && [ "$2" = --no-link ] \
+      && [ "$3" = ".#homeConfigurations.almalinux.config.modules.development.openspec.package" ]; then
+      refreshed=sha256-OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=
+      if grep -Fqx '  pnpmDepsHash = "'"$refreshed"'";' "$MOCK_OPENSPEC_MODULE"; then
+        exit
+      fi
+      printf '%s\n' \
+        'error: hash mismatch in fixed-output derivation' \
+        '  specified: sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS=' \
+        "       got: $refreshed" >&2
+      exit 1
     elif [ "$#" -eq 5 ] && [ "$1" = eval ] && [ "$2" = --impure ] && [ "$3" = --json ] && [ "$4" = --expr ]; then
       exec ${pkgs.nix}/bin/nix --extra-experimental-features nix-command "$@"
     elif [ "$#" -eq 7 ] && [ "$1" = hash ] && [ "$2" = convert ] \
@@ -566,6 +577,8 @@ pkgs.runCommandLocal "check-ci-contract"
     piPin=home-manager/modules/development/pins/pi.json
     ompPin=home-manager/modules/development/pins/omp.json
     primePin=home-manager/modules/development/pins/prime-agent.json
+    openspecModule=home-manager/modules/development/openspec.nix
+    flakeLock=flake.lock
     mkdir -p "$TMPDIR/pi-source/package"
     printf '%s\n' '{"name":"pi-contract-fixture"}' > "$TMPDIR/pi-source/package/package.json"
     tar czf "$TMPDIR/pi-source.tgz" -C "$TMPDIR/pi-source" package
@@ -604,6 +617,7 @@ pkgs.runCommandLocal "check-ci-contract"
     export MOCK_PRIME_TARBALL="$TMPDIR/prime-source.tgz"
     export PATH="${updateTestNix}/bin:${updateTestCurl}/bin:${updateTestNpm}/bin:$PATH"
     export MOCK_FLAKE_ROOT="$fixture"
+    export MOCK_OPENSPEC_MODULE="$fixture/$openspecModule"
 
     git switch --quiet -c main "$base"
     jq '.version = "9.9.10"' "$ompPin" > "$TMPDIR/base-omp.json"
@@ -694,6 +708,41 @@ pkgs.runCommandLocal "check-ci-contract"
         and .python["mcp-types"].version == "20.0.4"
         and .python["mcp-types"].hash == $mcpTypes
       ' "$primePin" >/dev/null
+    base=$(git rev-parse HEAD)
+    cp "$openspecModule" "$TMPDIR/openspec-before.nix"
+    jq '.nodes.nixpkgs.locked.lastModified += 1' "$flakeLock" > "$TMPDIR/flake.lock"
+    mv "$TMPDIR/flake.lock" "$flakeLock"
+    git add "$flakeLock"
+    git commit --quiet -m "renovate: bump unrelated flake input"
+    remoteBefore=$(remote_head)
+    bash ${self}/scripts/fix-nix-hashes.sh update "$base" > "$TMPDIR/unrelated-flake.log"
+    grep -Fqx "No supported dependency changes detected" "$TMPDIR/unrelated-flake.log"
+    test "$(git rev-list --count "$base"..HEAD)" -eq 1
+    cmp "$TMPDIR/openspec-before.nix" "$openspecModule"
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
+
+    base=$(git rev-parse HEAD)
+    jq '.nodes.openspec.locked.lastModified += 1' "$flakeLock" > "$TMPDIR/flake.lock"
+    mv "$TMPDIR/flake.lock" "$flakeLock"
+    git add "$flakeLock"
+    git commit --quiet -m "renovate: bump OpenSpec"
+    remoteBefore=$(remote_head)
+    bash ${self}/scripts/fix-nix-hashes.sh update "$base" > "$TMPDIR/openspec.log"
+    grep -Fqx \
+      "Updated OpenSpec pnpm hash to sha256-OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=" \
+      "$TMPDIR/openspec.log"
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
+    test "$(git rev-list --count "$base"..HEAD)" -eq 2
+    grep -Fqx \
+      '  pnpmDepsHash = "sha256-OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=";' \
+      "$openspecModule"
+    before=$(git rev-parse HEAD)
+    bash ${self}/scripts/fix-nix-hashes.sh update "$base" > "$TMPDIR/openspec-repeat.log"
+    grep -Fqx "OpenSpec pnpm hash is current" "$TMPDIR/openspec-repeat.log"
+    test "$(git rev-parse HEAD)" = "$before"
+    assert_tracked_clean
 
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.10"' "$primePin" > "$TMPDIR/prime-agent.json"
