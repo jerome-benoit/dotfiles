@@ -18,6 +18,24 @@ let
       match = builtins.match ''.*__version__ = "([^"]*)".*'' (builtins.readFile "${src}/c/version.py");
     in
     if match == null then "0" else builtins.head match;
+  # `coli web` serves this Vite bundle from lib/colibri/web/dist. Build it in a
+  # separate native derivation: the result is static and is therefore valid for
+  # every target platform, including cross builds.
+  colibriWeb = pkgs.buildPackages.buildNpmPackage {
+    pname = "colibri-web";
+    version = colibriVersion;
+    src = "${src}/web";
+    npmDeps = pkgs.buildPackages.importNpmLock { npmRoot = "${src}/web"; };
+    npmConfigHook = pkgs.buildPackages.importNpmLock.npmConfigHook;
+    npmBuildScript = "build";
+
+    installPhase = ''
+      runHook preInstall
+      install -d "$out"
+      cp -R dist/. "$out/"
+      runHook postInstall
+    '';
+  };
 
   # Runtime for the `coli` launcher and the offline converter/oracle tools.
   pythonEnv = pkgs.python3.withPackages (
@@ -120,10 +138,10 @@ let
     # Linux test_uring needs io_uring) — installCheckPhase validates packaging.
     doCheck = false;
 
-    # Offline check: all unconditional engines staged + the converter data asset
-    # present + the wrapper runs (`coli --version` exits before model loading) +
-    # the serve import surface resolves. Not versionCheckHook: our unstable
-    # package suffix never matches coli's output.
+    # Offline check: all unconditional engines, converter data, and dashboard
+    # assets are staged; the wrapper runs (`coli --version` exits before model
+    # loading); and the serve import surface resolves. Not versionCheckHook: our
+    # unstable package suffix never matches coli's output.
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
@@ -133,6 +151,7 @@ let
         test -x "$out/lib/colibri/$engine"
       done
       test -f $out/lib/colibri/tools/iq3xxs_grid.json
+      test -f $out/lib/colibri/web/dist/index.html
       $out/bin/coli --version
       PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python -c 'import openai_server'
       runHook postInstallCheck
@@ -146,6 +165,8 @@ let
       # installation on future pins, and only stage the source asset as fallback.
       [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
         install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
+      install -d "$out/lib/colibri/web/dist"
+      cp -R ${colibriWeb}/. "$out/lib/colibri/web/dist/"
       mv $out/bin/coli $out/lib/colibri/coli
       ln -s ../lib/colibri/colibri $out/bin/glm
       makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
