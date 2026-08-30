@@ -12,6 +12,7 @@ FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
 SCRIPT_REL=scripts/fix-nix-hashes.sh
 OPENSPEC_INPUT=openspec
+NIXPKGS_INPUT=nixpkgs
 OPENSPEC_INSTALLABLE=.#homeConfigurations.almalinux.config.modules.development.openspec.package
 
 PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(pi|omp|prime-agent)\.json$/'
@@ -375,7 +376,8 @@ lock_input_fingerprint() {
   local input=$1
   jq -c --arg input "$input" '
     .nodes as $nodes
-    | (.nodes.root.inputs[$input] // null) as $node
+    | .root as $root
+    | ($nodes[$root].inputs[$input] // null) as $node
     | if ($node | type) == "string" then ($nodes[$node].locked // null) else null end
   '
 }
@@ -574,7 +576,8 @@ update_contract() {
     prime_changed=true
   fi
   if path_changed_since "$merge_base" "$FLAKE_LOCK_REL" \
-    && flake_input_changed_since "$merge_base" "$OPENSPEC_INPUT"; then
+    && { flake_input_changed_since "$merge_base" "$OPENSPEC_INPUT" \
+      || flake_input_changed_since "$merge_base" "$NIXPKGS_INPUT"; }; then
     openspec_changed=true
   fi
   if ! $pi_changed && ! $omp_changed && ! $prime_changed && ! $openspec_changed; then

@@ -364,7 +364,7 @@ let
       esac
     elif [ "$#" -eq 3 ] && [ "$1" = build ] && [ "$2" = --no-link ] \
       && [ "$3" = ".#homeConfigurations.almalinux.config.modules.development.openspec.package" ]; then
-      refreshed=sha256-OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=
+      refreshed=''${MOCK_OPENSPEC_REFRESHED_HASH:-sha256-OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO=}
       if grep -Fqx '  pnpmDepsHash = "'"$refreshed"'";' "$MOCK_OPENSPEC_MODULE"; then
         exit
       fi
@@ -512,6 +512,9 @@ pkgs.runCommandLocal "check-ci-contract"
     cp -R ${self} "$fixture"
     chmod -R u+w "$fixture"
     cd "$fixture"
+    jq '.root as $root | .nodes["fixture-root"] = .nodes[$root] | del(.nodes[$root]) | .root = "fixture-root"' \
+      flake.lock > "$TMPDIR/flake.lock"
+    mv "$TMPDIR/flake.lock" flake.lock
     git init --quiet --initial-branch=renovate/ci-contract
     git config user.name "ci-contract"
     git config user.email "ci-contract@example.invalid"
@@ -579,6 +582,15 @@ pkgs.runCommandLocal "check-ci-contract"
     primePin=home-manager/modules/development/pins/prime-agent.json
     openspecModule=home-manager/modules/development/openspec.nix
     flakeLock=flake.lock
+    bump_flake_input() {
+      local input=$1 output=$2
+      jq --arg input "$input" '
+        .nodes as $nodes
+        | .root as $root
+        | $nodes[$root].inputs[$input] as $node
+        | .nodes[$node].locked.lastModified += 1
+      ' "$flakeLock" > "$output"
+    }
     mkdir -p "$TMPDIR/pi-source/package"
     printf '%s\n' '{"name":"pi-contract-fixture"}' > "$TMPDIR/pi-source/package/package.json"
     tar czf "$TMPDIR/pi-source.tgz" -C "$TMPDIR/pi-source" package
@@ -710,7 +722,7 @@ pkgs.runCommandLocal "check-ci-contract"
       ' "$primePin" >/dev/null
     base=$(git rev-parse HEAD)
     cp "$openspecModule" "$TMPDIR/openspec-before.nix"
-    jq '.nodes.nixpkgs.locked.lastModified += 1' "$flakeLock" > "$TMPDIR/flake.lock"
+    bump_flake_input sops-nix "$TMPDIR/flake.lock"
     mv "$TMPDIR/flake.lock" "$flakeLock"
     git add "$flakeLock"
     git commit --quiet -m "renovate: bump unrelated flake input"
@@ -723,7 +735,7 @@ pkgs.runCommandLocal "check-ci-contract"
     push_fixture_head
 
     base=$(git rev-parse HEAD)
-    jq '.nodes.openspec.locked.lastModified += 1' "$flakeLock" > "$TMPDIR/flake.lock"
+    bump_flake_input openspec "$TMPDIR/flake.lock"
     mv "$TMPDIR/flake.lock" "$flakeLock"
     git add "$flakeLock"
     git commit --quiet -m "renovate: bump OpenSpec"
@@ -743,6 +755,23 @@ pkgs.runCommandLocal "check-ci-contract"
     grep -Fqx "OpenSpec pnpm hash is current" "$TMPDIR/openspec-repeat.log"
     test "$(git rev-parse HEAD)" = "$before"
     assert_tracked_clean
+    base=$(git rev-parse HEAD)
+    bump_flake_input nixpkgs "$TMPDIR/flake.lock"
+    mv "$TMPDIR/flake.lock" "$flakeLock"
+    git add "$flakeLock"
+    git commit --quiet -m "renovate: bump nixpkgs"
+    remoteBefore=$(remote_head)
+    MOCK_OPENSPEC_REFRESHED_HASH=sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN= \
+      bash ${self}/scripts/fix-nix-hashes.sh update "$base" > "$TMPDIR/nixpkgs.log"
+    grep -Fqx \
+      "Updated OpenSpec pnpm hash to sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN=" \
+      "$TMPDIR/nixpkgs.log"
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
+    test "$(git rev-list --count "$base"..HEAD)" -eq 2
+    grep -Fqx \
+      '  pnpmDepsHash = "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN=";' \
+      "$openspecModule"
 
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.10"' "$primePin" > "$TMPDIR/prime-agent.json"
