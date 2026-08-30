@@ -138,6 +138,7 @@ in
       pkgs.nixd
       pkgs.nixfmt
       pkgs.obsidian
+      pkgs.rtk
       pkgs.yazi
     ]
     ++ lib.optionals (isDesktop && cfg.antigravitySupported) [
