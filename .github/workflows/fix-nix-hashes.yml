@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "flake.lock"
       - "home-manager/modules/development/pins/pi.json"
       - "home-manager/modules/development/pins/omp.json"
       - "home-manager/modules/development/pins/prime-agent.json"
