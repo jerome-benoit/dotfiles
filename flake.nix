@@ -124,8 +124,7 @@
         });
 
       localOverlays = [
-        # nix-openclaw pnpm_11 shadows nixpkgs.pnpm_11 (openclaw/nix-openclaw#116).
-        (final: prev: removeAttrs (inputs.nix-openclaw.overlays.default final prev) [ "pnpm_11" ])
+        inputs.nix-openclaw.overlays.default
         (
           final: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
