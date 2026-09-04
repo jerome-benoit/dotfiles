@@ -14,23 +14,10 @@ let
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
   configDir = serviceCfg.hermesHome;
 
-  hermesInputs = inputs.hermes-agent.inputs // {
-    self = inputs.hermes-agent;
-  };
-  hermesPackageModule = import "${inputs.hermes-agent}/nix/packages.nix" {
-    inputs = hermesInputs;
-  };
   hermesModuleCommon = import "${inputs.hermes-agent}/nix/moduleCommon.nix" {
     inherit lib;
   };
-  hermesPackages = hermesPackageModule.perSystem {
-    inherit lib pkgs;
-    inputs' = {
-      npm-lockfile-fix.packages.default =
-        inputs.hermes-agent.inputs.npm-lockfile-fix.packages.${system}.default;
-    };
-  };
-  baseHermesAgentPackage = hermesPackages.packages.default;
+  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default;
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
@@ -86,13 +73,6 @@ let
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
   hermesDesktopPackage = effectiveHermesAgentPackage.hermesDesktop or null;
 
-  optionalPackages = config.modules.core.lib.mkOptionalPackages [
-    {
-      package = cfg.desktopPackage;
-      enabled = cfg.enableDesktop;
-      warning = "hermesAgent: desktopPackage not available for system ${system}";
-    }
-  ];
 in
 {
   options.modules.development.hermesAgent = {
@@ -142,9 +122,17 @@ in
       backend.mode = if cfg.enableDashboard then "dashboard" else "none";
     };
 
-    home = {
-      packages = optionalPackages.packages;
+    programs.hermes-agent = {
+      enable = true;
+    }
+    // lib.optionalAttrs (cfg.enableDesktop && cfg.desktopPackage != null) {
+      desktop = {
+        enable = true;
+        package = cfg.desktopPackage;
+      };
+    };
 
+    home = {
       # Keep .env linked to the current sops generation. The upstream module
       # copies environmentFiles before sops-nix refreshes them, which can
       # otherwise leave stale credentials until the next activation.
@@ -154,6 +142,8 @@ in
       '';
     };
 
-    warnings = optionalPackages.warnings;
+    warnings = lib.optional (
+      cfg.enableDesktop && cfg.desktopPackage == null
+    ) "hermesAgent: desktopPackage not available for system ${system}";
   };
 }
