@@ -207,8 +207,8 @@ in
     home = {
       file.".Brewfile" = lib.mkIf (isDesktop && isDarwin) {
         text = ''
-          tap "moltenbits/tap"
-          tap "jundot/omlx", "https://github.com/jundot/omlx"
+          tap "moltenbits/tap", trusted: true
+          tap "jundot/omlx", "https://github.com/jundot/omlx", trusted: true
           cask "chatgpt"
           cask "docker-desktop"
           cask "ferdium"
@@ -233,9 +233,6 @@ in
           fi
 
           if [[ -n "$_brew" ]]; then
-            "$_brew" trust --tap moltenbits/tap 2>/dev/null || true
-            "$_brew" trust --tap jundot/omlx 2>/dev/null || true
-
             verboseEcho "Installing Homebrew packages from Brewfile"
             run "$_brew" bundle install --global
             run "$_brew" bundle cleanup --global --force
