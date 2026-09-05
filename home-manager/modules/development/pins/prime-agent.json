@@ -11,20 +11,10 @@
       "urlTemplate": "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-{version}.tgz",
       "hash": "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8="
     },
-    "cmake-ts": {
-      "version": "1.0.2",
-      "urlTemplate": "https://registry.npmjs.org/cmake-ts/-/cmake-ts-{version}.tgz",
-      "hash": "sha256-tR/YtX/WjwF3/w7sUSI3Sm4DvBmOMZbtwNJcdx+ozac="
-    },
     "undici": {
       "version": "7.29.0",
       "urlTemplate": "https://registry.npmjs.org/undici/-/undici-{version}.tgz",
       "hash": "sha256-xtWGZuAjA6c8p3EjgweXN6Au1sMLg9JZOKPXNFCMIjs="
-    },
-    "zeromq": {
-      "version": "6.5.0",
-      "urlTemplate": "https://registry.npmjs.org/zeromq/-/zeromq-{version}.tgz",
-      "hash": "sha256-znAyvpACYYJ64RUVEtDBBrYisMdkzxGDvSQbatd+dMM="
     }
   },
   "python": {

@@ -148,8 +148,6 @@ let
       kernelRequirementPaths = map toString (builtins.attrValues primeAgentPackage.kernelRequirements);
       kernelEnvironmentPaths = map toString primeAgentPackage.kernelPython.paths;
       runtimeCopyCommands = [
-        ''cp -r ${primeRuntimeSources.zeromq} "$nm/zeromq"''
-        ''cp -r ${primeRuntimeSources.cmake-ts}/. "$nm/cmake-ts/"''
         ''cp -r ${primeRuntimeSources."@silvia-odwyer/photon-node"}/. "$nm/@silvia-odwyer/photon-node/"''
         ''cp -r ${primeRuntimeSources.undici}/. "$nm/undici/"''
       ];
@@ -157,10 +155,9 @@ let
         key:
         let
           installed = primeRuntimeSources.${key};
-          actual = if key == "zeromq" then installed.src else installed;
           expected = sources.primeAgent.npm.${key}.src;
         in
-        actual.url == expected.url && actual.outputHash == expected.hash;
+        installed.url == expected.url && installed.outputHash == expected.hash;
       pythonRuntimePackageValid =
         name:
         let
@@ -232,7 +229,6 @@ let
     && lib.assertMsg (
       builtins.attrNames primeRuntimeSources == builtins.attrNames sources.primeAgent.npm
       && builtins.all runtimeSourceValid (builtins.attrNames primeRuntimeSources)
-      && primeRuntimeSources.zeromq.version == sources.primeAgent.npm.zeromq.version
     ) (message "prime-agent.nix runtime source set differs from its pins")
     && lib.assertMsg (builtins.all (command: usesIn command primeAgentPackage.installPhase)
       runtimeCopyCommands
@@ -328,17 +324,11 @@ let
         file://*)
           hash=sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP=
           ;;
-        "https://registry.npmjs.org/cmake-ts/-/cmake-ts-10.0.2.tgz")
-          hash=sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
-          ;;
         "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-10.0.1.tgz")
           hash=sha256-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=
           ;;
         "https://registry.npmjs.org/undici/-/undici-10.0.3.tgz")
           hash=sha256-UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU=
-          ;;
-        "https://registry.npmjs.org/zeromq/-/zeromq-10.0.4.tgz")
-          hash=sha256-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ=
           ;;
         *)
           echo "unexpected unpacked prefetch URL:$5" >&2
@@ -420,9 +410,7 @@ let
       jq -n '{
         packages: {
           "node_modules/@silvia-odwyer/photon-node": { version: "10.0.1" },
-          "node_modules/cmake-ts": { version: "10.0.2" },
-          "node_modules/undici": { version: "10.0.3" },
-          "node_modules/zeromq": { version: "10.0.4" }
+          "node_modules/undici": { version: "10.0.3" }
         }
       }' > "$4"
     elif [ "$#" -eq 2 ] && [ "$1" = -sfSL ]; then
@@ -693,23 +681,17 @@ pkgs.runCommandLocal "check-ci-contract"
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     jq -e \
       --arg src sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP= \
-      --arg cmake sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC= \
       --arg photon sha256-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH= \
       --arg undici sha256-UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU= \
-      --arg zeromq sha256-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ= \
       --arg httpcore2 sha256-1111111111111111111111111111111111111111111= \
       --arg httpx2 sha256-2222222222222222222222222222222222222222222= \
       --arg mcp sha256-3333333333333333333333333333333333333333333= \
       --arg mcpTypes sha256-4444444444444444444444444444444444444444444= '
         .src.hash == $src
-        and .npm["cmake-ts"].version == "10.0.2"
-        and .npm["cmake-ts"].hash == $cmake
         and .npm["@silvia-odwyer/photon-node"].version == "10.0.1"
         and .npm["@silvia-odwyer/photon-node"].hash == $photon
         and .npm.undici.version == "10.0.3"
         and .npm.undici.hash == $undici
-        and .npm.zeromq.version == "10.0.4"
-        and .npm.zeromq.hash == $zeromq
         and .python.httpcore2.version == "20.0.1"
         and .python.httpcore2.url == "https://files.pythonhosted.org/mock/httpcore2-20.0.1-py3-none-any.whl"
         and .python.httpcore2.hash == $httpcore2

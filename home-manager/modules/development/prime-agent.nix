@@ -25,41 +25,9 @@ let
   src = pins.src;
 
   # Native/runtime deps external to the esbuild bundle, pinned with the Prime Agent release data.
-  zeromqVersion = pins.npm.zeromq.version;
-
-  zeromqSrc = pins.npm.zeromq.src;
-  # zeromq's load-addon.js requires cmake-ts/build/loader at runtime.
-  cmakeTsSrc = pins.npm.cmake-ts.src;
   photonSrc = pins.npm."@silvia-odwyer/photon-node".src;
   # cli-main dynamically imports undici, which is external to the esbuild bundle.
   undiciSrc = pins.npm.undici.src;
-
-  # zeromq ships prebuilt N-API addons for every platform; keep only the host os/arch and drop the musl
-  # variants (autoPatchelfHook can't resolve musl's libc on a glibc stdenv). Patched writable here so the
-  # consumer only copies a ready addon — isolates the ELF handling and keeps prime-agent a pure assembly.
-  zeromqAddon = stdenv.mkDerivation {
-    pname = "zeromq-node-addon";
-    version = zeromqVersion;
-    src = zeromqSrc;
-
-    nativeBuildInputs = lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
-    buildInputs = lib.optionals hp.isElf [ pkgs.stdenv.cc.cc.lib ];
-
-    strictDeps = true;
-    dontConfigure = true;
-    dontBuild = true;
-
-    installPhase = ''
-      runHook preInstall
-      mkdir -p $out
-      cp -r build lib package.json $out/
-      chmod -R u+w $out/build
-      find $out/build -mindepth 1 -maxdepth 1 -type d ! -name '${hp.node.platform}' -exec rm -rf {} +
-      find $out/build/${hp.node.platform} -mindepth 1 -maxdepth 1 -type d ! -name '${hp.node.arch}' -exec rm -rf {} +
-      find $out/build -type d -name 'musl-*-Release' -prune -exec rm -rf {} +
-      runHook postInstall
-    '';
-  };
 
   py = pkgs.python312;
   runtimeRoot = "${src}/dist/prime-agent-runtime";
@@ -191,9 +159,7 @@ let
             ;
           runtimeSources = {
             "@silvia-odwyer/photon-node" = photonSrc;
-            cmake-ts = cmakeTsSrc;
             undici = undiciSrc;
-            zeromq = zeromqAddon;
           };
         };
 
@@ -213,9 +179,7 @@ let
           cp package.json $out/lib/prime-agent/
 
           nm=$out/lib/prime-agent/node_modules
-          mkdir -p "$nm/cmake-ts" "$nm/@silvia-odwyer/photon-node" "$nm/undici"
-          cp -r ${zeromqAddon} "$nm/zeromq"
-          cp -r ${cmakeTsSrc}/. "$nm/cmake-ts/"
+          mkdir -p "$nm/@silvia-odwyer/photon-node" "$nm/undici"
           cp -r ${photonSrc}/. "$nm/@silvia-odwyer/photon-node/"
           cp -r ${undiciSrc}/. "$nm/undici/"
 
@@ -241,12 +205,11 @@ let
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
         # Exercise the real runtime plumbing versionCheckHook misses: load every external native dep
-        # (zeromq also validates cmake-ts + the ELF patch) and the kernel import surface.
+        # and the kernel import surface.
         preInstallCheck = ''
           (
             cd $out/lib/prime-agent
             ${lib.getExe pkgs.nodejs_22} -e '
-              require("zeromq");
               require("@silvia-odwyer/photon-node");
               require("undici");
             '
@@ -262,7 +225,6 @@ let
           inherit platforms;
           sourceProvenance = with lib.sourceTypes; [
             binaryBytecode
-            binaryNativeCode
           ];
         };
       };
