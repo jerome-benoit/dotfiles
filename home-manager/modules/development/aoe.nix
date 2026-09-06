@@ -10,19 +10,9 @@ let
   cfg = config.modules.development.aoe;
   system = pkgs.stdenv.hostPlatform.system;
 
-  aoePatches = [ ];
-
-  withAoePatches =
-    drv:
-    drv.overrideAttrs (previousAttrs: {
-      patches = (previousAttrs.patches or [ ]) ++ aoePatches;
-    });
-
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
-  baseAoePackage =
+  aoePackage =
     if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
-
-  aoePackage = if baseAoePackage != null then withAoePatches baseAoePackage else null;
 
   aoeConfig = ''
     [theme]

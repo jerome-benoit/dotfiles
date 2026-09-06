@@ -144,9 +144,6 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │   └── ssh/
 │       ├── id_rsa               # Encrypted SSH private key (sops binary format)
 │       └── id_rsa.pub           # SSH public key (plaintext)
-├── patches/                     # Upstream PR patches
-│   ├── opencode/                # Patches for anomalyco/opencode
-│   └── qmd/                     # Patches for tobi/qmd
 ├── checks/                      # Flake checks (8 files)
 │   ├── default.nix              # Check aggregator
 │   ├── ci-contract.nix          # Dependency and packaging contract checks

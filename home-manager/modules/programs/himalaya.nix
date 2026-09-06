@@ -84,11 +84,8 @@ in
 
     home.packages = [ pkgs.himalaya ];
 
-    # Workaround for nix-community/home-manager#9794: the current module emits
-    # v1 keys that Himalaya v2 silently ignores. Cut over atomically by enabling
-    # programs.himalaya and each active account's himalaya integration,
-    # moving cfg.settings to programs.himalaya.settings, then removing this
-    # writer and direct package installation.
+    # Home Manager still emits Himalaya v1 keys, which v2 silently ignores.
+    # Keep the direct v2 config until its module supports the new schema.
     xdg.configFile."himalaya/config.toml".source = himalayaConfig;
   };
 }

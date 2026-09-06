@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  self,
   inputs,
   ...
 }:
@@ -10,31 +9,19 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
 
-  opencodePatches = [
-    (self + "/patches/opencode/relax-bun-version-check.patch")
-  ];
-
-  withOpencodePatches =
-    drv:
-    drv.overrideAttrs (previousAttrs: {
-      patches = (previousAttrs.patches or [ ]) ++ opencodePatches;
-    });
-
   baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
 
   opencodePackage =
     if baseOpencodePackage != null then
-      withOpencodePatches (
-        baseOpencodePackage.overrideAttrs (previousAttrs: {
-          # Workaround for anomalyco/opencode#18447
-          postFixup =
-            (previousAttrs.postFixup or "")
-            + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              wrapProgram "$out/bin/opencode" \
-                --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
-            '';
-        })
-      )
+      baseOpencodePackage.overrideAttrs (previousAttrs: {
+        # Native Node modules require libstdc++ at runtime on Linux.
+        postFixup =
+          (previousAttrs.postFixup or "")
+          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            wrapProgram "$out/bin/opencode" \
+              --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+          '';
+      })
     else
       null;
 

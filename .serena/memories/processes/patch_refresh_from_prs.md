@@ -3,15 +3,14 @@
 ## Context
 
 Patches in `patches/<project>/*.patch` come from unmerged upstream PRs.
-Applied via `overrideAttrs` adding to `patches` list (see `opencode.nix`, `qmd.nix`).
+Apply them via `overrideAttrs` by extending the package's `patches` list.
 When the locked input advances, patch line offsets drift → must refresh.
 
 **Prerequisites**: Flake lock must be current (`nix flake update <input>` already done). If running both processes, run `hermes_agent_sync_main_patched` FIRST (it affects the lock).
 
 ## Current Patches
 
-- `patches/opencode/relax-bun-version-check.patch` — local, NOT from a PR (exempt from this process)
-- `patches/qmd/fix-nixos-llama-build.patch` — PR #574 (tobi/qmd), only `src/llm.ts`
+None.
 
 ## Process
 
@@ -46,11 +45,6 @@ The patch applies during `patchPhase` on the full `$src` fetched by nix. Keep hu
 
 **What to KEEP**: source, test, scripts, config files that affect compilation/bundling
 **What to STRIP**: docs/, CHANGELOG.md, flake.lock, flake.nix, .github/, README.md, metadata-only files
-
-Per-project specifics:
-
-- **opencode** (monorepo, `fetchFromGitHub` of full repo): keep `packages/opencode/**` hunks (src/, test/, scripts/, etc.). Strip root-level docs, CI, other workspace packages.
-- **qmd** (single package): keep `src/` hunks. Strip docs, CHANGELOG, flake.lock, flake.nix.
 
 ```bash
 # Note: filterdiff uses fnmatch(3) — '*' matches across '/' (unlike shell globs).
@@ -93,21 +87,9 @@ nix build --impure --expr '
       system = builtins.currentSystem;
       pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
       patchDir = /. + "${home}/.nix/patches";
-  in {
-    # Validates ALL patches apply together (including local/exempt ones).
-    # Only PR-sourced patches need refreshing; the full set is tested for coherence.
-    opencode = pkgs.applyPatches {
-      src = flake.inputs.opencode.packages.${system}.default.src;
-      patches = [
-        (patchDir + "/opencode/relax-bun-version-check.patch")
-      ];
-    };
-    qmd = pkgs.applyPatches {
-      src = flake.inputs.qmd.packages.${system}.default.src;
-      patches = [
-        (patchDir + "/qmd/fix-nixos-llama-build.patch")
-      ];
-    };
+  in pkgs.applyPatches {
+    src = flake.inputs.<input>.packages.${system}.default.src;
+    patches = [ (patchDir + "/<project>/<name>.patch") ];
   }'
 # Full build is only needed when:
 # - Conflict resolution changed patched code semantically (not just offsets)
