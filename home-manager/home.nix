@@ -61,6 +61,7 @@ in
       bun.enable = bunSupported && profileModules.development.bun;
       claudeCode.enable = bunSupported && profileModules.development.claudeCode;
       colibri.enable = profileModules.development.colibri;
+      cursorCli.enable = profileModules.development.cursorCli;
       gh.enable = profileModules.development.gh;
       git.enable = profileModules.development.git;
       herdr.enable = profileModules.development.herdr;
