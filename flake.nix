@@ -115,26 +115,11 @@
         nixpkgs.lib.mapAttrsToList (_: sys: sys.arch) constants.systems
       );
 
-      # Force LLD on darwin; cctools ld64 hardening SIGTRAPs at link (NixOS/nixpkgs#540054).
-      forceLld =
-        prev: drv:
-        drv.overrideAttrs (previousAttrs: {
-          nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [ prev.llvmPackages.lld ];
-          NIX_CFLAGS_LINK = (previousAttrs.NIX_CFLAGS_LINK or "") + " -fuse-ld=lld";
-        });
-
       localOverlays = [
         inputs.nix-openclaw.overlays.default
         (
-          final: prev:
+          _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-            whisper-cpp = forceLld prev prev.whisper-cpp;
-            qt6Packages = prev.qt6Packages.overrideScope (
-              _: qprev: {
-                qtkeychain = forceLld prev qprev.qtkeychain;
-              }
-            );
-            nheko = forceLld prev (prev.nheko.override { inherit (final) qt6Packages; });
             # agent tests break on hardcoded /tmp/crush-test in darwin's shared /tmp.
             crush = prev.crush.overrideAttrs (previousAttrs: {
               postPatch = (previousAttrs.postPatch or "") + ''
@@ -142,40 +127,8 @@
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
             });
-            # vscode ripgrep moved to node_modules.asar.unpacked (NixOS/nixpkgs#543825).
-            vscode = prev.vscode.overrideAttrs (previousAttrs: {
-              postPatch =
-                nixpkgs.lib.replaceStrings
-                  [ "Contents/Resources/app/node_modules/@vscode/ripgrep-universal" ]
-                  [ "Contents/Resources/app/node_modules.asar.unpacked/@vscode/ripgrep-universal" ]
-                  (previousAttrs.postPatch or "");
-            });
           }
         )
-        (_: prev: {
-          pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
-            (
-              _: pyprev:
-              (nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-                # retry/timeout tests break on wall-clock timing asserts on the darwin builder.
-                opentelemetry-exporter-otlp-proto-grpc =
-                  pyprev.opentelemetry-exporter-otlp-proto-grpc.overrideAttrs
-                    (previousAttrs: {
-                      disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
-                        "test_retry_info_is_respected"
-                        "test_timeout_set_correctly"
-                      ];
-                    });
-              })
-              // {
-                # langfuse 4.0.2 caps wrapt below 2, but its import check passes with wrapt 2.
-                langfuse = pyprev.langfuse.overridePythonAttrs (previousAttrs: {
-                  pythonRelaxDeps = (previousAttrs.pythonRelaxDeps or [ ]) ++ [ "wrapt" ];
-                });
-              }
-            )
-          ];
-        })
       ];
 
       mkPkgs =
