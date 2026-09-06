@@ -3,6 +3,7 @@
     ./agtx.nix
     ./aoe.nix
     ./bun.nix
+    ./ccusage.nix
     ./claude-code.nix
     ./colibri.nix
     ./cursor-cli.nix
