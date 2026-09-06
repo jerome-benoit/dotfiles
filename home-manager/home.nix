@@ -59,6 +59,7 @@ in
         enableWeb = profileModules.development.aoe.enableWeb;
       };
       bun.enable = bunSupported && profileModules.development.bun;
+      ccusage.enable = profileModules.development.ccusage;
       claudeCode.enable = bunSupported && profileModules.development.claudeCode;
       colibri.enable = profileModules.development.colibri;
       gh.enable = profileModules.development.gh;
