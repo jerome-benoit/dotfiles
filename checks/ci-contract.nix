@@ -588,7 +588,7 @@ pkgs.runCommandLocal "check-ci-contract"
     [project]
     name = "prime-agent-runtime"
     version = "0.1.0"
-    dependencies = ["ipykernel", "mcp>=2,<3", "nest-asyncio", "tyro"]
+    dependencies = ["mcp>=2,<3", "tyro"]
     EOF
     cat > "$TMPDIR/prime-source/package/dist/prime-agent-runtime/uv.lock" <<EOF
     version = 1

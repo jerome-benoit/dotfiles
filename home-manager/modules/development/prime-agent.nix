@@ -117,9 +117,7 @@ let
     src = runtimeRoot;
     build-system = [ py.pkgs.hatchling ];
     dependencies = [
-      py.pkgs.ipykernel
       mcp2
-      py.pkgs.nest-asyncio
       tyro
     ];
     doCheck = false;
@@ -214,7 +212,7 @@ let
               require("undici");
             '
           )
-          ${kernelPython}/bin/python3 -c 'import ipykernel, rlm; from mcp import ClientSession, StdioServerParameters; from mcp.client import streamable_http'
+          ${kernelPython}/bin/python3 -c 'import rlm; from mcp import ClientSession, StdioServerParameters; from mcp.client import streamable_http'
         '';
 
         meta = {
