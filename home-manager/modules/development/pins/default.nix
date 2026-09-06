@@ -19,9 +19,7 @@ let
   ];
   expectedPrimeNpmKeys = [
     "@silvia-odwyer/photon-node"
-    "cmake-ts"
     "undici"
-    "zeromq"
   ];
   expectedPrimePythonKeys = [
     "httpcore2"
