@@ -5,6 +5,7 @@
     ./bun.nix
     ./claude-code.nix
     ./colibri.nix
+    ./cursor-cli.nix
     ./gh.nix
     ./git.nix
     ./herdr.nix

@@ -29,6 +29,7 @@ let
       bun = true;
       claudeCode = true;
       colibri = true;
+      cursorCli = true;
       gh = true;
       git = true;
       herdr = true;
@@ -98,6 +99,7 @@ let
       bun = false;
       claudeCode = false;
       colibri = true;
+      cursorCli = false;
       gh = false;
       git = true;
       herdr = false;
