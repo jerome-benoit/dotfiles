@@ -38,8 +38,8 @@ in
         enable = true;
         inherit antigravitySupported crushSupported;
       };
-      specialisations.enable = true;
       profile.name = profile;
+      specialisations.enable = true;
     };
 
     shell = {
@@ -76,12 +76,12 @@ in
       };
       lazygit.enable = profileModules.development.lazygit;
       omp.enable = bunSupported && profileModules.development.omp;
+      openclaw.enable = profileModules.development.openclaw;
       opencode = {
         enable = bunSupported && profileModules.development.opencode.enable;
         enableDesktop = profileModules.development.opencode.enableDesktop;
       };
       openspec.enable = profileModules.development.openspec;
-      openclaw.enable = profileModules.development.openclaw;
       pi.enable = profileModules.development.pi;
       primeAgent.enable = profileModules.development.primeAgent;
       qmd.enable = bunSupported && profileModules.development.qmd;
@@ -94,9 +94,9 @@ in
       glow.enable = profileModules.programs.glow;
       himalaya.enable = profileModules.programs.himalaya;
       lazydocker.enable = profileModules.programs.lazydocker;
-      sway.enable = isSway && profileModules.programs.sway;
       ssh.enable = profileModules.programs.ssh;
       sshm.enable = profileModules.programs.sshm;
+      sway.enable = isSway && profileModules.programs.sway;
       syncthing.enable = pkgs.stdenv.hostPlatform.isDarwin && profileModules.programs.syncthing;
       tmux.enable = profileModules.programs.tmux;
       zellij.enable = profileModules.programs.zellij;

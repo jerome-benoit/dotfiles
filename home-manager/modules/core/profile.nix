@@ -42,11 +42,11 @@ let
       };
       lazygit = true;
       omp = true;
+      openclaw = false;
       opencode = {
         enable = true;
         enableDesktop = true;
       };
-      openclaw = false;
       openspec = true;
       pi = true;
       primeAgent = true;
@@ -60,9 +60,9 @@ let
       glow = true;
       himalaya = true;
       lazydocker = true;
-      sway = true;
       ssh = true;
       sshm = true;
+      sway = true;
       syncthing = true;
       tmux = true;
       zellij = true;
@@ -113,11 +113,11 @@ let
       };
       lazygit = true;
       omp = false;
+      openclaw = false;
       opencode = {
         enable = false;
         enableDesktop = false;
       };
-      openclaw = false;
       openspec = false;
       pi = false;
       primeAgent = false;
@@ -131,9 +131,9 @@ let
       glow = true;
       himalaya = false;
       lazydocker = true;
-      sway = false;
       ssh = true;
       sshm = true;
+      sway = false;
       syncthing = false;
       tmux = true;
       zellij = false;
