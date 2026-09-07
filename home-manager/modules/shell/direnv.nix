@@ -8,7 +8,6 @@
 let
   cfg = config.modules.shell.direnv;
   mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
-  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 in
 {
   options.modules.shell.direnv = {
@@ -18,10 +17,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.direnv = {
       enable = true;
-      # Nix can invalidate ad-hoc Mach-O signatures during Darwin check builds.
-      package = (mkPlatformPackage "direnv" { }).overrideAttrs (previousAttrs: {
-        doCheck = (previousAttrs.doCheck or true) && !isDarwin;
-      });
+      package = mkPlatformPackage "direnv" { };
       nix-direnv.enable = true;
       enableZshIntegration = false;
     };
