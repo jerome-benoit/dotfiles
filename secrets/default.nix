@@ -2,7 +2,12 @@
 # In pure eval (CI), $HOME is "" → falls back to placeholder values.
 let
   home = builtins.getEnv "HOME";
-  privateConfigFile = "${home}/.nix/secrets/private.dec.json";
+  managedPrivateConfigFile = builtins.getEnv "NIX_PRIVATE_CONFIG_FILE";
+  privateConfigFile =
+    if managedPrivateConfigFile != "" then
+      managedPrivateConfigFile
+    else
+      "${home}/.nix/secrets/private.dec.json";
   placeholder = {
     identity = {
       fullName = "ci-placeholder";
@@ -63,9 +68,9 @@ let
     };
   };
 in
-if home != "" && builtins.pathExists privateConfigFile then
+if (managedPrivateConfigFile != "" || home != "") && builtins.pathExists privateConfigFile then
   builtins.fromJSON (builtins.readFile privateConfigFile)
-else if home == "" then
+else if managedPrivateConfigFile == "" && home == "" then
   placeholder
 else
   builtins.abort "Private configuration not decrypted. Run 'make decrypt-private' first."

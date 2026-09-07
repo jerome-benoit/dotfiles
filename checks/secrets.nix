@@ -122,6 +122,31 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert killed_anchor_supervisor.group_anchor is None
     assert killed_anchor_supervisor.pgid is None
 
+    escaped_supervisor = module.ProcessSupervisor()
+    escaped_supervisor.process = mock.Mock(pid=12345, returncode=None)
+    escaped_supervisor.pgid = 12346
+    escaped_supervisor.anchor_exited = True
+    darwin_eperm = PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+    with mock.patch.object(
+        escaped_supervisor, "_process_exited", return_value=False
+    ), mock.patch.object(os, "killpg", side_effect=darwin_eperm), mock.patch.object(
+        os, "getpgid", return_value=12347
+    ), mock.patch.object(os, "kill") as kill:
+        escaped_supervisor._signal_all(signal.SIGTERM)
+    kill.assert_called_once_with(12345, signal.SIGTERM)
+
+    with mock.patch.object(
+        escaped_supervisor, "_process_exited", return_value=False
+    ), mock.patch.object(os, "killpg", side_effect=darwin_eperm), mock.patch.object(
+        os, "getpgid", return_value=escaped_supervisor.pgid
+    ):
+        try:
+            escaped_supervisor._signal_all(signal.SIGTERM)
+        except PermissionError as error:
+            assert error.errno == errno.EPERM
+        else:
+            raise AssertionError("EPERM was hidden for a leader in the anchored group")
+
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
     required_limit = 1088
     limit_available = (
@@ -428,19 +453,14 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
         secrets_directory = root / "secrets"
         secrets_directory.mkdir()
         cleanup_durability_manager = module.SecretsManager(root)
-        cleanup_durability_manager.lock_directory.mkdir()
-        cleanup_durability_manager.owns_lock = True
         plaintext = secrets_directory / "private.dec.json"
-        plaintext.write_text("decrypted")
-        cleanup_durability_manager.owned_plaintexts.add(plaintext)
-        temporary = cleanup_durability_manager.temporary("secret.tmp.")
         cleanup_sync_state = []
 
         def record_cleanup_sync():
             cleanup_sync_state.append(
                 (
                     plaintext.exists(),
-                    temporary.exists(),
+                    bool(list(secrets_directory.glob("secret.tmp.*"))),
                     cleanup_durability_manager.lock_directory.exists(),
                 )
             )
@@ -450,8 +470,16 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
             "sync_secrets_directory",
             side_effect=record_cleanup_sync,
         ):
+            cleanup_durability_manager.acquire_lock(recover=False)
+            plaintext.write_text("decrypted")
+            cleanup_durability_manager.owned_plaintexts.add(plaintext)
+            cleanup_durability_manager.temporary("secret.tmp.")
             cleanup_durability_manager.cleanup()
-        assert cleanup_sync_state == [(False, False, False)]
+        assert cleanup_sync_state == [
+            (False, False, True),
+            (False, False, True),
+            (False, False, False),
+        ]
 
     PY
 
@@ -487,13 +515,19 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     cp ${../Makefile} "$make_repo/Makefile"
     cat >"$make_bin/git" <<'EOF'
     #!${pkgs.bash}/bin/bash
+    [[ -z $GIT_CALLED ]] || touch "$GIT_CALLED"
     [[ $1 == rev-parse && $2 == --is-inside-work-tree ]]
     EOF
     cat >"$make_bin/nix" <<'EOF'
     #!${pkgs.bash}/bin/bash
+    [[ -z $NIX_CALLED ]] || touch "$NIX_CALLED"
     printf '%s\0' "$@" >"$ARGS_FILE"
     EOF
-    chmod +x "$make_bin/git" "$make_bin/nix"
+    cat >"$make_bin/python3" <<'EOF'
+    #!${pkgs.bash}/bin/bash
+    printf '%s\0' "$@" >"$CLEAN_ARGS"
+    EOF
+    chmod +x "$make_bin/git" "$make_bin/nix" "$make_bin/python3"
     ARGS_FILE="$make_args" PATH="$make_bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin" \
       ${pkgs.gnumake}/bin/make --no-print-directory -C "$make_repo" bootstrap
     MAKE_ARGS="$make_args" ${pkgs.python3}/bin/python <<'PY'
@@ -535,8 +569,26 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert b"NH_FLAKE=." in arguments
     assert all(os.environ["MAKE_REPO"].encode() not in argument for argument in arguments)
     PY
+    clean_args="$TMPDIR/clean-args"
+    git_called="$TMPDIR/clean-git-called"
+    nix_called="$TMPDIR/clean-nix-called"
+    CLEAN_ARGS="$clean_args" GIT_CALLED="$git_called" NIX_CALLED="$nix_called" \
+      PATH="$make_bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin" \
+      ${pkgs.gnumake}/bin/make --no-print-directory -C "$make_repo" clean
+    CLEAN_ARGS="$clean_args" ${pkgs.python3}/bin/python <<'PY'
+    import os
+    from pathlib import Path
 
-    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run true
+    arguments = Path(os.environ["CLEAN_ARGS"]).read_bytes().split(b"\0")[:-1]
+    assert arguments == [b"./scripts/secrets.py", b"clean"]
+    PY
+    test ! -e "$git_called"
+    test ! -e "$nix_called"
+
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run \
+      ${pkgs.python3}/bin/python -c \
+      'import os, sys; assert os.environ["NIX_PRIVATE_CONFIG_FILE"] == sys.argv[1]' \
+      "$private_config"
     assert_clean
 
     set +e

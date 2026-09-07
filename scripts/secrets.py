@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple, NoReturn
 
@@ -154,7 +154,11 @@ class ProcessSupervisor:
         finally:
             os.close(status_fd)
 
-    def _spawn(self, command: Sequence[str]) -> _SpawnedProcessGroup:
+    def _spawn(
+        self,
+        command: Sequence[str],
+        environment: Mapping[str, str] | None = None,
+    ) -> _SpawnedProcessGroup:
         anchor, anchor_control_fd, anchor_status_fd = self._spawn_anchor()
         try:
             lease_read_fd, lease_write_fd = os.pipe()
@@ -182,6 +186,7 @@ class ProcessSupervisor:
                 [sys.executable, "-c", gate, str(read_fd), *command],
                 process_group=anchor.pid,
                 pass_fds=(read_fd, lease_write_fd),
+                env=environment,
             )
         except BaseException:
             os.close(write_fd)
@@ -234,8 +239,16 @@ class ProcessSupervisor:
         except ProcessLookupError:
             return False
         except PermissionError:
-            if self._process_exited() and self._anchor_is_exited():
-                return False
+            if self._anchor_is_exited():
+                if self._process_exited():
+                    return False
+                assert self.process is not None
+                try:
+                    process_pgid = os.getpgid(self.process.pid)
+                except ProcessLookupError:
+                    return False
+                if process_pgid != self.pgid:
+                    return False
             raise
         return True
 
@@ -457,13 +470,17 @@ class ProcessSupervisor:
                 self.process.returncode = -os.WTERMSIG(status)
                 return self._normalize_status(self.process.returncode)
 
-    def run(self, command: Sequence[str]) -> int:
+    def run(
+        self,
+        command: Sequence[str],
+        environment: Mapping[str, str] | None = None,
+    ) -> int:
         previous_sigchld = signal.getsignal(signal.SIGCHLD)
         try:
             signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             self.launching = True
             try:
-                spawned = self._spawn(command)
+                spawned = self._spawn(command, environment)
                 self.process = spawned.process
                 self.group_anchor = spawned.anchor
                 self.pgid = spawned.anchor.pid
@@ -587,6 +604,7 @@ class SecretsManager:
                     EX_TEMPFAIL,
                 ) from error
             self.owns_lock = True
+            self.sync_secrets_directory()
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         if recover:
@@ -745,6 +763,13 @@ class SecretsManager:
             error = self._remove_paths(tuple(self.transaction_backups))
             cleanup_error = cleanup_error or error
 
+        if directory_sync_required:
+            try:
+                self.sync_secrets_directory()
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
+
+        lock_sync_required = self.owns_lock
         if self.owns_lock:
             try:
                 self.lock_directory.rmdir()
@@ -755,7 +780,7 @@ class SecretsManager:
             else:
                 self.owns_lock = False
 
-        if directory_sync_required:
+        if lock_sync_required:
             try:
                 self.sync_secrets_directory()
             except BaseException as error:
@@ -994,7 +1019,9 @@ class SecretsManager:
             self.private_config_encrypted, "private.dec.json.tmp."
         )
         self.publish_plaintext(temporary, self.private_config_plaintext)
-        return self.supervisor.run(command)
+        environment = os.environ.copy()
+        environment["NIX_PRIVATE_CONFIG_FILE"] = str(self.private_config_plaintext)
+        return self.supervisor.run(command, environment)
 
 
 def usage() -> NoReturn:

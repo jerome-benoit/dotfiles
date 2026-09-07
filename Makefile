@@ -1,5 +1,6 @@
 # SOPS Private Configuration and Credentials Management
 SECRETS := git rev-parse --is-inside-work-tree >/dev/null && nix run --inputs-from . nixpkgs\#python3 -- ./scripts/secrets.py
+CLEAN_SECRETS := if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then python3 ./scripts/secrets.py clean; else nix run nixpkgs\#python3 -- ./scripts/secrets.py clean; fi
 GPU_ENV := ./scripts/gpu-env.sh
 
 .PHONY: help decrypt decrypt-private encrypt edit-private edit-credentials encrypt-gpg bootstrap build switch clean
@@ -35,4 +36,4 @@ switch: ## Switch Home Manager with transient private configuration. Usage: make
 	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE=. nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
 
 clean: ## Remove decrypted private configuration, credentials, and temporary files
-	@$(SECRETS) clean
+	@$(CLEAN_SECRETS)
