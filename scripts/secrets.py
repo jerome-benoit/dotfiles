@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import os
@@ -30,6 +31,28 @@ HANDLED_SIGNALS = (
     signal.SIGQUIT,
     signal.SIGTERM,
 )
+
+
+def _pipe_above_standard() -> tuple[int, int]:
+    descriptors = list(os.pipe())
+    owned_descriptors = set(descriptors)
+    try:
+        for index, descriptor in enumerate(descriptors):
+            if descriptor > 2:
+                continue
+            replacement = fcntl.fcntl(descriptor, fcntl.F_DUPFD_CLOEXEC, 3)
+            owned_descriptors.add(replacement)
+            os.close(descriptor)
+            owned_descriptors.remove(descriptor)
+            descriptors[index] = replacement
+    except BaseException:
+        for descriptor in owned_descriptors:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise
+    return descriptors[0], descriptors[1]
 
 
 def _block_handled_signals() -> tuple[set[signal.Signals], BaseException | None]:
@@ -84,9 +107,9 @@ class ProcessSupervisor:
 
     @staticmethod
     def _spawn_anchor() -> tuple[subprocess.Popen[bytes], int, int]:
-        control_read_fd, control_write_fd = os.pipe()
+        control_read_fd, control_write_fd = _pipe_above_standard()
         try:
-            status_read_fd, status_write_fd = os.pipe()
+            status_read_fd, status_write_fd = _pipe_above_standard()
         except BaseException:
             os.close(control_read_fd)
             os.close(control_write_fd)
@@ -161,12 +184,12 @@ class ProcessSupervisor:
     ) -> _SpawnedProcessGroup:
         anchor, anchor_control_fd, anchor_status_fd = self._spawn_anchor()
         try:
-            lease_read_fd, lease_write_fd = os.pipe()
+            lease_read_fd, lease_write_fd = _pipe_above_standard()
         except BaseException:
             self._discard_anchor(anchor, anchor_control_fd, anchor_status_fd)
             raise
         try:
-            read_fd, write_fd = os.pipe()
+            read_fd, write_fd = _pipe_above_standard()
         except BaseException:
             os.close(lease_read_fd)
             os.close(lease_write_fd)
@@ -418,9 +441,13 @@ class ProcessSupervisor:
             self._finalize_group()
 
     def _give_terminal(self) -> None:
-        if not sys.stdin.isatty():
+        try:
+            if sys.stdin is None or not sys.stdin.isatty():
+                return
+            terminal_fd = sys.stdin.fileno()
+        except (OSError, ValueError):
             return
-        self.terminal_fd = sys.stdin.fileno()
+        self.terminal_fd = terminal_fd
         foreground_pgid = os.tcgetpgrp(self.terminal_fd)
         if foreground_pgid != os.getpgrp():
             raise SecretsError(

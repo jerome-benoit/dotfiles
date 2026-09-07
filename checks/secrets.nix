@@ -147,6 +147,43 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
         else:
             raise AssertionError("EPERM was hidden for a leader in the anchored group")
 
+    closed_descriptor_probe = (
+        "import errno,os,sys\n"
+        "descriptor=int(sys.argv[1])\n"
+        "try:\n"
+        "    os.fstat(descriptor)\n"
+        "except OSError as error:\n"
+        "    raise SystemExit(0 if error.errno == errno.EBADF else 1)\n"
+        "raise SystemExit(1)\n"
+    )
+    for closed_descriptor in range(3):
+        report_read_fd, report_write_fd = os.pipe()
+        probe_pid = os.fork()
+        if probe_pid == 0:
+            os.close(report_read_fd)
+            os.close(closed_descriptor)
+            signal.alarm(10)
+            try:
+                result = module.ProcessSupervisor().run(
+                    [
+                        sys.executable,
+                        "-c",
+                        closed_descriptor_probe,
+                        str(closed_descriptor),
+                    ]
+                )
+                os.write(report_write_fd, str(result).encode())
+            except BaseException:
+                os._exit(1)
+            os._exit(0)
+        os.close(report_write_fd)
+        report = os.read(report_read_fd, 16)
+        os.close(report_read_fd)
+        _, probe_status = os.waitpid(probe_pid, 0)
+        assert os.WIFEXITED(probe_status)
+        assert os.WEXITSTATUS(probe_status) == 0
+        assert report == b"0"
+
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
     required_limit = 1088
     limit_available = (
