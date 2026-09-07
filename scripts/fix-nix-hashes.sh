@@ -8,7 +8,6 @@ PRIME_PIN_REL=$PIN_DIR_REL/prime-agent.json
 PI_LOCK_REL=home-manager/modules/development/pi-package-lock.json
 FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
-SCRIPT_REL=scripts/fix-nix-hashes.sh
 
 PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(pi|omp|prime-agent)\.json$/'
 PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"\s*,\s*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
@@ -223,9 +222,10 @@ validate_workflows() {
   [ "$actual" = "$expected_paths" ] || fail "fix workflow push environment differs from its contract"
 
   expected_paths=$(printf '%s\n' \
-    flake.nix flake.lock 'home-manager/**' 'checks/**' constants.nix \
-    'patches/**' statix.toml Makefile 'scripts/**' 'secrets/**' .sops.yaml .gitignore \
-    "$CHECK_WORKFLOW_REL" "$FIX_WORKFLOW_REL" renovate.json "$SCRIPT_REL" \
+    flake.nix flake.lock constants.nix \
+    'home-manager/**' 'checks/**' 'patches/**' 'scripts/**' 'secrets/**' \
+    "$CHECK_WORKFLOW_REL" "$FIX_WORKFLOW_REL" \
+    .sops.yaml .gitignore Makefile renovate.json statix.toml \
     | LC_ALL=C sort)
   for query in '.on.push.paths[]' '.on.pull_request.paths[]'; do
     actual=$(sorted_workflow_paths "$check" "$query")
