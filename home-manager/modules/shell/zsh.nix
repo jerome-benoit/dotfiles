@@ -97,17 +97,27 @@ in
             local manager="$nix_dir/scripts/secrets.py"
             local gpu_env="$nix_dir/scripts/gpu-env.sh"
 
-            if [[ ! -f "$manager" ]]; then
-                echo "error: $manager not found" >&2
-                return 1
-            fi
-            if [[ ! -x "$gpu_env" ]]; then
-                echo "error: $gpu_env not found or not executable" >&2
-                return 1
-            fi
+            (
+                if ! builtin cd -- "$nix_dir"; then
+                    return 1
+                fi
+                if ! command git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                    echo "error: $nix_dir is not a Git checkout" >&2
+                    return 1
+                fi
+                if [[ ! -f "$manager" ]]; then
+                    echo "error: $manager not found" >&2
+                    return 1
+                fi
+                if [[ ! -x "$gpu_env" ]]; then
+                    echo "error: $gpu_env not found or not executable" >&2
+                    return 1
+                fi
 
-            "$gpu_env" nix run nixpkgs#python3 -- "$manager" run env NH_FLAKE="$nix_dir" \
-                nh home switch --impure -c "$(whoami)" "$@" -- --impure
+                "$gpu_env" nix run --inputs-from . nixpkgs#python3 -- \
+                    "$manager" run env NH_FLAKE=. \
+                    nh home switch --impure -c "$(whoami)" "$@" -- --impure
+            )
         }
 
         ${lib.optionalString (profileModules.development.opencode.enable && profileModules.programs.tmux) ''
