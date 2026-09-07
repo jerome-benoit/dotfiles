@@ -6,6 +6,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       pkgs.bash
       pkgs.coreutils
       pkgs.expect
+      pkgs.gnumake
       pkgs.python3
     ];
   }
@@ -122,21 +123,27 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert killed_anchor_supervisor.pgid is None
 
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    if soft_limit <= 1025:
-        assert hard_limit > 1025
-        resource.setrlimit(
-            resource.RLIMIT_NOFILE, (min(hard_limit, 2048), hard_limit)
-        )
-    held_fds = []
-    try:
-        while not held_fds or held_fds[-1] < 1024:
-            held_fds.append(os.open(os.devnull, os.O_RDONLY))
-        assert module.ProcessSupervisor().run(
-            [os.environ["BASH"], "-c", "exit 0"]
-        ) == 0
-    finally:
-        for fd in held_fds:
-            os.close(fd)
+    required_limit = 1088
+    limit_available = (
+        hard_limit == resource.RLIM_INFINITY or hard_limit >= required_limit
+    )
+    if limit_available:
+        if soft_limit != resource.RLIM_INFINITY and soft_limit < required_limit:
+            resource.setrlimit(
+                resource.RLIMIT_NOFILE, (required_limit, hard_limit)
+            )
+        held_fds = []
+        try:
+            while not held_fds or held_fds[-1] < 1024:
+                held_fds.append(os.open(os.devnull, os.O_RDONLY))
+            assert module.ProcessSupervisor().run(
+                [os.environ["BASH"], "-c", "exit 0"]
+            ) == 0
+        finally:
+            for fd in held_fds:
+                os.close(fd)
+    else:
+        print("skipping high-FD check: RLIMIT_NOFILE hard limit is below 1088")
 
     with module.tempfile.TemporaryDirectory() as directory:
         root = module.Path(directory)
@@ -378,6 +385,74 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
         assert credentials_backup.read_text() == "old-credentials"
         assert not transaction_manager.lock_directory.exists()
 
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        secrets_directory = root / "secrets"
+        secrets_directory.mkdir()
+        durability_manager = module.SecretsManager(root)
+        private_backup = durability_manager.temporary("private.enc.yaml.backup.")
+        credentials_backup = durability_manager.temporary(
+            "credentials.enc.yaml.backup."
+        )
+        private_backup.write_text("old-private")
+        credentials_backup.write_text("old-credentials")
+        sync_events = []
+
+        def record_file_sync(path):
+            sync_events.append(("file", path.name))
+
+        def record_directory_sync():
+            sync_events.append(
+                ("directory", durability_manager.transaction_journal.exists())
+            )
+
+        with mock.patch.object(
+            durability_manager, "sync_file", side_effect=record_file_sync
+        ), mock.patch.object(
+            durability_manager,
+            "sync_secrets_directory",
+            side_effect=record_directory_sync,
+        ):
+            durability_manager.write_encryption_journal(
+                private_backup, credentials_backup
+            )
+        assert sync_events == [
+            ("file", private_backup.name),
+            ("file", credentials_backup.name),
+            ("directory", False),
+            ("directory", True),
+        ]
+
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        secrets_directory = root / "secrets"
+        secrets_directory.mkdir()
+        cleanup_durability_manager = module.SecretsManager(root)
+        cleanup_durability_manager.lock_directory.mkdir()
+        cleanup_durability_manager.owns_lock = True
+        plaintext = secrets_directory / "private.dec.json"
+        plaintext.write_text("decrypted")
+        cleanup_durability_manager.owned_plaintexts.add(plaintext)
+        temporary = cleanup_durability_manager.temporary("secret.tmp.")
+        cleanup_sync_state = []
+
+        def record_cleanup_sync():
+            cleanup_sync_state.append(
+                (
+                    plaintext.exists(),
+                    temporary.exists(),
+                    cleanup_durability_manager.lock_directory.exists(),
+                )
+            )
+
+        with mock.patch.object(
+            cleanup_durability_manager,
+            "sync_secrets_directory",
+            side_effect=record_cleanup_sync,
+        ):
+            cleanup_durability_manager.cleanup()
+        assert cleanup_sync_state == [(False, False, False)]
+
     PY
 
 
@@ -394,6 +469,72 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       test ! -e "$journal"
       test "''${#artifacts[@]}" -eq 0
     }
+
+    wait_for_exit() {
+      local pid=$1
+      local attempts=$2
+      for _ in $(seq 1 "$attempts"); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.1
+      done
+      return 1
+    }
+
+    make_repo="$TMPDIR/"'make path "$(touch make-path-injected)" #?'
+    make_bin="$TMPDIR/make-bin"
+    make_args="$TMPDIR/make-args"
+    mkdir -p "$make_repo/scripts" "$make_bin"
+    cp ${../Makefile} "$make_repo/Makefile"
+    cat >"$make_bin/git" <<'EOF'
+    #!${pkgs.bash}/bin/bash
+    [[ $1 == rev-parse && $2 == --is-inside-work-tree ]]
+    EOF
+    cat >"$make_bin/nix" <<'EOF'
+    #!${pkgs.bash}/bin/bash
+    printf '%s\0' "$@" >"$ARGS_FILE"
+    EOF
+    chmod +x "$make_bin/git" "$make_bin/nix"
+    ARGS_FILE="$make_args" PATH="$make_bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin" \
+      ${pkgs.gnumake}/bin/make --no-print-directory -C "$make_repo" bootstrap
+    MAKE_ARGS="$make_args" ${pkgs.python3}/bin/python <<'PY'
+    import os
+    from pathlib import Path
+
+    arguments = Path(os.environ["MAKE_ARGS"]).read_bytes().split(b"\0")[:-1]
+    assert arguments == [
+        b"run",
+        b"--inputs-from",
+        b".",
+        b"nixpkgs#python3",
+        b"--",
+        b"./scripts/secrets.py",
+        b"run",
+        b"./scripts/gpu-env.sh",
+        b"nix",
+        b"run",
+        b"--inputs-from",
+        b".",
+        b"home-manager",
+        b"--",
+        b"switch",
+        b"--flake",
+        b".",
+        b"--impure",
+        b"-b",
+        b"backup",
+    ]
+    PY
+    test ! -e "$make_repo/make-path-injected"
+    ARGS_FILE="$make_args" PATH="$make_bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin" \
+      ${pkgs.gnumake}/bin/make --no-print-directory -C "$make_repo" build
+    MAKE_ARGS="$make_args" MAKE_REPO="$make_repo" ${pkgs.python3}/bin/python <<'PY'
+    import os
+    from pathlib import Path
+
+    arguments = Path(os.environ["MAKE_ARGS"]).read_bytes().split(b"\0")[:-1]
+    assert b"NH_FLAKE=." in arguments
+    assert all(os.environ["MAKE_REPO"].encode() not in argument for argument in arguments)
+    PY
 
     PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run true
     assert_clean
@@ -654,11 +795,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     done
 
     kill -TERM "$manager_pid"
-    for _ in $(seq 1 100); do
-      kill -0 "$manager_pid" 2>/dev/null || break
-      sleep 0.1
-    done
-    if kill -0 "$manager_pid" 2>/dev/null; then
+    if ! wait_for_exit "$manager_pid" 100; then
       kill -KILL "$manager_pid" 2>/dev/null || true
       wait "$manager_pid" 2>/dev/null || true
       echo "manager did not terminate within deadline" >&2
@@ -699,11 +836,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     done
     test -e "$repo/escaped-ready"
     kill -TERM "$manager_pid"
-    for _ in $(seq 1 30); do
-      kill -0 "$manager_pid" 2>/dev/null || break
-      sleep 0.1
-    done
-    if kill -0 "$manager_pid" 2>/dev/null; then
+    if ! wait_for_exit "$manager_pid" 30; then
       kill -KILL "$manager_pid" 2>/dev/null || true
       wait "$manager_pid" 2>/dev/null || true
       echo "manager did not terminate escaped child within deadline" >&2
@@ -734,8 +867,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       "$repo/closed-lease-writer" >/dev/null 2>&1
     assert_clean
 
-    hostile_release="$repo/hostile-lease-release"
-    mkfifo "$hostile_release"
     cat >"$repo/hostile-lease-child" <<EOF
     #!${pkgs.python3}/bin/python
     import os
@@ -743,13 +874,21 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     import stat
     from pathlib import Path
 
+    parent_ready_read, parent_ready_write = os.pipe()
     if os.fork() != 0:
-        os._exit(0)
+        os.close(parent_ready_write)
+        status = os.read(parent_ready_read, 1)
+        os.close(parent_ready_read)
+        os._exit(0 if status == b"1" else 1)
 
+    os.close(parent_ready_read)
     os.setpgid(0, 0)
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     lease_fds = []
     for fd in range(3, 256):
+        if fd == parent_ready_write:
+            continue
         try:
             if stat.S_ISFIFO(os.fstat(fd).st_mode):
                 os.set_blocking(fd, False)
@@ -762,10 +901,11 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
             os.write(fd, b"x" * 4096)
         except OSError:
             pass
+    Path("$repo/hostile-lease-pid").write_text(str(os.getpid()))
     Path("$repo/hostile-lease-ready").touch()
-    with Path("$hostile_release").open("rb", buffering=0) as release:
-        if release.read(1) != b"1":
-            raise SystemExit(1)
+    os.write(parent_ready_write, b"1")
+    os.close(parent_ready_write)
+    signal.sigwait({signal.SIGUSR1})
     Path("$repo/hostile-lease-finished").touch()
     EOF
     chmod +x "$repo/hostile-lease-child"
@@ -775,15 +915,25 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       "$repo/hostile-lease-child" >/dev/null 2>&1
     hostile_status=$?
     set -e
-    test "$hostile_status" -eq 75
+    if [[ $hostile_status -ne 75 ]]; then
+      if [[ -e "$repo/hostile-lease-pid" ]]; then
+        kill -KILL "$(cat "$repo/hostile-lease-pid")" 2>/dev/null || true
+      fi
+      echo "hostile lease manager returned $hostile_status instead of 75" >&2
+      exit 1
+    fi
     test -e "$repo/hostile-lease-ready"
-    printf 1 >"$hostile_release"
+    hostile_pid=$(cat "$repo/hostile-lease-pid")
+    kill -USR1 "$hostile_pid"
     for _ in $(seq 1 30); do
       [[ -e "$repo/hostile-lease-finished" ]] && break
       sleep 0.1
     done
-    test -e "$repo/hostile-lease-finished"
-    rm "$hostile_release"
+    if [[ ! -e "$repo/hostile-lease-finished" ]]; then
+      kill -KILL "$hostile_pid" 2>/dev/null || true
+      echo "hostile lease child did not finish within deadline" >&2
+      exit 1
+    fi
     assert_clean
 
     cat >"$repo/int-child" <<EOF
@@ -802,10 +952,12 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       sleep 0.1
     done
     kill -INT "$manager_pid"
-    for _ in $(seq 1 30); do
-      kill -0 "$manager_pid" 2>/dev/null || break
-      sleep 0.1
-    done
+    if ! wait_for_exit "$manager_pid" 100; then
+      kill -KILL "$manager_pid" 2>/dev/null || true
+      wait "$manager_pid" 2>/dev/null || true
+      echo "SIGINT forwarding exceeded deadline" >&2
+      exit 1
+    fi
     test ! -e "$repo/unexpected-term"
     set +e
     wait "$manager_pid"
@@ -842,6 +994,14 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     manager_pid=$!
     IFS= read -r -t 10 <&9
     kill -QUIT "$manager_pid"
+    if ! wait_for_exit "$manager_pid" 100; then
+      kill -KILL "$manager_pid" 2>/dev/null || true
+      wait "$manager_pid" 2>/dev/null || true
+      exec 9>&-
+      rm "$quit_ready"
+      echo "SIGQUIT forwarding exceeded deadline" >&2
+      exit 1
+    fi
     set +e
     wait "$manager_pid"
     status=$?
@@ -872,11 +1032,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     done
     kill -TERM "$manager_pid"
     kill -TERM "$manager_pid"
-    for _ in $(seq 1 70); do
-      kill -0 "$manager_pid" 2>/dev/null || break
-      sleep 0.1
-    done
-    if kill -0 "$manager_pid" 2>/dev/null; then
+    if ! wait_for_exit "$manager_pid" 70; then
       kill -KILL "$manager_pid" 2>/dev/null || true
       wait "$manager_pid" 2>/dev/null || true
       echo "double-signal termination exceeded deadline" >&2

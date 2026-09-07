@@ -678,6 +678,10 @@ class SecretsManager:
         private_config_backup: Path,
         credentials_backup: Path,
     ) -> None:
+        backups = (private_config_backup, credentials_backup)
+        for backup in backups:
+            self.sync_file(backup)
+        self.sync_secrets_directory()
         journal_temporary = self.temporary(".secrets-transaction.json.tmp.")
         with journal_temporary.open("w") as journal:
             json.dump(
@@ -689,7 +693,6 @@ class SecretsManager:
             )
             journal.flush()
             os.fsync(journal.fileno())
-        backups = (private_config_backup, credentials_backup)
         self.transaction_backups.update(backups)
         journal_temporary.replace(self.transaction_journal)
         self.temporaries.discard(journal_temporary)
@@ -708,6 +711,9 @@ class SecretsManager:
 
     def cleanup(self) -> None:
         cleanup_error: BaseException | None = None
+        directory_sync_required = self.owns_lock or bool(
+            self.owned_plaintexts or self.temporaries or self.transaction_backups
+        )
         transaction_pending = False
         if self.owns_lock:
             try:
@@ -749,6 +755,11 @@ class SecretsManager:
             else:
                 self.owns_lock = False
 
+        if directory_sync_required:
+            try:
+                self.sync_secrets_directory()
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
         if cleanup_error is not None:
             raise cleanup_error
 
@@ -919,8 +930,6 @@ class SecretsManager:
         self.sync_file(credentials)
         shutil.copy2(self.private_config_encrypted, private_config_backup)
         shutil.copy2(self.credentials_encrypted, credentials_backup)
-        self.sync_file(private_config_backup)
-        self.sync_file(credentials_backup)
         self.write_encryption_journal(private_config_backup, credentials_backup)
 
         private_config.replace(self.private_config_encrypted)

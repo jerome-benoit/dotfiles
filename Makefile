@@ -1,5 +1,5 @@
 # SOPS Private Configuration and Credentials Management
-SECRETS := git -C "$(CURDIR)" rev-parse --is-inside-work-tree >/dev/null && nix run --inputs-from "$(CURDIR)" nixpkgs\#python3 -- "$(CURDIR)/scripts/secrets.py"
+SECRETS := git rev-parse --is-inside-work-tree >/dev/null && nix run --inputs-from . nixpkgs\#python3 -- ./scripts/secrets.py
 GPU_ENV := ./scripts/gpu-env.sh
 
 .PHONY: help decrypt decrypt-private encrypt edit-private edit-credentials encrypt-gpg bootstrap build switch clean
@@ -26,13 +26,13 @@ encrypt-gpg: ## (Re)create age-encrypted GPG keypair bundle for home-manager boo
 	@$(SECRETS) run ./scripts/encrypt-gpg-bundle.sh
 
 bootstrap: ## First-time setup with transient private configuration. Usage: make bootstrap SPEC=work
-	@$(SECRETS) run $(GPU_ENV) nix run --inputs-from "$(CURDIR)" home-manager -- switch --flake "$(CURDIR)" --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
+	@$(SECRETS) run $(GPU_ENV) nix run --inputs-from . home-manager -- switch --flake . --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
 
 build: ## Build Home Manager with transient private configuration (--impure required)
-	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE="$(CURDIR)" nh home build --impure -c "$$(whoami)" -- --impure
+	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE=. nh home build --impure -c "$$(whoami)" -- --impure
 
 switch: ## Switch Home Manager with transient private configuration. Usage: make switch SPEC=work
-	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE="$(CURDIR)" nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
+	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE=. nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
 
 clean: ## Remove decrypted private configuration, credentials, and temporary files
 	@$(SECRETS) clean
