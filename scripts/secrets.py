@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
 import signal
 import subprocess
@@ -30,6 +31,7 @@ class SecretsError(Exception):
 class ProcessSupervisor:
     def __init__(self) -> None:
         self.process: subprocess.Popen[bytes] | None = None
+        self.group_anchor: subprocess.Popen[bytes] | None = None
         self.pgid: int | None = None
         self.terminal_fd: int | None = None
         self.original_foreground_pgid: int | None = None
@@ -37,72 +39,107 @@ class ProcessSupervisor:
         self.launching = False
         self.pending_signal: int | None = None
         self.release_fd: int | None = None
-
-    def _leader_exited(self) -> bool:
-        if self.process is None or self.process.returncode is not None:
-            return True
-        try:
-            status = os.waitid(
-                os.P_PID,
-                self.process.pid,
-                os.WEXITED | os.WNOHANG | os.WNOWAIT,
-            )
-        except ChildProcessError:
-            return True
-        return status is not None
-
-    def _group_exists(self) -> bool:
-        if self.pgid is None:
-            return False
-        try:
-            os.killpg(self.pgid, 0)
-        except ProcessLookupError:
-            self.pgid = None
-            return False
-        except PermissionError:
-            return True
-        return True
-
-    def _signal_group(self, signum: int) -> bool:
-        pgid = self.pgid
-        if pgid is None:
-            return False
-        try:
-            os.killpg(pgid, signum)
-        except ProcessLookupError:
-            self.pgid = None
-            return False
-        except PermissionError as error:
-            if self.process is None or not self._leader_exited():
-                raise
-            self.pgid = None
-            try:
-                _, status = os.waitpid(self.process.pid, 0)
-            except ChildProcessError:
-                pass
-            else:
-                self.process.returncode = os.waitstatus_to_exitcode(status)
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
-                return False
-            raise error
-        return True
-
-    def forward(self, signum: int) -> None:
-        self.forwarded_signal = signum
-        self._signal_group(signum)
-
-    def defer_signal(self, signum: int) -> bool:
-        if not self.launching:
-            return False
-        if self.pending_signal is None:
-            self.pending_signal = signum
-        return True
+        self.anchor_control_fd: int | None = None
+        self.anchor_status_fd: int | None = None
+        self.group_lease_fd: int | None = None
+        self.anchor_exited = False
 
     @staticmethod
-    def _spawn(command: Sequence[str]) -> tuple[subprocess.Popen[bytes], int]:
-        read_fd, write_fd = os.pipe()
+    def _spawn_anchor() -> tuple[subprocess.Popen[bytes], int, int]:
+        control_read_fd, control_write_fd = os.pipe()
+        try:
+            status_read_fd, status_write_fd = os.pipe()
+        except BaseException:
+            os.close(control_read_fd)
+            os.close(control_write_fd)
+            raise
+        anchor_program = (
+            "import os,signal,sys\n"
+            "control_fd=int(sys.argv[1])\n"
+            "status_fd=int(sys.argv[2])\n"
+            "for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT):\n"
+            "    signal.signal(signum, signal.SIG_IGN)\n"
+            "os.write(status_fd, b'1')\n"
+            "try:\n"
+            "    os.read(control_fd, 1)\n"
+            "finally:\n"
+            "    os.killpg(os.getpgrp(), signal.SIGKILL)\n"
+        )
+        try:
+            anchor = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    anchor_program,
+                    str(control_read_fd),
+                    str(status_write_fd),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                process_group=0,
+                pass_fds=(control_read_fd, status_write_fd),
+            )
+        except BaseException:
+            os.close(control_write_fd)
+            os.close(status_read_fd)
+            raise
+        finally:
+            os.close(control_read_fd)
+            os.close(status_write_fd)
+
+        try:
+            if os.read(status_read_fd, 1) != b"1":
+                raise RuntimeError("process-group anchor failed to initialize")
+            os.set_blocking(status_read_fd, False)
+        except BaseException:
+            os.close(control_write_fd)
+            try:
+                anchor.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                anchor.kill()
+                anchor.wait()
+            os.close(status_read_fd)
+            raise
+        return anchor, control_write_fd, status_read_fd
+
+    @staticmethod
+    def _discard_anchor(
+        anchor: subprocess.Popen[bytes], control_fd: int, status_fd: int
+    ) -> None:
+        os.close(control_fd)
+        try:
+            anchor.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            anchor.kill()
+            anchor.wait()
+        finally:
+            os.close(status_fd)
+
+    def _spawn(
+        self, command: Sequence[str]
+    ) -> tuple[
+        subprocess.Popen[bytes],
+        int,
+        subprocess.Popen[bytes],
+        int,
+        int,
+        int,
+    ]:
+        anchor, anchor_control_fd, anchor_status_fd = self._spawn_anchor()
+        try:
+            lease_read_fd, lease_write_fd = os.pipe()
+        except BaseException:
+            self._discard_anchor(anchor, anchor_control_fd, anchor_status_fd)
+            raise
+        try:
+            read_fd, write_fd = os.pipe()
+        except BaseException:
+            os.close(lease_read_fd)
+            os.close(lease_write_fd)
+            self._discard_anchor(anchor, anchor_control_fd, anchor_status_fd)
+            raise
+
         gate = (
             "import os,sys;"
             "fd=int(sys.argv[1]);"
@@ -114,15 +151,193 @@ class ProcessSupervisor:
         try:
             process = subprocess.Popen(
                 [sys.executable, "-c", gate, str(read_fd), *command],
-                process_group=0,
-                pass_fds=(read_fd,),
+                process_group=anchor.pid,
+                pass_fds=(read_fd, lease_write_fd),
             )
         except BaseException:
             os.close(write_fd)
+            os.close(lease_read_fd)
+            self._discard_anchor(anchor, anchor_control_fd, anchor_status_fd)
             raise
         finally:
             os.close(read_fd)
-        return process, write_fd
+            os.close(lease_write_fd)
+        return (
+            process,
+            write_fd,
+            anchor,
+            anchor_control_fd,
+            anchor_status_fd,
+            lease_read_fd,
+        )
+
+    def _anchor_is_exited(self) -> bool:
+        if self.anchor_exited:
+            return True
+        if self.anchor_status_fd is None:
+            return False
+        try:
+            status = os.read(self.anchor_status_fd, 1)
+        except BlockingIOError:
+            return False
+        if status == b"":
+            self.anchor_exited = True
+        return self.anchor_exited
+
+    def _signal_group(self, signum: int) -> bool:
+        if self.pgid is None:
+            return False
+        try:
+            os.killpg(self.pgid, signum)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            command_exited = (
+                self.process is None or self.process.returncode is not None
+            )
+            if command_exited and self._anchor_is_exited():
+                return False
+            raise
+        return True
+
+    def _signal_escaped_process(self, signum: int) -> None:
+        if self.process is None or self.process.returncode is not None:
+            return
+        try:
+            process_pgid = os.getpgid(self.process.pid)
+        except ProcessLookupError:
+            return
+        if process_pgid == self.pgid:
+            return
+        try:
+            os.kill(self.process.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    def _signal_all(self, signum: int) -> None:
+        group_error: PermissionError | None = None
+        try:
+            self._signal_group(signum)
+        except PermissionError as error:
+            group_error = error
+        self._signal_escaped_process(signum)
+        if group_error is not None:
+            raise group_error
+
+    def forward(self, signum: int) -> None:
+        self.forwarded_signal = signum
+        self._signal_all(signum)
+
+    def defer_signal(self, signum: int) -> bool:
+        if not self.launching:
+            return False
+        if self.pending_signal is None:
+            self.pending_signal = signum
+        return True
+
+    def _wait_for_process(self, timeout: float) -> bool:
+        if self.process is None or self.process.returncode is not None:
+            return True
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False
+        return True
+
+    def _wait_for_group_drain(self, timeout: float) -> bool:
+        if self.group_lease_fd is None:
+            return True
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            readable, _, _ = select.select([self.group_lease_fd], [], [], remaining)
+            if not readable:
+                return False
+            if os.read(self.group_lease_fd, 4096) == b"":
+                return True
+            return False
+
+    def _wait_for_shutdown(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        if not self._wait_for_process(timeout):
+            return False
+        remaining = max(0.0, deadline - time.monotonic())
+        return self._wait_for_group_drain(remaining)
+
+    def _close_anchor_control(self) -> None:
+        if self.anchor_control_fd is None:
+            return
+        os.close(self.anchor_control_fd)
+        self.anchor_control_fd = None
+
+    def _close_group_lease(self) -> None:
+        if self.group_lease_fd is None:
+            return
+        os.close(self.group_lease_fd)
+        self.group_lease_fd = None
+
+    def _reap_process(self) -> None:
+        if self.process is None or self.process.returncode is not None:
+            return
+        try:
+            self.process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+
+    def _reap_anchor(self) -> None:
+        try:
+            if self.group_anchor is not None:
+                try:
+                    self.group_anchor.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.group_anchor.kill()
+                    self.group_anchor.wait()
+        finally:
+            if self.anchor_status_fd is not None:
+                os.close(self.anchor_status_fd)
+                self.anchor_status_fd = None
+            self.group_anchor = None
+            self.anchor_exited = False
+            self.pgid = None
+
+    def _finalize_group(self) -> None:
+        cleanup_error: BaseException | None = None
+        try:
+            self._signal_all(signal.SIGKILL)
+        except BaseException as error:
+            cleanup_error = error
+
+        try:
+            self._close_anchor_control()
+        except BaseException as error:
+            cleanup_error = cleanup_error or error
+        try:
+            self._reap_process()
+        except BaseException as error:
+            cleanup_error = cleanup_error or error
+        try:
+            if not self._wait_for_group_drain(1.0):
+                cleanup_error = cleanup_error or SecretsError(
+                    "command left a process that could not be terminated",
+                    EX_TEMPFAIL,
+                )
+        except BaseException as error:
+            cleanup_error = cleanup_error or error
+        finally:
+            try:
+                self._close_group_lease()
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
+        try:
+            self._reap_anchor()
+        except BaseException as error:
+            cleanup_error = cleanup_error or error
+
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def terminate(
         self, signum: int = signal.SIGTERM, *, already_forwarded: bool = False
@@ -130,33 +345,17 @@ class ProcessSupervisor:
         if self.process is None:
             return
 
-        # Keep an exited leader unreaped until initial group signaling is complete.
-        group_active = self._signal_group(signal.SIGCONT)
-        if group_active and not already_forwarded:
-            group_active = self._signal_group(signum)
-
-        def wait_for_group() -> bool:
-            deadline = time.monotonic() + SIGNAL_TIMEOUT_SECONDS
-            while time.monotonic() < deadline:
-                self.process.poll()
-                if not self._group_exists():
-                    return True
-                time.sleep(0.1)
-            return not self._group_exists()
-
-        stopped = not group_active or wait_for_group()
-        if not stopped and signum != signal.SIGTERM:
-            if self._signal_group(signal.SIGTERM):
-                stopped = wait_for_group()
-            else:
-                stopped = True
-        if not stopped:
-            self._signal_group(signal.SIGKILL)
         try:
-            self.process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait()
+            self._signal_all(signal.SIGCONT)
+            if not already_forwarded:
+                self._signal_all(signum)
+
+            stopped = self._wait_for_shutdown(SIGNAL_TIMEOUT_SECONDS)
+            if not stopped and signum != signal.SIGTERM:
+                self._signal_all(signal.SIGTERM)
+                self._wait_for_shutdown(SIGNAL_TIMEOUT_SECONDS)
+        finally:
+            self._finalize_group()
 
     def _give_terminal(self) -> None:
         if not sys.stdin.isatty():
@@ -196,13 +395,13 @@ class ProcessSupervisor:
             if os.WIFSTOPPED(status):
                 stop_signal = os.WSTOPSIG(status)
                 if self.terminal_fd is None:
-                    self._signal_group(signal.SIGCONT)
+                    self._signal_all(signal.SIGCONT)
                     self.terminate()
                     return 128 + stop_signal
                 self._restore_terminal()
                 os.killpg(os.getpgrp(), stop_signal)
                 self._give_terminal()
-                self._signal_group(signal.SIGCONT)
+                self._signal_all(signal.SIGCONT)
                 continue
             if os.WIFCONTINUED(status):
                 continue
@@ -214,13 +413,26 @@ class ProcessSupervisor:
                 return self._normalize_status(self.process.returncode)
 
     def run(self, command: Sequence[str]) -> int:
+        previous_sigchld = signal.getsignal(signal.SIGCHLD)
         try:
+            signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             self.launching = True
             try:
-                process, release_fd = self._spawn(command)
+                (
+                    process,
+                    release_fd,
+                    anchor,
+                    anchor_control_fd,
+                    anchor_status_fd,
+                    group_lease_fd,
+                ) = self._spawn(command)
                 self.process = process
-                self.pgid = process.pid
+                self.group_anchor = anchor
+                self.pgid = anchor.pid
                 self.release_fd = release_fd
+                self.anchor_control_fd = anchor_control_fd
+                self.anchor_status_fd = anchor_status_fd
+                self.group_lease_fd = group_lease_fd
             finally:
                 self.launching = False
 
@@ -235,8 +447,7 @@ class ProcessSupervisor:
             os.close(self.release_fd)
             self.release_fd = None
             status = self._wait()
-            if self._group_exists():
-                self.terminate()
+            self.terminate()
             return status
         except BaseException as error:
             if self.process is None and self.pending_signal is not None:
@@ -250,15 +461,28 @@ class ProcessSupervisor:
             )
             raise
         finally:
-            self.launching = False
-            self.pending_signal = None
-            if self.release_fd is not None:
-                os.close(self.release_fd)
-                self.release_fd = None
-            self._restore_terminal()
-            self.process = None
-            self.pgid = None
-            self.forwarded_signal = None
+            handled_signals = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+            previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
+            try:
+                self.launching = False
+                self.pending_signal = None
+                if self.release_fd is not None:
+                    os.close(self.release_fd)
+                    self.release_fd = None
+                self._close_anchor_control()
+                self._close_group_lease()
+                if self.anchor_status_fd is not None:
+                    os.close(self.anchor_status_fd)
+                    self.anchor_status_fd = None
+                self._restore_terminal()
+                self.process = None
+                self.group_anchor = None
+                self.anchor_exited = False
+                self.pgid = None
+                self.forwarded_signal = None
+                signal.signal(signal.SIGCHLD, previous_sigchld)
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 class SecretsManager:

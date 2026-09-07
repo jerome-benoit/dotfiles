@@ -95,7 +95,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     import os
     import signal
     import sys
-    import time
     from unittest import mock
 
     spec = importlib.util.spec_from_file_location("secrets_manager", os.environ["MANAGER"])
@@ -103,122 +102,82 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    def leader_exited(process):
-        return os.waitid(
-            os.P_PID,
-            process.pid,
-            os.WEXITED | os.WNOHANG | os.WNOWAIT,
-        ) is not None
-
     class DelayedSupervisor(module.ProcessSupervisor):
         def _spawn(self, command):
-            process, release_fd = super()._spawn(command)
+            result = super()._spawn(command)
             assert self.defer_signal(signal.SIGTERM)
-            return process, release_fd
+            return result
 
-        def forward(self, signum):
-            super().forward(signum)
-            assert self.process is not None
-            deadline = time.monotonic() + 5
-            while not leader_exited(self.process):
-                if time.monotonic() >= deadline:
-                    raise AssertionError("deferred signal did not terminate the child")
-                time.sleep(0.01)
+    class AnchorInvariantSupervisor(module.ProcessSupervisor):
+        def __init__(self):
+            super().__init__()
+            self.anchor_reaped = False
+            self.group_signals = []
 
-    class LinuxZombieSupervisor(DelayedSupervisor):
+        def _spawn(self, command):
+            result = super()._spawn(command)
+            process, _, anchor, _, _, _ = result
+            assert os.getpgid(anchor.pid) == anchor.pid
+            assert os.getpgid(process.pid) == anchor.pid
+            return result
+
         def _signal_group(self, signum):
-            if signum == signal.SIGCONT and self._leader_exited():
-                return True
+            assert not self.anchor_reaped
+            assert self.group_anchor is not None
+            assert self.group_anchor.returncode is None
+            self.group_signals.append(signum)
             return super()._signal_group(signum)
 
-        def _group_exists(self):
-            assert self.process is not None
-            if self.process.returncode is None and self._leader_exited():
-                raise AssertionError("exited leader was not reaped before group wait")
-            return super()._group_exists()
+        def _reap_anchor(self):
+            super()._reap_anchor()
+            self.anchor_reaped = True
 
-    def assert_deferred_signal(supervisor):
-        try:
-            supervisor.run(
-                [
-                    os.environ["BASH"],
-                    "-c",
-                    "trap 'exit 143' TERM; while :; do sleep 1; done",
-                ]
-            )
-        except SystemExit as error:
-            assert error.code == 143
-        else:
-            raise AssertionError("deferred launch signal did not terminate the child")
-        assert supervisor.process is None
-        assert supervisor.pgid is None
+    delayed_supervisor = DelayedSupervisor()
+    try:
+        delayed_supervisor.run(
+            [
+                os.environ["BASH"],
+                "-c",
+                "trap 'exit 143' TERM; while :; do sleep 1; done",
+            ]
+        )
+    except SystemExit as error:
+        assert error.code == 143
+    else:
+        raise AssertionError("deferred launch signal did not terminate the child")
+    assert delayed_supervisor.process is None
+    assert delayed_supervisor.group_anchor is None
+    assert delayed_supervisor.pgid is None
 
-    darwin_supervisor = DelayedSupervisor()
+    anchor_supervisor = AnchorInvariantSupervisor()
+    previous_sigchld = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+    try:
+        assert anchor_supervisor.run([os.environ["BASH"], "-c", "exit 0"]) == 0
+        assert signal.getsignal(signal.SIGCHLD) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGCHLD, previous_sigchld)
+    assert anchor_supervisor.anchor_reaped
+    assert anchor_supervisor.group_signals == [
+        signal.SIGCONT,
+        signal.SIGTERM,
+        signal.SIGKILL,
+    ]
+
+    killed_anchor_supervisor = module.ProcessSupervisor()
     original_killpg = os.killpg
 
-    def reject_exited_group(pgid, signum):
-        assert darwin_supervisor.process is not None
-        if signum == signal.SIGCONT:
-            assert darwin_supervisor.process.returncode is None
-            assert leader_exited(darwin_supervisor.process)
+    def emulate_darwin_zombie_group(pgid, signum):
+        if killed_anchor_supervisor._anchor_is_exited():
             raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
         return original_killpg(pgid, signum)
 
-    with mock.patch.object(os, "killpg", side_effect=reject_exited_group):
-        assert_deferred_signal(darwin_supervisor)
-
-    inaccessible_supervisor = DelayedSupervisor()
-
-    def reject_inaccessible_group(pgid, signum):
-        assert inaccessible_supervisor.process is not None
-        if signum == signal.SIGCONT:
-            assert inaccessible_supervisor.process.returncode is None
-            assert leader_exited(inaccessible_supervisor.process)
-            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
-        if signum == 0:
-            assert inaccessible_supervisor.process.returncode is not None
-            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
-        return original_killpg(pgid, signum)
-
-    with mock.patch.object(os, "killpg", side_effect=reject_inaccessible_group):
-        try:
-            assert_deferred_signal(inaccessible_supervisor)
-        except PermissionError:
-            pass
-        else:
-            raise AssertionError("inaccessible descendant was treated as terminated")
-    assert inaccessible_supervisor.process is None
-    assert inaccessible_supervisor.pgid is None
-
-    retired_supervisor = module.ProcessSupervisor()
-    process, release_fd = retired_supervisor._spawn(
-        [os.environ["BASH"], "-c", "exit 0"]
-    )
-    retired_supervisor.process = process
-    retired_supervisor.pgid = process.pid
-    os.write(release_fd, b"1")
-    os.close(release_fd)
-    deadline = time.monotonic() + 5
-    while not leader_exited(process):
-        if time.monotonic() >= deadline:
-            raise AssertionError("child did not exit")
-        time.sleep(0.01)
-    original_pgid = retired_supervisor.pgid
-
-    def reject_then_disappear(pgid, signum):
-        assert pgid == original_pgid
-        if signum == signal.SIGTERM:
-            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
-        if signum == 0:
-            raise ProcessLookupError(errno.ESRCH, os.strerror(errno.ESRCH))
-        raise AssertionError("retired process group was signaled")
-
-    with mock.patch.object(os, "killpg", side_effect=reject_then_disappear):
-        retired_supervisor.forward(signal.SIGTERM)
-        retired_supervisor.terminate(signal.SIGTERM, already_forwarded=True)
-    assert retired_supervisor.pgid is None
-
-    assert_deferred_signal(LinuxZombieSupervisor())
+    with mock.patch.object(os, "killpg", side_effect=emulate_darwin_zombie_group):
+        assert killed_anchor_supervisor.run(
+            [os.environ["BASH"], "-c", "kill -KILL 0"]
+        ) == 137
+    assert killed_anchor_supervisor.process is None
+    assert killed_anchor_supervisor.group_anchor is None
+    assert killed_anchor_supervisor.pgid is None
     PY
 
 
@@ -412,7 +371,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
 
     cat >"$repo/descendant" <<EOF
     #!${pkgs.bash}/bin/bash
-    trap 'touch "$repo/descendant-term-received"; exit 143' TERM
+    trap 'sleep 0.2; touch "$repo/descendant-term-received"; exit 143' TERM
     touch "$repo/descendant-ready"
     while :; do sleep 1; done
     EOF
@@ -420,7 +379,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
 
     cat >"$repo/child" <<EOF
     #!${pkgs.bash}/bin/bash
-    trap 'touch "$repo/child-term-received"; wait; exit 143' TERM
+    trap 'touch "$repo/child-term-received"; exit 143' TERM
     "$repo/descendant" &
     touch "$repo/child-ready"
     wait
@@ -474,10 +433,16 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     cat >"$repo/escaped-child" <<EOF
     #!${pkgs.python3}/bin/python
     import os
+    import signal
     import time
     from pathlib import Path
 
+    def handle_term(_signum, _frame):
+        Path("$repo/escaped-term-received").touch()
+        raise SystemExit(143)
+
     os.setpgid(0, os.getpgid(os.getppid()))
+    signal.signal(signal.SIGTERM, handle_term)
     Path("$repo/escaped-ready").touch()
     time.sleep(30)
     EOF
@@ -509,6 +474,56 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     term_elapsed_ms=$((($(date +%s%N) - term_started) / 1000000))
     test "$term_elapsed_ms" -lt 3000
     test "$status" -eq 143
+    test -e "$repo/escaped-term-received"
+    assert_clean
+
+    cat >"$repo/hostile-lease-child" <<EOF
+    #!${pkgs.python3}/bin/python
+    import os
+    import signal
+    import stat
+    import time
+    from pathlib import Path
+
+    if os.fork() != 0:
+        os._exit(0)
+
+    os.setpgid(0, 0)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    lease_fds = []
+    for fd in range(3, 256):
+        try:
+            if stat.S_ISFIFO(os.fstat(fd).st_mode):
+                os.set_blocking(fd, False)
+                lease_fds.append(fd)
+        except OSError:
+            pass
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        for fd in lease_fds:
+            try:
+                os.write(fd, b"x" * 4096)
+            except OSError:
+                pass
+        time.sleep(0.001)
+    Path("$repo/hostile-lease-finished").touch()
+    EOF
+    chmod +x "$repo/hostile-lease-child"
+
+    hostile_started=$(date +%s%N)
+    set +e
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run "$repo/hostile-lease-child" >/dev/null 2>&1
+    hostile_status=$?
+    set -e
+    hostile_elapsed_ms=$((($(date +%s%N) - hostile_started) / 1000000))
+    test "$hostile_status" -eq 75
+    test "$hostile_elapsed_ms" -lt 3000
+    for _ in $(seq 1 30); do
+      [[ -e "$repo/hostile-lease-finished" ]] && break
+      sleep 0.1
+    done
+    test -e "$repo/hostile-lease-finished"
     assert_clean
 
     cat >"$repo/int-child" <<EOF
