@@ -8,13 +8,14 @@ import os
 import select
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import NoReturn
+from typing import NamedTuple, NoReturn
 
 EX_USAGE = 64
 EX_NOINPUT = 66
@@ -22,12 +23,35 @@ EX_CANTCREAT = 73
 EX_TEMPFAIL = 75
 SIGNAL_TIMEOUT_SECONDS = 5.0
 ANCHOR_START_TIMEOUT_SECONDS = 5.0
+REAP_TIMEOUT_SECONDS = 1.0
+HANDLED_SIGNALS = (
+    signal.SIGHUP,
+    signal.SIGINT,
+    signal.SIGQUIT,
+    signal.SIGTERM,
+)
+
+
+def _block_handled_signals() -> tuple[set[signal.Signals], BaseException | None]:
+    try:
+        return signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS), None
+    except BaseException as error:
+        return signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS), error
 
 
 class SecretsError(Exception):
     def __init__(self, message: str, status: int) -> None:
         super().__init__(message)
         self.status = status
+
+
+class _SpawnedProcessGroup(NamedTuple):
+    process: subprocess.Popen[bytes]
+    release_fd: int
+    anchor: subprocess.Popen[bytes]
+    anchor_control_fd: int
+    anchor_status_fd: int
+    lease_fd: int
 
 
 class ProcessSupervisor:
@@ -123,23 +147,14 @@ class ProcessSupervisor:
     ) -> None:
         os.close(control_fd)
         try:
-            anchor.wait(timeout=1)
+            anchor.wait(timeout=REAP_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             anchor.kill()
-            anchor.wait(timeout=1)
+            anchor.wait(timeout=REAP_TIMEOUT_SECONDS)
         finally:
             os.close(status_fd)
 
-    def _spawn(
-        self, command: Sequence[str]
-    ) -> tuple[
-        subprocess.Popen[bytes],
-        int,
-        subprocess.Popen[bytes],
-        int,
-        int,
-        int,
-    ]:
+    def _spawn(self, command: Sequence[str]) -> _SpawnedProcessGroup:
         anchor, anchor_control_fd, anchor_status_fd = self._spawn_anchor()
         try:
             lease_read_fd, lease_write_fd = os.pipe()
@@ -176,13 +191,13 @@ class ProcessSupervisor:
         finally:
             os.close(read_fd)
             os.close(lease_write_fd)
-        return (
-            process,
-            write_fd,
-            anchor,
-            anchor_control_fd,
-            anchor_status_fd,
-            lease_read_fd,
+        return _SpawnedProcessGroup(
+            process=process,
+            release_fd=write_fd,
+            anchor=anchor,
+            anchor_control_fd=anchor_control_fd,
+            anchor_status_fd=anchor_status_fd,
+            lease_fd=lease_read_fd,
         )
 
     def _process_exited(self) -> bool:
@@ -268,14 +283,20 @@ class ProcessSupervisor:
             return False
         return True
 
-    def _wait_for_group_drain(self, timeout: float) -> bool:
+    def _wait_for_group_drain(
+        self, timeout: float, *, discard_data: bool = False
+    ) -> bool:
         if self.group_lease_fd is None:
             return True
-        if not self._wait_for_readable(self.group_lease_fd, timeout):
-            return False
-        if os.read(self.group_lease_fd, 4096) == b"":
-            return True
-        return False
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = max(0.0, deadline - time.monotonic())
+            if not self._wait_for_readable(self.group_lease_fd, remaining):
+                return False
+            if os.read(self.group_lease_fd, 4096) == b"":
+                return True
+            if not discard_data:
+                return False
 
     def _wait_for_shutdown(self, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
@@ -284,39 +305,45 @@ class ProcessSupervisor:
         remaining = max(0.0, deadline - time.monotonic())
         return self._wait_for_group_drain(remaining)
 
+    def _close_release(self) -> None:
+        if self.release_fd is None:
+            return
+        descriptor, self.release_fd = self.release_fd, None
+        os.close(descriptor)
+
     def _close_anchor_control(self) -> None:
         if self.anchor_control_fd is None:
             return
-        os.close(self.anchor_control_fd)
-        self.anchor_control_fd = None
+        descriptor, self.anchor_control_fd = self.anchor_control_fd, None
+        os.close(descriptor)
 
     def _close_group_lease(self) -> None:
         if self.group_lease_fd is None:
             return
-        os.close(self.group_lease_fd)
-        self.group_lease_fd = None
+        descriptor, self.group_lease_fd = self.group_lease_fd, None
+        os.close(descriptor)
 
     def _reap_process(self) -> None:
         if self.process is None or self.process.returncode is not None:
             return
         try:
-            self.process.wait(timeout=1)
+            self.process.wait(timeout=REAP_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             self.process.kill()
-            self.process.wait(timeout=1)
+            self.process.wait(timeout=REAP_TIMEOUT_SECONDS)
 
     def _reap_anchor(self) -> None:
         try:
             if self.group_anchor is not None:
                 try:
-                    self.group_anchor.wait(timeout=1)
+                    self.group_anchor.wait(timeout=REAP_TIMEOUT_SECONDS)
                 except subprocess.TimeoutExpired:
                     self.group_anchor.kill()
-                    self.group_anchor.wait(timeout=1)
+                    self.group_anchor.wait(timeout=REAP_TIMEOUT_SECONDS)
         finally:
             if self.anchor_status_fd is not None:
-                os.close(self.anchor_status_fd)
-                self.anchor_status_fd = None
+                descriptor, self.anchor_status_fd = self.anchor_status_fd, None
+                os.close(descriptor)
             self.group_anchor = None
             self.anchor_exited = False
             self.pgid = None
@@ -337,7 +364,9 @@ class ProcessSupervisor:
         except BaseException as error:
             cleanup_error = cleanup_error or error
         try:
-            if not self._wait_for_group_drain(1.0):
+            if not self._wait_for_group_drain(
+                REAP_TIMEOUT_SECONDS, discard_data=True
+            ):
                 cleanup_error = cleanup_error or SecretsError(
                     "command left a process that could not be terminated",
                     EX_TEMPFAIL,
@@ -413,8 +442,6 @@ class ProcessSupervisor:
             if os.WIFSTOPPED(status):
                 stop_signal = os.WSTOPSIG(status)
                 if self.terminal_fd is None:
-                    self._signal_all(signal.SIGCONT)
-                    self.terminate()
                     return 128 + stop_signal
                 self._restore_terminal()
                 os.killpg(os.getpgrp(), stop_signal)
@@ -436,21 +463,14 @@ class ProcessSupervisor:
             signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             self.launching = True
             try:
-                (
-                    process,
-                    release_fd,
-                    anchor,
-                    anchor_control_fd,
-                    anchor_status_fd,
-                    group_lease_fd,
-                ) = self._spawn(command)
-                self.process = process
-                self.group_anchor = anchor
-                self.pgid = anchor.pid
-                self.release_fd = release_fd
-                self.anchor_control_fd = anchor_control_fd
-                self.anchor_status_fd = anchor_status_fd
-                self.group_lease_fd = group_lease_fd
+                spawned = self._spawn(command)
+                self.process = spawned.process
+                self.group_anchor = spawned.anchor
+                self.pgid = spawned.anchor.pid
+                self.release_fd = spawned.release_fd
+                self.anchor_control_fd = spawned.anchor_control_fd
+                self.anchor_status_fd = spawned.anchor_status_fd
+                self.group_lease_fd = spawned.lease_fd
             finally:
                 self.launching = False
 
@@ -460,47 +480,82 @@ class ProcessSupervisor:
                 self.forward(pending_signal)
                 raise SystemExit(128 + pending_signal)
 
-            self._give_terminal()
-            os.write(self.release_fd, b"1")
-            os.close(self.release_fd)
-            self.release_fd = None
+            release_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
+            try:
+                self._give_terminal()
+                assert self.release_fd is not None
+                os.write(self.release_fd, b"1")
+                self._close_release()
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, release_mask)
             status = self._wait()
-            self.terminate()
-            return status
         except BaseException as error:
             if self.process is None and self.pending_signal is not None:
                 pending_signal = self.pending_signal
                 self.pending_signal = None
                 raise SystemExit(128 + pending_signal) from error
-            forwarded_signal = self.forwarded_signal
-            self.terminate(
-                forwarded_signal or signal.SIGTERM,
-                already_forwarded=forwarded_signal is not None,
-            )
             raise
         finally:
-            handled_signals = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
-            previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
+            previous_mask, deferred_error = _block_handled_signals()
+            cleanup_error: BaseException | None = None
             try:
+                if self.process is not None:
+                    forwarded_signal = self.forwarded_signal
+                    try:
+                        self.terminate(
+                            forwarded_signal or signal.SIGTERM,
+                            already_forwarded=forwarded_signal is not None,
+                        )
+                    except BaseException as error:
+                        cleanup_error = error
+
+                try:
+                    self._close_release()
+                except BaseException as error:
+                    cleanup_error = cleanup_error or error
+                try:
+                    self._close_anchor_control()
+                except BaseException as error:
+                    cleanup_error = cleanup_error or error
+                try:
+                    self._close_group_lease()
+                except BaseException as error:
+                    cleanup_error = cleanup_error or error
+                if self.anchor_status_fd is not None:
+                    descriptor, self.anchor_status_fd = self.anchor_status_fd, None
+                    try:
+                        os.close(descriptor)
+                    except BaseException as error:
+                        cleanup_error = cleanup_error or error
+                try:
+                    self._restore_terminal()
+                except BaseException as error:
+                    cleanup_error = cleanup_error or error
+                finally:
+                    self.terminal_fd = None
+                    self.original_foreground_pgid = None
+
                 self.launching = False
                 self.pending_signal = None
-                if self.release_fd is not None:
-                    os.close(self.release_fd)
-                    self.release_fd = None
-                self._close_anchor_control()
-                self._close_group_lease()
-                if self.anchor_status_fd is not None:
-                    os.close(self.anchor_status_fd)
-                    self.anchor_status_fd = None
-                self._restore_terminal()
                 self.process = None
                 self.group_anchor = None
                 self.anchor_exited = False
                 self.pgid = None
                 self.forwarded_signal = None
-                signal.signal(signal.SIGCHLD, previous_sigchld)
+                try:
+                    signal.signal(signal.SIGCHLD, previous_sigchld)
+                except BaseException as error:
+                    cleanup_error = cleanup_error or error
+
             finally:
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            if deferred_error is not None:
+                if cleanup_error is not None:
+                    raise deferred_error from cleanup_error
+                raise deferred_error
+            if cleanup_error is not None:
+                raise cleanup_error
+        return status
 
 
 class SecretsManager:
@@ -516,31 +571,85 @@ class SecretsManager:
         self.owns_lock = False
         self.temporaries: set[Path] = set()
         self.transaction_journal = self.secrets_directory / ".secrets-transaction.json"
+        self.transaction_backups: set[Path] = set()
         self.owned_plaintexts: set[Path] = set()
 
-    def acquire_lock(self) -> None:
+    def acquire_lock(self, *, recover: bool = True) -> None:
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
         try:
-            self.lock_directory.mkdir(mode=0o700)
-        except FileExistsError as error:
+            try:
+                self.lock_directory.mkdir(mode=0o700)
+            except FileExistsError as error:
+                raise SecretsError(
+                    "another secrets operation is active; remove stale lock "
+                    f"{self.lock_directory} only after verifying no operation is running",
+                    EX_TEMPFAIL,
+                ) from error
+            self.owns_lock = True
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        if recover:
+            self.recover_encryption_transaction()
+
+    def _transaction_pending(self) -> bool:
+        try:
+            self.transaction_journal.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError as error:
             raise SecretsError(
-                f"another secrets operation is active; remove stale lock {self.lock_directory} "
-                "only after verifying no operation is running",
-                EX_TEMPFAIL,
+                f"cannot inspect encryption transaction journal: {self.transaction_journal}",
+                EX_NOINPUT,
             ) from error
-        self.owns_lock = True
-        self.recover_encryption_transaction()
+        return True
+
+    def _encryption_backups(self) -> tuple[Path, Path]:
+        invalid_journal = SecretsError(
+            f"invalid encryption transaction journal: {self.transaction_journal}",
+            EX_NOINPUT,
+        )
+        try:
+            if not stat.S_ISREG(self.transaction_journal.lstat().st_mode):
+                raise invalid_journal
+            data = json.loads(self.transaction_journal.read_text())
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise invalid_journal from error
+
+        expected = {"private_config_backup", "credentials_backup"}
+        if not isinstance(data, dict) or set(data) != expected:
+            raise invalid_journal
+
+        backups = []
+        for key, prefix in (
+            ("private_config_backup", "private.enc.yaml.backup."),
+            ("credentials_backup", "credentials.enc.yaml.backup."),
+        ):
+            name = data[key]
+            if (
+                not isinstance(name, str)
+                or Path(name).name != name
+                or not name.startswith(prefix)
+                or len(name) == len(prefix)
+            ):
+                raise invalid_journal
+            path = self.secrets_directory / name
+            try:
+                if not stat.S_ISREG(path.lstat().st_mode):
+                    raise invalid_journal
+            except (OSError, ValueError) as error:
+                raise invalid_journal from error
+            backups.append(path)
+
+        if backups[0] == backups[1]:
+            raise invalid_journal
+        return backups[0], backups[1]
 
     def recover_encryption_transaction(self) -> None:
-        if not self.transaction_journal.exists():
+        if not self._transaction_pending():
             return
-        data = json.loads(self.transaction_journal.read_text())
-        private_config_backup = self.secrets_directory / data["private_config_backup"]
-        credentials_backup = self.secrets_directory / data["credentials_backup"]
-        if not private_config_backup.is_file() or not credentials_backup.is_file():
-            raise SecretsError(
-                f"incomplete encryption transaction journal: {self.transaction_journal}",
-                EX_NOINPUT,
-            )
+        private_config_backup, credentials_backup = self._encryption_backups()
+        backups = (private_config_backup, credentials_backup)
+        self.transaction_backups.update(backups)
 
         private_config_install = self.temporary("private.enc.yaml.restore.")
         credentials_install = self.temporary("credentials.enc.yaml.restore.")
@@ -555,11 +664,13 @@ class SecretsManager:
         self.sync_secrets_directory()
         self.transaction_journal.unlink()
         self.sync_secrets_directory()
-        private_config_backup.unlink()
-        credentials_backup.unlink()
-        self.temporaries.discard(private_config_backup)
-        self.temporaries.discard(credentials_backup)
+        cleanup_error = self._remove_paths(backups)
+        for backup in backups:
+            if not backup.exists():
+                self.transaction_backups.discard(backup)
         self.sync_secrets_directory()
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def write_encryption_journal(
         self,
@@ -577,28 +688,68 @@ class SecretsManager:
             )
             journal.flush()
             os.fsync(journal.fileno())
+        backups = (private_config_backup, credentials_backup)
+        self.transaction_backups.update(backups)
         journal_temporary.replace(self.transaction_journal)
         self.temporaries.discard(journal_temporary)
+        self.temporaries.difference_update(backups)
         self.sync_secrets_directory()
 
-    def cleanup(self) -> None:
-        try:
-            self.supervisor.terminate()
-            if self.owns_lock and self.transaction_journal.exists():
-                self.recover_encryption_transaction()
-        finally:
+    @staticmethod
+    def _remove_paths(paths: Iterable[Path]) -> BaseException | None:
+        cleanup_error: BaseException | None = None
+        for path in paths:
             try:
-                for path in self.temporaries:
-                    path.unlink(missing_ok=True)
-                for path in self.owned_plaintexts:
-                    path.unlink(missing_ok=True)
-            finally:
-                if self.owns_lock:
-                    try:
-                        self.lock_directory.rmdir()
-                    except FileNotFoundError:
-                        pass
-                    self.owns_lock = False
+                path.unlink(missing_ok=True)
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
+        return cleanup_error
+
+    def cleanup(self) -> None:
+        cleanup_error: BaseException | None = None
+        transaction_pending = False
+        if self.owns_lock:
+            try:
+                transaction_pending = self._transaction_pending()
+            except BaseException as error:
+                cleanup_error = error
+                transaction_pending = True
+            if transaction_pending and cleanup_error is None:
+                try:
+                    self.recover_encryption_transaction()
+                except BaseException as error:
+                    cleanup_error = error
+            try:
+                transaction_pending = self._transaction_pending()
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
+                transaction_pending = True
+
+        error = self._remove_paths(tuple(self.owned_plaintexts))
+        cleanup_error = cleanup_error or error
+        removable_temporaries = tuple(
+            path
+            for path in self.temporaries
+            if not transaction_pending or path not in self.transaction_backups
+        )
+        error = self._remove_paths(removable_temporaries)
+        cleanup_error = cleanup_error or error
+        if not transaction_pending:
+            error = self._remove_paths(tuple(self.transaction_backups))
+            cleanup_error = cleanup_error or error
+
+        if self.owns_lock:
+            try:
+                self.lock_directory.rmdir()
+            except FileNotFoundError:
+                self.owns_lock = False
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
+            else:
+                self.owns_lock = False
+
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def refuse_existing(self, path: Path) -> None:
         if path.exists() or path.is_symlink():
@@ -608,12 +759,33 @@ class SecretsManager:
             )
 
     def temporary(self, prefix: str) -> Path:
-        descriptor, name = tempfile.mkstemp(prefix=prefix, dir=self.secrets_directory)
-        os.close(descriptor)
-        path = Path(name)
-        path.chmod(0o600)
-        self.temporaries.add(path)
-        return path
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
+        descriptor: int | None = None
+        path: Path | None = None
+        try:
+            descriptor, name = tempfile.mkstemp(
+                prefix=prefix, dir=self.secrets_directory
+            )
+            path = Path(name)
+            os.fchmod(descriptor, 0o600)
+            os.close(descriptor)
+            descriptor = None
+            self.temporaries.add(path)
+            return path
+        except BaseException:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
     @staticmethod
     def sync_file(path: Path) -> None:
@@ -631,7 +803,17 @@ class SecretsManager:
             os.close(descriptor)
 
     def sops(self, *arguments: str) -> int:
-        return self.supervisor.run(["nix", "run", "nixpkgs#sops", "--", *arguments])
+        return self.supervisor.run(
+            [
+                "nix",
+                "run",
+                "--inputs-from",
+                str(self.root),
+                "nixpkgs#sops",
+                "--",
+                *arguments,
+            ]
+        )
 
     def decrypt_to_temporary(self, encrypted: Path, prefix: str) -> Path:
         output = self.temporary(prefix)
@@ -649,9 +831,26 @@ class SecretsManager:
         return output
 
     def publish_plaintext(self, temporary: Path, plaintext: Path) -> None:
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
         self.owned_plaintexts.add(plaintext)
-        temporary.replace(plaintext)
-        self.temporaries.discard(temporary)
+        published = False
+        try:
+            try:
+                os.link(temporary, plaintext, follow_symlinks=False)
+            except FileExistsError as error:
+                raise SecretsError(
+                    f"refusing to overwrite {plaintext}; run make encrypt or make clean first",
+                    EX_CANTCREAT,
+                ) from error
+            published = True
+            temporary.unlink()
+            self.temporaries.discard(temporary)
+        except BaseException:
+            if not published:
+                self.owned_plaintexts.discard(plaintext)
+            raise
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
     def decrypt_private(self) -> None:
         self.refuse_existing(self.private_config_plaintext)
@@ -730,17 +929,49 @@ class SecretsManager:
         self.sync_secrets_directory()
         self.transaction_journal.unlink()
         self.sync_secrets_directory()
-        private_config_backup.unlink()
-        credentials_backup.unlink()
-        self.temporaries.discard(private_config_backup)
-        self.temporaries.discard(credentials_backup)
+        backups = (private_config_backup, credentials_backup)
+        cleanup_error = self._remove_paths(backups)
+        for backup in backups:
+            if not backup.exists():
+                self.transaction_backups.discard(backup)
         self.sync_secrets_directory()
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def clean(self) -> None:
-        for pattern in ("*.dec.*", "*.tmp", "*.tmp.*", "*.backup.*", "*.restore.*"):
-            for path in self.secrets_directory.glob(pattern):
-                if path.is_file() or path.is_symlink():
-                    path.unlink()
+        cleanup_error: BaseException | None = None
+        try:
+            transaction_pending = self._transaction_pending()
+        except BaseException as error:
+            cleanup_error = error
+            transaction_pending = True
+
+        if transaction_pending and cleanup_error is None:
+            try:
+                self.recover_encryption_transaction()
+            except BaseException as error:
+                cleanup_error = error
+        try:
+            transaction_pending = self._transaction_pending()
+        except BaseException as error:
+            cleanup_error = cleanup_error or error
+            transaction_pending = True
+
+        patterns = ["*.dec.*", "*.tmp", "*.tmp.*"]
+        if not transaction_pending:
+            patterns.extend(("*.backup.*", "*.restore.*"))
+        paths = sorted(
+            {
+                path
+                for pattern in patterns
+                for path in self.secrets_directory.glob(pattern)
+                if path.is_file() or path.is_symlink()
+            }
+        )
+        error = self._remove_paths(paths)
+        cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def edit(self, encrypted: Path) -> None:
         status = self.sops(str(encrypted))
@@ -772,9 +1003,8 @@ def main(arguments: list[str]) -> int:
     root = Path(__file__).resolve().parent.parent
     manager = SecretsManager(root)
     termination_requested = False
-    handled_signals = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
 
-    def handle_signal(signum: int, _frame: object) -> NoReturn:
+    def handle_signal(signum: int, _frame: object) -> None:
         nonlocal termination_requested
         if manager.supervisor.defer_signal(signum):
             return
@@ -784,11 +1014,11 @@ def main(arguments: list[str]) -> int:
         manager.supervisor.forward(signum)
         raise SystemExit(128 + signum)
 
-    for signum in handled_signals:
+    for signum in HANDLED_SIGNALS:
         signal.signal(signum, handle_signal)
 
     try:
-        manager.acquire_lock()
+        manager.acquire_lock(recover=action != "clean")
         if action == "run":
             if not command:
                 usage()
@@ -811,11 +1041,20 @@ def main(arguments: list[str]) -> int:
             usage()
         return 0
     finally:
-        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
+        previous_mask, deferred_error = _block_handled_signals()
+        cleanup_error: BaseException | None = None
         try:
             manager.cleanup()
+        except BaseException as error:
+            cleanup_error = error
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        if deferred_error is not None:
+            if cleanup_error is not None:
+                raise deferred_error from cleanup_error
+            raise deferred_error
+        if cleanup_error is not None:
+            raise cleanup_error
 
 
 if __name__ == "__main__":

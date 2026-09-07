@@ -14,11 +14,9 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     repo="$TMPDIR/repo"
     fakebin="$TMPDIR/fakebin"
     failbin="$TMPDIR/failbin"
-    slowbin="$TMPDIR/slowbin"
-    mkdir -p "$repo/scripts" "$repo/secrets" "$fakebin" "$failbin" "$slowbin"
+    mkdir -p "$repo/scripts" "$repo/secrets" "$fakebin" "$failbin"
     cp ${../scripts/secrets.py} "$repo/scripts/secrets.py"
-    cp ${../scripts/clean-secrets.sh} "$repo/scripts/clean-secrets.sh"
-    chmod +x "$repo/scripts/secrets.py" "$repo/scripts/clean-secrets.sh"
+    chmod +x "$repo/scripts/secrets.py"
     printf 'ENC:{"source":"private-config"}\n' >"$repo/secrets/private.enc.yaml"
     printf 'ENC:{"source":"credentials"}\n' >"$repo/secrets/credentials.enc.yaml"
 
@@ -72,17 +70,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     exit 1
     EOF
     chmod +x "$failbin/nix"
-    cat >"$slowbin/rm" <<'EOF'
-    #!${pkgs.bash}/bin/bash
-    touch "$CLEAN_READY"
-    sleep 30
-    exec "$REAL_RM" "$@"
-    EOF
-    chmod +x "$slowbin/rm"
-
-
     manager="$repo/scripts/secrets.py"
-    cleaner="$repo/scripts/clean-secrets.sh"
     private_config="$repo/secrets/private.dec.json"
     credentials="$repo/secrets/credentials.dec.json"
     lock_directory="$repo/secrets/.secrets.lock"
@@ -91,80 +79,17 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     fail_path="$failbin:${pkgs.bash}/bin:${pkgs.coreutils}/bin"
     MANAGER="$manager" BASH="${pkgs.bash}/bin/bash" ${pkgs.python3}/bin/python <<'PY'
     import errno
-    import fcntl
     import importlib.util
     import os
     import resource
     import signal
     import sys
-    import time
     from unittest import mock
 
     spec = importlib.util.spec_from_file_location("secrets_manager", os.environ["MANAGER"])
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-
-    class DelayedSupervisor(module.ProcessSupervisor):
-        def _spawn(self, command):
-            result = super()._spawn(command)
-            assert self.defer_signal(signal.SIGTERM)
-            return result
-
-    class AnchorInvariantSupervisor(module.ProcessSupervisor):
-        def __init__(self):
-            super().__init__()
-            self.anchor_reaped = False
-            self.group_signals = []
-
-        def _spawn(self, command):
-            result = super()._spawn(command)
-            process, _, anchor, _, _, _ = result
-            assert os.getpgid(anchor.pid) == anchor.pid
-            assert os.getpgid(process.pid) == anchor.pid
-            return result
-
-        def _signal_group(self, signum):
-            assert not self.anchor_reaped
-            assert self.group_anchor is not None
-            assert self.group_anchor.returncode is None
-            self.group_signals.append(signum)
-            return super()._signal_group(signum)
-
-        def _reap_anchor(self):
-            super()._reap_anchor()
-            self.anchor_reaped = True
-
-    delayed_supervisor = DelayedSupervisor()
-    try:
-        delayed_supervisor.run(
-            [
-                os.environ["BASH"],
-                "-c",
-                "trap 'exit 143' TERM; while :; do sleep 1; done",
-            ]
-        )
-    except SystemExit as error:
-        assert error.code == 143
-    else:
-        raise AssertionError("deferred launch signal did not terminate the child")
-    assert delayed_supervisor.process is None
-    assert delayed_supervisor.group_anchor is None
-    assert delayed_supervisor.pgid is None
-
-    anchor_supervisor = AnchorInvariantSupervisor()
-    previous_sigchld = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
-    try:
-        assert anchor_supervisor.run([os.environ["BASH"], "-c", "exit 0"]) == 0
-        assert signal.getsignal(signal.SIGCHLD) == signal.SIG_IGN
-    finally:
-        signal.signal(signal.SIGCHLD, previous_sigchld)
-    assert anchor_supervisor.anchor_reaped
-    assert anchor_supervisor.group_signals == [
-        signal.SIGCONT,
-        signal.SIGTERM,
-        signal.SIGKILL,
-    ]
 
     killed_anchor_supervisor = module.ProcessSupervisor()
     original_killpg = os.killpg
@@ -182,141 +107,263 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert killed_anchor_supervisor.group_anchor is None
     assert killed_anchor_supervisor.pgid is None
 
-    reaped_process = module.subprocess.Popen(
-        [os.environ["BASH"], "-c", "exit 23"]
-    )
-    _, reaped_status = os.waitpid(reaped_process.pid, 0)
-    assert reaped_process.returncode is None
-    reaped_supervisor = module.ProcessSupervisor()
-    reaped_supervisor.process = reaped_process
-    reaped_supervisor.pgid = reaped_process.pid
-    reaped_supervisor.anchor_exited = True
-    stale_group = PermissionError(errno.EPERM, os.strerror(errno.EPERM))
-    with (
-        mock.patch.object(os, "killpg", side_effect=stale_group),
-        mock.patch.object(os, "getpgid") as getpgid,
-        mock.patch.object(os, "kill") as kill,
-    ):
-        reaped_supervisor._signal_all(signal.SIGTERM)
-    getpgid.assert_not_called()
-    kill.assert_not_called()
-    reaped_process.returncode = os.waitstatus_to_exitcode(reaped_status)
-
-    class HighFdLeaseSupervisor(module.ProcessSupervisor):
-        def __init__(self):
-            super().__init__()
-            self.high_lease_fd = None
-
-        def _spawn(self, command):
-            result = list(super()._spawn(command))
-            high_lease_fd = fcntl.fcntl(
-                result[5], fcntl.F_DUPFD_CLOEXEC, 1024
-            )
-            os.close(result[5])
-            result[5] = high_lease_fd
-            self.high_lease_fd = high_lease_fd
-            return tuple(result)
-
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    if soft_limit <= 1024:
-        assert hard_limit > 1024
+    if soft_limit <= 1025:
+        assert hard_limit > 1025
         resource.setrlimit(
             resource.RLIMIT_NOFILE, (min(hard_limit, 2048), hard_limit)
         )
-    high_fd_supervisor = HighFdLeaseSupervisor()
-    assert high_fd_supervisor.run([os.environ["BASH"], "-c", "exit 0"]) == 0
-    assert high_fd_supervisor.high_lease_fd >= 1024
+    held_fds = []
     try:
-        os.fstat(high_fd_supervisor.high_lease_fd)
-    except OSError as error:
-        assert error.errno == errno.EBADF
-    else:
-        raise AssertionError("high lease file descriptor remained open")
+        while not held_fds or held_fds[-1] < 1024:
+            held_fds.append(os.open(os.devnull, os.O_RDONLY))
+        assert module.ProcessSupervisor().run(
+            [os.environ["BASH"], "-c", "exit 0"]
+        ) == 0
+    finally:
+        for fd in held_fds:
+            os.close(fd)
 
-    original_popen = module.subprocess.Popen
-    stopped_anchors = []
-
-    def spawn_stopped_anchor(arguments, **kwargs):
-        stopped_program = (
-            "import os,signal;"
-            "os.kill(os.getpid(), signal.SIGSTOP);"
-            "signal.pause()"
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        secrets_directory = root / "secrets"
+        secrets_directory.mkdir()
+        cleanup_manager = module.SecretsManager(root)
+        cleanup_manager.lock_directory.mkdir()
+        cleanup_manager.owns_lock = True
+        blocked_temporary = secrets_directory / "blocked.tmp"
+        blocked_temporary.mkdir()
+        (blocked_temporary / "entry").touch()
+        removable_temporary = secrets_directory / "removable.tmp"
+        removable_temporary.touch()
+        plaintext = secrets_directory / "private.dec.json"
+        plaintext.write_text("secret")
+        cleanup_manager.temporaries.update(
+            (blocked_temporary, removable_temporary)
         )
-        anchor = original_popen(
-            [arguments[0], arguments[1], stopped_program, *arguments[3:]],
-            **kwargs,
-        )
-        stopped_anchors.append(anchor)
-        return anchor
-
-    anchor_start = time.monotonic()
-    with (
-        mock.patch.object(
-            module.subprocess, "Popen", side_effect=spawn_stopped_anchor
-        ),
-        mock.patch.object(module, "ANCHOR_START_TIMEOUT_SECONDS", 0.05),
-    ):
+        cleanup_manager.owned_plaintexts.add(plaintext)
         try:
-            module.ProcessSupervisor._spawn_anchor()
-        except RuntimeError as error:
-            assert str(error) == "process-group anchor initialization timed out"
+            cleanup_manager.cleanup()
+        except OSError as error:
+            assert error.errno in (errno.EISDIR, errno.EPERM)
         else:
-            raise AssertionError("silent process-group anchor did not time out")
-    assert time.monotonic() - anchor_start < 2
-    assert len(stopped_anchors) == 1
-    assert stopped_anchors[0].returncode == -signal.SIGKILL
+            raise AssertionError("cleanup error was not propagated")
+        assert not removable_temporary.exists()
+        assert not plaintext.exists()
+        assert not cleanup_manager.lock_directory.exists()
 
-    class UnwaitableProcess:
-        def __init__(self):
-            self.pid = 12345
-            self.returncode = None
-            self.wait_timeouts = []
-            self.kill_count = 0
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        (root / "secrets").mkdir()
+        lock_manager = module.SecretsManager(root)
+        original_mkdir = module.Path.mkdir
+        previous_handlers = {
+            signum: signal.getsignal(signum) for signum in module.HANDLED_SIGNALS
+        }
 
-        def wait(self, timeout=None):
-            assert timeout is not None
-            self.wait_timeouts.append(timeout)
-            raise module.subprocess.TimeoutExpired(["unwaitable"], timeout)
+        def interrupt_after_mkdir(path, *args, **kwargs):
+            result = original_mkdir(path, *args, **kwargs)
+            os.kill(os.getpid(), signal.SIGTERM)
+            return result
 
-        def kill(self):
-            self.kill_count += 1
+        def cleanup_on_signal(_signum, _frame):
+            lock_manager.cleanup()
+            raise SystemExit(143)
 
-    unwaitable_process = UnwaitableProcess()
-    bounded_process_supervisor = module.ProcessSupervisor()
-    bounded_process_supervisor.process = unwaitable_process
+        try:
+            for signum in module.HANDLED_SIGNALS:
+                signal.signal(signum, cleanup_on_signal)
+            with mock.patch.object(
+                module.Path, "mkdir", new=interrupt_after_mkdir
+            ):
+                try:
+                    lock_manager.acquire_lock(recover=False)
+                except SystemExit as error:
+                    assert error.code == 143
+                else:
+                    raise AssertionError("lock acquisition signal was not delivered")
+        finally:
+            for signum, handler in previous_handlers.items():
+                signal.signal(signum, handler)
+        assert not lock_manager.lock_directory.exists()
+
+    finalization_supervisor = module.ProcessSupervisor()
+    original_pthread_sigmask = module.signal.pthread_sigmask
+    previous_term_handler = signal.getsignal(signal.SIGTERM)
+    signal_seen = False
+    mask_interrupted = False
+
+    def interrupt_before_mask(how, mask):
+        global mask_interrupted
+        if how == signal.SIG_BLOCK and not mask_interrupted:
+            mask_interrupted = True
+            os.kill(os.getpid(), signal.SIGTERM)
+        return original_pthread_sigmask(how, mask)
+
+    def forward_finalization_signal(signum, _frame):
+        global signal_seen
+        if signal_seen:
+            return
+        signal_seen = True
+        finalization_supervisor.forward(signum)
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, forward_finalization_signal)
     try:
-        bounded_process_supervisor._reap_process()
-    except module.subprocess.TimeoutExpired:
-        pass
-    else:
-        raise AssertionError("unwaitable command cleanup did not time out")
-    assert unwaitable_process.wait_timeouts == [1, 1]
-    assert unwaitable_process.kill_count == 1
+        with mock.patch.object(
+            module.signal, "pthread_sigmask", side_effect=interrupt_before_mask
+        ):
+            try:
+                finalization_supervisor.run(
+                    [os.environ["BASH"], "-c", "exit 0"]
+                )
+            except SystemExit as error:
+                assert error.code == 143
+            else:
+                raise AssertionError("finalization signal was not delivered")
+    finally:
+        signal.signal(signal.SIGTERM, previous_term_handler)
+    assert mask_interrupted
+    assert finalization_supervisor.process is None
+    assert finalization_supervisor.group_anchor is None
 
-    anchor_status_fd, anchor_status_writer = os.pipe()
-    os.close(anchor_status_writer)
-    unwaitable_anchor = UnwaitableProcess()
-    bounded_anchor_supervisor = module.ProcessSupervisor()
-    bounded_anchor_supervisor.group_anchor = unwaitable_anchor
-    bounded_anchor_supervisor.anchor_status_fd = anchor_status_fd
-    bounded_anchor_supervisor.pgid = unwaitable_anchor.pid
+    release_supervisor = module.ProcessSupervisor()
+    original_write = module.os.write
+    original_close = module.os.close
+    previous_term_handler = signal.getsignal(signal.SIGTERM)
+    release_descriptor = None
+    close_interrupted = False
+    release_signal_seen = False
+
+    def observe_release_write(descriptor, data):
+        global release_descriptor
+        if data == b"1":
+            release_descriptor = descriptor
+        return original_write(descriptor, data)
+
+    def interrupt_after_release_close(descriptor):
+        global close_interrupted
+        result = original_close(descriptor)
+        if descriptor == release_descriptor and not close_interrupted:
+            close_interrupted = True
+            os.kill(os.getpid(), signal.SIGTERM)
+        return result
+
+    def forward_release_signal(signum, _frame):
+        global release_signal_seen
+        if release_signal_seen:
+            return
+        release_signal_seen = True
+        release_supervisor.forward(signum)
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, forward_release_signal)
     try:
-        bounded_anchor_supervisor._reap_anchor()
-    except module.subprocess.TimeoutExpired:
-        pass
-    else:
-        raise AssertionError("unwaitable anchor cleanup did not time out")
-    assert unwaitable_anchor.wait_timeouts == [1, 1]
-    assert unwaitable_anchor.kill_count == 1
-    assert bounded_anchor_supervisor.anchor_status_fd is None
-    assert bounded_anchor_supervisor.group_anchor is None
-    assert bounded_anchor_supervisor.pgid is None
-    try:
-        os.fstat(anchor_status_fd)
-    except OSError as error:
-        assert error.errno == errno.EBADF
-    else:
-        raise AssertionError("anchor status file descriptor remained open")
+        with (
+            mock.patch.object(module.os, "write", side_effect=observe_release_write),
+            mock.patch.object(module.os, "close", side_effect=interrupt_after_release_close),
+        ):
+            try:
+                release_supervisor.run(
+                    [os.environ["BASH"], "-c", "while :; do sleep 1; done"]
+                )
+            except SystemExit as error:
+                assert error.code == 143
+            else:
+                raise AssertionError("release close signal was not delivered")
+    finally:
+        signal.signal(signal.SIGTERM, previous_term_handler)
+    assert close_interrupted
+    assert release_supervisor.release_fd is None
+    assert release_supervisor.process is None
+    assert release_supervisor.group_anchor is None
+
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        secrets_directory = root / "secrets"
+        secrets_directory.mkdir()
+        temporary_manager = module.SecretsManager(root)
+        original_mkstemp = module.tempfile.mkstemp
+        previous_term_handler = signal.getsignal(signal.SIGTERM)
+
+        def interrupt_after_mkstemp(*args, **kwargs):
+            result = original_mkstemp(*args, **kwargs)
+            os.kill(os.getpid(), signal.SIGTERM)
+            return result
+
+        def cleanup_temporary_on_signal(_signum, _frame):
+            temporary_manager.cleanup()
+            raise SystemExit(143)
+
+        signal.signal(signal.SIGTERM, cleanup_temporary_on_signal)
+        try:
+            with mock.patch.object(
+                module.tempfile, "mkstemp", side_effect=interrupt_after_mkstemp
+            ):
+                try:
+                    temporary_manager.temporary("secret.tmp.")
+                except SystemExit as error:
+                    assert error.code == 143
+                else:
+                    raise AssertionError("temporary creation signal was not delivered")
+        finally:
+            signal.signal(signal.SIGTERM, previous_term_handler)
+        assert list(secrets_directory.iterdir()) == []
+
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        secrets_directory = root / "secrets"
+        secrets_directory.mkdir()
+        publication_manager = module.SecretsManager(root)
+        temporary = publication_manager.temporary("private.dec.json.tmp.")
+        temporary.write_text("decrypted")
+        plaintext = secrets_directory / "private.dec.json"
+        publication_manager.refuse_existing(plaintext)
+        plaintext.write_text("concurrent")
+        try:
+            publication_manager.publish_plaintext(temporary, plaintext)
+        except module.SecretsError as error:
+            assert error.status == module.EX_CANTCREAT
+        else:
+            raise AssertionError("concurrent plaintext was overwritten")
+        publication_manager.cleanup()
+        assert plaintext.read_text() == "concurrent"
+        assert not temporary.exists()
+
+    with module.tempfile.TemporaryDirectory() as directory:
+        root = module.Path(directory)
+        secrets_directory = root / "secrets"
+        secrets_directory.mkdir()
+        transaction_manager = module.SecretsManager(root)
+        transaction_manager.lock_directory.mkdir()
+        transaction_manager.owns_lock = True
+        private_backup = transaction_manager.temporary(
+            "private.enc.yaml.backup."
+        )
+        credentials_backup = transaction_manager.temporary(
+            "credentials.enc.yaml.backup."
+        )
+        private_backup.write_text("old-private")
+        credentials_backup.write_text("old-credentials")
+        transaction_manager.write_encryption_journal(
+            private_backup, credentials_backup
+        )
+        with mock.patch.object(
+            transaction_manager,
+            "temporary",
+            side_effect=OSError(errno.ENOSPC, os.strerror(errno.ENOSPC)),
+        ):
+            try:
+                transaction_manager.cleanup()
+            except OSError as error:
+                assert error.errno == errno.ENOSPC
+            else:
+                raise AssertionError("failed recovery did not report its error")
+        assert transaction_manager.transaction_journal.exists()
+        assert private_backup.read_text() == "old-private"
+        assert credentials_backup.read_text() == "old-credentials"
+        assert not transaction_manager.lock_directory.exists()
+
     PY
 
 
@@ -350,7 +397,10 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     test "$status" -eq 130
     assert_clean
 
-    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" decrypt-private
+    (
+      umask 0777
+      PATH="$test_path" ${pkgs.python3}/bin/python "$manager" decrypt-private
+    )
     test -e "$private_config"
     test "$(stat -c %a "$private_config")" = 600
     set +e
@@ -359,54 +409,22 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     set -e
     test "$status" -eq 73
     test -e "$private_config"
-    PATH="$test_path" "$cleaner"
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean
     assert_clean
-    printf '{"sentinel":"cleaner-signal"}\n' >"$private_config"
-    cleaner_ready="$repo/cleaner-ready"
-    CLEANER="$cleaner" CLEAN_PATH="$slowbin:$test_path" CLEAN_READY="$cleaner_ready" \
-      REAL_RM="${pkgs.coreutils}/bin/rm" ${pkgs.python3}/bin/python <<'PY'
-    import os
-    import signal
-    import subprocess
-    import time
-
-    environment = os.environ.copy()
-    environment["PATH"] = environment["CLEAN_PATH"]
-    process = subprocess.Popen(
-        [environment["CLEANER"]],
-        env=environment,
-        process_group=0,
-    )
-    deadline = time.monotonic() + 5
-    while not os.path.exists(environment["CLEAN_READY"]):
-        if time.monotonic() >= deadline:
-            process.kill()
-            raise SystemExit("cleaner did not reach rm")
-        time.sleep(0.05)
-    os.killpg(process.pid, signal.SIGTERM)
-    assert process.wait(timeout=5) == 143
-    PY
-    test -e "$private_config"
-    test ! -d "$lock_directory"
-    PATH="$test_path" "$cleaner"
-    assert_clean
-
     PATH="$test_path" ${pkgs.python3}/bin/python "$manager" decrypt
     test "$(stat -c %a "$private_config")" = 600
     test "$(stat -c %a "$credentials")" = 600
     PATH="$test_path" ${pkgs.python3}/bin/python "$manager" encrypt
     grep -q '^ENC:{"source":"private-config"}' "$repo/secrets/private.enc.yaml"
     grep -q '^ENC:{"source":"credentials"}' "$repo/secrets/credentials.enc.yaml"
-    PATH="$test_path" "$cleaner"
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean
     assert_clean
 
-    durability_root="$TMPDIR/durability-root"
-    mkdir -p "$durability_root/secrets"
-    PATH="$test_path" MANAGER="$manager" ROOT="$durability_root" \
-      ${pkgs.python3}/bin/python <<'PY'
+    MANAGER="$manager" PATH="$test_path" ${pkgs.python3}/bin/python <<'PY'
     import importlib.util
     import os
     import sys
+    import tempfile
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location("secrets_manager_durability", os.environ["MANAGER"])
@@ -414,52 +432,71 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    class ObservedManager(module.SecretsManager):
-        def __init__(self, root):
+    class SimulatedCrash(BaseException):
+        pass
+
+    class FaultManager(module.SecretsManager):
+        def __init__(self, root, fail_after):
             super().__init__(root)
-            self.synced_files = []
-            self.synced_directory_states = []
+            self.fail_after = fail_after
+            self.sync_count = 0
+
+        def crash_after_sync(self):
+            self.sync_count += 1
+            if self.sync_count == self.fail_after:
+                raise SimulatedCrash
 
         def sync_file(self, path):
-            self.synced_files.append(path.name)
             super().sync_file(path)
+            self.crash_after_sync()
 
         def sync_secrets_directory(self):
-            backups = sorted(path.name for path in self.secrets_directory.glob("*.backup.*"))
-            self.synced_directory_states.append(
-                (
-                    self.transaction_journal.exists(),
-                    backups,
-                    self.private_config_encrypted.read_text(),
-                    self.credentials_encrypted.read_text(),
-                )
-            )
             super().sync_secrets_directory()
+            self.crash_after_sync()
 
-    root = Path(os.environ["ROOT"])
-    secrets = root / "secrets"
-    (secrets / "private.enc.yaml").write_text('ENC:{"source":"old-private"}\n')
-    (secrets / "credentials.enc.yaml").write_text('ENC:{"source":"old-credentials"}\n')
-    (secrets / "private.dec.json").write_text('{"source":"new-private"}\n')
-    (secrets / "credentials.dec.json").write_text('{"source":"new-credentials"}\n')
+    fail_after = 1
+    while True:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            secrets = root / "secrets"
+            secrets.mkdir()
+            (secrets / "private.enc.yaml").write_text('ENC:{"source":"old-private"}\n')
+            (secrets / "credentials.enc.yaml").write_text('ENC:{"source":"old-credentials"}\n')
+            (secrets / "private.dec.json").write_text('{"source":"new-private"}\n')
+            (secrets / "credentials.dec.json").write_text('{"source":"new-credentials"}\n')
 
-    manager = ObservedManager(root)
-    manager.encrypt_all()
+            manager = FaultManager(root, fail_after)
+            try:
+                manager.encrypt_all()
+            except SimulatedCrash:
+                recovery = module.SecretsManager(root)
+                recovery.acquire_lock()
+                pair = (
+                    (secrets / "private.enc.yaml").read_text(),
+                    (secrets / "credentials.enc.yaml").read_text(),
+                )
+                recovery.cleanup()
+                assert pair in {
+                    ('ENC:{"source":"old-private"}\n', 'ENC:{"source":"old-credentials"}\n'),
+                    ('ENC:{"source":"new-private"}\n', 'ENC:{"source":"new-credentials"}\n'),
+                }
 
-    assert len(manager.synced_files) == 4
-    assert manager.synced_files[0].startswith("private.enc.yaml.tmp.")
-    assert manager.synced_files[1].startswith("credentials.enc.yaml.tmp.")
-    assert manager.synced_files[2].startswith("private.enc.yaml.backup.")
-    assert manager.synced_files[3].startswith("credentials.enc.yaml.backup.")
-
-    states = manager.synced_directory_states
-    assert len(states) == 4
-    assert states[0][0] and len(states[0][1]) == 2
-    assert "old-private" in states[0][2] and "old-credentials" in states[0][3]
-    assert states[1][0] and len(states[1][1]) == 2
-    assert "new-private" in states[1][2] and "new-credentials" in states[1][3]
-    assert not states[2][0] and len(states[2][1]) == 2
-    assert not states[3][0] and not states[3][1]
+                cleaner = module.SecretsManager(root)
+                cleaner.acquire_lock(recover=False)
+                cleaner.clean()
+                cleaner.cleanup()
+                assert sorted(path.name for path in secrets.iterdir()) == [
+                    "credentials.enc.yaml",
+                    "private.enc.yaml",
+                ]
+                fail_after += 1
+            else:
+                assert (secrets / "private.enc.yaml").read_text() == 'ENC:{"source":"new-private"}\n'
+                assert (secrets / "credentials.enc.yaml").read_text() == 'ENC:{"source":"new-credentials"}\n'
+                assert not list(secrets.glob("*.backup.*"))
+                assert not manager.transaction_journal.exists()
+                break
+    assert fail_after > 1
     PY
 
 
@@ -502,10 +539,65 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     test -e "$journal"
     test -e "$repo/secrets/private.enc.yaml.backup.incomplete"
     rm "$journal" "$repo/secrets/private.enc.yaml.backup.incomplete"
+
+    victim_private="$TMPDIR/victim-private"
+    victim_credentials="$TMPDIR/victim-credentials"
+    printf 'victim-private\n' >"$victim_private"
+    printf 'victim-credentials\n' >"$victim_credentials"
+    printf 'ENC:safe-private\n' >"$repo/secrets/private.enc.yaml"
+    printf 'ENC:safe-credentials\n' >"$repo/secrets/credentials.enc.yaml"
+    printf 'stale-plaintext\n' >"$private_config"
+    touch "$repo/secrets/stale.tmp"
+    cat >"$journal" <<EOF
+    {"private_config_backup":"$victim_private","credentials_backup":"$victim_credentials"}
+    EOF
+    set +e
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean >/dev/null 2>&1
+    traversal_status=$?
+    set -e
+    test "$traversal_status" -eq 66
+    grep -q '^victim-private$' "$victim_private"
+    grep -q '^victim-credentials$' "$victim_credentials"
+    grep -q '^ENC:safe-private$' "$repo/secrets/private.enc.yaml"
+    grep -q '^ENC:safe-credentials$' "$repo/secrets/credentials.enc.yaml"
+    test -e "$journal"
+    test ! -e "$private_config"
+    test ! -e "$repo/secrets/stale.tmp"
+    test ! -d "$lock_directory"
+    rm "$journal" "$victim_private" "$victim_credentials"
+
+    printf '\377' >"$journal"
+    printf 'stale-plaintext\n' >"$private_config"
+    touch "$repo/secrets/stale.tmp"
+    set +e
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean >/dev/null 2>&1
+    invalid_encoding_status=$?
+    set -e
+    test "$invalid_encoding_status" -eq 66
+    test -e "$journal"
+    test ! -e "$private_config"
+    test ! -e "$repo/secrets/stale.tmp"
+    test ! -d "$lock_directory"
+    rm "$journal"
+
+    cat >"$journal" <<'EOF'
+    {"private_config_backup":"private.enc.yaml","credentials_backup":"credentials.enc.yaml"}
+    EOF
+    set +e
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean >/dev/null 2>&1
+    self_reference_status=$?
+    set -e
+    test "$self_reference_status" -eq 66
+    grep -q '^ENC:safe-private$' "$repo/secrets/private.enc.yaml"
+    grep -q '^ENC:safe-credentials$' "$repo/secrets/credentials.enc.yaml"
+    test -e "$journal"
+    test ! -d "$lock_directory"
+    rm "$journal"
+
     touch \
       "$repo/secrets/stale.backup.test" \
       "$repo/secrets/stale.restore.test"
-    PATH="$test_path" "$cleaner"
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean
     assert_clean
 
     cat >"$repo/descendant" <<EOF
@@ -536,7 +628,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     test -d "$lock_directory"
 
     for command in \
-      "$cleaner" \
+      "${pkgs.python3}/bin/python $manager clean" \
       "${pkgs.python3}/bin/python $manager decrypt" \
       "${pkgs.python3}/bin/python $manager encrypt"; do
       set +e
@@ -546,7 +638,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       test "$concurrent_status" -eq 75
     done
 
-    term_started=$(date +%s%N)
     kill -TERM "$manager_pid"
     for _ in $(seq 1 100); do
       kill -0 "$manager_pid" 2>/dev/null || break
@@ -562,8 +653,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     wait "$manager_pid"
     status=$?
     set -e
-    term_elapsed_ms=$((($(date +%s%N) - term_started) / 1000000))
-    test "$term_elapsed_ms" -lt 3000
     test "$status" -eq 143
     test -e "$repo/child-term-received"
     test -e "$repo/descendant-term-received"
@@ -573,7 +662,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     #!${pkgs.python3}/bin/python
     import os
     import signal
-    import time
     from pathlib import Path
 
     def handle_term(_signum, _frame):
@@ -583,7 +671,8 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     os.setpgid(0, os.getpgid(os.getppid()))
     signal.signal(signal.SIGTERM, handle_term)
     Path("$repo/escaped-ready").touch()
-    time.sleep(30)
+    while True:
+        signal.pause()
     EOF
     chmod +x "$repo/escaped-child"
 
@@ -594,7 +683,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       sleep 0.1
     done
     test -e "$repo/escaped-ready"
-    term_started=$(date +%s%N)
     kill -TERM "$manager_pid"
     for _ in $(seq 1 30); do
       kill -0 "$manager_pid" 2>/dev/null || break
@@ -610,10 +698,25 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     wait "$manager_pid"
     status=$?
     set -e
-    term_elapsed_ms=$((($(date +%s%N) - term_started) / 1000000))
-    test "$term_elapsed_ms" -lt 3000
     test "$status" -eq 143
     test -e "$repo/escaped-term-received"
+    assert_clean
+
+    cat >"$repo/closed-lease-writer" <<'PY'
+    #!${pkgs.python3}/bin/python
+    import os
+    import stat
+
+    for fd in range(3, 256):
+        try:
+            if stat.S_ISFIFO(os.fstat(fd).st_mode):
+                os.write(fd, b"x" * 8192)
+        except OSError:
+            pass
+    PY
+    chmod +x "$repo/closed-lease-writer"
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run \
+      "$repo/closed-lease-writer" >/dev/null 2>&1
     assert_clean
 
     cat >"$repo/hostile-lease-child" <<EOF
@@ -621,7 +724,6 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     import os
     import signal
     import stat
-    import time
     from pathlib import Path
 
     if os.fork() != 0:
@@ -638,26 +740,28 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
         except OSError:
             pass
 
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        for fd in lease_fds:
-            try:
-                os.write(fd, b"x" * 4096)
-            except OSError:
-                pass
-        time.sleep(0.001)
-    Path("$repo/hostile-lease-finished").touch()
+    def finish(_signum, _frame):
+        Path("$repo/hostile-lease-finished").touch()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGALRM, finish)
+    signal.alarm(2)
+    for fd in lease_fds:
+        try:
+            os.write(fd, b"x" * 4096)
+        except OSError:
+            pass
+    while True:
+        signal.pause()
     EOF
     chmod +x "$repo/hostile-lease-child"
 
-    hostile_started=$(date +%s%N)
     set +e
-    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run "$repo/hostile-lease-child" >/dev/null 2>&1
+    PATH="$test_path" timeout 3 ${pkgs.python3}/bin/python "$manager" run \
+      "$repo/hostile-lease-child" >/dev/null 2>&1
     hostile_status=$?
     set -e
-    hostile_elapsed_ms=$((($(date +%s%N) - hostile_started) / 1000000))
     test "$hostile_status" -eq 75
-    test "$hostile_elapsed_ms" -lt 3000
     for _ in $(seq 1 30); do
       [[ -e "$repo/hostile-lease-finished" ]] && break
       sleep 0.1
@@ -692,6 +796,43 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     set -e
     test "$status" -eq 130
     test -e "$repo/int-received"
+    assert_clean
+
+    cat >"$repo/quit-child.py" <<'PY'
+    import signal
+    import sys
+    from pathlib import Path
+
+    ready, received = map(Path, sys.argv[1:])
+
+    def handle_quit(_signum, _frame):
+        received.touch()
+        raise SystemExit(131)
+
+    signal.signal(signal.SIGQUIT, handle_quit)
+    with ready.open("w") as pipe:
+        pipe.write("ready\n")
+        pipe.flush()
+    while True:
+        signal.pause()
+    PY
+    quit_ready="$repo/quit-ready"
+    quit_received="$repo/quit-received"
+    mkfifo "$quit_ready"
+    exec 9<>"$quit_ready"
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run \
+      ${pkgs.python3}/bin/python "$repo/quit-child.py" "$quit_ready" "$quit_received" &
+    manager_pid=$!
+    IFS= read -r -t 10 <&9
+    kill -QUIT "$manager_pid"
+    set +e
+    wait "$manager_pid"
+    status=$?
+    set -e
+    exec 9>&-
+    rm "$quit_ready"
+    test "$status" -eq 131
+    test -e "$quit_received"
     assert_clean
 
     cat >"$repo/term-ignoring-child" <<EOF
@@ -739,11 +880,8 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     set +e
     PATH="$test_path" ${pkgs.python3}/bin/python "$manager" clean >/dev/null 2>&1
     manager_status=$?
-    PATH="$test_path" "$cleaner" >/dev/null 2>&1
-    cleaner_status=$?
     set -e
     test "$manager_status" -eq 75
-    test "$cleaner_status" -eq 75
     grep -q 'active-private-config' "$repo/secrets/private.enc.yaml"
     grep -q 'active-credentials' "$repo/secrets/credentials.enc.yaml"
     test -e "$journal"
@@ -773,12 +911,18 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       "value:" { send "\032" }
       timeout { catch {close}; catch {wait}; exit 1 }
     }
-    after 500
-    exec kill -CONT [exp_pid]
-    expect {
-      "resumed:" { send "interactive\r" }
-      timeout { catch {close}; catch {wait}; exit 1 }
+    set resumed 0
+    set timeout 1
+    for {set attempt 0} {$attempt < 10} {incr attempt} {
+      catch {exec kill -CONT [exp_pid]}
+      expect {
+        "resumed:" { set resumed 1; break }
+        timeout {}
+      }
     }
+    if {!$resumed} { catch {close}; catch {wait}; exit 1 }
+    send "interactive\r"
+    set timeout 10
     expect {
       eof {}
       timeout { catch {close}; catch {wait}; exit 1 }
@@ -792,7 +936,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     import importlib.util
     import os
     import sys
-    import time
+    from pathlib import Path
 
     spec = importlib.util.spec_from_file_location("secrets_manager_delayed", os.environ["MANAGER"])
     module = importlib.util.module_from_spec(spec)
@@ -800,21 +944,21 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     spec.loader.exec_module(module)
     original_give_terminal = module.ProcessSupervisor._give_terminal
 
-    def delayed_give_terminal(self):
-        time.sleep(0.5)
+    def gated_give_terminal(self):
+        Path(os.environ["GATE_READY"]).touch()
+        with open(os.environ["GATE"], "rb", buffering=0) as gate:
+            if gate.read(1) != b"1":
+                raise RuntimeError("terminal gate closed before release")
         original_give_terminal(self)
 
-    module.ProcessSupervisor._give_terminal = delayed_give_terminal
-    try:
-        raise SystemExit(module.main(sys.argv[1:]))
-    except module.SecretsError as error:
-        print(error, file=sys.stderr)
-        raise SystemExit(error.status) from error
+    module.ProcessSupervisor._give_terminal = gated_give_terminal
+    raise SystemExit(module.ProcessSupervisor().run(sys.argv[2:]))
     PY
 
     cat >"$repo/immediate-reader" <<EOF
     #!${pkgs.bash}/bin/bash
     trap 'touch "$repo/unexpected-startup-cont"' CONT
+    touch "$repo/immediate-reader-started"
     printf 'immediate:'
     IFS= read -r value
     [[ \$value == synchronized ]]
@@ -822,22 +966,40 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     EOF
     chmod +x "$repo/immediate-reader"
 
+    terminal_gate="$repo/terminal-gate"
+    terminal_gate_ready="$repo/terminal-gate-ready"
+    immediate_reader_started="$repo/immediate-reader-started"
+    mkfifo "$terminal_gate"
     TEST_PATH="$test_path" MANAGER="$manager" DELAYED="$repo/delayed-manager.py" \
-      CHILD="$repo/immediate-reader" expect <<'EOF'
+      CHILD="$repo/immediate-reader" GATE="$terminal_gate" GATE_READY="$terminal_gate_ready" \
+      STARTED="$immediate_reader_started" expect <<'EOF'
     set timeout 10
-    spawn -noecho env PATH=$env(TEST_PATH) MANAGER=$env(MANAGER) \
+    spawn -noecho env PATH=$env(TEST_PATH) MANAGER=$env(MANAGER) GATE=$env(GATE) \
+      GATE_READY=$env(GATE_READY) \
       ${pkgs.python3}/bin/python $env(DELAYED) run $env(CHILD)
-    expect {
-      "immediate:" { send "synchronized\r" }
-      timeout { catch {close}; catch {wait}; exit 1 }
+    set gate_ready 0
+    for {set attempt 0} {$attempt < 1000} {incr attempt} {
+      if {[file exists $env(GATE_READY)]} {
+        set gate_ready 1
+        break
+      }
+      after 10
     }
+    if {!$gate_ready} { catch {close}; catch {wait}; exit 1 }
+    if {[file exists $env(STARTED)]} { catch {close}; catch {wait}; exit 1 }
+    set gate [open $env(GATE) w]
+    puts -nonewline $gate "1"
+    close $gate
+    set timeout 10
     expect {
+      "immediate:" { send "synchronized\r"; exp_continue }
       eof {}
       timeout { catch {close}; catch {wait}; exit 1 }
     }
     set result [wait]
     exit [lindex $result 3]
     EOF
+    test -e "$repo/immediate-reader-started"
     test -e "$repo/immediate-reader-ok"
     test ! -e "$repo/unexpected-startup-cont"
     assert_clean

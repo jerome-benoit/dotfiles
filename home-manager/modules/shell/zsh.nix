@@ -106,7 +106,8 @@ in
                 return 1
             fi
 
-            "$gpu_env" nix run nixpkgs#python3 -- "$manager" run env NH_FLAKE="$nix_dir" \
+            "$gpu_env" nix run --inputs-from "$nix_dir" nixpkgs#python3 -- \
+                "$manager" run env NH_FLAKE="$nix_dir" \
                 nh home switch --impure -c "$(whoami)" "$@" -- --impure
         }
 
