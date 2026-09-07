@@ -91,10 +91,13 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     fail_path="$failbin:${pkgs.bash}/bin:${pkgs.coreutils}/bin"
     MANAGER="$manager" BASH="${pkgs.bash}/bin/bash" ${pkgs.python3}/bin/python <<'PY'
     import errno
+    import fcntl
     import importlib.util
     import os
+    import resource
     import signal
     import sys
+    import time
     from unittest import mock
 
     spec = importlib.util.spec_from_file_location("secrets_manager", os.environ["MANAGER"])
@@ -178,6 +181,142 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert killed_anchor_supervisor.process is None
     assert killed_anchor_supervisor.group_anchor is None
     assert killed_anchor_supervisor.pgid is None
+
+    reaped_process = module.subprocess.Popen(
+        [os.environ["BASH"], "-c", "exit 23"]
+    )
+    _, reaped_status = os.waitpid(reaped_process.pid, 0)
+    assert reaped_process.returncode is None
+    reaped_supervisor = module.ProcessSupervisor()
+    reaped_supervisor.process = reaped_process
+    reaped_supervisor.pgid = reaped_process.pid
+    reaped_supervisor.anchor_exited = True
+    stale_group = PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+    with (
+        mock.patch.object(os, "killpg", side_effect=stale_group),
+        mock.patch.object(os, "getpgid") as getpgid,
+        mock.patch.object(os, "kill") as kill,
+    ):
+        reaped_supervisor._signal_all(signal.SIGTERM)
+    getpgid.assert_not_called()
+    kill.assert_not_called()
+    reaped_process.returncode = os.waitstatus_to_exitcode(reaped_status)
+
+    class HighFdLeaseSupervisor(module.ProcessSupervisor):
+        def __init__(self):
+            super().__init__()
+            self.high_lease_fd = None
+
+        def _spawn(self, command):
+            result = list(super()._spawn(command))
+            high_lease_fd = fcntl.fcntl(
+                result[5], fcntl.F_DUPFD_CLOEXEC, 1024
+            )
+            os.close(result[5])
+            result[5] = high_lease_fd
+            self.high_lease_fd = high_lease_fd
+            return tuple(result)
+
+    soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft_limit <= 1024:
+        assert hard_limit > 1024
+        resource.setrlimit(
+            resource.RLIMIT_NOFILE, (min(hard_limit, 2048), hard_limit)
+        )
+    high_fd_supervisor = HighFdLeaseSupervisor()
+    assert high_fd_supervisor.run([os.environ["BASH"], "-c", "exit 0"]) == 0
+    assert high_fd_supervisor.high_lease_fd >= 1024
+    try:
+        os.fstat(high_fd_supervisor.high_lease_fd)
+    except OSError as error:
+        assert error.errno == errno.EBADF
+    else:
+        raise AssertionError("high lease file descriptor remained open")
+
+    original_popen = module.subprocess.Popen
+    stopped_anchors = []
+
+    def spawn_stopped_anchor(arguments, **kwargs):
+        stopped_program = (
+            "import os,signal;"
+            "os.kill(os.getpid(), signal.SIGSTOP);"
+            "signal.pause()"
+        )
+        anchor = original_popen(
+            [arguments[0], arguments[1], stopped_program, *arguments[3:]],
+            **kwargs,
+        )
+        stopped_anchors.append(anchor)
+        return anchor
+
+    anchor_start = time.monotonic()
+    with (
+        mock.patch.object(
+            module.subprocess, "Popen", side_effect=spawn_stopped_anchor
+        ),
+        mock.patch.object(module, "ANCHOR_START_TIMEOUT_SECONDS", 0.05),
+    ):
+        try:
+            module.ProcessSupervisor._spawn_anchor()
+        except RuntimeError as error:
+            assert str(error) == "process-group anchor initialization timed out"
+        else:
+            raise AssertionError("silent process-group anchor did not time out")
+    assert time.monotonic() - anchor_start < 2
+    assert len(stopped_anchors) == 1
+    assert stopped_anchors[0].returncode == -signal.SIGKILL
+
+    class UnwaitableProcess:
+        def __init__(self):
+            self.pid = 12345
+            self.returncode = None
+            self.wait_timeouts = []
+            self.kill_count = 0
+
+        def wait(self, timeout=None):
+            assert timeout is not None
+            self.wait_timeouts.append(timeout)
+            raise module.subprocess.TimeoutExpired(["unwaitable"], timeout)
+
+        def kill(self):
+            self.kill_count += 1
+
+    unwaitable_process = UnwaitableProcess()
+    bounded_process_supervisor = module.ProcessSupervisor()
+    bounded_process_supervisor.process = unwaitable_process
+    try:
+        bounded_process_supervisor._reap_process()
+    except module.subprocess.TimeoutExpired:
+        pass
+    else:
+        raise AssertionError("unwaitable command cleanup did not time out")
+    assert unwaitable_process.wait_timeouts == [1, 1]
+    assert unwaitable_process.kill_count == 1
+
+    anchor_status_fd, anchor_status_writer = os.pipe()
+    os.close(anchor_status_writer)
+    unwaitable_anchor = UnwaitableProcess()
+    bounded_anchor_supervisor = module.ProcessSupervisor()
+    bounded_anchor_supervisor.group_anchor = unwaitable_anchor
+    bounded_anchor_supervisor.anchor_status_fd = anchor_status_fd
+    bounded_anchor_supervisor.pgid = unwaitable_anchor.pid
+    try:
+        bounded_anchor_supervisor._reap_anchor()
+    except module.subprocess.TimeoutExpired:
+        pass
+    else:
+        raise AssertionError("unwaitable anchor cleanup did not time out")
+    assert unwaitable_anchor.wait_timeouts == [1, 1]
+    assert unwaitable_anchor.kill_count == 1
+    assert bounded_anchor_supervisor.anchor_status_fd is None
+    assert bounded_anchor_supervisor.group_anchor is None
+    assert bounded_anchor_supervisor.pgid is None
+    try:
+        os.fstat(anchor_status_fd)
+    except OSError as error:
+        assert error.errno == errno.EBADF
+    else:
+        raise AssertionError("anchor status file descriptor remained open")
     PY
 
 

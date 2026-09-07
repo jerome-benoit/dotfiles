@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import select
 import shutil
@@ -20,6 +21,7 @@ EX_NOINPUT = 66
 EX_CANTCREAT = 73
 EX_TEMPFAIL = 75
 SIGNAL_TIMEOUT_SECONDS = 5.0
+ANCHOR_START_TIMEOUT_SECONDS = 5.0
 
 
 class SecretsError(Exception):
@@ -43,6 +45,18 @@ class ProcessSupervisor:
         self.anchor_status_fd: int | None = None
         self.group_lease_fd: int | None = None
         self.anchor_exited = False
+
+    @staticmethod
+    def _wait_for_readable(fd: int, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        poller = select.poll()
+        poller.register(fd, select.POLLIN)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if poller.poll(math.ceil(remaining * 1000)):
+                return True
 
     @staticmethod
     def _spawn_anchor() -> tuple[subprocess.Popen[bytes], int, int]:
@@ -89,17 +103,17 @@ class ProcessSupervisor:
             os.close(status_write_fd)
 
         try:
+            os.set_blocking(status_read_fd, False)
+            if not ProcessSupervisor._wait_for_readable(
+                status_read_fd, ANCHOR_START_TIMEOUT_SECONDS
+            ):
+                raise RuntimeError("process-group anchor initialization timed out")
             if os.read(status_read_fd, 1) != b"1":
                 raise RuntimeError("process-group anchor failed to initialize")
-            os.set_blocking(status_read_fd, False)
         except BaseException:
-            os.close(control_write_fd)
-            try:
-                anchor.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                anchor.kill()
-                anchor.wait()
-            os.close(status_read_fd)
+            ProcessSupervisor._discard_anchor(
+                anchor, control_write_fd, status_read_fd
+            )
             raise
         return anchor, control_write_fd, status_read_fd
 
@@ -112,7 +126,7 @@ class ProcessSupervisor:
             anchor.wait(timeout=1)
         except subprocess.TimeoutExpired:
             anchor.kill()
-            anchor.wait()
+            anchor.wait(timeout=1)
         finally:
             os.close(status_fd)
 
@@ -171,6 +185,19 @@ class ProcessSupervisor:
             lease_read_fd,
         )
 
+    def _process_exited(self) -> bool:
+        if self.process is None or self.process.returncode is not None:
+            return True
+        try:
+            status = os.waitid(
+                os.P_PID,
+                self.process.pid,
+                os.WEXITED | os.WNOHANG | os.WNOWAIT,
+            )
+        except ChildProcessError:
+            return True
+        return status is not None
+
     def _anchor_is_exited(self) -> bool:
         if self.anchor_exited:
             return True
@@ -192,16 +219,13 @@ class ProcessSupervisor:
         except ProcessLookupError:
             return False
         except PermissionError:
-            command_exited = (
-                self.process is None or self.process.returncode is not None
-            )
-            if command_exited and self._anchor_is_exited():
+            if self._process_exited() and self._anchor_is_exited():
                 return False
             raise
         return True
 
     def _signal_escaped_process(self, signum: int) -> None:
-        if self.process is None or self.process.returncode is not None:
+        if self._process_exited():
             return
         try:
             process_pgid = os.getpgid(self.process.pid)
@@ -247,17 +271,11 @@ class ProcessSupervisor:
     def _wait_for_group_drain(self, timeout: float) -> bool:
         if self.group_lease_fd is None:
             return True
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            readable, _, _ = select.select([self.group_lease_fd], [], [], remaining)
-            if not readable:
-                return False
-            if os.read(self.group_lease_fd, 4096) == b"":
-                return True
+        if not self._wait_for_readable(self.group_lease_fd, timeout):
             return False
+        if os.read(self.group_lease_fd, 4096) == b"":
+            return True
+        return False
 
     def _wait_for_shutdown(self, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
@@ -285,7 +303,7 @@ class ProcessSupervisor:
             self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             self.process.kill()
-            self.process.wait()
+            self.process.wait(timeout=1)
 
     def _reap_anchor(self) -> None:
         try:
@@ -294,7 +312,7 @@ class ProcessSupervisor:
                     self.group_anchor.wait(timeout=1)
                 except subprocess.TimeoutExpired:
                     self.group_anchor.kill()
-                    self.group_anchor.wait()
+                    self.group_anchor.wait(timeout=1)
         finally:
             if self.anchor_status_fd is not None:
                 os.close(self.anchor_status_fd)
