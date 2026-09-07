@@ -23,7 +23,16 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     cat >"$fakebin/nix" <<'EOF'
     #!${pkgs.bash}/bin/bash
     set -euo pipefail
-    while (($# > 0)) && [[ $1 != -- ]]; do shift; done
+    inputs_from=
+    while (($# > 0)) && [[ $1 != -- ]]; do
+      if [[ $1 == --inputs-from ]]; then
+        inputs_from=$2
+        shift 2
+      else
+        shift
+      fi
+    done
+    [[ $inputs_from == git+file://* ]]
     [[ $1 == -- ]]
     shift
     operation=$1
@@ -93,9 +102,13 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
 
     killed_anchor_supervisor = module.ProcessSupervisor()
     original_killpg = os.killpg
+    darwin_eperm_seen = False
 
     def emulate_darwin_zombie_group(pgid, signum):
-        if killed_anchor_supervisor._anchor_is_exited():
+        global darwin_eperm_seen
+        if killed_anchor_supervisor._process_exited():
+            killed_anchor_supervisor.anchor_exited = True
+            darwin_eperm_seen = True
             raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
         return original_killpg(pgid, signum)
 
@@ -103,6 +116,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
         assert killed_anchor_supervisor.run(
             [os.environ["BASH"], "-c", "kill -KILL 0"]
         ) == 137
+    assert darwin_eperm_seen
     assert killed_anchor_supervisor.process is None
     assert killed_anchor_supervisor.group_anchor is None
     assert killed_anchor_supervisor.pgid is None
@@ -370,6 +384,7 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert_clean() {
       local artifacts=(
         $repo/secrets/*.tmp.*
+        $repo/secrets/.*.tmp.*
         $repo/secrets/*.backup.*
         $repo/secrets/*.restore.*
       )
@@ -719,6 +734,8 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       "$repo/closed-lease-writer" >/dev/null 2>&1
     assert_clean
 
+    hostile_release="$repo/hostile-lease-release"
+    mkfifo "$hostile_release"
     cat >"$repo/hostile-lease-child" <<EOF
     #!${pkgs.python3}/bin/python
     import os
@@ -740,33 +757,33 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
         except OSError:
             pass
 
-    def finish(_signum, _frame):
-        Path("$repo/hostile-lease-finished").touch()
-        raise SystemExit(0)
-
-    signal.signal(signal.SIGALRM, finish)
-    signal.alarm(2)
     for fd in lease_fds:
         try:
             os.write(fd, b"x" * 4096)
         except OSError:
             pass
-    while True:
-        signal.pause()
+    Path("$repo/hostile-lease-ready").touch()
+    with Path("$hostile_release").open("rb", buffering=0) as release:
+        if release.read(1) != b"1":
+            raise SystemExit(1)
+    Path("$repo/hostile-lease-finished").touch()
     EOF
     chmod +x "$repo/hostile-lease-child"
 
     set +e
-    PATH="$test_path" timeout 3 ${pkgs.python3}/bin/python "$manager" run \
+    PATH="$test_path" timeout 10 ${pkgs.python3}/bin/python "$manager" run \
       "$repo/hostile-lease-child" >/dev/null 2>&1
     hostile_status=$?
     set -e
     test "$hostile_status" -eq 75
+    test -e "$repo/hostile-lease-ready"
+    printf 1 >"$hostile_release"
     for _ in $(seq 1 30); do
       [[ -e "$repo/hostile-lease-finished" ]] && break
       sleep 0.1
     done
     test -e "$repo/hostile-lease-finished"
+    rm "$hostile_release"
     assert_clean
 
     cat >"$repo/int-child" <<EOF
@@ -836,10 +853,14 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     assert_clean
 
     cat >"$repo/term-ignoring-child" <<EOF
-    #!${pkgs.bash}/bin/bash
-    trap ':' TERM
-    touch "$repo/term-ignoring-ready"
-    while :; do sleep 1; done
+    #!${pkgs.python3}/bin/python
+    import signal
+    from pathlib import Path
+
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path("$repo/term-ignoring-ready").touch()
+    while True:
+        signal.pause()
     EOF
     chmod +x "$repo/term-ignoring-child"
 

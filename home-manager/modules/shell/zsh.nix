@@ -97,6 +97,10 @@ in
             local manager="$nix_dir/scripts/secrets.py"
             local gpu_env="$nix_dir/scripts/gpu-env.sh"
 
+            if ! command git -C "$nix_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                echo "error: $nix_dir is not a Git checkout" >&2
+                return 1
+            fi
             if [[ ! -f "$manager" ]]; then
                 echo "error: $manager not found" >&2
                 return 1

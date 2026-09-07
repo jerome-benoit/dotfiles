@@ -561,6 +561,7 @@ class ProcessSupervisor:
 class SecretsManager:
     def __init__(self, root: Path) -> None:
         self.root = root
+        self.flake_reference = f"git+{root.as_uri()}"
         self.secrets_directory = root / "secrets"
         self.lock_directory = self.secrets_directory / ".secrets.lock"
         self.private_config_encrypted = self.secrets_directory / "private.enc.yaml"
@@ -808,7 +809,7 @@ class SecretsManager:
                 "nix",
                 "run",
                 "--inputs-from",
-                str(self.root),
+                self.flake_reference,
                 "nixpkgs#sops",
                 "--",
                 *arguments,
