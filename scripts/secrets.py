@@ -38,24 +38,56 @@ class ProcessSupervisor:
         self.pending_signal: int | None = None
         self.release_fd: int | None = None
 
+    def _leader_exited(self) -> bool:
+        if self.process is None or self.process.returncode is not None:
+            return True
+        try:
+            status = os.waitid(
+                os.P_PID,
+                self.process.pid,
+                os.WEXITED | os.WNOHANG | os.WNOWAIT,
+            )
+        except ChildProcessError:
+            return True
+        return status is not None
+
     def _group_exists(self) -> bool:
         if self.pgid is None:
             return False
         try:
             os.killpg(self.pgid, 0)
         except ProcessLookupError:
+            self.pgid = None
             return False
         except PermissionError:
             return True
         return True
 
-    def _signal_group(self, signum: int) -> None:
-        if self.pgid is None:
-            return
+    def _signal_group(self, signum: int) -> bool:
+        pgid = self.pgid
+        if pgid is None:
+            return False
         try:
-            os.killpg(self.pgid, signum)
+            os.killpg(pgid, signum)
         except ProcessLookupError:
-            pass
+            self.pgid = None
+            return False
+        except PermissionError as error:
+            if self.process is None or not self._leader_exited():
+                raise
+            self.pgid = None
+            try:
+                _, status = os.waitpid(self.process.pid, 0)
+            except ChildProcessError:
+                pass
+            else:
+                self.process.returncode = os.waitstatus_to_exitcode(status)
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return False
+            raise error
+        return True
 
     def forward(self, signum: int) -> None:
         self.forwarded_signal = signum
@@ -98,9 +130,10 @@ class ProcessSupervisor:
         if self.process is None:
             return
 
-        self._signal_group(signal.SIGCONT)
-        if not already_forwarded:
-            self._signal_group(signum)
+        # Keep an exited leader unreaped until initial group signaling is complete.
+        group_active = self._signal_group(signal.SIGCONT)
+        if group_active and not already_forwarded:
+            group_active = self._signal_group(signum)
 
         def wait_for_group() -> bool:
             deadline = time.monotonic() + SIGNAL_TIMEOUT_SECONDS
@@ -111,10 +144,12 @@ class ProcessSupervisor:
                 time.sleep(0.1)
             return not self._group_exists()
 
-        stopped = wait_for_group()
+        stopped = not group_active or wait_for_group()
         if not stopped and signum != signal.SIGTERM:
-            self._signal_group(signal.SIGTERM)
-            stopped = wait_for_group()
+            if self._signal_group(signal.SIGTERM):
+                stopped = wait_for_group()
+            else:
+                stopped = True
         if not stopped:
             self._signal_group(signal.SIGKILL)
         try:

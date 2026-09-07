@@ -90,15 +90,25 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     test_path="$fakebin:${pkgs.bash}/bin:${pkgs.coreutils}/bin"
     fail_path="$failbin:${pkgs.bash}/bin:${pkgs.coreutils}/bin"
     MANAGER="$manager" BASH="${pkgs.bash}/bin/bash" ${pkgs.python3}/bin/python <<'PY'
+    import errno
     import importlib.util
     import os
     import signal
     import sys
+    import time
+    from unittest import mock
 
     spec = importlib.util.spec_from_file_location("secrets_manager", os.environ["MANAGER"])
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+
+    def leader_exited(process):
+        return os.waitid(
+            os.P_PID,
+            process.pid,
+            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        ) is not None
 
     class DelayedSupervisor(module.ProcessSupervisor):
         def _spawn(self, command):
@@ -106,21 +116,109 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
             assert self.defer_signal(signal.SIGTERM)
             return process, release_fd
 
-    supervisor = DelayedSupervisor()
-    try:
-        supervisor.run(
-            [
-                os.environ["BASH"],
-                "-c",
-                "trap 'exit 143' TERM; while :; do sleep 1; done",
-            ]
-        )
-    except SystemExit as error:
-        assert error.code == 143
-    else:
-        raise AssertionError("deferred launch signal did not terminate the child")
-    assert supervisor.process is None
-    assert supervisor.pgid is None
+        def forward(self, signum):
+            super().forward(signum)
+            assert self.process is not None
+            deadline = time.monotonic() + 5
+            while not leader_exited(self.process):
+                if time.monotonic() >= deadline:
+                    raise AssertionError("deferred signal did not terminate the child")
+                time.sleep(0.01)
+
+    class LinuxZombieSupervisor(DelayedSupervisor):
+        def _signal_group(self, signum):
+            if signum == signal.SIGCONT and self._leader_exited():
+                return True
+            return super()._signal_group(signum)
+
+        def _group_exists(self):
+            assert self.process is not None
+            if self.process.returncode is None and self._leader_exited():
+                raise AssertionError("exited leader was not reaped before group wait")
+            return super()._group_exists()
+
+    def assert_deferred_signal(supervisor):
+        try:
+            supervisor.run(
+                [
+                    os.environ["BASH"],
+                    "-c",
+                    "trap 'exit 143' TERM; while :; do sleep 1; done",
+                ]
+            )
+        except SystemExit as error:
+            assert error.code == 143
+        else:
+            raise AssertionError("deferred launch signal did not terminate the child")
+        assert supervisor.process is None
+        assert supervisor.pgid is None
+
+    darwin_supervisor = DelayedSupervisor()
+    original_killpg = os.killpg
+
+    def reject_exited_group(pgid, signum):
+        assert darwin_supervisor.process is not None
+        if signum == signal.SIGCONT:
+            assert darwin_supervisor.process.returncode is None
+            assert leader_exited(darwin_supervisor.process)
+            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+        return original_killpg(pgid, signum)
+
+    with mock.patch.object(os, "killpg", side_effect=reject_exited_group):
+        assert_deferred_signal(darwin_supervisor)
+
+    inaccessible_supervisor = DelayedSupervisor()
+
+    def reject_inaccessible_group(pgid, signum):
+        assert inaccessible_supervisor.process is not None
+        if signum == signal.SIGCONT:
+            assert inaccessible_supervisor.process.returncode is None
+            assert leader_exited(inaccessible_supervisor.process)
+            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+        if signum == 0:
+            assert inaccessible_supervisor.process.returncode is not None
+            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+        return original_killpg(pgid, signum)
+
+    with mock.patch.object(os, "killpg", side_effect=reject_inaccessible_group):
+        try:
+            assert_deferred_signal(inaccessible_supervisor)
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("inaccessible descendant was treated as terminated")
+    assert inaccessible_supervisor.process is None
+    assert inaccessible_supervisor.pgid is None
+
+    retired_supervisor = module.ProcessSupervisor()
+    process, release_fd = retired_supervisor._spawn(
+        [os.environ["BASH"], "-c", "exit 0"]
+    )
+    retired_supervisor.process = process
+    retired_supervisor.pgid = process.pid
+    os.write(release_fd, b"1")
+    os.close(release_fd)
+    deadline = time.monotonic() + 5
+    while not leader_exited(process):
+        if time.monotonic() >= deadline:
+            raise AssertionError("child did not exit")
+        time.sleep(0.01)
+    original_pgid = retired_supervisor.pgid
+
+    def reject_then_disappear(pgid, signum):
+        assert pgid == original_pgid
+        if signum == signal.SIGTERM:
+            raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+        if signum == 0:
+            raise ProcessLookupError(errno.ESRCH, os.strerror(errno.ESRCH))
+        raise AssertionError("retired process group was signaled")
+
+    with mock.patch.object(os, "killpg", side_effect=reject_then_disappear):
+        retired_supervisor.forward(signal.SIGTERM)
+        retired_supervisor.terminate(signal.SIGTERM, already_forwarded=True)
+    assert retired_supervisor.pgid is None
+
+    assert_deferred_signal(LinuxZombieSupervisor())
     PY
 
 
@@ -372,6 +470,47 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
     test -e "$repo/child-term-received"
     test -e "$repo/descendant-term-received"
     assert_clean
+
+    cat >"$repo/escaped-child" <<EOF
+    #!${pkgs.python3}/bin/python
+    import os
+    import time
+    from pathlib import Path
+
+    os.setpgid(0, os.getpgid(os.getppid()))
+    Path("$repo/escaped-ready").touch()
+    time.sleep(30)
+    EOF
+    chmod +x "$repo/escaped-child"
+
+    PATH="$test_path" ${pkgs.python3}/bin/python "$manager" run "$repo/escaped-child" &
+    manager_pid=$!
+    for _ in $(seq 1 100); do
+      [[ -e "$repo/escaped-ready" ]] && break
+      sleep 0.1
+    done
+    test -e "$repo/escaped-ready"
+    term_started=$(date +%s%N)
+    kill -TERM "$manager_pid"
+    for _ in $(seq 1 30); do
+      kill -0 "$manager_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$manager_pid" 2>/dev/null; then
+      kill -KILL "$manager_pid" 2>/dev/null || true
+      wait "$manager_pid" 2>/dev/null || true
+      echo "manager did not terminate escaped child within deadline" >&2
+      exit 1
+    fi
+    set +e
+    wait "$manager_pid"
+    status=$?
+    set -e
+    term_elapsed_ms=$((($(date +%s%N) - term_started) / 1000000))
+    test "$term_elapsed_ms" -lt 3000
+    test "$status" -eq 143
+    assert_clean
+
     cat >"$repo/int-child" <<EOF
     #!${pkgs.bash}/bin/bash
     trap 'touch "$repo/int-received"; exit 130' INT
