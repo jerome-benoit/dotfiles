@@ -127,6 +127,18 @@
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
             });
+            # Obsidian's DMG nests the app in a version-stamped volume directory.
+            obsidian = prev.obsidian.overrideAttrs (previousAttrs: {
+              sourceRoot = "Obsidian ${previousAttrs.version}-universal";
+              installPhase = ''
+                runHook preInstall
+                mkdir -p $out/{Applications,bin}
+                cp -R Obsidian.app $out/Applications
+                makeWrapper $out/Applications/Obsidian.app/Contents/MacOS/Obsidian $out/bin/obsidian
+                makeWrapper $out/Applications/Obsidian.app/Contents/MacOS/obsidian-cli $out/bin/obsidian-cli
+                runHook postInstall
+              '';
+            });
           }
         )
       ];
