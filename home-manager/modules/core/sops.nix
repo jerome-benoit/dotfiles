@@ -37,12 +37,12 @@ in
 
   home = {
     # --- sops-nix activation ordering fixes ---
-    # Linux: ensure sops-nix activation runs after systemd daemon-reload (Mic92/sops-nix#581)
+    # Ensure the service exists before sops-nix restarts it on Linux.
     activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (
       lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
     );
 
-    # macOS: ensure sops-nix activation runs after plist is installed (Mic92/sops-nix#910)
+    # Install the launchd plist before sops-nix bootstraps it on macOS.
     activation.sops-nix = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
       lib.mkForce (
         lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''

@@ -9,31 +9,7 @@ let
   cfg = config.modules.development.openspec;
   system = pkgs.stdenv.hostPlatform.system;
 
-  baseOpenspecPackage = inputs.openspec.packages.${system}.default or null;
-  pnpmPackage = pkgs.pnpm_10;
-  pnpmDepsHash = "sha256-SNPeEUa+amkZYRO5tHeUwDBT4betXYPKnfZiEyhN7fE=";
-
-  openspecPackage =
-    if baseOpenspecPackage != null then
-      baseOpenspecPackage.overrideAttrs (
-        finalAttrs: _: {
-          pnpmDeps = pkgs.fetchPnpmDeps {
-            inherit (finalAttrs) pname version src;
-            pnpm = pnpmPackage;
-            fetcherVersion = 3;
-            hash = pnpmDepsHash;
-          };
-
-          nativeBuildInputs = with pkgs; [
-            nodejs_22
-            npmHooks.npmInstallHook
-            pnpmConfigHook
-            pnpmPackage
-          ];
-        }
-      )
-    else
-      null;
+  openspecPackage = inputs.openspec.packages.${system}.default or null;
 
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
     {

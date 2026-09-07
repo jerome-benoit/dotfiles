@@ -105,10 +105,7 @@ let
   tyro = py.pkgs.tyro.overridePythonAttrs (_: {
     doCheck = false;
   });
-  # scipy's stats suite has a flaky Hypothesis property test (~2e-9 drift) building from source on aarch64-darwin; we only consume the library.
-  scipy = py.pkgs.scipy.overridePythonAttrs (_: {
-    doCheck = false;
-  });
+  scipy = py.pkgs.scipy;
 
   rlm = py.pkgs.buildPythonPackage {
     pname = "prime-agent-runtime";

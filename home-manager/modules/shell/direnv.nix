@@ -18,7 +18,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.direnv = {
       enable = true;
-      # NixOS/nix#15638
+      # Nix can invalidate ad-hoc Mach-O signatures during Darwin check builds.
       package = (mkPlatformPackage "direnv" { }).overrideAttrs (previousAttrs: {
         doCheck = (previousAttrs.doCheck or true) && !isDarwin;
       });

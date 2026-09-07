@@ -20,6 +20,7 @@ let
       pkgs.makeWrapper
     ];
 
+    # Default-feature tests call helpers gated behind the test-mocks feature.
     doCheck = false;
 
     postFixup = ''
