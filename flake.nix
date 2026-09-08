@@ -68,7 +68,8 @@
       url = "github:openclaw/nix-openclaw-tools";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # See .serena/memories/processes/hermes_agent_sync_main_patched.md
+    # Workaround: Hermes Agent still needs fork-local patches absent upstream.
+    # Remove when no fork-only patches remain, then follow NousResearch/hermes-agent.
     hermes-agent = {
       url = "github:jerome-benoit/hermes-agent/main-patched";
       inputs = {
@@ -156,8 +157,8 @@
           config = {
             allowUnfree = true;
             nvidia.acceptLicense = true;
-            # Workaround: nheko still depends on the insecure olm release on Darwin.
-            # Remove when nheko no longer requires olm.
+            # Workaround: Darwin Nheko resolves to insecure olm-3.2.16.
+            # Remove when that dependency leaves Nheko's closure or is no longer insecure.
             permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [
               "olm-3.2.16"
             ];
