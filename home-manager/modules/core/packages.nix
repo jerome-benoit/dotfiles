@@ -21,7 +21,8 @@ let
         cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
       in
       (pkgs.ollama-cuda.override { inherit cudaPackages; }).overrideAttrs (previousAttrs: {
-        # Ollama's CUDA sub-build needs the nvcc root with CMake 4.2+.
+        # Workaround: CMake 4.2+ needs CUDAToolkit_ROOT for Ollama's CUDA sub-build.
+        # Remove when the nixpkgs derivation exports it.
         preBuild = ''
           export CUDAToolkit_ROOT="${lib.getBin cudaNvcc}"
         ''

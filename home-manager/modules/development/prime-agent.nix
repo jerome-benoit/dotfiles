@@ -34,9 +34,8 @@ let
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";
 
-  # Prime Agent's private runtime moved to MCP 2 before nixpkgs. Build the
-  # small pure-Python compatibility stack from the exact wheels in its uv.lock
-  # while keeping the broader kernel environment on nixpkgs.
+  # Workaround: Prime Agent requires MCP 2 before nixpkgs provides it.
+  # Remove when nixpkgs satisfies the pinned runtime requirements.
   mkLockedWheel =
     name: dependencies: pythonImportsCheck:
     py.pkgs.buildPythonPackage {
@@ -70,11 +69,11 @@ let
         py.pkgs.typing-extensions
       ]
       [ ];
-  # Its test-only FastAPI stack currently reaches a failing inline-snapshot
-  # documentation suite; MCP consumes only the packaged ASGI library.
-  sseStarlette = py.pkgs.sse-starlette.overridePythonAttrs (previous: {
+  # Workaround: the test-only FastAPI stack fails in its documentation suite.
+  # Remove when sse-starlette's checks build with this dependency set.
+  sseStarlette = py.pkgs.sse-starlette.overridePythonAttrs (previousAttrs: {
     doCheck = false;
-    dependencies = (previous.dependencies or [ ]) ++ [ py.pkgs.starlette ];
+    dependencies = (previousAttrs.dependencies or [ ]) ++ [ py.pkgs.starlette ];
   });
   mcp2 =
     mkLockedWheel "mcp"
@@ -101,7 +100,8 @@ let
     mcp-types = mcpTypes;
   };
 
-  # tyro's own bash-completion tests flake building from source on aarch64-darwin; we only consume the library.
+  # Workaround: tyro's completion tests flake on aarch64-darwin.
+  # Remove when its source build checks are reliable there.
   tyro = py.pkgs.tyro.overridePythonAttrs (_: {
     doCheck = false;
   });

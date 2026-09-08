@@ -120,14 +120,16 @@
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-            # agent tests break on hardcoded /tmp/crush-test in darwin's shared /tmp.
+            # Workaround: crush tests hard-code a shared Darwin temporary path.
+            # Remove when upstream creates an isolated temporary directory.
             crush = prev.crush.overrideAttrs (previousAttrs: {
               postPatch = (previousAttrs.postPatch or "") + ''
                 substituteInPlace internal/agent/common_test.go \
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
             });
-            # Obsidian's DMG nests the app in a version-stamped volume directory.
+            # Workaround: Obsidian's DMG uses a version-stamped source root.
+            # Remove when nixpkgs handles that archive layout directly.
             obsidian = prev.obsidian.overrideAttrs (previousAttrs: {
               sourceRoot = "Obsidian ${previousAttrs.version}-universal";
               installPhase = ''
@@ -154,6 +156,8 @@
           config = {
             allowUnfree = true;
             nvidia.acceptLicense = true;
+            # Workaround: nheko still depends on the insecure olm release on Darwin.
+            # Remove when nheko no longer requires olm.
             permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [
               "olm-3.2.16"
             ];

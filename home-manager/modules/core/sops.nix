@@ -36,13 +36,14 @@ in
   };
 
   home = {
-    # --- sops-nix activation ordering fixes ---
-    # Ensure the service exists before sops-nix restarts it on Linux.
+    # Workaround: sops-nix may restart the service before Home Manager creates it.
+    # Remove when upstream orders sops-nix after reloadSystemd.
     activation.reloadSystemdBeforeSops = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (
       lib.hm.dag.entryBetween [ "sops-nix" ] [ "reloadSystemd" ] ""
     );
 
-    # Install the launchd plist before sops-nix bootstraps it on macOS.
+    # Workaround: sops-nix may bootstrap launchd before installing its plist.
+    # Remove when upstream orders sops-nix after setupLaunchAgents.
     activation.sops-nix = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
       lib.mkForce (
         lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''

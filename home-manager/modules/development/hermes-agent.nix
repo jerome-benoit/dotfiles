@@ -32,8 +32,8 @@ let
     # They also dlopen libcuda.so.1, so expose addDriverRunpath.driverLink.
     + lib.optionalString cudaRuntimeEnabled ":${pkgs.addDriverRunpath.driverLink}/lib";
 
-  # Keep the upstream package overridable: its Home Manager module applies
-  # extra dependency groups after selecting services.hermes-agent.package.
+  # Workaround: upstream applies dependency groups after selecting the package.
+  # Remove when its module preserves wrappers across package overrides.
   wrapHermesAgent =
     package:
     let
@@ -133,9 +133,8 @@ in
     };
 
     home = {
-      # Keep .env linked to the current sops generation. The upstream module
-      # copies environmentFiles before sops-nix refreshes them, which can
-      # otherwise leave stale credentials until the next activation.
+      # Workaround: upstream copies environmentFiles before sops-nix refreshes them.
+      # Remove when its activation runs after sops-nix.
       activation.hermesAgentEnvironment = lib.hm.dag.entryAfter [ "hermesAgentSetup" "sops-nix" ] ''
         run mkdir -p "${configDir}"
         run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
