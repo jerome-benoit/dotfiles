@@ -14,7 +14,8 @@ let
   opencodePackage =
     if baseOpencodePackage != null then
       baseOpencodePackage.overrideAttrs (previousAttrs: {
-        # Native Node modules require libstdc++ at runtime on Linux.
+        # Workaround: native Node modules need libstdc++ at runtime on Linux.
+        # Remove when upstream wraps the executable with its compiler runtime.
         postFixup =
           (previousAttrs.postFixup or "")
           + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''

@@ -134,8 +134,8 @@ let
       runHook postBuild
     '';
 
-    # No doCheck: upstream test-c isn't hermetic (test_ssd_probe timing-flakes,
-    # Linux test_uring needs io_uring) — installCheckPhase validates packaging.
+    # Workaround: test-c is non-hermetic on supported platforms.
+    # Remove when SSD timing and Linux io_uring tests work in the sandbox.
     doCheck = false;
 
     # Offline check: all unconditional engines, converter data, and dashboard
@@ -161,8 +161,8 @@ let
     # pinning it routes every model to GLM instead of dispatching per config.
     installPhase = ''
       runHook preInstall
-      # Upstream currently omits the iq3_pack data grid. Prefer an upstream
-      # installation on future pins, and only stage the source asset as fallback.
+      # Workaround: upstream omits the iq3_pack data grid from installation.
+      # Remove when the installed tools directory includes iq3xxs_grid.json.
       [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
         install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
       install -d "$out/lib/colibri/web/dist"

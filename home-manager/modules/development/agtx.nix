@@ -20,7 +20,8 @@ let
       pkgs.makeWrapper
     ];
 
-    # Default-feature tests call helpers gated behind the test-mocks feature.
+    # Workaround: default-feature tests call helpers gated by test-mocks.
+    # Remove when upstream's default test configuration is self-contained.
     doCheck = false;
 
     postFixup = ''

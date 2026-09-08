@@ -68,7 +68,8 @@
       url = "github:openclaw/nix-openclaw-tools";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # See .serena/memories/processes/hermes_agent_sync_main_patched.md
+    # Workaround: Hermes Agent still needs fork-local patches absent upstream.
+    # Remove when no fork-only patches remain, then follow NousResearch/hermes-agent.
     hermes-agent = {
       url = "github:jerome-benoit/hermes-agent/main-patched";
       inputs = {
@@ -120,14 +121,16 @@
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-            # agent tests break on hardcoded /tmp/crush-test in darwin's shared /tmp.
+            # Workaround: crush tests hard-code a shared Darwin temporary path.
+            # Remove when upstream creates an isolated temporary directory.
             crush = prev.crush.overrideAttrs (previousAttrs: {
               postPatch = (previousAttrs.postPatch or "") + ''
                 substituteInPlace internal/agent/common_test.go \
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
             });
-            # Obsidian's DMG nests the app in a version-stamped volume directory.
+            # Workaround: Obsidian's DMG uses a version-stamped source root.
+            # Remove when nixpkgs handles that archive layout directly.
             obsidian = prev.obsidian.overrideAttrs (previousAttrs: {
               sourceRoot = "Obsidian ${previousAttrs.version}-universal";
               installPhase = ''
@@ -154,6 +157,8 @@
           config = {
             allowUnfree = true;
             nvidia.acceptLicense = true;
+            # Workaround: Darwin Nheko resolves to insecure olm-3.2.16.
+            # Remove when that dependency leaves Nheko's closure or is no longer insecure.
             permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [
               "olm-3.2.16"
             ];

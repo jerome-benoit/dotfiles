@@ -41,7 +41,8 @@ in
       launchd.enable = isDarwin;
       systemd.enable = !isDarwin;
 
-      # Workaround: upstream synthetic defaultInstance omits appDefaults.nixMode
+      # Workaround: upstream's synthetic defaultInstance omits appDefaults.nixMode.
+      # Remove when the generated default instance includes that option.
       instances.default = { };
 
       config = {
