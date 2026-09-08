@@ -133,8 +133,8 @@ in
     };
 
     home = {
-      # Workaround: upstream copies environmentFiles before sops-nix refreshes them.
-      # Remove when its activation runs after sops-nix.
+      # Workaround: upstream may copy environmentFiles before sops-nix refreshes them.
+      # Remove when migrated to environmentFiles and upstream waits for secrets on Linux and Darwin.
       activation.hermesAgentEnvironment = lib.hm.dag.entryAfter [ "hermesAgentSetup" "sops-nix" ] ''
         run mkdir -p "${configDir}"
         run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"

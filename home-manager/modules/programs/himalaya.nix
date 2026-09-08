@@ -84,8 +84,8 @@ in
 
     home.packages = [ pkgs.himalaya ];
 
-    # Home Manager still emits Himalaya v1 keys, which v2 silently ignores.
-    # Keep the direct v2 config until its module supports the new schema.
+    # Workaround: Home Manager emits Himalaya v1 keys that v2 silently ignores.
+    # Remove when its Himalaya module supports the v2 schema.
     xdg.configFile."himalaya/config.toml".source = himalayaConfig;
   };
 }

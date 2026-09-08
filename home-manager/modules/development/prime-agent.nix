@@ -69,10 +69,12 @@ let
         py.pkgs.typing-extensions
       ]
       [ ];
-  # Workaround: the test-only FastAPI stack fails in its documentation suite.
-  # Remove when sse-starlette's checks build with this dependency set.
   sseStarlette = py.pkgs.sse-starlette.overridePythonAttrs (previousAttrs: {
+    # Workaround: the test-only FastAPI stack fails in its documentation suite.
+    # Remove when sse-starlette's checks build with this dependency set.
     doCheck = false;
+    # Workaround: nixpkgs omits sse-starlette's declared Starlette dependency.
+    # Remove when the nixpkgs package propagates Starlette itself.
     dependencies = (previousAttrs.dependencies or [ ]) ++ [ py.pkgs.starlette ];
   });
   mcp2 =
