@@ -3,7 +3,7 @@
   "version": "0.9.4",
   "src": {
     "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}.tgz",
-    "hash": "sha256-8068sLmc58r080ix1TCZpbnKpTvzESkzdxNfeHvJfNk="
+    "hash": "sha256-FCoLbQrlJZCM4gMH4Xt9jbDIJAXITvVTnKA6tCn9luI="
   },
   "npm": {
     "@silvia-odwyer/photon-node": {
