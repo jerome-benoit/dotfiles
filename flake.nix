@@ -159,8 +159,9 @@
             nvidia.acceptLicense = true;
             # Workaround: Darwin Nheko resolves to insecure olm-3.2.16.
             # Remove when that dependency leaves Nheko's closure or is no longer insecure.
-            permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [
-              "olm-3.2.16"
+            # Workaround: opencode-desktop pins EOL electron_41.
+            permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [ "olm-3.2.16" ] ++ [
+              "electron-41.10.6"
             ];
           };
         };
