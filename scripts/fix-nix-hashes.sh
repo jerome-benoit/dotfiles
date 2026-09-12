@@ -10,7 +10,7 @@ FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
 
 PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(pi|omp|prime-agent)\.json$/'
-PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"\s*,\s*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
+PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"[^{]*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
 VERSIONING_TEMPLATE='{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}'
 HASH_PATTERN='^sha256-[A-Za-z0-9+/=]+$'
 
