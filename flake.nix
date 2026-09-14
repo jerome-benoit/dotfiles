@@ -11,10 +11,10 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    opencode = {
-      url = "github:anomalyco/opencode";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # Workaround: opencode calibrates its node_modules FOD hash against the
+    # bun of its own nixpkgs.
+    # Remove when upstream makes hashes.json bun-agnostic (opencode#49063).
+    opencode.url = "github:anomalyco/opencode";
     opencode-nvim = {
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
