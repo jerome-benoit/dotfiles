@@ -165,6 +165,11 @@ let
       # Remove when the installed tools directory includes iq3xxs_grid.json.
       [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
         install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
+      # Workaround: upstream omits v41_dsml.py from installation, which
+      # openai_server.py imports (0842062 added one without the other).
+      # Remove when the installed lib directory includes v41_dsml.py.
+      [ -e "$out/lib/colibri/v41_dsml.py" ] || \
+        install -m 644 c/v41_dsml.py "$out/lib/colibri/"
       install -d "$out/lib/colibri/web/dist"
       cp -R ${colibriWeb}/. "$out/lib/colibri/web/dist/"
       mv $out/bin/coli $out/lib/colibri/coli
