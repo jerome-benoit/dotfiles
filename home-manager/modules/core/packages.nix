@@ -151,6 +151,7 @@ in
     # Desktop Darwin packages.
     ++ lib.optionals (isDesktop && isDarwin) [
       pkgs.age
+      pkgs.aria2
       pkgs.autoconf
       pkgs.automake
       pkgs.bashInteractive
