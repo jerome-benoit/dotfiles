@@ -26,8 +26,13 @@ let
     if sysfsVersion != "" then sysfsVersion else cfg.nvidiaDriverVersion;
   nvidiaVersionKnown = detectedNvidiaVersion != null;
 
-  # Exact toolkit driver versions from NVIDIA CUDA Release Notes, Table 3.
+  # Exact toolkit driver versions from NVIDIA CUDA Release Notes, Table 3;
+  # the 13.4 entry uses its R615 branch floor, listed in Table 2.
   cudaMatrix = [
+    {
+      minDriver = "615.71.09";
+      packages = pkgs.cudaPackages_13_4;
+    }
     {
       minDriver = "610.43.02";
       packages = pkgs.cudaPackages_13_3;
