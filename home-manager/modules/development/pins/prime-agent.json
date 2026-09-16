@@ -1,9 +1,9 @@
 {
   "renovate": "datasource=github-releases depName=PrimeIntellect-ai/prime-agent",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "src": {
     "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}.tgz",
-    "hash": "sha256-FCoLbQrlJZCM4gMH4Xt9jbDIJAXITvVTnKA6tCn9luI="
+    "hash": "sha256-XRn+w6bZaNZ1aXNWe+rx0KP8O/+LvzOEXk6q4XEfmE4="
   },
   "npm": {
     "@silvia-odwyer/photon-node": {
