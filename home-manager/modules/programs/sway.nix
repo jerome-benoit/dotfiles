@@ -319,7 +319,6 @@ in
       rofi = {
         enable = true;
         package = mkSystemPackage "rofi" { };
-        terminal = "foot";
         theme =
           let
             inherit (config.lib.formats.rasi) mkLiteral;
@@ -476,7 +475,8 @@ in
               text-color = mkLiteral "@bg";
             };
           };
-        extraConfig = {
+        settings = {
+          terminal = "foot";
           modes = "drun,run,window,ssh";
           show-icons = true;
           icon-theme = "Adwaita";
