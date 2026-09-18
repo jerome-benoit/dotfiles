@@ -17,7 +17,9 @@ let
   hermesModuleCommon = import "${inputs.hermes-agent}/nix/moduleCommon.nix" {
     inherit lib;
   };
-  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default;
+  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override {
+    inherit (pkgs) callPackage;
+  };
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";

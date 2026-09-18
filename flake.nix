@@ -143,6 +143,17 @@
               '';
             });
           }
+          // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
+            # Workaround: Nix sandbox forbids setuid, failing
+            # test-fs-cp-async-file-modes in the Node.js test-ci-js suite.
+            # Remove when upstream excludes that test from sandboxed builds.
+            nodejs-slim_26 = prev.nodejs-slim_26.overrideAttrs (previousAttrs: {
+              checkFlags = map (
+                flag:
+                if nixpkgs.lib.hasPrefix "CI_SKIP_TESTS=" flag then flag + ",test-fs-cp-async-file-modes" else flag
+              ) (previousAttrs.checkFlags or [ ]);
+            });
+          }
         )
       ];
 
