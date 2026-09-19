@@ -122,11 +122,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1789821827,
-        "narHash": "sha256-N8l4glxESTE9bdl1mBWZ9s/6L9VCkW173aYysYicxos=",
+        "lastModified": 1789842106,
+        "narHash": "sha256-a4NvdWxYdZWj2gxDjJXWKaLnjeEUtoD+3loCPQtZVNs=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "e0507237ad8d41f60aece10d00ef29ce2339ca34",
+        "rev": "856b64b9bfd41b9d3d82e2375ed5b4bf941fda28",
         "type": "github"
       },
       "original": {
@@ -231,11 +231,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1789690527,
-        "narHash": "sha256-wmcZHOE1oZgWyWq7NTr9MeUR0pNN2V0y5psqpGz7Tqk=",
+        "lastModified": 1789846429,
+        "narHash": "sha256-oynfZdVavARS/6I490fAVxYasgWtVq6XMaMB9JDI6RM=",
         "owner": "openclaw",
         "repo": "nix-openclaw-tools",
-        "rev": "88f0040a63d7fc90b34c19a80690a28af26051df",
+        "rev": "f069f1384aa14843f0cee3710d0792675b7ac816",
         "type": "github"
       },
       "original": {
@@ -275,22 +275,6 @@
         "type": "github"
       }
     },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1776683584,
-        "narHash": "sha256-NuTLMrr10Tng72hurYG8jYQ4XKK8wnpJmOGcPiis96g=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "9dd5558b06dbdacbf635a3dd36dce1b1a7ee3a89",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "npm-lockfile-fix": {
       "inputs": {
         "nixpkgs": [
@@ -314,18 +298,21 @@
     },
     "opencode": {
       "inputs": {
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1789828307,
-        "narHash": "sha256-fVNSH2vqaauB2mOeD3FJEBAQl6E4199sJKdoIa4S6zE=",
+        "lastModified": 1789844830,
+        "narHash": "sha256-0lumw+x9ka0y8ybcWNELgyGAxCdJ3PXRp4Wu+s8e+yc=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "fee476bb90043a1012abda156dd9af9e5c71b19d",
+        "rev": "dfa44e94e8ed55a394c3f64eb9a7da56e69f2f3c",
         "type": "github"
       },
       "original": {
         "owner": "anomalyco",
+        "ref": "v2",
         "repo": "opencode",
         "type": "github"
       }

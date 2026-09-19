@@ -33,9 +33,6 @@ let
     if desktop != null then
       desktop.override {
         opencode = opencodePackage;
-        # opencode builds with bare nixpkgs.legacyPackages: re-instance the
-        # EOL electron_41 pin here so permittedInsecurePackages applies.
-        electron_41 = pkgs.electron_41;
       }
     else
       null;
