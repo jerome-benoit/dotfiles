@@ -1,10 +1,10 @@
 {
   "renovate": "datasource=npm depName=@earendil-works/pi-coding-agent",
-  "version": "0.86.1",
+  "version": "0.87.0",
   "src": {
     "urlTemplate": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-{version}.tgz",
-    "hash": "sha256-86nJWExaX5iWKfRc3/pOqnPeyxazSKyGUEmbGPR1u0c="
+    "hash": "sha256-SCx6/NJNEUF6JShq62eE+vyv9/tTUt3vh88S0SjVg4Q="
   },
-  "npmDepsHash": "sha256-gTFx2K5yHuFbBUl3DnIsspKRatYGfeWnfQ+5QbTP4mM=",
+  "npmDepsHash": "sha256-op8OTKHpAuXmJCoutWoTMLfMy64kQc96hm80cCxf794=",
   "lockFile": "pi-package-lock.json"
 }
