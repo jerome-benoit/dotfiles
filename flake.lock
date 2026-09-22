@@ -11,11 +11,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790009511,
-        "narHash": "sha256-4E2Nu3i/+5NiZfGHFVBHFZwYVRhAGnaVXkd/O60SCck=",
+        "lastModified": 1790074494,
+        "narHash": "sha256-DKIgr696gYSlt1T8nvBXp9FsdlhSGqOOl5bTE3cwIs4=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "024477a18dec59fb01d388eb6f8a749e7faea1cb",
+        "rev": "fd6f91b34b4aee5e56d7af4076689360e71527af",
         "type": "github"
       },
       "original": {
@@ -122,11 +122,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1789997936,
-        "narHash": "sha256-NPBsCHdHA+jn09F7ORsOjwBOd+T5WTFfA/ffbX7+Was=",
+        "lastModified": 1790032847,
+        "narHash": "sha256-PYdjCSs+O1tX3RKdZ09ZTA3M+NwlnKhWbjNU8YhuG8s=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "309749ad65f3aa596f077ec23a1bf3ee428b7a04",
+        "rev": "8ac9542757292f7a8d42a2d532bc6a8a33c7ffce",
         "type": "github"
       },
       "original": {
@@ -158,11 +158,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790008571,
-        "narHash": "sha256-7aujV0Ir97nIXoYsKDhx8h5m1tSEe+PmYeVOVSL5Rh4=",
+        "lastModified": 1790076634,
+        "narHash": "sha256-luoRpASzh/dBTKUY4l1n+hRltsSGOJ9JidI0NvcEyuU=",
         "owner": "jerome-benoit",
         "repo": "hermes-agent",
-        "rev": "220b6e36acb8cc7a0223a6e4c884ae27d9d5e6c9",
+        "rev": "60fb6e2944fa2055985876daca227d70afdf9017",
         "type": "github"
       },
       "original": {
@@ -179,11 +179,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790010537,
-        "narHash": "sha256-rsDlQDQkCVnSkEfDTWlaFjp7vpke5taFkeTseT7DUxQ=",
+        "lastModified": 1790021793,
+        "narHash": "sha256-wXAdaLBAjbQK/OfESV/i0pgolkz+Uo4SbBP/MbfGLHU=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "a6c231d51f2a434e164020eae31de96ca0a56d65",
+        "rev": "a3dfb887d40d134af29fa8e924ba85a3e3a99194",
         "type": "github"
       },
       "original": {
@@ -231,11 +231,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1789949813,
-        "narHash": "sha256-dAVcKagKrMQmq5n9AFzxjTomAR24n1W0PcmIjI+i3Gk=",
+        "lastModified": 1790068287,
+        "narHash": "sha256-FAFSr3L0+7OCIQPq09MvC10J2NR0wFrl+IY2v176YNw=",
         "owner": "openclaw",
         "repo": "nix-openclaw-tools",
-        "rev": "91d9a77371e37eeda8b585769b4dd3215e6cad78",
+        "rev": "e50c1267c23e0f4b5b36782b595c1f7d3c2c6972",
         "type": "github"
       },
       "original": {
@@ -246,11 +246,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1789844176,
-        "narHash": "sha256-COQmpo4lFIzMgUjr3ntDpjH0NwrCnf7N0uhR+6WPGP8=",
+        "lastModified": 1789960332,
+        "narHash": "sha256-MQ5my6vvo0z2iVQcKqrysutFWvsNw3/ynNxzjJon4yc=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "79b35bf0bda5cd110f856aa5b5b2c5ba4460dbf5",
+        "rev": "35e212742ceab4ae1dcfbfd9039a39215c816e8e",
         "type": "github"
       },
       "original": {
@@ -317,11 +317,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1790004748,
-        "narHash": "sha256-N5S/H8Mn7AWgyeXdU7VjncNy3Oy47nPKPPyq2zFm7Lw=",
+        "lastModified": 1790031078,
+        "narHash": "sha256-h5AmK9R0Clk+LT0Tmmfg7iXa6dXNlPi2I5xCjTDRdcg=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "e059ac5918f3e2c798de029b9df4cede617466ed",
+        "rev": "fe3f3a41f79ad292cc3c7c629567385a20ec5130",
         "type": "github"
       },
       "original": {
@@ -333,11 +333,11 @@
     "opencode-nvim": {
       "flake": false,
       "locked": {
-        "lastModified": 1789859396,
-        "narHash": "sha256-EJ15jgMUi5c4LaAN4DSiNqc5G0xUHuBVmOtmWvyevDQ=",
+        "lastModified": 1790040975,
+        "narHash": "sha256-2vkDeiNLT3uImqVSsJNZdCl71jFid+pZw4LquCFEDH4=",
         "owner": "NickvanDyke",
         "repo": "opencode.nvim",
-        "rev": "71fb506ef1898048bc548668f31f495ad6c29453",
+        "rev": "d5122284835d88ff47197863722ee6f89b1a001f",
         "type": "github"
       },
       "original": {
