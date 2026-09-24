@@ -11,11 +11,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790285986,
-        "narHash": "sha256-/8tOU4Ij6/sX/q0dZHapw2vd2C/03u4nE1M6YS2QZ9E=",
+        "lastModified": 1790290850,
+        "narHash": "sha256-q54+HKFdOJCU9fKEbgUNDMPfyWV3VR+qLceGxWc9w1Y=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "9b03078fffc75a489ba12df417826ba145b21171",
+        "rev": "e6f89c1d04ef24d6e998e13bcd009f87d904aaee",
         "type": "github"
       },
       "original": {
@@ -50,11 +50,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1789972347,
-        "narHash": "sha256-FY3EA6PULupN9RKi7HNVHP7xpEX/cvH6K5Keuk4H3oY=",
+        "lastModified": 1790287777,
+        "narHash": "sha256-EZsilCC3yEOCpTpXjV8KTYULDDatrcHIaykzWwFb6Ek=",
         "owner": "JustVugg",
         "repo": "colibri",
-        "rev": "9d5d05de7f4ccf39840224ed295f292ab8aeb598",
+        "rev": "ce370e87d7b623d7759b52ec2007d75fc5b0e87e",
         "type": "github"
       },
       "original": {
