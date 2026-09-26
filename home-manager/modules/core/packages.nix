@@ -196,6 +196,7 @@ in
       pkgs.uv
       pkgs.vscode
       pkgs.yq
+      pkgs.yt-dlp
       pkgs.zed-editor
       pkgs.zoom-us
     ]
