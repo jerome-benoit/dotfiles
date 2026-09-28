@@ -18,7 +18,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `nixpkgs`                 | `github:nixos/nixpkgs?ref=nixpkgs-unstable`      | Nix packages (unstable)                                                                                                 |
 | `home-manager`            | `github:nix-community/home-manager`              | Home Manager, follows nixpkgs                                                                                           |
-| `opencode`                | `github:anomalyco/opencode`                      | OpenCode TUI/CLI/Desktop                                                                                                |
+| `opencode`                | `github:anomalyco/opencode/v2`                   | OpenCode 2.x TUI/CLI/Desktop (v2 branch, follows nixpkgs)                                                              |
 | `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`               | Neovim plugin (non-flake)                                                                                               |
 | `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`       | AI agent session manager (non-flake)                                                                                    |
 | `herdr`                   | `github:ogulcancelik/herdr`                      | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                |

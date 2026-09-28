@@ -126,23 +126,13 @@ in
               local path_hash=$(echo "$PWD" | shasum | cut -c1-4)
               local session_name="''${base_name}-''${path_hash}"
 
-              # Find available port starting from 4096
-              local port=4096
-              while [ $port -lt 5096 ]; do
-                  if ! lsof -i :$port >/dev/null 2>&1; then
-                      break
-                  fi
-                  port=$((port + 1))
-              done
-
-              export OPENCODE_PORT=$port
-
+              # OpenCode 2.x runs a single background daemon that every client
+              # attaches to, so only the TUI is scoped to this project.
               if [ -n "$TMUX" ]; then
-                  # Already inside tmux - just run with port
-                  opencode --port $port "$@"
+                  opencode "$@"
               else
                   # Create tmux session and run opencode
-                  local oc_cmd="OPENCODE_PORT=$port opencode --port $port $*; exec $SHELL"
+                  local oc_cmd="opencode $*; exec $SHELL"
                   if tmux has-session -t "$session_name" 2>/dev/null; then
                       tmux new-window -t "$session_name" -c "$PWD" "$oc_cmd"
                       tmux attach-session -t "$session_name"
