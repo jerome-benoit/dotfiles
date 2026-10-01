@@ -153,6 +153,13 @@
                 if nixpkgs.lib.hasPrefix "CI_SKIP_TESTS=" flag then flag + ",test-fs-cp-async-file-modes" else flag
               ) (previousAttrs.checkFlags or [ ]);
             });
+            # Workaround: mergiraf's integration suites drive git and jujutsu
+            # with the environment cleared down to PATH, and abort in the
+            # sandbox. Keep the unit tests, skip the driver-backed suites.
+            # Remove when those suites run hermetically upstream.
+            mergiraf = prev.mergiraf.overrideAttrs (previousAttrs: {
+              cargoTestFlags = (previousAttrs.cargoTestFlags or [ ]) ++ [ "--lib" ];
+            });
           }
         )
       ];
