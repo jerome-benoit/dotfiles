@@ -144,15 +144,6 @@
             });
           }
           // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
-            # Workaround: Nix sandbox forbids setuid, failing
-            # test-fs-cp-async-file-modes in the Node.js test-ci-js suite.
-            # Remove when upstream excludes that test from sandboxed builds.
-            nodejs-slim_26 = prev.nodejs-slim_26.overrideAttrs (previousAttrs: {
-              checkFlags = map (
-                flag:
-                if nixpkgs.lib.hasPrefix "CI_SKIP_TESTS=" flag then flag + ",test-fs-cp-async-file-modes" else flag
-              ) (previousAttrs.checkFlags or [ ]);
-            });
             # Workaround: mergiraf's integration suites drive git and jujutsu
             # with the environment cleared down to PATH, and abort in the
             # sandbox. Keep the unit tests, skip the driver-backed suites.
@@ -161,6 +152,32 @@
               cargoTestFlags = (previousAttrs.cargoTestFlags or [ ]) ++ [ "--lib" ];
             });
           }
+          // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux (
+            let
+              isCudaPackages = name: builtins.match "cudaPackages(_[0-9]+_[0-9]+)?$" name != null;
+              isBuildRedistHook = input: builtins.match ".*/buildRedistHook[.]bash" (toString input) != null;
+              # Workaround: buildRedistHook leaves propagatedBuildOutputs as a
+              # malformed array, so multiple-outputs.sh aborts with "invalid
+              # variable name" on every CUDA redistributable.
+              # Remove when the pin carries NixOS/nixpkgs 65fe9eae2b57.
+              dropBuggyRedistHook =
+                cudaPackages:
+                cudaPackages.overrideScope (
+                  _final: prev: {
+                    buildRedist =
+                      args:
+                      (prev.buildRedist args).overrideAttrs (previousAttrs: {
+                        nativeBuildInputs = nixpkgs.lib.filter (input: !isBuildRedistHook input) (
+                          previousAttrs.nativeBuildInputs or [ ]
+                        );
+                      });
+                  }
+                );
+            in
+            nixpkgs.lib.mapAttrs (
+              name: value: if isCudaPackages name then dropBuggyRedistHook value else value
+            ) (nixpkgs.lib.filterAttrs (name: _: isCudaPackages name) prev)
+          )
         )
       ];
 
