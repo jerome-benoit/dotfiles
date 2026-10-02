@@ -14,6 +14,12 @@ let
   opencodePackage =
     if baseOpencodePackage != null then
       baseOpencodePackage.overrideAttrs (previousAttrs: {
+        # Workaround: Desktop and Neovim discover service.json, not service-prod.json.
+        # Remove when upstream CLI and clients use the same service registry.
+        env = (previousAttrs.env or { }) // {
+          OPENCODE_CHANNEL = "latest";
+        };
+
         # Workaround: native Node modules need libstdc++ at runtime on Linux.
         # Remove when upstream wraps the executable with its compiler runtime.
         postFixup =
@@ -31,12 +37,17 @@ let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if desktop != null then
-      desktop.override {
-        opencode = opencodePackage;
-        # opencode builds with bare nixpkgs.legacyPackages: re-instance the
-        # EOL electron_41 pin here so permittedInsecurePackages applies.
-        electron_41 = pkgs.electron_41;
-      }
+      # opencode-desktop builds with bare nixpkgs.legacyPackages and pins its own
+      # electron, so the host nixpkgs config does not reach it.
+      (desktop.override { opencode = opencodePackage; }).overrideAttrs (previousAttrs: {
+        # Workaround: Desktop caches CLI binaries by version, ignoring Nix overrides.
+        # Remove when upstream keys staged binaries by source identity.
+        postPatch = (previousAttrs.postPatch or "") + ''
+          substituteInPlace packages/desktop/src/main/service/desktop-cli.ts \
+            --replace-fail 'version.replace(/[^a-zA-Z0-9._-]/g, "-")' \
+              '${builtins.toJSON (builtins.baseNameOf (toString opencodePackage))}'
+        '';
+      })
     else
       null;
 

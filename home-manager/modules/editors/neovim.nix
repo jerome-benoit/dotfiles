@@ -14,6 +14,15 @@ let
     pname = "opencode-nvim";
     version = config.modules.core.lib.mkUnstableVersion inputs.opencode-nvim;
     src = inputs.opencode-nvim;
+
+    # Workaround: OpenCode v2 sends SSE heartbeat comments every 15 seconds.
+    # Remove when the pinned opencode.nvim uses the matching heartbeat interval.
+    postPatch = ''
+      substituteInPlace lua/opencode/server/init.lua \
+        --replace-fail 'local OPENCODE_HEARTBEAT_INTERVAL_MS = 10000' \
+          'local OPENCODE_HEARTBEAT_INTERVAL_MS = 15000'
+    '';
+
     meta = with lib; {
       homepage = "https://github.com/NickvanDyke/opencode.nvim";
       description = "OpenCode integration for Neovim";
@@ -361,7 +370,8 @@ let
 
   nvimOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable ''
     -- OpenCode AI Integration
-    local opencode_cmd = "opencode --port"
+    -- The v2 TUI starts/reuses the daemon; the plugin reads its service registry.
+    local opencode_cmd = "opencode"
     local opencode_terminal_opts = {
       win = {
         position = "right",
@@ -543,11 +553,8 @@ in
         pkgs.tree-sitter
       ]
       ++ lib.optionals cfg.plugins.opencode.enable (
-        [
-          pkgs.curl
-          pkgs.lsof
-          (if pkgs.stdenv.hostPlatform.isDarwin then pkgs.uutils-procps else pkgs.procps)
-        ]
+        # The plugin uses curl for HTTP requests and SSE events.
+        [ pkgs.curl ]
         ++ lib.optional (
           config.modules.development.opencode.opencodePackage != null
         ) config.modules.development.opencode.opencodePackage

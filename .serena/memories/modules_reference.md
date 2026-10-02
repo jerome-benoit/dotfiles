@@ -141,7 +141,7 @@ Shell configuration with oh-my-zsh:
 - Session variables: NH_FLAKE, WORKSPACE, EDITOR
 - Base plugins: colorize, screen, docker, python, poetry, rust, deno, volta, node, npm, etc.
 - Dynamic plugins based on: profile modules, distro, platform
-- Custom init: `oc()` tmux+opencode wrapper, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
+- Custom init: `oc()` tmux wrapper for the OpenCode TUI with project-scoped sessions, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
 - envExtra: cargo env, gh auth token for NIX_CONFIG access-tokens and HOMEBREW_GITHUB_API_TOKEN
 - Profile: Volta setup, PATH configuration, .zprofile.d scripts sourcing
 
@@ -208,7 +208,9 @@ Git TUI with dynamic theme colors from `themes.current`:
 OpenCode AI assistant:
 
 - Options: `enable`, `enableDesktop`
-- Packages from flake input: TUI/CLI and Desktop variants
+- Packages from flake input: TUI/CLI and Desktop variants (`opencode2` is a symlink to the same v2 binary)
+- CLI, Desktop and Neovim use the shared background service by default
+- Desktop uses upstream's pinned Electron package
 - Warnings if packages unavailable for system
 
 ### bun.nix
@@ -382,9 +384,10 @@ Full IDE configuration (~500 lines):
 **OpenCode Integration** (when enabled):
 
 - Keymaps: `<leader>o*` prefix
-- Session management, navigation, prompt commands
+- Terminal toggle, context prompts and command mappings
 - Statusline integration
-- Event handling (idle, error notifications)
+- Event-driven file reloads and permission handling
+- HTTP requests and SSE events use `curl`
 
 **Requires**: opencode module enabled if opencode plugin enabled
 
