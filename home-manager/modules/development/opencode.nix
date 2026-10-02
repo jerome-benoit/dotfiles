@@ -31,12 +31,9 @@ let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if desktop != null then
-      desktop.override {
-        opencode = opencodePackage;
-        # opencode builds with bare nixpkgs.legacyPackages: re-instance the
-        # EOL electron_41 pin here so permittedInsecurePackages applies.
-        electron_41 = pkgs.electron_41;
-      }
+      # opencode-desktop builds with bare nixpkgs.legacyPackages and pins its own
+      # electron, so the host nixpkgs config does not reach it.
+      desktop.override { opencode = opencodePackage; }
     else
       null;
 

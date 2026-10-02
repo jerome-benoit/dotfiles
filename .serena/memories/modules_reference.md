@@ -141,7 +141,7 @@ Shell configuration with oh-my-zsh:
 - Session variables: NH_FLAKE, WORKSPACE, EDITOR
 - Base plugins: colorize, screen, docker, python, poetry, rust, deno, volta, node, npm, etc.
 - Dynamic plugins based on: profile modules, distro, platform
-- Custom init: `oc()` tmux+opencode wrapper, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
+- Custom init: `oc()` tmux wrapper around the opencode TUI (2.x runs one shared background daemon, so no per-project port is allocated), EDITOR setup (code --wait), DVM support, .secrets loading with permission check
 - envExtra: cargo env, gh auth token for NIX_CONFIG access-tokens and HOMEBREW_GITHUB_API_TOKEN
 - Profile: Volta setup, PATH configuration, .zprofile.d scripts sourcing
 
@@ -208,7 +208,8 @@ Git TUI with dynamic theme colors from `themes.current`:
 OpenCode AI assistant:
 
 - Options: `enable`, `enableDesktop`
-- Packages from flake input: TUI/CLI and Desktop variants
+- Packages from flake input: TUI/CLI and Desktop variants (`opencode2` is a symlink to the same v2 binary)
+- Desktop pins its own electron and builds against bare `nixpkgs.legacyPackages`, so the host nixpkgs insecure-package config does not apply to it
 - Warnings if packages unavailable for system
 
 ### bun.nix

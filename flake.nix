@@ -11,10 +11,15 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Workaround: opencode calibrates its node_modules FOD hash against the
-    # bun of its own nixpkgs.
-    # Remove when upstream makes hashes.json bun-agnostic (opencode#49063).
-    opencode.url = "github:anomalyco/opencode";
+    # opencode builds against its own nixpkgs unless told otherwise, which
+    # pins an intermediate snapshot between releases. Follow the root nixpkgs
+    # so both track the same commit; opencode's node_modules hash is calibrated
+    # against whatever bun that nixpkgs ships, so the two must move together.
+    # Pinned to the v2 branch: OpenCode 2.x is the shipping line.
+    opencode = {
+      url = "github:anomalyco/opencode/v2";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     opencode-nvim = {
       url = "github:NickvanDyke/opencode.nvim";
       flake = false;
@@ -194,10 +199,7 @@
             nvidia.acceptLicense = true;
             # Workaround: Darwin Nheko resolves to insecure olm-3.2.16.
             # Remove when that dependency leaves Nheko's closure or is no longer insecure.
-            # Workaround: opencode-desktop pins EOL electron_41.
-            permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [ "olm-3.2.16" ] ++ [
-              "electron-41.10.6"
-            ];
+            permittedInsecurePackages = nixpkgs.lib.optionals isDarwin [ "olm-3.2.16" ];
           };
         };
 
