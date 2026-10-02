@@ -20,7 +20,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `home-manager`            | `github:nix-community/home-manager`              | Home Manager, follows nixpkgs                                                                                           |
 | `opencode`                | `github:anomalyco/opencode/v2`                   | OpenCode 2.x TUI/CLI/Desktop (v2 branch, follows nixpkgs)                                                              |
 | `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`               | Neovim plugin (non-flake)                                                                                               |
-| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`       | AI agent session manager (flake, follows nixpkgs; local OpenCode v2 compatibility patch)                                 |
+| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`       | AI agent session manager (non-flake)                                                                                    |
 | `herdr`                   | `github:ogulcancelik/herdr`                      | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                |
 | `openspec`                | `github:Fission-AI/OpenSpec`                     | OpenSpec CLI, follows nixpkgs                                                                                           |
 | `nix-openclaw`            | `github:openclaw/nix-openclaw`                   | OpenClaw AI gateway, follows nixpkgs + home-manager + flake-utils + nix-openclaw-tools                                  |

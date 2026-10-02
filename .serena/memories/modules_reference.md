@@ -240,13 +240,12 @@ Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
 
 Agent of Empires session manager:
 
-- Options: `enable`, `enableWeb`, `package`, `theme`, `defaultTool`
-- Both default package variants apply the local OpenCode v2 patch: native forks through `api --standalone`, `session_v2` routing checks and `--auto` for YOLO mode
+- Options: `enable`, `package`, `theme`, `defaultTool`
 - Default tool: opencode (supports claude, opencode, vibe, codex, gemini)
 - Theme: tokyo-night-storm (supports phosphor, tokyo-night-storm, catppuccin-latte, dracula, empire)
 - Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
 - Shell completions: bash, fish, zsh
-- The selected flake package (including a custom `package` override) receives the local compatibility patch
+- Built from flake input with `rustPlatform.buildRustPackage`
 
 ### openclaw.nix
 
