@@ -11,9 +11,10 @@ let
 
   baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
 
-  opencodePackage =
-    if baseOpencodePackage != null then
-      baseOpencodePackage.overrideAttrs (previousAttrs: {
+  mkOpencodePackage =
+    package:
+    if package != null then
+      package.overrideAttrs (previousAttrs: {
         # Workaround: Desktop and Neovim discover service.json, not service-prod.json.
         # Remove when upstream CLI and clients use the same service registry.
         env = (previousAttrs.env or { }) // {
@@ -36,16 +37,16 @@ let
     let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
-    if desktop != null then
+    if cfg.opencodePackage != null && desktop != null then
       # opencode-desktop builds with bare nixpkgs.legacyPackages and pins its own
       # electron, so the host nixpkgs config does not reach it.
-      (desktop.override { opencode = opencodePackage; }).overrideAttrs (previousAttrs: {
+      (desktop.override { opencode = cfg.opencodePackage; }).overrideAttrs (previousAttrs: {
         # Workaround: Desktop caches CLI binaries by version, ignoring Nix overrides.
         # Remove when upstream keys staged binaries by source identity.
         postPatch = (previousAttrs.postPatch or "") + ''
           substituteInPlace packages/desktop/src/main/service/desktop-cli.ts \
             --replace-fail 'version.replace(/[^a-zA-Z0-9._-]/g, "-")' \
-              '${builtins.toJSON (builtins.baseNameOf (toString opencodePackage))}'
+              '${builtins.toJSON (builtins.baseNameOf (toString cfg.opencodePackage))}'
         '';
       })
     else
@@ -73,12 +74,19 @@ in
       description = "Whether to enable OpenCode Desktop integration";
     };
 
-    opencodePackage = config.modules.core.lib.mkOptionalPackageOption {
-      default = opencodePackage;
-      defaultText = lib.literalExpression "inputs.opencode.packages.\${system}.default";
-      description = "OpenCode TUI and CLI package";
-      example = lib.literalExpression "inputs.opencode.packages.\${system}.default";
-    };
+    opencodePackage =
+      (config.modules.core.lib.mkOptionalPackageOption {
+        default = baseOpencodePackage;
+        defaultText = lib.literalExpression "inputs.opencode.packages.\${system}.default";
+        description = ''
+          OpenCode v2 TUI and CLI package using the upstream source build environment.
+          The selected package receives the shared-service and Linux runtime adjustments.
+        '';
+        example = lib.literalExpression "inputs.opencode.packages.\${system}.default";
+      })
+      // {
+        apply = mkOpencodePackage;
+      };
 
     desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
       default = null;
