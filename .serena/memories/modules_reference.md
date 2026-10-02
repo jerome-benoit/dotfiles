@@ -141,7 +141,7 @@ Shell configuration with oh-my-zsh:
 - Session variables: NH_FLAKE, WORKSPACE, EDITOR
 - Base plugins: colorize, screen, docker, python, poetry, rust, deno, volta, node, npm, etc.
 - Dynamic plugins based on: profile modules, distro, platform
-- Custom init: `oc()` tmux wrapper around the opencode TUI (2.x runs one shared background daemon, so no per-project port is allocated), EDITOR setup (code --wait), DVM support, .secrets loading with permission check
+- Custom init: `oc()` tmux wrapper for the OpenCode TUI with project-scoped sessions, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
 - envExtra: cargo env, gh auth token for NIX_CONFIG access-tokens and HOMEBREW_GITHUB_API_TOKEN
 - Profile: Volta setup, PATH configuration, .zprofile.d scripts sourcing
 
@@ -209,8 +209,8 @@ OpenCode AI assistant:
 
 - Options: `enable`, `enableDesktop`
 - Packages from flake input: TUI/CLI and Desktop variants (`opencode2` is a symlink to the same v2 binary)
-- The CLI is compiled with the `latest` channel so Neovim and Desktop discover the shared `service.json`; Desktop stages it by Nix store identity, not version alone
-- Desktop pins its own electron and builds against bare `nixpkgs.legacyPackages`, so the host nixpkgs insecure-package config does not apply to it
+- CLI, Desktop and Neovim use the shared background service by default
+- Desktop uses upstream's pinned Electron package
 - Warnings if packages unavailable for system
 
 ### bun.nix
@@ -384,10 +384,10 @@ Full IDE configuration (~500 lines):
 **OpenCode Integration** (when enabled):
 
 - Keymaps: `<leader>o*` prefix
-- Session management, navigation, prompt commands
+- Terminal toggle, context prompts and command mappings
 - Statusline integration
-- Event handling (idle, error notifications)
-- SSE watchdog: 16-second timeout for v2's 15-second heartbeat comments (existing 1-second margin)
+- Event-driven file reloads and permission handling
+- HTTP requests and SSE events use `curl`
 
 **Requires**: opencode module enabled if opencode plugin enabled
 
