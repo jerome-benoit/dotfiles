@@ -11,11 +11,6 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # opencode builds against its own nixpkgs unless told otherwise, which
-    # pins an intermediate snapshot between releases. Follow the root nixpkgs
-    # so both track the same commit; opencode's node_modules hash is calibrated
-    # against whatever bun that nixpkgs ships, so the two must move together.
-    # Pinned to the v2 branch: OpenCode 2.x is the shipping line.
     opencode = {
       url = "github:anomalyco/opencode/v2";
       inputs.nixpkgs.follows = "nixpkgs";

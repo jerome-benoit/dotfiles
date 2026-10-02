@@ -11,8 +11,17 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
-  aoePackage =
+  baseAoePackage =
     if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
+  aoePackage =
+    if baseAoePackage != null then
+      baseAoePackage.overrideAttrs (previousAttrs: {
+        # Workaround: AoE uses the legacy OpenCode fork, schema and permission APIs.
+        # Remove when upstream supports the v2 fork API, session_v2 and --auto.
+        patches = (previousAttrs.patches or [ ]) ++ [ ./aoe-opencode-v2.patch ];
+      })
+    else
+      null;
 
   aoeConfig = ''
     [theme]

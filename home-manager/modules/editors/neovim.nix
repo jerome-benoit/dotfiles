@@ -361,8 +361,7 @@ let
 
   nvimOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable ''
     -- OpenCode AI Integration
-    -- OpenCode 2.x runs a single background daemon; launching the TUI registers
-    -- it and the plugin discovers the service through the state directory.
+    -- The v2 TUI starts/reuses the daemon; the plugin reads its service registry.
     local opencode_cmd = "opencode"
     local opencode_terminal_opts = {
       win = {
@@ -545,8 +544,7 @@ in
         pkgs.tree-sitter
       ]
       ++ lib.optionals cfg.plugins.opencode.enable (
-        # The plugin streams events over SSE with curl; it no longer manages a
-        # per-invocation server process, so lsof/procps are gone in v2.
+        # The plugin uses curl for HTTP requests and SSE events.
         [ pkgs.curl ]
         ++ lib.optional (
           config.modules.development.opencode.opencodePackage != null

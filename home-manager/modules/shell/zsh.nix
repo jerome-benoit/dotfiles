@@ -126,8 +126,7 @@ in
               local path_hash=$(echo "$PWD" | shasum | cut -c1-4)
               local session_name="''${base_name}-''${path_hash}"
 
-              # OpenCode 2.x runs a single background daemon that every client
-              # attaches to, so only the TUI is scoped to this project.
+              # tmux sessions are project-scoped; the OpenCode daemon is shared.
               if [ -n "$TMUX" ]; then
                   opencode "$@"
               else

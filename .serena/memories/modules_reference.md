@@ -209,6 +209,7 @@ OpenCode AI assistant:
 
 - Options: `enable`, `enableDesktop`
 - Packages from flake input: TUI/CLI and Desktop variants (`opencode2` is a symlink to the same v2 binary)
+- The CLI is compiled with the `latest` channel so Neovim and Desktop discover the shared `service.json`; Desktop stages it by Nix store identity, not version alone
 - Desktop pins its own electron and builds against bare `nixpkgs.legacyPackages`, so the host nixpkgs insecure-package config does not apply to it
 - Warnings if packages unavailable for system
 
@@ -239,12 +240,13 @@ Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
 
 Agent of Empires session manager:
 
-- Options: `enable`, `package`, `theme`, `defaultTool`
+- Options: `enable`, `enableWeb`, `package`, `theme`, `defaultTool`
+- Both default package variants apply the local OpenCode v2 patch: native forks through `api --standalone`, `session_v2` routing checks and `--auto` for YOLO mode
 - Default tool: opencode (supports claude, opencode, vibe, codex, gemini)
 - Theme: tokyo-night-storm (supports phosphor, tokyo-night-storm, catppuccin-latte, dracula, empire)
 - Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
 - Shell completions: bash, fish, zsh
-- Built from flake input with `rustPlatform.buildRustPackage`
+- The selected flake package (including a custom `package` override) receives the local compatibility patch
 
 ### openclaw.nix
 
