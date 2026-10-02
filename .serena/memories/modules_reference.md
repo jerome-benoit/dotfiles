@@ -387,6 +387,7 @@ Full IDE configuration (~500 lines):
 - Session management, navigation, prompt commands
 - Statusline integration
 - Event handling (idle, error notifications)
+- SSE watchdog: 16-second timeout for v2's 15-second heartbeat comments (existing 1-second margin)
 
 **Requires**: opencode module enabled if opencode plugin enabled
 

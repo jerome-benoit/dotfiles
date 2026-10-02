@@ -14,6 +14,15 @@ let
     pname = "opencode-nvim";
     version = config.modules.core.lib.mkUnstableVersion inputs.opencode-nvim;
     src = inputs.opencode-nvim;
+
+    # Workaround: OpenCode v2 sends SSE heartbeat comments every 15 seconds.
+    # Remove when the pinned opencode.nvim uses the matching heartbeat interval.
+    postPatch = ''
+      substituteInPlace lua/opencode/server/init.lua \
+        --replace-fail 'local OPENCODE_HEARTBEAT_INTERVAL_MS = 10000' \
+          'local OPENCODE_HEARTBEAT_INTERVAL_MS = 15000'
+    '';
+
     meta = with lib; {
       homepage = "https://github.com/NickvanDyke/opencode.nvim";
       description = "OpenCode integration for Neovim";
