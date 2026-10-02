@@ -207,9 +207,13 @@ Git TUI with dynamic theme colors from `themes.current`:
 
 OpenCode AI assistant:
 
-- Options: `enable`, `enableDesktop`
+- Options: `enable`, `enableDesktop`, `opencodePackage`, `desktopPackage`
 - Packages from flake input: TUI/CLI and Desktop variants (`opencode2` is a symlink to the same v2 binary)
 - CLI, Desktop and Neovim use the shared background service by default
+- Custom CLI packages must be upstream-compatible source-built derivations; service and Linux runtime adjustments also apply to overrides
+- Existing build environment and post-fixup hooks are preserved
+- Generated Desktop bundles the selected CLI and stages it by Nix store identity
+- Generated Desktop requires a non-null CLI package selection
 - Desktop uses upstream's pinned Electron package
 - Warnings if packages unavailable for system
 
