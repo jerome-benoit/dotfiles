@@ -122,11 +122,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1790952319,
-        "narHash": "sha256-zNeuWsW9N40adPBjSgOFwM1/hve7UXAvMdSeRR/T/h0=",
+        "lastModified": 1790983284,
+        "narHash": "sha256-NHYZLfSrt582u7mwZSgaFYYr8LhYFK94HkGEpacLTgg=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "65e35a3858b4a9f6cb9bdf712ffb16c474363846",
+        "rev": "5da0a01e1eedda054db0c81dd3a780000c40d9f0",
         "type": "github"
       },
       "original": {
@@ -158,16 +158,15 @@
         ]
       },
       "locked": {
-        "lastModified": 1790971386,
-        "narHash": "sha256-D2L08dfJQfkrTiNwAINK0rlWcc1/azOKYoMjwt0JsIY=",
-        "owner": "jerome-benoit",
+        "lastModified": 1791025897,
+        "narHash": "sha256-KfcbgB5cR1AhOSy9KQsPd5yncwUXqNFUiv56PlzNlAk=",
+        "owner": "NousResearch",
         "repo": "hermes-agent",
-        "rev": "86d201672c680719dcb32dbc345998350439446b",
+        "rev": "d440c5b59b42d23007ab725f646d3b472670f890",
         "type": "github"
       },
       "original": {
-        "owner": "jerome-benoit",
-        "ref": "main-patched",
+        "owner": "NousResearch",
         "repo": "hermes-agent",
         "type": "github"
       }
@@ -179,11 +178,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790955005,
-        "narHash": "sha256-EEQKUylD8zuRTmDFX4rbwsHQ+iZhqqOldYcFN8SLcE0=",
+        "lastModified": 1790989254,
+        "narHash": "sha256-ZN+riaeFuE+DZ5zfqJiXlM12jLwZzeIXiNkU1YeHMXI=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "0560d64401a6d5370732a69d08bc4a6b135962d9",
+        "rev": "acd21c5a3420a9d5fd0ed06299b10828267ef9ba",
         "type": "github"
       },
       "original": {
@@ -303,11 +302,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790966426,
-        "narHash": "sha256-xP03cY+kWI3KSUz/bMV2QBByOnIx0gEIyT9V3UIwukA=",
+        "lastModified": 1791007777,
+        "narHash": "sha256-chZ1FovdI4N8dEOsmyyvm4PGnuOAgvHCCMT8QtIpDPI=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "0bef0eab678e94a389930a2a1365115fd5a35c69",
+        "rev": "40679546d4db07ba9dfb17160051c9a3109c438f",
         "type": "github"
       },
       "original": {

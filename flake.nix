@@ -68,10 +68,8 @@
       url = "github:openclaw/nix-openclaw-tools";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Workaround: Hermes Agent still needs fork-local patches absent upstream.
-    # Remove when no fork-only patches remain, then follow NousResearch/hermes-agent.
     hermes-agent = {
-      url = "github:jerome-benoit/hermes-agent/main-patched";
+      url = "github:NousResearch/hermes-agent";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-parts.follows = "flake-parts";
