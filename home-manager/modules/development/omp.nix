@@ -20,6 +20,16 @@ let
 
   version = pins.version;
 
+  # ONNX addons' RUNPATH does not include the C++ runtime.
+  # Supply autoPatchelfHook's baseline and the Linux workers' library path.
+  nativeLibraries =
+    lib.optionals hp.isElf [
+      pkgs.stdenv.cc.cc.lib
+    ]
+    ++ lib.optionals hp.isLinux [
+      pkgs.stdenv.cc.cc.libgcc
+    ];
+
   ompPackage =
     if !(pins.sources ? ${platformKey}) then
       null
@@ -41,8 +51,7 @@ let
         ]
         ++ lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
 
-        # libstdc++/libgcc baseline for the bundled N-API addon; autoPatchelfHook flags any gap.
-        buildInputs = lib.optionals hp.isElf [ pkgs.stdenv.cc.cc.lib ];
+        buildInputs = nativeLibraries;
 
         strictDeps = true;
 
@@ -50,7 +59,10 @@ let
           runHook preInstall
           install -Dm755 $src $out/bin/omp
           wrapProgram $out/bin/omp \
-            --prefix PATH : ${lib.makeBinPath [ pkgs.git ]}
+            --prefix PATH : ${lib.makeBinPath [ pkgs.git ]} \
+            ${lib.optionalString hp.isLinux ''
+              --set-default OMP_NATIVE_LIBRARY_PATH ${lib.makeLibraryPath nativeLibraries}
+            ''}
           runHook postInstall
         '';
 
@@ -79,6 +91,31 @@ let
           test -s $out/share/bash-completion/completions/omp.bash
           test -s $out/share/fish/vendor_completions.d/omp.fish
           test -s $out/share/zsh/site-functions/_omp
+          ${lib.optionalString hp.isLinux ''
+            # Load both runtimes through the library path provided by the wrapper.
+            env -u LD_LIBRARY_PATH -u OMP_NATIVE_LIBRARY_PATH BUN_BE_BUN=1 "$out/bin/omp" -e '
+              const { dlopen } = require("bun:ffi");
+              const dirs = (process.env.OMP_NATIVE_LIBRARY_PATH || "").split(":").filter(Boolean);
+              const libraries = {
+                "libstdc++.so.6": { __cxa_demangle: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" } },
+                "libgcc_s.so.1": { _Unwind_Backtrace: { args: ["ptr", "ptr"], returns: "i32" } },
+              };
+              for (const [name, symbols] of Object.entries(libraries)) {
+                const loaded = dirs.some(dir => {
+                  try {
+                    dlopen(dir + "/" + name, symbols).close();
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                });
+                if (!loaded) {
+                  console.error("unresolved: " + name);
+                  process.exit(1);
+                }
+              }
+            '
+          ''}
         '';
         meta = {
           description = "oh-my-pi (omp) coding agent CLI";
