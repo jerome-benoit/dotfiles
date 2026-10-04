@@ -141,14 +141,20 @@
               '';
             });
           }
-          // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
-            # Workaround: mergiraf's integration suites drive git and jujutsu
-            # with the environment cleared down to PATH, and abort in the
-            # sandbox. Keep the unit tests, skip the driver-backed suites.
-            # Remove when those suites run hermetically upstream.
-            mergiraf = prev.mergiraf.overrideAttrs (previousAttrs: {
-              cargoTestFlags = (previousAttrs.cargoTestFlags or [ ]) ++ [ "--lib" ];
-            });
+          // {
+            # Workaround: CPython 3.12.15 validates SSLContext.wrap_bio()
+            # arguments and rejects server_hostname in server mode, so anyio's
+            # server-side TLS connectable test fails on python312.
+            # Remove when nixpkgs carries agronholm/anyio 818e4ac.
+            python312 = prev.python312.override {
+              packageOverrides = _self: super: {
+                anyio = super.anyio.overridePythonAttrs (previousAttrs: {
+                  patches = (previousAttrs.patches or [ ]) ++ [
+                    ./patches/anyio/fix-tls-server-hostname.patch
+                  ];
+                });
+              };
+            };
           }
           // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux (
             let

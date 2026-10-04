@@ -1,0 +1,18 @@
+diff --git a/tests/streams/test_tls.py b/tests/streams/test_tls.py
+index f403598..1ca240d 100644
+--- a/tests/streams/test_tls.py
++++ b/tests/streams/test_tls.py
+@@ -612,13 +612,12 @@ async def test_tls_connectable(
+     server_stream = StapledObjectStream(server_send, client_receive)
+
+     async def server() -> None:
+         async with await TLSStream.wrap(
+             server_stream,
+             server_side=True,
+-            hostname="localhost",
+             ssl_context=server_context,
+         ) as server_tls_stream:
+             message = await server_tls_stream.receive()
+             await server_tls_stream.send(b"hello, " + message)
+
+     class MemoryConnectable(ObjectStreamConnectable[bytes]):
