@@ -1,6 +1,6 @@
 {
   "renovate": "datasource=npm depName=@earendil-works/pi-coding-agent",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "src": {
     "urlTemplate": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-{version}.tgz",
     "hash": "sha256-AFfgo+LMhH1XHGHPG0IlReDMrYs9FXFY3gb+MwLzAAI="
