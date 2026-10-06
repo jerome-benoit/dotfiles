@@ -161,6 +161,7 @@ in
       pkgs.codexbar
       pkgs.coreutils
       pkgs.delta
+      pkgs.deno
       pkgs.ffmpeg
       pkgs.firefox
       pkgs.gnused
