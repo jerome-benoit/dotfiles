@@ -170,7 +170,6 @@ in
       pkgs.google-chrome
       pkgs.gopls
       pkgs.grc
-      pkgs.hidden-bar
       pkgs.hyperfine
       pkgs.insomnia
       pkgs.iterm2
