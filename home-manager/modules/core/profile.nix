@@ -14,8 +14,8 @@ let
       direnv = true;
       eza = true;
       fd = true;
-      mise = true;
       fzf = true;
+      mise = true;
       ripgrep = true;
       zoxide = true;
       zsh = true;
@@ -86,8 +86,8 @@ let
       direnv = false;
       eza = false;
       fd = true;
-      mise = true;
       fzf = true;
+      mise = true;
       ripgrep = true;
       zoxide = false;
       zsh = true;

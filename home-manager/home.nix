@@ -46,8 +46,8 @@ in
       direnv.enable = profileModules.shell.direnv;
       eza.enable = profileModules.shell.eza;
       fd.enable = profileModules.shell.fd;
-      mise.enable = profileModules.shell.mise;
       fzf.enable = profileModules.shell.fzf;
+      mise.enable = profileModules.shell.mise;
       ripgrep.enable = profileModules.shell.ripgrep;
       zoxide.enable = profileModules.shell.zoxide;
       zsh.enable = profileModules.shell.zsh;
