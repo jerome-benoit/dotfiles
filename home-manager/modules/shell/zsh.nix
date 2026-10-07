@@ -64,6 +64,7 @@ in
         ++ lib.optional profileModules.shell.eza "eza"
         ++ lib.optional profileModules.shell.fzf "fzf"
         ++ lib.optional profileModules.shell.zoxide "zoxide"
+        ++ lib.optional profileModules.shell.mise "mise"
         ++ lib.optional profileModules.programs.tmux "tmux"
         ++ lib.optional pkgs.stdenv.hostPlatform.isLinux "systemd"
         ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [

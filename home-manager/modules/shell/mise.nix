@@ -17,7 +17,7 @@ in
     programs.mise = {
       enable = true;
       package = mkPlatformPackage "mise" { nixOn = "all"; };
-      enableZshIntegration = true;
+      enableZshIntegration = false;
     };
   };
 }
