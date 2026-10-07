@@ -15,6 +15,7 @@ let
       eza = true;
       fd = true;
       fzf = true;
+      mise = true;
       ripgrep = true;
       zoxide = true;
       zsh = true;
@@ -86,6 +87,7 @@ let
       eza = false;
       fd = true;
       fzf = true;
+      mise = true;
       ripgrep = true;
       zoxide = false;
       zsh = true;
