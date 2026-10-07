@@ -45,13 +45,13 @@ make clean            # Remove decrypted private configuration, credentials, and
 
 ### GPG keypair
 
-Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where `~/.config/sops/age/keys.txt` is present.
+Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where the configured SOPS age identity is present.
 
 ```bash
 make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
 ```
 
-Recovery: with `~/.config/sops/age/keys.txt` + the git repo, SOPS secrets and GPG subkeys are recoverable. The GPG primary key is not in the bundle; back it up separately offline.
+Recovery: with the configured SOPS age identity + the git repo, SOPS secrets and GPG subkeys are recoverable. The GPG primary key is not in the bundle; back it up separately offline.
 
 ### Formatting
 

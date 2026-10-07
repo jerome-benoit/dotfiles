@@ -18,7 +18,7 @@ git clone <repository-url> ~/.nix
 cd ~/.nix
 
 # Ensure age key file exists (required for sops decryption)
-# ~/.config/sops/age/keys.txt must exist on each machine (0600, outside repo)
+# The configured SOPS age identity must exist on each machine (0600, outside repo)
 
 # Bootstrap (with specialisation)
 make bootstrap SPEC=work      # or SPEC=personal, or omit SPEC for base

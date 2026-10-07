@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # (Re)create the age-encrypted GPG keypair bundle.
-# Bundle: subkeys + passphrase, encrypted to ~/.config/sops/age/keys.txt recipient.
+# Bundle: subkeys + passphrase, encrypted to the configured SOPS age recipient.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-AGE_KEY="${AGE_KEY:-$HOME/.config/sops/age/keys.txt}"
+if [ -n "${AGE_KEY:-}" ]; then
+  :
+elif [ -n "${SOPS_AGE_KEY_FILE:-}" ]; then
+  AGE_KEY="$SOPS_AGE_KEY_FILE"
+elif [ "$(uname -s)" = Darwin ]; then
+  AGE_KEY="$HOME/Library/Application Support/sops/age/keys.txt"
+else
+  AGE_KEY="${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt"
+fi
 [ -r "$AGE_KEY" ] || { echo "missing $AGE_KEY (the project's age identity)" >&2; exit 1; }
 
 FP="${1:-}"

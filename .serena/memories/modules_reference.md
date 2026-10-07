@@ -46,10 +46,10 @@ Canonical multi-account email configuration:
 
 SOPS secrets management via `sops-nix` home-manager module:
 
-- **Decryption**: age key file (`~/.config/sops/age/keys.txt`, 0600, outside repo)
+- **Decryption**: configured SOPS age identity (0600, outside repo)
 - **Default sops file**: `secrets/credentials.enc.yaml`
-- **Activation ordering fix (Linux)**: Mic92/sops-nix#581 (entryBetween reloadSystemd → sops-nix)
-- **Activation ordering fix (macOS)**: Mic92/sops-nix#910 (entryAfter setupLaunchAgents, guarded plist existence)
+- **Activation ordering (Linux)**: reload user units before materializing secrets; consumers require `sops-nix.service`
+- **Activation ordering (macOS)**: decrypt synchronously before `setupLaunchAgents`; `RunAtLoad` refreshes secrets at login
 - **App credentials**: hermes-env, shell-secrets (from credentials.enc.yaml)
 - **Email credentials**: declared per active account by `core/email.nix`
 - **SSH key**: `secrets/ssh/id_rsa` (format=binary, deployed to `~/.ssh/id_rsa`)

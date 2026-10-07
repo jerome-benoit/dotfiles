@@ -14,7 +14,7 @@ let
   isPlaceholder = fingerprint == "0000000000000000000000000000000000000000";
 
   bundle = "${toString ../../..}/secrets/gpg/keypair.tar.gz.age";
-  ageIdentity = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
+  ageIdentity = config.sops.age.keyFile;
   stamp = "${config.xdg.stateHome}/gpg-bootstrap/bundle.sha256";
 in
 {

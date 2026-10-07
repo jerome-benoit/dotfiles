@@ -126,6 +126,23 @@ in
       backend.mode = if cfg.enableDashboard then "dashboard" else "none";
     };
 
+    systemd.user.services = lib.mkIf isLinux (
+      lib.mkMerge [
+        (lib.mkIf cfg.enableGateway {
+          hermes-agent.Unit = {
+            After = [ "sops-nix.service" ];
+            Requires = [ "sops-nix.service" ];
+          };
+        })
+        (lib.mkIf cfg.enableDashboard {
+          hermes-backend.Unit = {
+            After = [ "sops-nix.service" ];
+            Requires = [ "sops-nix.service" ];
+          };
+        })
+      ]
+    );
+
     programs.hermes-agent = {
       enable = true;
     }
@@ -139,10 +156,17 @@ in
     home = {
       # Workaround: upstream may copy environmentFiles before sops-nix refreshes them.
       # Remove when migrated to environmentFiles and upstream waits for secrets on Linux and Darwin.
-      activation.hermesAgentEnvironment = lib.hm.dag.entryAfter [ "hermesAgentSetup" "sops-nix" ] ''
-        run mkdir -p "${configDir}"
-        run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
-      '';
+      activation.hermesAgentEnvironment =
+        if isDarwin then
+          lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] ''
+            run mkdir -p "${configDir}"
+            run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
+          ''
+        else
+          lib.hm.dag.entryAfter [ "hermesAgentSetup" "sops-nix" ] ''
+            run mkdir -p "${configDir}"
+            run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
+          '';
     };
 
     warnings = lib.optional (
