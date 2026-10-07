@@ -57,16 +57,36 @@ in
           "vscode"
           "yarn"
         ]
-        ++ lib.optional profileModules.development.bun "bun"
-        ++ lib.optional profileModules.development.gh "gh"
-        ++ lib.optional profileModules.development.git "git"
-        ++ lib.optional profileModules.shell.direnv "direnv"
-        ++ lib.optional profileModules.shell.eza "eza"
-        ++ lib.optional profileModules.shell.fzf "fzf"
-        ++ lib.optional profileModules.shell.mise "mise"
-        ++ lib.optional profileModules.shell.zoxide "zoxide"
-        ++ lib.optional profileModules.programs.tmux "tmux"
-        ++ lib.optional pkgs.stdenv.hostPlatform.isLinux "systemd"
+        ++ lib.optionals (profileModules.development.bun) [
+          "bun"
+        ]
+        ++ lib.optionals (profileModules.shell.direnv) [
+          "direnv"
+        ]
+        ++ lib.optionals (profileModules.shell.eza) [
+          "eza"
+        ]
+        ++ lib.optionals (profileModules.shell.fzf) [
+          "fzf"
+        ]
+        ++ lib.optionals (profileModules.development.gh) [
+          "gh"
+        ]
+        ++ lib.optionals (profileModules.development.git) [
+          "git"
+        ]
+        ++ lib.optionals (profileModules.shell.mise) [
+          "mise"
+        ]
+        ++ lib.optionals (pkgs.stdenv.hostPlatform.isLinux) [
+          "systemd"
+        ]
+        ++ lib.optionals (profileModules.programs.tmux) [
+          "tmux"
+        ]
+        ++ lib.optionals (profileModules.shell.zoxide) [
+          "zoxide"
+        ]
         ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [
           "dnf"
           "firewalld"
@@ -75,7 +95,9 @@ in
           "ubuntu"
           "ufw"
         ]
-        ++ lib.optional (distroId == distroIds.debian) "debian"
+        ++ lib.optionals (distroId == distroIds.debian) [
+          "debian"
+        ]
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           "brew"
           "iterm2"
