@@ -115,7 +115,6 @@
       );
 
       localOverlays = [
-        inputs.nix-openclaw.overlays.default
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
@@ -220,7 +219,6 @@
               ;
           };
           modules = [
-            inputs.nix-openclaw.homeManagerModules.openclaw
             inputs.hermes-agent.homeManagerModules.default
             inputs.sops-nix.homeManagerModules.sops
             ./home-manager/home.nix

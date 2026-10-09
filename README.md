@@ -30,6 +30,23 @@ hmp  # personal
 make switch SPEC=work
 ```
 
+### OpenClaw desktop and tools
+
+`modules.development.openclaw.enable` installs only the upstream `nix-openclaw`
+`openclaw-app` component on macOS. Home Manager exposes `OpenClaw.app` in
+`~/Applications/Home Manager Apps`. The option has no effect on Linux, where
+upstream does not provide a desktop app; profile activation defaults are unchanged.
+
+The standalone `nix-openclaw-tools` remain installed independently of this option
+(including `imsg`, `peekaboo`, and `poltergeist` on macOS desktop profiles). No
+gateway CLI/service, plugins, generated configuration, or app preferences are managed.
+Configure the gateway connection in the app.
+
+When migrating from the former managed gateway, start a fresh login shell to drop
+`OPENCLAW_CONFIG_PATH`. Existing `~/.openclaw` data and `ai.openclaw.mac` preferences
+(`openclaw.nixMode`, `openclaw.gateway.attachExistingOnly`) are not deleted or reset;
+review them before configuring the app.
+
 ### Private configuration and credentials
 
 Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.
