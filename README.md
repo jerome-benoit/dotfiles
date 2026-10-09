@@ -32,15 +32,20 @@ make switch SPEC=work
 
 ### OpenClaw desktop and tools
 
-`modules.development.openclaw.enable` installs only the upstream `nix-openclaw`
-`openclaw-app` component on macOS. Home Manager exposes `OpenClaw.app` in
-`~/Applications/Home Manager Apps`. The option has no effect on Linux, where
-upstream does not provide a desktop app; profile activation defaults are unchanged.
+`modules.development.openclaw.enable` installs the official desktop client and is
+enabled in desktop profiles on both supported systems; server profiles keep it off.
 
-The standalone `nix-openclaw-tools` remain installed independently of this option
-(including `imsg`, `peekaboo`, and `poltergeist` on macOS desktop profiles). No
-gateway CLI/service, plugins, generated configuration, or app preferences are managed.
-Configure the gateway connection in the app.
+- **macOS (`aarch64-darwin`)**: the app-only `nix-openclaw` component, exposed in
+  `~/Applications/Home Manager Apps` by Home Manager.
+- **Linux (`x86_64-linux`)**: the official Tauri companion, repackaged from the
+  hash-pinned upstream `.deb` in `openclaw-linux-package.nix`. It includes a desktop
+  menu entry, icons, GTK/WebKitGTK, tray libraries, and GStreamer media codecs.
+
+The standalone `nix-openclaw-tools` remain installed independently of the desktop
+toggle (including `imsg`, `peekaboo`, and `poltergeist` on macOS desktop profiles).
+Nix does not provision a gateway CLI/service, plugins, gateway configuration, or
+app preferences. Choose a remote gateway or local setup in the app; the latter
+uses the app’s own CLI installer and service management.
 
 When migrating from the former managed gateway, start a fresh login shell to drop
 `OPENCLAW_CONFIG_PATH`. Existing `~/.openclaw` data and `ai.openclaw.mac` preferences
