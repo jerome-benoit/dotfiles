@@ -164,6 +164,7 @@ in
       pkgs.ffmpeg
       pkgs.firefox
       pkgs.gnused
+      pkgs.gnutar
       pkgs.go
       pkgs.go-task
       pkgs.golangci-lint
