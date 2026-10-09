@@ -52,16 +52,6 @@
         flake-utils.follows = "flake-utils";
       };
     };
-    nix-openclaw = {
-      url = "github:openclaw/nix-openclaw";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        home-manager.follows = "home-manager";
-        flake-utils.follows = "flake-utils";
-        nix-openclaw-tools.follows = "nix-openclaw-tools";
-        qmd.follows = "qmd";
-      };
-    };
     flake-utils.url = "github:numtide/flake-utils";
     flake-parts.url = "github:hercules-ci/flake-parts";
     nix-openclaw-tools = {

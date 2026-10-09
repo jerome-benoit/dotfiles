@@ -43,7 +43,6 @@ let
       };
       lazygit = true;
       omp = true;
-      openclaw = false;
       opencode = {
         enable = true;
         enableDesktop = true;
@@ -115,7 +114,6 @@ let
       };
       lazygit = true;
       omp = false;
-      openclaw = false;
       opencode = {
         enable = false;
         enableDesktop = false;

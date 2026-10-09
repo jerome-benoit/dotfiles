@@ -30,29 +30,17 @@ hmp  # personal
 make switch SPEC=work
 ```
 
-### OpenClaw desktop and tools
+### Standalone tools
 
-`modules.development.openclaw.enable` installs only
-`nix-openclaw.packages.<system>.openclaw-app`, without local packaging. It is
-opt-in; desktop and server profile defaults remain unchanged.
-
-The pinned upstream flake currently exports this component only for
-`aarch64-darwin`, where Home Manager exposes it in
-`~/Applications/Home Manager Apps`. Linux desktop support is blocked until
-`nix-openclaw` exports `openclaw-app` for `x86_64-linux`. Enabling it on Linux
-currently fails evaluation; it does not silently skip the app or install the
-gateway bundle instead.
-
-The standalone `nix-openclaw-tools` remain installed independently of the desktop
-toggle (including `imsg`, `peekaboo`, and `poltergeist` on macOS desktop profiles).
-Nix does not provision a gateway CLI/service, plugins, gateway configuration, or
-app preferences. Choose a remote gateway or local setup in the app; the latter
-uses the app’s own CLI installer and service management.
+The independent `nix-openclaw-tools` input installs `camsnap`, `discrawl`,
+`gogcli`, `goplaces`, `sag`, `sonoscli`, `summarize`, and `wacrawl` on all profiles.
+`imsg`, `peekaboo`, and `poltergeist` are installed only on macOS desktop profiles.
+These tools do not require the OpenClaw application or gateway; neither is
+packaged or managed by this configuration.
 
 When migrating from the former managed gateway, start a fresh login shell to drop
-`OPENCLAW_CONFIG_PATH`. Existing `~/.openclaw` data and `ai.openclaw.mac` preferences
-(`openclaw.nixMode`, `openclaw.gateway.attachExistingOnly`) are not deleted or reset;
-review them before configuring the app.
+`OPENCLAW_CONFIG_PATH`. Removing the integration does not delete existing
+`~/.openclaw` user data or reset `ai.openclaw.mac` preferences.
 
 ### Private configuration and credentials
 
