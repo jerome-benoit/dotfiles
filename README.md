@@ -30,18 +30,6 @@ hmp  # personal
 make switch SPEC=work
 ```
 
-### Standalone tools
-
-The independent `nix-openclaw-tools` input installs `camsnap`, `discrawl`,
-`gogcli`, `goplaces`, `sag`, `sonoscli`, `summarize`, and `wacrawl` on all profiles.
-`imsg`, `peekaboo`, and `poltergeist` are installed only on macOS desktop profiles.
-These tools do not require the OpenClaw application or gateway; neither is
-packaged or managed by this configuration.
-
-When migrating from the former managed gateway, start a fresh login shell to drop
-`OPENCLAW_CONFIG_PATH`. Removing the integration does not delete existing
-`~/.openclaw` user data or reset `ai.openclaw.mac` preferences.
-
 ### Private configuration and credentials
 
 Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.
