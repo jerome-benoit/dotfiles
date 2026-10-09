@@ -7,11 +7,7 @@
 }:
 let
   cfg = config.modules.development.openclaw;
-  desktopPackage =
-    if pkgs.stdenv.hostPlatform.isDarwin then
-      inputs.nix-openclaw.packages.${pkgs.stdenv.hostPlatform.system}.openclaw-app
-    else
-      pkgs.callPackage ./openclaw-linux-package.nix { };
+  desktopPackage = inputs.nix-openclaw.packages.${pkgs.stdenv.hostPlatform.system}.openclaw-app;
 in
 {
   options.modules.development.openclaw = {

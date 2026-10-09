@@ -32,14 +32,16 @@ make switch SPEC=work
 
 ### OpenClaw desktop and tools
 
-`modules.development.openclaw.enable` installs the official desktop client and is
-enabled in desktop profiles on both supported systems; server profiles keep it off.
+`modules.development.openclaw.enable` installs only
+`nix-openclaw.packages.<system>.openclaw-app`, without local packaging. It is
+opt-in; desktop and server profile defaults remain unchanged.
 
-- **macOS (`aarch64-darwin`)**: the app-only `nix-openclaw` component, exposed in
-  `~/Applications/Home Manager Apps` by Home Manager.
-- **Linux (`x86_64-linux`)**: the official Tauri companion, repackaged from the
-  hash-pinned upstream `.deb` in `openclaw-linux-package.nix`. It includes a desktop
-  menu entry, icons, GTK/WebKitGTK, tray libraries, and GStreamer media codecs.
+The pinned upstream flake currently exports this component only for
+`aarch64-darwin`, where Home Manager exposes it in
+`~/Applications/Home Manager Apps`. Linux desktop support is blocked until
+`nix-openclaw` exports `openclaw-app` for `x86_64-linux`. Enabling it on Linux
+currently fails evaluation; it does not silently skip the app or install the
+gateway bundle instead.
 
 The standalone `nix-openclaw-tools` remain installed independently of the desktop
 toggle (including `imsg`, `peekaboo`, and `poltergeist` on macOS desktop profiles).
