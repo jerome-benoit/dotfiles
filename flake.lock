@@ -191,38 +191,6 @@
         "type": "github"
       }
     },
-    "nix-openclaw": {
-      "inputs": {
-        "flake-utils": [
-          "flake-utils"
-        ],
-        "home-manager": [
-          "home-manager"
-        ],
-        "nix-openclaw-tools": [
-          "nix-openclaw-tools"
-        ],
-        "nixpkgs": [
-          "nixpkgs"
-        ],
-        "qmd": [
-          "qmd"
-        ]
-      },
-      "locked": {
-        "lastModified": 1790163937,
-        "narHash": "sha256-oSsWtQ8mAH9KZkJKHeS3RedhrfDaMs1Ktrqs8rTP8PU=",
-        "owner": "openclaw",
-        "repo": "nix-openclaw",
-        "rev": "f62d33f760bcbdbc6a52ac589eae22bf99201f90",
-        "type": "github"
-      },
-      "original": {
-        "owner": "openclaw",
-        "repo": "nix-openclaw",
-        "type": "github"
-      }
-    },
     "nix-openclaw-tools": {
       "inputs": {
         "nixpkgs": [
@@ -431,7 +399,6 @@
         "herdr": "herdr",
         "hermes-agent": "hermes-agent",
         "home-manager": "home-manager",
-        "nix-openclaw": "nix-openclaw",
         "nix-openclaw-tools": "nix-openclaw-tools",
         "nixpkgs": "nixpkgs",
         "opencode": "opencode",

@@ -23,7 +23,6 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`       | AI agent session manager (non-flake)                                                                                    |
 | `herdr`                   | `github:ogulcancelik/herdr`                      | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                |
 | `openspec`                | `github:Fission-AI/OpenSpec`                     | OpenSpec CLI, follows nixpkgs                                                                                           |
-| `nix-openclaw`            | `github:openclaw/nix-openclaw`                   | OpenClaw AI gateway, follows nixpkgs + home-manager + flake-utils + nix-openclaw-tools                                  |
 | `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`             | OpenClaw tool binaries, follows nixpkgs                                                                                 |
 | `hermes-agent`            | `github:jerome-benoit/hermes-agent/main-patched` | Hermes Agent (fork with darwin fixes), follows nixpkgs + flake-parts + pyproject-nix + uv2nix + pyproject-build-systems |
 | `qmd`                     | `github:tobi/qmd`                                | QMD CLI, follows nixpkgs + flake-utils                                                                                  |
@@ -106,7 +105,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── ripgrep.nix      # Fast grep replacement
 │       │   ├── zoxide.nix       # Smart cd command
 │       │   └── zsh.nix          # Shell config with oh-my-zsh
-│       ├── development/         # Dev tools (16 files)
+│       ├── development/         # Dev tools
 │       │   ├── aoe.nix          # Agent of Empires session manager
 │       │   ├── bun.nix          # JavaScript runtime
 │       │   ├── claude-code.nix  # Claude Code AI assistant
@@ -114,7 +113,6 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── git.nix          # Git config with delta, mergiraf, GPG signing
 │       │   ├── herdr.nix        # Terminal multiplexer for AI coding agents
 │       │   ├── lazygit.nix      # Git TUI with conventional commits
-│       │   ├── openclaw.nix     # OpenClaw AI gateway
 │       │   ├── opencode.nix     # OpenCode AI assistant (TUI/CLI + Electron desktop)
 │       │   ├── openspec.nix     # OpenSpec CLI
 │       │   ├── hermes-agent.nix # Hermes Agent (gateway + dashboard services)

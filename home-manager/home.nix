@@ -77,7 +77,6 @@ in
       };
       lazygit.enable = profileModules.development.lazygit;
       omp.enable = bunSupported && profileModules.development.omp;
-      openclaw.enable = profileModules.development.openclaw;
       opencode = {
         enable = bunSupported && profileModules.development.opencode.enable;
         enableDesktop = profileModules.development.opencode.enableDesktop;

@@ -9,7 +9,6 @@ let
   cfg = config.modules.core.packages;
   gpu = config.modules.core.gpu;
   acceleration = gpu.acceleration;
-  openclawEnabled = config.modules.development.openclaw.enable or false;
   openclawTools = inputs.nix-openclaw-tools.packages.${pkgs.stdenv.hostPlatform.system};
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
   isServer = config.modules.core.profile.name == config.modules.core.constants.profiles.server;
@@ -113,7 +112,7 @@ in
       ollama
     ]
     # OpenClaw standalone tools.
-    ++ lib.optionals (!openclawEnabled) [
+    ++ [
       openclawTools.camsnap
       openclawTools.discrawl
       openclawTools.gogcli
@@ -201,7 +200,7 @@ in
       pkgs.zoom-us
     ]
     # Desktop Darwin OpenClaw standalone tools.
-    ++ lib.optionals (isDesktop && isDarwin && !openclawEnabled) [
+    ++ lib.optionals (isDesktop && isDarwin) [
       openclawTools.imsg
       openclawTools.peekaboo
       openclawTools.poltergeist

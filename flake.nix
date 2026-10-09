@@ -52,16 +52,6 @@
         flake-utils.follows = "flake-utils";
       };
     };
-    nix-openclaw = {
-      url = "github:openclaw/nix-openclaw";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        home-manager.follows = "home-manager";
-        flake-utils.follows = "flake-utils";
-        nix-openclaw-tools.follows = "nix-openclaw-tools";
-        qmd.follows = "qmd";
-      };
-    };
     flake-utils.url = "github:numtide/flake-utils";
     flake-parts.url = "github:hercules-ci/flake-parts";
     nix-openclaw-tools = {
@@ -115,7 +105,6 @@
       );
 
       localOverlays = [
-        inputs.nix-openclaw.overlays.default
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
@@ -220,7 +209,6 @@
               ;
           };
           modules = [
-            inputs.nix-openclaw.homeManagerModules.openclaw
             inputs.hermes-agent.homeManagerModules.default
             inputs.sops-nix.homeManagerModules.sops
             ./home-manager/home.nix

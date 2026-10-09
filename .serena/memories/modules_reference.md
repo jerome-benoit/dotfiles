@@ -90,7 +90,7 @@ Common packages for all platforms:
 - **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta, whisper-cpp
 - **Linux server**: delta, grc (only on server profile)
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
-- **openclaw tools** (via `nix-openclaw-tools` flake input): peekaboo, poltergeist, imsg, camsnap, sag (macOS) + summarize, gogcli, goplaces, sonoscli, discrawl, wacrawl (all platforms)
+- **OpenClaw tools** (via `nix-openclaw-tools` flake input): camsnap, discrawl, gogcli, goplaces, sag, sonoscli, summarize and wacrawl (all platforms); imsg, peekaboo and poltergeist (macOS desktop only). These standalone tools do not install the OpenClaw application or gateway.
 - **Homebrew**: .Brewfile with taps (hAIperspace/hai, moltenbits) and packages (docker-desktop, ferdium, ghostty, gpg-suite@nightly, jordanbaird-ice, shuttle, growlrrr, hai, mole)
 
 ### profile.nix
@@ -250,16 +250,6 @@ Agent of Empires session manager:
 - Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
 - Shell completions: bash, fish, zsh
 - Built from flake input with `rustPlatform.buildRustPackage`
-
-### openclaw.nix
-
-OpenClaw AI gateway:
-
-- Uses `programs.openclaw` HM module from `nix-openclaw` flake input
-- Bundled plugins: summarize, sag, camsnap, gogcli, goplaces, sonoscli + macOS-only: peekaboo, poltergeist, imsg
-- Service: launchd on macOS, systemd on Linux
-- Config: gateway (local/loopback), Telegram channel, agent defaults (model fallbacks, auth profiles, secrets defaults), exec security allowlist
-- Activation: injects `$include` for local overrides, seeds `openclaw.local.json`
 
 ### openspec.nix
 
