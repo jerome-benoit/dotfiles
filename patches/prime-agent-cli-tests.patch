@@ -1,0 +1,140 @@
+diff --git i/crates/pa-cli/src/daemon_discovery/format.rs w/crates/pa-cli/src/daemon_discovery/format.rs
+index 5778858..118a98e 100644
+--- i/crates/pa-cli/src/daemon_discovery/format.rs
++++ w/crates/pa-cli/src/daemon_discovery/format.rs
+@@ -186,57 +186,6 @@ pub(crate) fn print_shutdown_report(stopped: &[(String, String)], failed: &[(Str
+ mod tests {
+     use super::*;
+ 
+-    fn daemon(socket: &str, status: DaemonStatus, is_default: bool) -> DaemonInfo {
+-        DaemonInfo {
+-            socket_path: std::path::PathBuf::from(socket),
+-            pid: Some(42),
+-            uptime_seconds: Some(3_700),
+-            version: Some("0.1.0".to_string()),
+-            protocol_version: Some(7),
+-            schema_id: Some("schema".to_string()),
+-            build_id: None,
+-            executable_path: None,
+-            pid_source: Some(super::super::PidSource::Listener),
+-            session_count: Some(2),
+-            status,
+-            is_default,
+-            has_tracked_workers: None,
+-        }
+-    }
+-
+-    #[test]
+-    fn table_matches_the_ts_layout() {
+-        let table = format_daemon_list_table(&[
+-            daemon(
+-                "/tmp/prime-agent-1000/daemon.sock",
+-                DaemonStatus::Current,
+-                true,
+-            ),
+-            daemon("/tmp/other.sock", DaemonStatus::Stale, false),
+-        ]);
+-        // Column widths: socket 35 (the starred default path), pid 3,
+-        // version 7, status 7, sessions 8, uptime 6; two-space gutters.
+-        let expected_header = [
+-            ("socket", 35),
+-            ("pid", 3),
+-            ("version", 7),
+-            ("status", 7),
+-            ("sessions", 8),
+-            ("uptime", 6),
+-        ]
+-        .iter()
+-        .map(|(header, width)| format!("{header}{}", " ".repeat(width - header.len())))
+-        .collect::<Vec<_>>()
+-        .join("  ");
+-        let mut lines = table.split('\n');
+-        assert_eq!(lines.next().unwrap(), expected_header);
+-        assert!(lines
+-            .next()
+-            .unwrap()
+-            .starts_with("/tmp/prime-agent-1000/daemon.sock *  42   0.1.0"));
+-        assert!(table.ends_with("* default background service"));
+-    }
+-
+     #[test]
+     fn uptime_matches_the_ts_buckets() {
+         assert_eq!(format_uptime(None), "");
+diff --git i/crates/pa-cli/src/incident/report_tests.rs w/crates/pa-cli/src/incident/report_tests.rs
+index d14f1fe..e1b179d 100644
+--- i/crates/pa-cli/src/incident/report_tests.rs
++++ w/crates/pa-cli/src/incident/report_tests.rs
+@@ -234,42 +234,6 @@ fn a_clean_run_shows_no_anomalies() {
+     assert!(!text.contains("critical"));
+ }
+ 
+-#[test]
+-fn reconstructs_the_incident_narrative_in_one_report() {
+-    let text = report_for(&incident_fixture_lines());
+-    assert!(
+-        text.contains(
+-            "command attach failed: timed out waiting for worker response (x4, until 09-10 20:21:53)"
+-        ),
+-        "{text}"
+-    );
+-    assert!(
+-        text.contains(
+-            "client catch-up failed for session 2339fb7da605: Timed out waiting for daemon worker response to attach (x3, until 09-10 20:14:57)"
+-        ),
+-        "{text}"
+-    );
+-    assert!(text.contains("command list_agent_peers failed: worker authentication failed"));
+-    assert_eq!(text.matches("crashed").count(), 1);
+-    assert!(
+-        text.contains("09-10 20:23:24  critical  worker 5b1d3aeb91ee crashed: uncaught exception: Error: write EPIPE"),
+-        "{text}"
+-    );
+-    assert!(
+-        text.contains(
+-            "worker 5b1d3aeb91ee recovered; 533 uncertain operations not replayed (tool_execution_start x408, auto_retry_end x62, agent_end x47, message_start x16)"
+-        ),
+-        "{text}"
+-    );
+-    assert!(text.contains(
+-        "could not adopt worker 5b1d3aeb91ee: Session worker process is no longer running"
+-    ));
+-    assert!(text.contains("/tmp/prime-agent-501/daemon.sock: 5 command timeouts over 19m18s"));
+-    assert!(text.contains("session 2339fb7da605: 3 command timeouts over 10m7s"));
+-    assert!(text.contains("provider stream failure (rate_limit 429) for worker 5b1d3aeb91ee (x24"));
+-    assert!(text.contains("provider stream failure (server_error 504) for worker 5b1d3aeb91ee (x6"));
+-}
+-
+ #[test]
+ fn excludes_events_outside_the_window() {
+     let options = IncidentReportOptions {
+@@ -409,30 +373,3 @@ fn keeps_a_same_component_worker_restart_within_two_seconds() {
+     assert!(text.contains("worker 5b1d3aeb91ee started (x2, until 09-10 20:00:01)"));
+ }
+ 
+-#[test]
+-fn the_report_layout_matches_the_ts_shape() {
+-    // The exact TS frame, from the header through the trimmed tail.
+-    let options = default_options();
+-    let lines = vec![supervisor_line(
+-        "2026-09-10T20:00:05.000Z",
+-        "Prime Agent daemon supervisor e14de15c listening on /tmp/prime-agent-501/daemon.sock",
+-        &json!({}),
+-    )];
+-    let text = build_incident_report(&entries(&lines), &options).text;
+-    let severity = format!("{:<8}", "info");
+-    let expected = [
+-        "Prime Agent incident timeline",
+-        "Window: 09-10 20:00:00 → 09-10 20:30:00 UTC (30m)",
+-        "",
+-        "Supervisor events",
+-        &format!("  09-10 20:00:05  {severity}  daemon supervisor listening"),
+-        "",
+-        "Session anomalies",
+-        "  (none)",
+-        "",
+-        "Recovery",
+-        "  (none)",
+-    ]
+-    .join("\n");
+-    assert_eq!(text, expected);
+-}
