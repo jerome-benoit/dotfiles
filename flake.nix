@@ -116,19 +116,6 @@
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
             });
-            # Workaround: Obsidian's DMG uses a version-stamped source root.
-            # Remove when nixpkgs handles that archive layout directly.
-            obsidian = prev.obsidian.overrideAttrs (previousAttrs: {
-              sourceRoot = "Obsidian ${previousAttrs.version}-universal";
-              installPhase = ''
-                runHook preInstall
-                mkdir -p $out/{Applications,bin}
-                cp -R Obsidian.app $out/Applications
-                makeWrapper $out/Applications/Obsidian.app/Contents/MacOS/Obsidian $out/bin/obsidian
-                makeWrapper $out/Applications/Obsidian.app/Contents/MacOS/obsidian-cli $out/bin/obsidian-cli
-                runHook postInstall
-              '';
-            });
           }
           // {
             # Workaround: CPython 3.11.17/3.12.15 reject server_hostname in
@@ -144,32 +131,6 @@
               };
             };
           }
-          // nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux (
-            let
-              isCudaPackages = name: builtins.match "cudaPackages(_[0-9]+_[0-9]+)?$" name != null;
-              isBuildRedistHook = input: builtins.match ".*/buildRedistHook[.]bash" (toString input) != null;
-              # Workaround: buildRedistHook leaves propagatedBuildOutputs as a
-              # malformed array, so multiple-outputs.sh aborts with "invalid
-              # variable name" on every CUDA redistributable.
-              # Remove when the pin carries NixOS/nixpkgs 65fe9eae2b57.
-              dropBuggyRedistHook =
-                cudaPackages:
-                cudaPackages.overrideScope (
-                  _final: prev: {
-                    buildRedist =
-                      args:
-                      (prev.buildRedist args).overrideAttrs (previousAttrs: {
-                        nativeBuildInputs = nixpkgs.lib.filter (input: !isBuildRedistHook input) (
-                          previousAttrs.nativeBuildInputs or [ ]
-                        );
-                      });
-                  }
-                );
-            in
-            nixpkgs.lib.mapAttrs (
-              name: value: if isCudaPackages name then dropBuggyRedistHook value else value
-            ) (nixpkgs.lib.filterAttrs (name: _: isCudaPackages name) prev)
-          )
         )
       ];
 

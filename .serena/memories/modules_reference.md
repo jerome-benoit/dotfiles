@@ -324,10 +324,9 @@ SSH configuration:
 
 Himalaya v2 CLI email client:
 
-- Consumes canonical accounts from `accounts.email.accounts`
-- Generates native v2 `imap`, `smtp`, `mailbox.alias`, and SASL LOGIN tables
-- Global client settings remain in `modules.programs.himalaya.settings`
-- Temporary native renderer works around nix-community/home-manager#9794
+- Enables selected canonical `accounts.email.accounts` in Home Manager
+- Uses upstream `programs.himalaya` to render native v2 configuration and install the CLI
+- Global client settings live in `programs.himalaya.settings`
 - Password commands reference account-owned SOPS credentials; plaintext never enters the Nix store
 
 ### btop.nix

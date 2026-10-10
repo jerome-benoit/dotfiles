@@ -119,17 +119,10 @@ let
               "disabled"
             ];
           };
-          programs.himalaya = {
-            enable = true;
-            settings = {
-              downloads-dir = "/home/email-test/Downloads";
-              envelope.list = {
-                datetime-local-tz = true;
-                page-size = 50;
-              };
-            };
-          };
+          programs.himalaya.enable = true;
         };
+
+        programs.himalaya.settings.downloads-dir = "/home/email-test/Downloads";
 
         accounts.email.accounts.disabled.enable = false;
         sops = {
@@ -237,7 +230,7 @@ pkgs.runCommandLocal "check-email-accounts"
     assert primary["imap"]["starttls"] is False
     assert primary["smtp"]["server"] == "smtps://smtp.example.invalid:465"
     assert primary["smtp"]["starttls"] is False
-    assert primary["imap"]["sasl"]["login"]["password"]["command"][-1].endswith(
+    assert primary["imap"]["sasl"]["login"]["password"]["command"].endswith(
         "email-primary-password"
     )
 
@@ -246,7 +239,7 @@ pkgs.runCommandLocal "check-email-accounts"
     assert secondary["imap"]["server"] == "imap://starttls.example.invalid:143"
     assert secondary["imap"]["starttls"] is True
     assert "smtp" not in secondary
-    assert secondary["imap"]["sasl"]["login"]["password"]["command"][-1].endswith(
+    assert secondary["imap"]["sasl"]["login"]["password"]["command"].endswith(
         "email-secondary-password"
     )
     PY

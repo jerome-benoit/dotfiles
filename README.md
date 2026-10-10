@@ -75,3 +75,5 @@ nix flake check      # Run all checks:
 nix flake update     # Update inputs
 nh clean all --keep 3
 ```
+
+Colibri runs its offline C tests during x86_64 Linux builds; checks on other platforms remain disabled pending sandbox validation.
