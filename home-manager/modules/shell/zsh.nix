@@ -57,34 +57,34 @@ in
           "vscode"
           "yarn"
         ]
-        ++ lib.optionals (profileModules.development.bun) [
+        ++ lib.optionals profileModules.development.bun [
           "bun"
         ]
-        ++ lib.optionals (profileModules.shell.direnv) [
+        ++ lib.optionals profileModules.shell.direnv [
           "direnv"
         ]
-        ++ lib.optionals (profileModules.shell.eza) [
+        ++ lib.optionals profileModules.shell.eza [
           "eza"
         ]
-        ++ lib.optionals (profileModules.shell.fzf) [
+        ++ lib.optionals profileModules.shell.fzf [
           "fzf"
         ]
-        ++ lib.optionals (profileModules.development.gh) [
+        ++ lib.optionals profileModules.development.gh [
           "gh"
         ]
-        ++ lib.optionals (profileModules.development.git) [
+        ++ lib.optionals profileModules.development.git [
           "git"
         ]
-        ++ lib.optionals (profileModules.shell.mise) [
+        ++ lib.optionals profileModules.shell.mise [
           "mise"
         ]
-        ++ lib.optionals (pkgs.stdenv.hostPlatform.isLinux) [
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
           "systemd"
         ]
-        ++ lib.optionals (profileModules.programs.tmux) [
+        ++ lib.optionals profileModules.programs.tmux [
           "tmux"
         ]
-        ++ lib.optionals (profileModules.shell.zoxide) [
+        ++ lib.optionals profileModules.shell.zoxide [
           "zoxide"
         ]
         ++ lib.optionals (distroId == distroIds.fedora || distroId == distroIds.almalinux) [

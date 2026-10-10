@@ -24,7 +24,7 @@ This validates:
 
 - [ ] All .nix files are properly formatted
 - [ ] No broken symlinks in build output
-- [ ] statix lint passes (configured via statix.toml)
+- [ ] statix lint passes without warnings (fix findings; do not suppress rules in statix.toml)
 - [ ] deadnix passes (no dead code)
 - [ ] All home configurations build successfully (personal, almalinux, work)
 
