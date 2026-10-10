@@ -17,10 +17,6 @@ let
     "linux-arm64"
     "linux-x64"
   ];
-  expectedPrimeNpmKeys = [
-    "@silvia-odwyer/photon-node"
-    "undici"
-  ];
   expectedPrimePythonKeys = [
     "httpcore2"
     "httpx2"
@@ -29,7 +25,6 @@ let
   ];
 in
 assert builtins.attrNames ompData.hashes == expectedOmpKeys;
-assert builtins.attrNames primeAgentData.npm == expectedPrimeNpmKeys;
 assert builtins.attrNames primeAgentData.python == expectedPrimePythonKeys;
 assert
   primeAgentData.rlmExtraPackages == lib.sort builtins.lessThan primeAgentData.rlmExtraPackages;
@@ -56,21 +51,19 @@ assert
   };
 
   primeAgent = {
-    inherit (primeAgentData) version rlmExtraPackages snapshotRequirement;
+    inherit (primeAgentData)
+      version
+      cargoHash
+      rlmExtraPackages
+      snapshotRequirement
+      ;
     src = fetchzip {
       url = renderVersion primeAgentData.src.urlTemplate primeAgentData.version;
       hash = primeAgentData.src.hash;
     };
-    npm = lib.mapAttrs (
-      _key: dependency:
-      dependency
-      // {
-        src = fetchzip {
-          url = renderVersion dependency.urlTemplate dependency.version;
-          hash = dependency.hash;
-        };
-      }
-    ) primeAgentData.npm;
+    bundledCatalogs = fetchzip {
+      inherit (primeAgentData.bundledCatalogs) url hash;
+    };
     python = lib.mapAttrs (
       _key: dependency:
       dependency

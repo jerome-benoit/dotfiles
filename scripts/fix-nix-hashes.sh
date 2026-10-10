@@ -60,19 +60,17 @@ validate_pin_files() {
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
-    and (keys == ["npm", "python", "renovate", "rlmExtraPackages", "snapshotRequirement", "src", "version"])
+    and (keys == ["bundledCatalogs", "cargoHash", "python", "renovate", "rlmExtraPackages", "snapshotRequirement", "src", "version"])
     and (.renovate == "datasource=github-releases depName=PrimeIntellect-ai/prime-agent")
     and (.version | type == "string" and length > 0)
     and (.snapshotRequirement | type == "string" and length > 0)
     and (.src | keys == ["hash", "urlTemplate"])
     and (.src.hash | test($hash))
-    and (.src.urlTemplate == "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}.tgz")
-    and (.npm | keys == ["@silvia-odwyer/photon-node", "undici"])
-    and (.npm["@silvia-odwyer/photon-node"].urlTemplate == "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-{version}.tgz")
-    and (.npm.undici.urlTemplate == "https://registry.npmjs.org/undici/-/undici-{version}.tgz")
-    and ([.npm[] | keys == ["hash", "urlTemplate", "version"]] | all)
-    and ([.npm[].hash | test($hash)] | all)
-    and ([.npm[].version | type == "string" and length > 0] | all)
+    and (.src.urlTemplate == "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz")
+    and (.cargoHash | test($hash))
+    and (.bundledCatalogs | keys == ["hash", "url"])
+    and (.bundledCatalogs.hash | test($hash))
+    and (.bundledCatalogs.url | test("^https://github\\.com/PrimeIntellect-ai/prime-agent-catalog/archive/[0-9a-f]{40}\\.tar\\.gz$"))
     and (.python | keys == ["httpcore2", "httpx2", "mcp", "mcp-types"])
     and ([.python[] | keys == ["hash", "url", "version"]] | all)
     and ([.python[].hash | test($hash)] | all)
@@ -120,24 +118,17 @@ validate_effective_contract() {
   expected=$(render_url "$template" "$version")
   actual=$(jq -r .primeAgent.src.url "$effective")
   [ "$actual" = "$expected" ] || fail "Prime Agent effective source URL does not consume its pin"
+  expected=$(jq -r .bundledCatalogs.url "$prime")
+  actual=$(jq -r .primeAgent.bundledCatalogs.url "$effective")
+  [ "$actual" = "$expected" ] || fail "Prime Agent bundled catalog URL does not consume its pin"
   jq -e --slurpfile pin "$prime" '
     .primeAgent.version == $pin[0].version
     and .primeAgent.src.hash == $pin[0].src.hash
+    and .primeAgent.cargoHash == $pin[0].cargoHash
+    and .primeAgent.bundledCatalogs.hash == $pin[0].bundledCatalogs.hash
     and .primeAgent.rlmExtraPackages == $pin[0].rlmExtraPackages
     and .primeAgent.snapshotRequirement == $pin[0].snapshotRequirement
   ' "$effective" >/dev/null || fail "Prime Agent effective values do not consume their pin"
-
-  while IFS= read -r key; do
-    version=$(jq -r --arg key "$key" '.npm[$key].version' "$prime")
-    template=$(jq -r --arg key "$key" '.npm[$key].urlTemplate' "$prime")
-    expected=$(render_url "$template" "$version")
-    actual=$(jq -r --arg key "$key" '.primeAgent.npm[$key].src.url' "$effective")
-    [ "$actual" = "$expected" ] || fail "Prime Agent npm URL does not consume pin key $key"
-    jq -e --arg key "$key" --slurpfile pin "$prime" '
-      .primeAgent.npm[$key].version == $pin[0].npm[$key].version
-      and .primeAgent.npm[$key].src.hash == $pin[0].npm[$key].hash
-    ' "$effective" >/dev/null || fail "Prime Agent npm values do not consume pin key $key"
-  done < <(jq -r '.npm | keys[]' "$prime")
 
   while IFS= read -r key; do
     jq -e --arg key "$key" --slurpfile pin "$prime" '
@@ -401,39 +392,99 @@ update_omp() {
   done < <(jq -r '.hashes | keys[]' "$pin")
 }
 
+prime_bootstrap_packages() {
+  jq -Rsec '
+    capture("(?s)DEFAULT_RLM_EXTRA_PACKAGES\\s*:\\s*\\[\\s*\\(&str,\\s*&str,\\s*&str\\)\\s*;\\s*(?<count>[0-9]+)\\s*\\]\\s*=\\s*\\[(?<tuples>.*?)\\];")
+    | . as $declaration
+    | [.tuples | match("\\(\\s*\"([^\"]+)\"\\s*,\\s*\"[^\"]+\"\\s*,\\s*\"[^\"]+\"\\s*\\)"; "g") | .captures[0].string]
+    | if length > 0 and length == ($declaration.count | tonumber)
+      then sort | unique else error("cannot parse Rust bootstrap tuples") end
+  ' "$1"
+}
+
+prime_snapshot_requirement() {
+  jq -Rser '
+    [match("STATE_SNAPSHOT_REQUIREMENT\\s*:\\s*&str\\s*=\\s*\"([^\"]+)\"\\s*;"; "g") | .captures[0].string]
+    | if length == 1 then .[0] else error("cannot parse Rust snapshot requirement") end
+  ' "$1"
+}
+
+prime_cargo_hash() {
+  local root=$1 url=$2 source_hash=$3 log hash
+  log=$(mktemp)
+  # Only the pinned fetchCargoVendor staging output is fixed-output. Probe it
+  # directly so the fake hash never builds the Cargo package or final vendor tree.
+  if NIX_HASH_FIX_ROOT="$root" NIX_HASH_FIX_URL="$url" NIX_HASH_FIX_SOURCE_HASH="$source_hash" \
+    nix build --impure --no-link --expr '
+      let
+        flake = builtins.getFlake ("git+file://" + builtins.getEnv "NIX_HASH_FIX_ROOT");
+        pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+        src = pkgs.fetchzip {
+          url = builtins.getEnv "NIX_HASH_FIX_URL";
+          hash = builtins.getEnv "NIX_HASH_FIX_SOURCE_HASH";
+        };
+      in (pkgs.rustPlatform.fetchCargoVendor {
+        name = "prime-agent";
+        inherit src;
+        hash = pkgs.lib.fakeHash;
+      }).vendorStaging
+    ' > /dev/null 2> "$log"; then
+    rm -f "$log"
+    fail "Prime Agent Cargo fake-hash probe unexpectedly succeeded"
+  fi
+  if ! hash=$(jq -Rser '
+    . as $log
+    | [match("hash mismatch in fixed-output derivation \u0027[^\u0027\\n]*/[^/\u0027\\n]+-prime-agent-vendor-staging\\.drv\u0027:\\s+specified:\\s+sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\\s+got:\\s+(sha256-[A-Za-z0-9+/]{43}=)"; "g") | .captures[0].string]
+    | if length == 1 and ([$log | scan("got:\\s+sha256-[A-Za-z0-9+/=]+") ] | length) == 1
+      then .[0] else error("not a unique Prime Agent Cargo fixed-output mismatch") end
+  ' "$log"); then
+    cat "$log" >&2
+    rm -f "$log"
+    fail "cannot determine Prime Agent Cargo hash"
+  fi
+  rm -f "$log"
+  printf '%s\n' "$hash"
+}
+
 update_prime_agent() {
-  local pin=$1 version template url hash lock key new_version dependency_url dependency_hash
-  local archive runtime_dir runtime_lock runtime_json wheel wheel_hash
+  local root=$1 pin=$2 version template url hash key new_version dependency_url dependency_hash
+  local archive runtime_dir runtime_lock runtime_json wheel wheel_hash cargo_hash
   local bootstrap upstream expected snapshot
   version=$(jq -r .version "$pin")
   template=$(jq -r .src.urlTemplate "$pin")
   url=$(render_url "$template" "$version")
-  archive=$(mktemp)
-  curl -sfSL "$url" -o "$archive" || fail "cannot download Prime Agent $version release"
-  hash=$(nix store prefetch-file --unpack --json "file://$archive" | jq -r .hash)
-  [[ $hash == sha256-* ]] || fail "invalid Prime Agent source hash: $hash"
-  set_json "$pin" --arg hash "$hash" '.src.hash = $hash'
-
-  lock=$(mktemp)
-  curl -sfSL "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${version}/package-lock.json" -o "$lock" \
-    || fail "upstream package-lock.json missing for Prime Agent $version"
-  while IFS= read -r key; do
-    new_version=$(jq -r --arg key "node_modules/$key" '.packages[$key].version // empty' "$lock")
-    [ -n "$new_version" ] || fail "$key absent from Prime Agent $version lock"
-    template=$(jq -r --arg key "$key" '.npm[$key].urlTemplate' "$pin")
-    dependency_url=$(render_url "$template" "$new_version")
-    dependency_hash=$(nix store prefetch-file --unpack --json "$dependency_url" | jq -r .hash)
-    [[ $dependency_hash == sha256-* ]] || fail "invalid hash for $key@$new_version"
-    set_json "$pin" --arg key "$key" --arg version "$new_version" --arg hash "$dependency_hash" \
-      '.npm[$key].version = $version | .npm[$key].hash = $hash'
-  done < <(jq -r '.npm | keys[]' "$pin")
-  rm -f "$lock"
-
   runtime_dir=$(mktemp -d)
-  tar -xzf "$archive" -C "$runtime_dir"
-  runtime_lock=$runtime_dir/package/dist/prime-agent-runtime/uv.lock
+  archive=$runtime_dir/source.tar.gz
+  curl -sfSL "$url" -o "$archive" || fail "cannot download Prime Agent $version source"
+  hash=$(nix store prefetch-file --unpack --json "file://$archive" | jq -r .hash)
+  [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Prime Agent source hash: $hash"
+  tar -xzf "$archive" -C "$runtime_dir" --strip-components=1
+  [ -f "$runtime_dir/Cargo.toml" ] && [ -f "$runtime_dir/Cargo.lock" ] \
+    || fail "Prime Agent $version Cargo workspace metadata missing"
+
+  bootstrap=$runtime_dir/crates/pa-core/src/kernel/bootstrap
+  upstream=$(prime_bootstrap_packages "$bootstrap/mod.rs") \
+    || fail "cannot read Prime Agent $version Rust bootstrap packages"
+  expected=$(jq -c .rlmExtraPackages "$pin")
+  [ "$upstream" = "$expected" ] \
+    || fail "Prime Agent RLM package drift: upstream=$upstream pinned=$expected"
+  snapshot=$(prime_snapshot_requirement "$bootstrap/venv/version.rs") \
+    || fail "cannot read Prime Agent $version Rust snapshot requirement"
+  [ "$snapshot" = "$(jq -r .snapshotRequirement "$pin")" ] \
+    || fail "Prime Agent snapshot requirement drift: upstream=$snapshot"
+
+  cargo_hash=$(prime_cargo_hash "$root" "$url" "$hash")
+  set_json "$pin" --arg hash "$hash" --arg cargo "$cargo_hash" \
+    '.src.hash = $hash | .cargoHash = $cargo'
+
+  dependency_url=$(jq -r .bundledCatalogs.url "$pin")
+  dependency_hash=$(nix store prefetch-file --unpack --json "$dependency_url" | jq -r .hash)
+  [[ $dependency_hash =~ $HASH_PATTERN ]] || fail "invalid Prime Agent bundled catalog hash: $dependency_hash"
+  set_json "$pin" --arg hash "$dependency_hash" '.bundledCatalogs.hash = $hash'
+
+  runtime_lock=$runtime_dir/prime-agent-runtime/uv.lock
   [ -f "$runtime_lock" ] || fail "Prime Agent $version runtime uv.lock missing"
-  [ -f "$runtime_dir/package/dist/prime-agent-runtime/pyproject.toml" ] \
+  [ -f "$runtime_dir/prime-agent-runtime/pyproject.toml" ] \
     || fail "Prime Agent $version runtime pyproject.toml missing"
   runtime_json=$(nix eval --impure --json --expr "builtins.fromTOML (builtins.readFile $runtime_lock)")
   while IFS= read -r key; do
@@ -458,21 +509,7 @@ update_prime_agent() {
       --arg hash "$dependency_hash" \
       '.python[$key].version = $version | .python[$key].url = $url | .python[$key].hash = $hash'
   done < <(jq -r '.python | keys[]' "$pin")
-  rm -f "$archive"
   rm -rf "$runtime_dir"
-
-  bootstrap=$(curl -sfSL "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v${version}/packages/coding-agent/src/core/kernel/bootstrap.ts") \
-    || fail "cannot fetch Prime Agent bootstrap.ts for $version"
-  upstream=$(printf '%s\n' "$bootstrap" | grep -oE 'uvArg:[[:space:]]*"[^"]+"' \
-    | sed -E 's/.*"([^"]+)".*/\1/' | LC_ALL=C sort -u | paste -sd' ' -)
-  expected=$(jq -r '.rlmExtraPackages[]' "$pin" | paste -sd' ' -)
-  [ -n "$upstream" ] && [ "$upstream" = "$expected" ] \
-    || fail "Prime Agent RLM package drift: upstream=[$upstream] pinned=[$expected]"
-  snapshot=$(printf '%s\n' "$bootstrap" \
-    | grep -oE 'STATE_SNAPSHOT_REQUIREMENT[[:space:]]*=[[:space:]]*"[^"]+"' \
-    | sed -E 's/.*"([^"]+)".*/\1/')
-  [ "$snapshot" = "$(jq -r .snapshotRequirement "$pin")" ] \
-    || fail "Prime Agent snapshot requirement drift: upstream=$snapshot"
 }
 
 update_contract() {
@@ -509,7 +546,7 @@ update_contract() {
     update_pi "$root" "$work/pi.json" "$work/pi-package-lock.json"
   fi
   $omp_changed && update_omp "$work/omp.json"
-  $prime_changed && update_prime_agent "$work/prime-agent.json"
+  $prime_changed && update_prime_agent "$root" "$work/prime-agent.json"
   validate_pin_files "$work/pi.json" "$work/omp.json" "$work/prime-agent.json"
 
   $pi_changed && cp "$work/pi.json" "$PI_PIN_REL"

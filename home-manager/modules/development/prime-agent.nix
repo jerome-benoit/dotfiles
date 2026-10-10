@@ -7,8 +7,7 @@
 
 let
   cfg = config.modules.development.primeAgent;
-  stdenv = pkgs.stdenvNoCC;
-  hp = stdenv.hostPlatform;
+  hp = pkgs.stdenv.hostPlatform;
   pins =
     (import ./pins {
       inherit lib;
@@ -24,13 +23,8 @@ let
   version = pins.version;
   src = pins.src;
 
-  # Native/runtime deps external to the esbuild bundle, pinned with the Prime Agent release data.
-  photonSrc = pins.npm."@silvia-odwyer/photon-node".src;
-  # cli-main dynamically imports undici, which is external to the esbuild bundle.
-  undiciSrc = pins.npm.undici.src;
-
   py = pkgs.python312;
-  runtimeRoot = "${src}/dist/prime-agent-runtime";
+  runtimeRoot = "${src}/prime-agent-runtime";
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";
 
@@ -129,9 +123,44 @@ let
     // {
       inherit rlm;
       "${pins.snapshotRequirement}" = ps.${pins.snapshotRequirement};
-      jupyter-client = ps.jupyter-client;
     };
-  kernelPython = py.withPackages (_ps: builtins.attrValues kernelRequirements);
+  bundledSkills =
+    lib.mapAttrs
+      (
+        name: spec:
+        py.pkgs.buildPythonPackage {
+          pname = spec.pname or name;
+          version = "0.1.0";
+          pyproject = true;
+          src = "${src}/skills/${name}";
+          build-system = [ py.pkgs.hatchling ];
+          dependencies = [ rlm ] ++ (spec.dependencies or [ ]);
+          pythonImportsCheck = [ spec.importName ];
+          doCheck = false;
+        }
+      )
+      {
+        agent-message.importName = "agent_message";
+        agent-observe.importName = "agent_observe";
+        attach-image = {
+          pname = "prime-agent-skill-attach-image";
+          importName = "attach_image";
+          dependencies = [ py.pkgs.pillow ];
+        };
+        compact.importName = "compact";
+        edit.importName = "edit";
+        goal.importName = "goal";
+        refine.importName = "refine";
+        rlm-heartbeat.importName = "rlm_heartbeat";
+        websearch = {
+          pname = "prime-agent-skill-websearch";
+          importName = "websearch";
+          dependencies = [ py.pkgs.httpx ];
+        };
+      };
+  kernelPython = py.withPackages (
+    _ps: builtins.attrValues kernelRequirements ++ builtins.attrValues bundledSkills
+  );
 
   supported = builtins.elem hp.system platforms;
 
@@ -139,11 +168,38 @@ let
     if !supported then
       null
     else
-      stdenv.mkDerivation {
+      pkgs.rustPlatform.buildRustPackage {
         pname = "prime-agent";
         inherit version src;
+        inherit (pins) cargoHash;
+        cargoDepsName = "prime-agent";
+        # Drop three presentation-coupled CLI tests from 0.10.0, including a
+        # mixed incident test; pa-types below checks incident behavior separately.
+        # Remove this patch once upstream drops those presentation assertions.
+        patches = [
+          ../../../patches/prime-agent-cli-tests.patch
+          ../../../patches/prime-agent-nix-self-update.patch
+        ];
+        PRIME_AGENT_NIX_MANAGED = "1";
+        # Upstream tests exercise installer-owned builds; installCheck and
+        # runtime smoke checks exercise this build's immutable Nix ownership.
+        preCheck = ''
+          unset PRIME_AGENT_NIX_MANAGED
+        '';
+        cargoBuildFlags = [
+          "-p"
+          "pa-cli"
+        ];
+        cargoTestFlags = [
+          "-p"
+          "pa-cli"
+          "-p"
+          "pa-types"
+          "--lib"
+        ];
         passthru = {
           inherit
+            bundledSkills
             pythonRuntimePackages
             kernelPython
             kernelRequirements
@@ -151,64 +207,141 @@ let
             runtimePackage
             runtimeProject
             ;
-          runtimeSources = {
-            "@silvia-odwyer/photon-node" = photonSrc;
-            undici = undiciSrc;
-          };
         };
 
         nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
-
         strictDeps = true;
-        dontConfigure = true;
-        dontBuild = true;
 
-        installPhase = ''
-          runHook preInstall
-
-          mkdir -p $out/lib/prime-agent
-          cp -r dist docs skills $out/lib/prime-agent/
-          # The CLI's getPackageDir() walks up from dist/bundle for the dir that holds package.json
-          # (to read version + piConfig); ship it at the package root.
-          cp package.json $out/lib/prime-agent/
-
-          nm=$out/lib/prime-agent/node_modules
-          mkdir -p "$nm/@silvia-odwyer/photon-node" "$nm/undici"
-          cp -r ${photonSrc}/. "$nm/@silvia-odwyer/photon-node/"
-          cp -r ${undiciSrc}/. "$nm/undici/"
-
-          makeBinaryWrapper ${lib.getExe pkgs.nodejs_22} $out/bin/prime-agent \
-            --add-flags $out/lib/prime-agent/dist/bundle/cli.js \
+        postInstall = ''
+          mkdir -p $out/share/prime-agent
+          cp -r prime-agent-runtime docs skills $out/share/prime-agent/
+          # The 0.10.0 release embeds synthetic fixtures. Pin production data
+          # independently; catalog updates do not change the Rust source pin.
+          cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
+          cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
+        '';
+        postFixup = ''
+          wrapProgram $out/bin/prime-agent \
+            --set PI_PACKAGE_DIR $out/share/prime-agent \
             --prefix PATH : ${
               lib.makeBinPath [
-                pkgs.nodejs_22
                 kernelPython
+                pkgs.bash
                 pkgs.git
                 pkgs.fd
                 pkgs.ripgrep
+                pkgs.nodejs
               ]
             } \
             --set PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3 \
-            --set PRIME_AGENT_INSTALL_UV 0 \
             --set-default PI_OFFLINE 1
-
-          runHook postInstall
         '';
 
         doInstallCheck = true;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
-        # Exercise the real runtime plumbing versionCheckHook misses: load every external native dep
-        # and the kernel import surface.
         preInstallCheck = ''
-          (
-            cd $out/lib/prime-agent
-            ${lib.getExe pkgs.nodejs_22} -e '
-              require("@silvia-odwyer/photon-node");
-              require("undici");
-            '
-          )
-          ${kernelPython}/bin/python3 -c 'import rlm; from mcp import ClientSession, StdioServerParameters; from mcp.client import streamable_http'
+          export HOME=$(mktemp -d)
+          export DO_NOT_TRACK=1
+          ${kernelPython}/bin/python3 scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
+          # Schema validation intentionally accepts upstream fixture catalogs.
+          ${kernelPython}/bin/python3 - "$out/share/prime-agent" <<'PY'
+          import json
+          import pathlib
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          models = json.loads((root / "models.bundled.json").read_text())["models"]
+          services = json.loads((root / "mcp-services.bundled.json").read_text())["entries"]
+          assert all(not model["id"].startswith("fixture-") for model in models)
+          assert all(service["service"] != "fixture" for service in services)
+          PY
+          $out/bin/prime-agent --prime-agent-bootstrap
+          mkdir -p "$HOME/.prime/agent"
+          printf '%s\n' '{"updateChannel":"stable"}' > "$HOME/.prime/agent/settings.json"
+          cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
+          # Exercise read-only checks through the wrapper with isolated environments.
+          ${kernelPython}/bin/python3 - "$out/bin/prime-agent" <<'PY'
+          import http.server
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+          import threading
+
+          binary = sys.argv[1]
+          settings = pathlib.Path(os.environ["HOME"]) / ".prime/agent/settings.json"
+          before = settings.read_bytes()
+          requests = []
+
+          class ManifestHandler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  requests.append(self.path)
+                  if self.path not in ("/latest.json", "/beta.json"):
+                      self.send_error(404)
+                      return
+                  version = "999.0.0" if self.path == "/latest.json" else "999.0.0-beta.1"
+                  self.send_response(200)
+                  self.end_headers()
+                  # Nix rebuilds sources; published platform archives are not required.
+                  self.wfile.write(json.dumps({"version": version}).encode())
+
+              def log_message(self, *args):
+                  pass
+
+          with http.server.ThreadingHTTPServer(("127.0.0.1", 0), ManifestHandler) as server:
+              thread = threading.Thread(target=server.serve_forever, daemon=True)
+              thread.start()
+              try:
+                  for offline, skip, channel, expected in (
+                      ("0", None, "stable", ["/latest.json"]),
+                      (" Yes ", None, "stable", []),
+                      (None, None, "stable", []),
+                      ("0", "1", "stable", []),
+                      ("0", None, "nightly", ["/beta.json"]),
+                  ):
+                      env = {
+                          "HOME": os.environ["HOME"],
+                          "TMPDIR": os.environ["TMPDIR"],
+                          "PATH": "",
+                          "DO_NOT_TRACK": "1",
+                          "PRIME_AGENT_DOWNLOAD_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+                      }
+                      if offline is not None:
+                          env["PI_OFFLINE"] = offline
+                      if skip is not None:
+                          env["PI_SKIP_VERSION_CHECK"] = skip
+                      requests.clear()
+                      result = subprocess.run(
+                          [binary, "update", "--check", f"--{channel}"],
+                          env=env, capture_output=True, text=True, check=False, timeout=15,
+                      )
+                      assert result.returncode == (0 if expected else 1), (result.stdout, result.stderr)
+                      assert requests == expected, requests
+                      assert settings.read_bytes() == before
+                      assert not (settings.parents[2] / ".local").exists()
+                      print(f"Read-only check: offline={offline!r}, skip={skip!r}, channel={channel}, HTTP={requests}")
+              finally:
+                  server.shutdown()
+                  thread.join()
+          PY
+          for target in nightly rollback archive; do
+            case "$target" in
+              nightly) set -- update --nightly ;;
+              rollback) set -- update --rollback ;;
+              archive) set -- update --archive /nonexistent --source https://example.invalid ;;
+            esac
+            if $out/bin/prime-agent "$@"; then
+              echo "Nix-managed self-update unexpectedly succeeded" >&2
+              exit 1
+            else
+              test "$?" -eq 75
+            fi
+            cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
+            test ! -e "$HOME/.local"
+          done
+          $out/bin/prime-agent package update
+          cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
         '';
 
         meta = {
@@ -217,9 +350,6 @@ let
           license = lib.licenses.mit;
           mainProgram = "prime-agent";
           inherit platforms;
-          sourceProvenance = with lib.sourceTypes; [
-            binaryBytecode
-          ];
         };
       };
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
@@ -235,7 +365,7 @@ in
 
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = primeAgentPackage;
-      defaultText = lib.literalExpression "prime-agent assembled from the release tarball for the host platform";
+      defaultText = lib.literalExpression "prime-agent built from the pinned Rust source release";
       description = "prime-agent package (null on unsupported systems)";
     };
   };

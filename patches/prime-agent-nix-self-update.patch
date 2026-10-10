@@ -1,0 +1,279 @@
+diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
+index 7c820e9..4093753 100644
+--- a/crates/pa-cli/src/client_update.rs
++++ b/crates/pa-cli/src/client_update.rs
+@@ -4,4 +4,4 @@
+ //! failure tail becomes the error row's message. It follows the same
+-//! update channel as `prime-agent update`. Both surfaces consult the
+-//! same pa-core Homebrew detector before entering the installer funnel.
++//! update channel as `prime-agent update`. Both surfaces respect Nix ownership
++//! and the Homebrew detector before entering the installer funnel.
+ 
+@@ -16,2 +16,5 @@ impl pa_tui::update_command::UpdateCommands for ClientUpdate {
+         Box::pin(async {
++            if let Some(message) = pa_types::nix_self_update_refusal() {
++                return Err(message.to_owned());
++            }
+             if let Some(kind) = std::env::current_exe()
+diff --git a/crates/pa-cli/src/installer_update.rs b/crates/pa-cli/src/installer_update.rs
+index 0ecbbdd..0367fa8 100644
+--- a/crates/pa-cli/src/installer_update.rs
++++ b/crates/pa-cli/src/installer_update.rs
+@@ -8,4 +8,4 @@
+ //! configuration). The TUI's `/update` runs the same core out-of-band
+-//! (`client_update.rs`); both consult pa-core's Homebrew detector before
+-//! entering the installer funnel.
++//! (`client_update.rs`); both respect Nix ownership and the Homebrew detector
++//! before entering the installer funnel.
+ 
+@@ -18,3 +18,3 @@ use pa_core::update::version::UpdateChannel;
+ /// TS self-update's no-install exit code: the package manager owns this update.
+-const SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE: i32 = 75;
++pub(crate) const SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE: i32 = 75;
+ 
+@@ -86,3 +86,9 @@ pub fn requested_installer_channel(flag: Option<UpdateChannel>) -> &'static str
+ pub fn run(options: &UpdateOptions) -> i32 {
+-    // `--check` is read-only and remains available to Homebrew installs.
++    if !options.check {
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            println!("{message}");
++            return SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
++        }
++    }
++    // `--check` is read-only and remains available to managed builds.
+     let homebrew_kind = if options.check {
+@@ -182,2 +188,6 @@ pub fn run(options: &UpdateOptions) -> i32 {
+ pub fn run_local(prefix: &std::path::Path, archive: Option<&std::path::Path>) -> i32 {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        println!("{message}");
++        return crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
++    }
+     let archive = match archive.map(std::path::absolute).transpose() {
+@@ -252,4 +262,4 @@ fn save_channel(channel: UpdateChannel) {
+ 
+-/// The `--check` report: the running version vs the update channel's
+-/// published release (`latest.json` / `beta.json`). Nothing downloads.
++/// The `--check` report reads the release manifest (`latest.json` / `beta.json`),
++/// but never downloads or installs a release payload.
+ async fn run_check(flag: Option<UpdateChannel>) -> i32 {
+@@ -292,6 +302,6 @@ async fn run_check(flag: Option<UpdateChannel>) -> i32 {
+ 
+-/// The `--check` verdict line: the channel's update policy decides (a
+-/// channel switch accepts a same-base prerelease), an update needs a
+-/// build for this platform, and the suggested command repeats the channel
+-/// flag the check was given.
++/// The `--check` verdict follows release-channel policy. Nix builds report
++/// the pinned-package workflow; installer-owned builds additionally require
++/// a verified platform archive and retain the requested channel flag in
++/// their suggested command.
+ fn check_verdict(
+@@ -309,2 +319,5 @@ fn check_verdict(
+     }
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return format!("An update is available. {message}");
++    }
+     if artifact_for_platform(latest).is_err() {
+diff --git a/crates/pa-cli/src/package_command.rs b/crates/pa-cli/src/package_command.rs
+index f1e5ba2..27d0dce 100644
+--- a/crates/pa-cli/src/package_command.rs
++++ b/crates/pa-cli/src/package_command.rs
+@@ -557,2 +557,10 @@ fn run_package_update(
+     let target = options.update_target.unwrap_or(UpdateTarget::All);
++    if target.includes_self() {
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            println!("{message}");
++            return PackageCommandOutcome {
++                exit_code: Some(crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE),
++            };
++        }
++    }
+     let persisted_wire = manager
+diff --git a/crates/pa-cli/src/public_command.rs b/crates/pa-cli/src/public_command.rs
+index 0f2d57b..f6763f0 100644
+--- a/crates/pa-cli/src/public_command.rs
++++ b/crates/pa-cli/src/public_command.rs
+@@ -673,2 +673,6 @@ fn run_update(args: &[String]) -> PublicCommandResult {
+     };
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        println!("{message}");
++        return handled_with_exit(crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE);
++    }
+     // `--rollback` and `--archive` on an installer install run the bundled
+diff --git a/crates/pa-cli/src/self_update.rs b/crates/pa-cli/src/self_update.rs
+index e0b9275..10f2282 100644
+--- a/crates/pa-cli/src/self_update.rs
++++ b/crates/pa-cli/src/self_update.rs
+@@ -74,2 +74,6 @@ pub fn confirm_nightly_switch(
+ pub fn run(options: &SelfUpdateOptions, persisted_wire: Option<&str>) -> i32 {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        println!("{message}");
++        return crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
++    }
+     // The effective channel: an explicit flag wins, else the persisted one, else the running
+diff --git a/crates/pa-cli/src/update_flow/update_command.rs b/crates/pa-cli/src/update_flow/update_command.rs
+index a72ebef..f551a70 100644
+--- a/crates/pa-cli/src/update_flow/update_command.rs
++++ b/crates/pa-cli/src/update_flow/update_command.rs
+@@ -44,2 +44,5 @@ pub struct UpdateCommandOptions {
+ pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        anyhow::bail!(message);
++    }
+     let agent_dir = crate::config::get_agent_dir();
+@@ -630,2 +633,5 @@ pub async fn run_coordinator_mode(
+ ) -> Result<i32> {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        anyhow::bail!(message);
++    }
+     let agent_dir = crate::config::get_agent_dir();
+diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/installer.rs
+index e32f3d1..ae4cbd2 100644
+--- a/crates/pa-core/src/update/installer.rs
++++ b/crates/pa-core/src/update/installer.rs
+@@ -199,2 +199,7 @@ pub async fn run_installer(
+ ) -> std::result::Result<Installed, UpdateFailure> {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return Err(UpdateFailure {
++            message: message.to_owned(),
++        });
++    }
+     let prefix = install_prefix();
+@@ -222,2 +227,7 @@ pub async fn run_installer_from(
+ ) -> std::result::Result<Installed, UpdateFailure> {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return Err(UpdateFailure {
++            message: message.to_owned(),
++        });
++    }
+     current_target().map_err(|error| UpdateFailure {
+@@ -249,2 +259,7 @@ pub async fn run_bundled_installer(
+ ) -> std::result::Result<Installed, UpdateFailure> {
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return Err(UpdateFailure {
++            message: message.to_owned(),
++        });
++    }
+     // `mut` serves the Windows handoff's post-pre-flight rewind; the
+diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/release.rs
+index d77931b..629692a 100644
+--- a/crates/pa-core/src/update/release.rs
++++ b/crates/pa-core/src/update/release.rs
+@@ -60,3 +60,3 @@ pub fn update_user_agent(version: &str) -> String {
+ /// Fetch and validate the channel's latest release.
+-/// `PI_SKIP_VERSION_CHECK`/`PI_OFFLINE` short-circuit to `None`; a missing or
++/// `PI_SKIP_VERSION_CHECK` or enabled `PI_OFFLINE` short-circuit to `None`; a missing or
+ /// malformed manifest is `None`, never an error - `Planning` decides skip.
+@@ -72,3 +72,3 @@ pub async fn latest_release(
+ ) -> Result<Option<LatestRelease>> {
+-    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok() || std::env::var("PI_OFFLINE").is_ok() {
++    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok() || pa_models::offline::is_catalog_offline() {
+         return Ok(None);
+diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/session_ui/commands.rs
+index 7551bce..3c3e638 100644
+--- a/crates/pa-tui/src/session_ui/commands.rs
++++ b/crates/pa-tui/src/session_ui/commands.rs
+@@ -288,3 +288,3 @@ impl SessionUi {
+             // bare) and off/stable save the `updateChannel` setting that
+-            // `/update` and `prime-agent update` follow.
++            // update checks and installer-owned updates follow.
+             "nightly" => {
+@@ -305,9 +305,19 @@ impl SessionUi {
+                     };
+-                    self.note(
+-                        &format!(
+-                            "Updates follow the {channel} channel ({source}). v{} installed.",
+-                            view.chrome.version
+-                        ),
+-                        view,
+-                    );
++                    if let Some(message) = pa_types::nix_self_update_refusal() {
++                        self.note(
++                            &format!(
++                                "Update checks follow the {channel} channel ({source}). v{} installed. {message}",
++                                view.chrome.version
++                            ),
++                            view,
++                        );
++                    } else {
++                        self.note(
++                            &format!(
++                                "Updates follow the {channel} channel ({source}). v{} installed.",
++                                view.chrome.version
++                            ),
++                            view,
++                        );
++                    }
+                     return Ok(());
+@@ -325,6 +335,13 @@ impl SessionUi {
+                     }
+-                    self.note(
+-                        "Updates now follow the stable channel. Run /update to install the latest build.",
+-                        view,
+-                    );
++                    if let Some(message) = pa_types::nix_self_update_refusal() {
++                        self.note(
++                            &format!("Update checks now follow the stable channel. {message}"),
++                            view,
++                        );
++                    } else {
++                        self.note(
++                            "Updates now follow the stable channel. Run /update to install the latest build.",
++                            view,
++                        );
++                    }
+                     return Ok(());
+@@ -343,6 +360,13 @@ impl SessionUi {
+                 }
+-                self.note(
+-                    "Updates now follow the nightly channel. Run /update to install the latest nightly build.",
+-                    view,
+-                );
++                if let Some(message) = pa_types::nix_self_update_refusal() {
++                    self.note(
++                        &format!("Update checks now follow the nightly channel. {message}"),
++                        view,
++                    );
++                } else {
++                    self.note(
++                        "Updates now follow the nightly channel. Run /update to install the latest nightly build.",
++                        view,
++                    );
++                }
+             }
+@@ -496,2 +520,6 @@ impl SessionUi {
+                 }
++                if let Some(message) = pa_types::nix_self_update_refusal() {
++                    self.error_row(message, view);
++                    return Ok(());
++                }
+                 if self.update_in_flight {
+diff --git a/crates/pa-tui/src/session_ui/share.rs b/crates/pa-tui/src/session_ui/share.rs
+index ec81fcc..15da1a8 100644
+--- a/crates/pa-tui/src/session_ui/share.rs
++++ b/crates/pa-tui/src/session_ui/share.rs
+@@ -50,2 +50,6 @@ impl SessionUi {
+     pub(super) fn spawn_update(&mut self, view: &mut AgentView) {
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            self.error_row(message, view);
++            return;
++        }
+         let Some(update) = self.update_commands.clone() else {
+diff --git a/crates/pa-types/src/lib.rs b/crates/pa-types/src/lib.rs
+index 875ed03..2022707 100644
+--- a/crates/pa-types/src/lib.rs
++++ b/crates/pa-types/src/lib.rs
+@@ -20,2 +20,14 @@ pub mod usage;
+ 
++/// Refuse imperative self-update for builds managed by Nix.
++#[must_use]
++pub const fn nix_self_update_refusal() -> Option<&'static str> {
++    if option_env!("PRIME_AGENT_NIX_MANAGED").is_some() {
++        Some(
++            "This Prime Agent build is managed by Nix. Update the pinned package and rebuild your Nix/Home Manager configuration; self-update is disabled.",
++        )
++    } else {
++        None
++    }
++}
++
+ use serde::{Deserialize, Serialize};
