@@ -173,8 +173,9 @@ let
         inherit version src;
         inherit (pins) cargoHash;
         cargoDepsName = "prime-agent";
-        # Workaround: 0.10.0 keeps stale TS spacing/ANSI assertions in three
-        # CLI tests. Remove this patch once upstream drops those render snapshots.
+        # Drop three presentation-coupled CLI tests from 0.10.0, including a
+        # mixed incident test; pa-types below checks incident behavior separately.
+        # Remove this patch once upstream drops those presentation assertions.
         patches = [ ../../../patches/prime-agent-cli-tests.patch ];
         cargoBuildFlags = [
           "-p"
@@ -183,6 +184,8 @@ let
         cargoTestFlags = [
           "-p"
           "pa-cli"
+          "-p"
+          "pa-types"
           "--lib"
         ];
         passthru = {
