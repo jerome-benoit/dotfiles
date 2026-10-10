@@ -75,11 +75,3 @@ nix flake check      # Run all checks:
 nix flake update     # Update inputs
 nh clean all --keep 3
 ```
-
-### Prime Agent
-
-Prime Agent 0.10.x is compiled from its release tag with `rustPlatform.buildRustPackage`; the pinned Cargo vendor hash keeps sandboxed builds offline. Node.js and the old Jupyter kernel are no longer required.
-
-The Python REPL runtime (protocol 3), MCP 2 and all bundled Python skills are installed by Nix, without a first-run `uv` bootstrap. Model/MCP catalog snapshots are copied from the pinned official release archive; its precompiled executable is not installed. `PI_OFFLINE` defaults to `1`; set it to `0` to enable catalog refresh.
-
-Release data lives in `home-manager/modules/development/pins/prime-agent.json`. The hash updater refreshes source, Cargo, catalog and Python wheel hashes, and refuses changes to the default kernel package/snapshot requirements until the module is updated. `checks.<system>.prime-agent` builds the CLI and checks its version, catalog validity and kernel bootstrap on Linux/macOS.
