@@ -237,7 +237,7 @@ let
           "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.10.tar.gz")
           hash=sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP=
           ;;
-        "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.9/prime-agent-9.9.9-linux-x64.tar.gz")
+        "${sources.primeAgent.bundledCatalogs.url}")
           hash=sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM=
           ;;
         *)

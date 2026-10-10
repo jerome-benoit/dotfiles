@@ -7,8 +7,8 @@
   },
   "cargoHash": "sha256-9WPwC4V2SMqCAedx/OKnMWFzRbjs4bq24VuuVnLr4gI=",
   "bundledCatalogs": {
-    "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}-linux-x64.tar.gz",
-    "hash": "sha256-4VlORIGsQvBY+Bq2LJcHL5D49VHWDRxWzW+Um1EocWA="
+    "url": "https://github.com/PrimeIntellect-ai/prime-agent-catalog/archive/d4a099cf2aae7ea8c231298e93fd535756ef43c9.tar.gz",
+    "hash": "sha256-dRDI9/Og95wM9MCYPcgoCP20P2kSKUnTwfMgxoPT5fg="
   },
   "python": {
     "httpcore2": {

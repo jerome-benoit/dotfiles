@@ -62,9 +62,7 @@ assert
       hash = primeAgentData.src.hash;
     };
     bundledCatalogs = fetchzip {
-      url = renderVersion primeAgentData.bundledCatalogs.urlTemplate primeAgentData.version;
-      hash = primeAgentData.bundledCatalogs.hash;
-      stripRoot = false;
+      inherit (primeAgentData.bundledCatalogs) url hash;
     };
     python = lib.mapAttrs (
       _key: dependency:

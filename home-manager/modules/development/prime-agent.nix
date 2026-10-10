@@ -176,7 +176,16 @@ let
         # Drop three presentation-coupled CLI tests from 0.10.0, including a
         # mixed incident test; pa-types below checks incident behavior separately.
         # Remove this patch once upstream drops those presentation assertions.
-        patches = [ ../../../patches/prime-agent-cli-tests.patch ];
+        patches = [
+          ../../../patches/prime-agent-cli-tests.patch
+          ../../../patches/prime-agent-nix-self-update.patch
+        ];
+        PRIME_AGENT_NIX_MANAGED = "1";
+        # Upstream tests exercise installer-owned builds; installCheck and
+        # runtime smoke checks exercise this build's immutable Nix ownership.
+        preCheck = ''
+          unset PRIME_AGENT_NIX_MANAGED
+        '';
         cargoBuildFlags = [
           "-p"
           "pa-cli"
@@ -206,10 +215,10 @@ let
         postInstall = ''
           mkdir -p $out/share/prime-agent
           cp -r prime-agent-runtime docs skills $out/share/prime-agent/
-          # Catalogs are generated outside the source tree. Keep the official
-          # release snapshots; its prebuilt executable is not installed.
-          cp ${pins.bundledCatalogs}/models.bundled.json \
-            ${pins.bundledCatalogs}/mcp-services.bundled.json $out/share/prime-agent/
+          # The 0.10.0 release embeds synthetic fixtures. Pin production data
+          # independently; catalog updates do not change the Rust source pin.
+          cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
+          cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
         '';
         postFixup = ''
           wrapProgram $out/bin/prime-agent \
@@ -221,6 +230,7 @@ let
                 pkgs.git
                 pkgs.fd
                 pkgs.ripgrep
+                pkgs.nodejs
               ]
             } \
             --set PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3 \
@@ -234,7 +244,38 @@ let
           export HOME=$(mktemp -d)
           export DO_NOT_TRACK=1
           ${kernelPython}/bin/python3 scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
+          # Schema validation intentionally accepts upstream fixture catalogs.
+          ${kernelPython}/bin/python3 - "$out/share/prime-agent" <<'PY'
+          import json
+          import pathlib
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          models = json.loads((root / "models.bundled.json").read_text())["models"]
+          services = json.loads((root / "mcp-services.bundled.json").read_text())["entries"]
+          assert all(not model["id"].startswith("fixture-") for model in models)
+          assert all(service["service"] != "fixture" for service in services)
+          PY
           $out/bin/prime-agent --prime-agent-bootstrap
+          mkdir -p "$HOME/.prime/agent"
+          printf '%s\n' '{"updateChannel":"stable"}' > "$HOME/.prime/agent/settings.json"
+          cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
+          for target in nightly rollback archive; do
+            case "$target" in
+              nightly) set -- update --nightly ;;
+              rollback) set -- update --rollback ;;
+              archive) set -- update --archive /nonexistent --source https://example.invalid ;;
+            esac
+            if $out/bin/prime-agent "$@"; then
+              echo "Nix-managed self-update unexpectedly succeeded" >&2
+              exit 1
+            else
+              test "$?" -eq 75
+            fi
+            cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
+            test ! -e "$HOME/.local"
+          done
+          $out/bin/prime-agent package update
+          cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
         '';
 
         meta = {

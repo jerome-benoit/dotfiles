@@ -68,9 +68,9 @@ validate_pin_files() {
     and (.src.hash | test($hash))
     and (.src.urlTemplate == "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz")
     and (.cargoHash | test($hash))
-    and (.bundledCatalogs | keys == ["hash", "urlTemplate"])
+    and (.bundledCatalogs | keys == ["hash", "url"])
     and (.bundledCatalogs.hash | test($hash))
-    and (.bundledCatalogs.urlTemplate == "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}-linux-x64.tar.gz")
+    and (.bundledCatalogs.url | test("^https://github\\.com/PrimeIntellect-ai/prime-agent-catalog/archive/[0-9a-f]{40}\\.tar\\.gz$"))
     and (.python | keys == ["httpcore2", "httpx2", "mcp", "mcp-types"])
     and ([.python[] | keys == ["hash", "url", "version"]] | all)
     and ([.python[].hash | test($hash)] | all)
@@ -118,8 +118,7 @@ validate_effective_contract() {
   expected=$(render_url "$template" "$version")
   actual=$(jq -r .primeAgent.src.url "$effective")
   [ "$actual" = "$expected" ] || fail "Prime Agent effective source URL does not consume its pin"
-  template=$(jq -r .bundledCatalogs.urlTemplate "$prime")
-  expected=$(render_url "$template" "$version")
+  expected=$(jq -r .bundledCatalogs.url "$prime")
   actual=$(jq -r .primeAgent.bundledCatalogs.url "$effective")
   [ "$actual" = "$expected" ] || fail "Prime Agent bundled catalog URL does not consume its pin"
   jq -e --slurpfile pin "$prime" '
@@ -478,8 +477,7 @@ update_prime_agent() {
   set_json "$pin" --arg hash "$hash" --arg cargo "$cargo_hash" \
     '.src.hash = $hash | .cargoHash = $cargo'
 
-  template=$(jq -r .bundledCatalogs.urlTemplate "$pin")
-  dependency_url=$(render_url "$template" "$version")
+  dependency_url=$(jq -r .bundledCatalogs.url "$pin")
   dependency_hash=$(nix store prefetch-file --unpack --json "$dependency_url" | jq -r .hash)
   [[ $dependency_hash =~ $HASH_PATTERN ]] || fail "invalid Prime Agent bundled catalog hash: $dependency_hash"
   set_json "$pin" --arg hash "$dependency_hash" '.bundledCatalogs.hash = $hash'

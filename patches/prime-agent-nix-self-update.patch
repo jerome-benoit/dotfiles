@@ -1,0 +1,180 @@
+diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/installer.rs
+--- a/crates/pa-core/src/update/installer.rs
++++ b/crates/pa-core/src/update/installer.rs
+@@ -200,1 +200,6 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return Err(UpdateFailure {
++            message: message.to_owned(),
++        });
++    }
+     let prefix = install_prefix();
+@@ -223,1 +228,6 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return Err(UpdateFailure {
++            message: message.to_owned(),
++        });
++    }
+     current_target().map_err(|error| UpdateFailure {
+@@ -250,1 +260,6 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        return Err(UpdateFailure {
++            message: message.to_owned(),
++        });
++    }
+     // `mut` serves the Windows handoff's post-pre-flight rewind; the
+diff --git a/crates/pa-cli/src/installer_update.rs b/crates/pa-cli/src/installer_update.rs
+--- a/crates/pa-cli/src/installer_update.rs
++++ b/crates/pa-cli/src/installer_update.rs
+@@ -8,5 +8,5 @@
+ //! configuration). The TUI's `/update` runs the same core out-of-band
+-//! (`client_update.rs`); both consult pa-core's Homebrew detector before
+-//! entering the installer funnel.
++//! (`client_update.rs`); both respect Nix ownership and the Homebrew detector
++//! before entering the installer funnel.
+ 
+ use pa_core::update::homebrew;
+@@ -19,1 +19,1 @@
+-const SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE: i32 = 75;
++pub(crate) const SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE: i32 = 75;
+@@ -87,1 +87,7 @@
+-    // `--check` is read-only and remains available to Homebrew installs.
++    if !options.check {
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            println!("{message}");
++            return SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
++        }
++    }
++    // `--check` is read-only and remains available to managed builds.
+@@ -183,1 +189,5 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        println!("{message}");
++        return crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
++    }
+     let archive = match archive.map(std::path::absolute).transpose() {
+@@ -253,2 +263,2 @@
+-/// The `--check` report: the running version vs the update channel's
+-/// published release (`latest.json` / `beta.json`). Nothing downloads.
++/// The `--check` report reads the release manifest (`latest.json` / `beta.json`),
++/// but never downloads or installs a release payload.
+diff --git a/crates/pa-cli/src/public_command.rs b/crates/pa-cli/src/public_command.rs
+--- a/crates/pa-cli/src/public_command.rs
++++ b/crates/pa-cli/src/public_command.rs
+@@ -674,1 +674,5 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        println!("{message}");
++        return handled_with_exit(crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE);
++    }
+     // `--rollback` and `--archive` on an installer install run the bundled
+diff --git a/crates/pa-cli/src/self_update.rs b/crates/pa-cli/src/self_update.rs
+--- a/crates/pa-cli/src/self_update.rs
++++ b/crates/pa-cli/src/self_update.rs
+@@ -75,1 +75,5 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        println!("{message}");
++        return crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE;
++    }
+     // The effective channel: an explicit flag wins, else the persisted one, else the running
+diff --git a/crates/pa-cli/src/package_command.rs b/crates/pa-cli/src/package_command.rs
+--- a/crates/pa-cli/src/package_command.rs
++++ b/crates/pa-cli/src/package_command.rs
+@@ -557,2 +557,10 @@
+     let target = options.update_target.unwrap_or(UpdateTarget::All);
++    if target.includes_self() {
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            println!("{message}");
++            return PackageCommandOutcome {
++                exit_code: Some(crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE),
++            };
++        }
++    }
+     let persisted_wire = manager
+diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
+--- a/crates/pa-cli/src/client_update.rs
++++ b/crates/pa-cli/src/client_update.rs
+@@ -5,2 +5,2 @@
+-//! update channel as `prime-agent update`. Both surfaces consult the
+-//! same pa-core Homebrew detector before entering the installer funnel.
++//! update channel as `prime-agent update`. Both surfaces respect Nix ownership
++//! and the Homebrew detector before entering the installer funnel.
+@@ -17,1 +17,4 @@
++            if let Some(message) = pa_types::nix_self_update_refusal() {
++                return Err(message.to_owned());
++            }
+             if let Some(kind) = std::env::current_exe()
+diff --git a/crates/pa-cli/src/client_settings.rs b/crates/pa-cli/src/client_settings.rs
+--- a/crates/pa-cli/src/client_settings.rs
++++ b/crates/pa-cli/src/client_settings.rs
+@@ -210,1 +210,4 @@
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            anyhow::bail!(message);
++        }
+         let channel = match channel {
+diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/session_ui/commands.rs
+--- a/crates/pa-tui/src/session_ui/commands.rs
++++ b/crates/pa-tui/src/session_ui/commands.rs
+@@ -315,1 +315,9 @@
++                if !matches!(arg.as_str(), "" | "on" | "off" | "stable") {
++                    self.error_row("Usage: /nightly [on|off|status]", view);
++                    return Ok(());
++                }
++                if let Some(message) = pa_types::nix_self_update_refusal() {
++                    self.error_row(message, view);
++                    return Ok(());
++                }
+                 if arg == "off" || arg == "stable" {
+@@ -332,5 +340,1 @@
+-                if !arg.is_empty() && arg != "on" {
+-                    self.error_row("Usage: /nightly [on|off|status]", view);
+-                    return Ok(());
+-                }
+                 let Some(settings) = &self.client_settings else {
+@@ -497,1 +501,5 @@
++                if let Some(message) = pa_types::nix_self_update_refusal() {
++                    self.error_row(message, view);
++                    return Ok(());
++                }
+                 if self.update_in_flight {
+diff --git a/crates/pa-tui/src/session_ui/share.rs b/crates/pa-tui/src/session_ui/share.rs
+--- a/crates/pa-tui/src/session_ui/share.rs
++++ b/crates/pa-tui/src/session_ui/share.rs
+@@ -51,1 +51,5 @@
++        if let Some(message) = pa_types::nix_self_update_refusal() {
++            self.error_row(message, view);
++            return;
++        }
+         let Some(update) = self.update_commands.clone() else {
+diff --git a/crates/pa-cli/src/update_flow/update_command.rs b/crates/pa-cli/src/update_flow/update_command.rs
+--- a/crates/pa-cli/src/update_flow/update_command.rs
++++ b/crates/pa-cli/src/update_flow/update_command.rs
+@@ -45,1 +45,4 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        anyhow::bail!(message);
++    }
+     let agent_dir = crate::config::get_agent_dir();
+@@ -631,1 +634,4 @@
++    if let Some(message) = pa_types::nix_self_update_refusal() {
++        anyhow::bail!(message);
++    }
+     let agent_dir = crate::config::get_agent_dir();
+diff --git a/crates/pa-types/src/lib.rs b/crates/pa-types/src/lib.rs
+--- a/crates/pa-types/src/lib.rs
++++ b/crates/pa-types/src/lib.rs
+@@ -18,6 +18,18 @@
+ pub mod themes;
+ pub mod usage;
+ 
++/// Refuse imperative self-update for builds managed by Nix.
++#[must_use]
++pub const fn nix_self_update_refusal() -> Option<&'static str> {
++    if option_env!("PRIME_AGENT_NIX_MANAGED").is_some() {
++        Some(
++            "This Prime Agent build is managed by Nix. Update the pinned package and rebuild your Nix/Home Manager configuration; self-update is disabled.",
++        )
++    } else {
++        None
++    }
++}
++
+ use serde::{Deserialize, Serialize};
+ 
+ /// JSON object map used for opaque payloads and unknown-field catch-alls.
