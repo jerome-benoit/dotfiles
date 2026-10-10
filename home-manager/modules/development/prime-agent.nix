@@ -211,6 +211,8 @@ let
 
         nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
         strictDeps = true;
+        # The read-only update installCheck serves HTTP on loopback.
+        __darwinAllowLocalNetworking = true;
 
         postInstall = ''
           mkdir -p $out/share/prime-agent
