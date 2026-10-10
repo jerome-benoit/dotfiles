@@ -123,6 +123,7 @@ let
     inherit src;
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
+    nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
     buildInputs = build.extraBuildInputs;
 
     # Build and stage every supported engine in $out; compilation belongs in

@@ -328,6 +328,8 @@ Himalaya v2 CLI email client:
 - Uses upstream `programs.himalaya` to render native v2 configuration and install the CLI
 - Global client settings live in `programs.himalaya.settings`
 - Password commands reference account-owned SOPS credentials; plaintext never enters the Nix store
+- Preserves credential argv and per-account command overrides
+- SMTP-only accounts acquire no implicit Maildir; explicit Maildir settings remain supported
 
 ### btop.nix
 
