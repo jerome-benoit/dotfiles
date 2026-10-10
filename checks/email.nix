@@ -119,17 +119,10 @@ let
               "disabled"
             ];
           };
-          programs.himalaya = {
-            enable = true;
-            settings = {
-              downloads-dir = "/home/email-test/Downloads";
-              envelope.list = {
-                datetime-local-tz = true;
-                page-size = 50;
-              };
-            };
-          };
+          programs.himalaya.enable = true;
         };
+
+        programs.himalaya.settings.downloads-dir = "/home/email-test/Downloads";
 
         accounts.email.accounts.disabled.enable = false;
         sops = {
@@ -174,6 +167,37 @@ let
     ];
   };
 
+  credentialConfiguration = configuration.extendModules {
+    modules = [
+      {
+        accounts.email.accounts.primary.passwordCommand = lib.mkForce [
+          "${pkgs.coreutils}/bin/printf"
+          "%s"
+          "synthetic space $HOME;literal"
+        ];
+      }
+    ];
+  };
+  overrideCredentialConfiguration = credentialConfiguration.extendModules {
+    modules = [
+      {
+        accounts.email.accounts.primary.himalaya.settings = lib.genAttrs [ "imap" "smtp" ] (_: {
+          sasl.login.password.command = lib.mkDefault [
+            "${pkgs.coreutils}/bin/printf"
+            "%s"
+            "override space $HOME;literal"
+          ];
+        });
+      }
+    ];
+  };
+  smtpOnlyConfiguration = configuration.extendModules {
+    modules = [ { accounts.email.accounts.primary.imap = lib.mkForce null; } ];
+  };
+  explicitMaildirConfiguration = smtpOnlyConfiguration.extendModules {
+    modules = [ { accounts.email.accounts.primary.maildir = lib.mkDefault { path = "explicit"; }; } ];
+  };
+
   cfg = configuration.config;
   canonicalAccounts = builtins.attrNames cfg.accounts.email.accounts;
   emailSecrets = builtins.filter (lib.hasPrefix "email-") (builtins.attrNames cfg.sops.secrets);
@@ -206,6 +230,12 @@ assert !primaryEvaluation.success;
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;
+    credentialConfig = credentialConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    overrideCredentialConfig =
+      overrideCredentialConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    smtpOnlyConfig = smtpOnlyConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    explicitMaildirConfig =
+      explicitMaildirConfiguration.config.xdg.configFile."himalaya/config.toml".source;
     nativeBuildInputs = [
       pkgs.himalaya
       pkgs.python3
@@ -213,7 +243,9 @@ pkgs.runCommandLocal "check-email-accounts"
   }
   ''
     himalaya -c "$himalayaConfig" --json account list >/dev/null
-    python - "$himalayaConfig" <<'PY'
+    python - "$himalayaConfig" "$smtpOnlyConfig" "$explicitMaildirConfig" <<'PY'
+    import json
+    import subprocess
     import sys
     import tomllib
 
@@ -237,18 +269,25 @@ pkgs.runCommandLocal "check-email-accounts"
     assert primary["imap"]["starttls"] is False
     assert primary["smtp"]["server"] == "smtps://smtp.example.invalid:465"
     assert primary["smtp"]["starttls"] is False
-    assert primary["imap"]["sasl"]["login"]["password"]["command"][-1].endswith(
-        "email-primary-password"
-    )
 
     secondary = config["accounts"]["secondary"]
     assert secondary["default"] is False
     assert secondary["imap"]["server"] == "imap://starttls.example.invalid:143"
     assert secondary["imap"]["starttls"] is True
     assert "smtp" not in secondary
-    assert secondary["imap"]["sasl"]["login"]["password"]["command"][-1].endswith(
-        "email-secondary-password"
-    )
+
+    for path, expected in [
+        (sys.argv[2], {"smtp"}),
+        (sys.argv[3], {"maildir", "smtp"}),
+    ]:
+        report = json.loads(subprocess.check_output(
+            ["himalaya", "-c", path, "--json", "account", "list"], text=True
+        ))
+        account = next(a for a in report["accounts"] if a["name"] == "primary")
+        assert set(account["backends"]) == expected, account
+        print("SMTP_STORAGE_OK:", ",".join(sorted(expected)))
     PY
+    python ${./email-credentials.py} "$credentialConfig" 'synthetic space $HOME;literal'
+    python ${./email-credentials.py} "$overrideCredentialConfig" 'override space $HOME;literal'
     touch "$out"
   ''

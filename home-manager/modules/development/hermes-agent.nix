@@ -27,35 +27,22 @@ let
     lib.makeLibraryPath (
       [ pkgs.portaudio ]
       ++ lib.optionals cudaRuntimeEnabled [
-        # CTranslate2 4.7.1 wheels dlopen libcublas.so.12 independently of the selected CUDA package set.
+        # CTranslate2 wheels dlopen libcublas.so.12 independently of the selected CUDA package set.
         pkgs.cudaPackages_12_9.libcublas
       ]
     )
     # They also dlopen libcuda.so.1, so expose addDriverRunpath.driverLink.
     + lib.optionalString cudaRuntimeEnabled ":${pkgs.addDriverRunpath.driverLink}/lib";
 
-  wrapHermesAgent =
+  extendHermesDependencyGroups =
     package:
-    let
-      # Workaround: upstream wrappers omit PortAudio and CUDA runtime library paths.
-      # Remove when upstream exposes those libraries to Hermes executables.
-      wrapped = package.overrideAttrs (previousAttrs: {
-        nativeBuildInputs = lib.unique ((previousAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ]);
-        postFixup = (previousAttrs.postFixup or "") + ''
-          for bin in "$out"/bin/*; do
-            [ -x "$bin" ] || continue
-            wrapProgram "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
-          done
-        '';
-      });
-    in
-    wrapped
+    package
     // {
-      # Workaround: upstream package overrides discard wrappers and replace default dependency groups.
-      # Remove when they preserve wrappers and extend existing dependency groups.
+      # Workaround: upstream overrides replace the default dependency groups.
+      # Remove when additional groups extend the existing integrations.
       override =
         requested:
-        wrapHermesAgent (
+        extendHermesDependencyGroups (
           package.override (
             previous:
             let
@@ -73,7 +60,19 @@ let
         );
     };
 
-  hermesAgentPackage = wrapHermesAgent baseHermesAgentPackage;
+  # Workaround: upstream wrappers omit PortAudio and CUDA runtime library paths.
+  # Remove when upstream exposes those libraries to Hermes executables.
+  hermesAgentPackage = extendHermesDependencyGroups (
+    baseHermesAgentPackage.overrideAttrs (previousAttrs: {
+      nativeBuildInputs = lib.unique ((previousAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ]);
+      postFixup = (previousAttrs.postFixup or "") + ''
+        for bin in "$out"/bin/*; do
+          [ -x "$bin" ] || continue
+          wrapProgram "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
+        done
+      '';
+    })
+  );
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
   hermesDesktopPackage = effectiveHermesAgentPackage.hermesDesktop or null;
 

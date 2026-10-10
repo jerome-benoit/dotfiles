@@ -123,6 +123,7 @@ let
     inherit src;
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
+    nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
     buildInputs = build.extraBuildInputs;
 
     # Build and stage every supported engine in $out; compilation belongs in
@@ -134,9 +135,14 @@ let
       runHook postBuild
     '';
 
-    # Workaround: test-c is non-hermetic on supported platforms.
-    # Remove when SSD timing and Linux io_uring tests work in the sandbox.
-    doCheck = false;
+    # Workaround: test-c is only sandbox-validated on x86_64 Linux.
+    # Remove when the remaining supported platforms pass their sandbox checks.
+    doCheck = pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isx86_64;
+    checkPhase = ''
+      runHook preCheck
+      make -C c test-c ARCH=${archBaseline}
+      runHook postCheck
+    '';
 
     # Offline check: all unconditional engines, converter data, and dashboard
     # assets are staged; the wrapper runs (`coli --version` exits before model
