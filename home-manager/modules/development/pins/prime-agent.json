@@ -1,21 +1,14 @@
 {
   "renovate": "datasource=github-releases depName=PrimeIntellect-ai/prime-agent",
-  "version": "0.9.8",
+  "version": "0.10.0",
   "src": {
-    "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}.tgz",
-    "hash": "sha256-RpwpR5ouGmrZTpnl9E0Ll0HKYK6QSK0fu2D2///CqB4="
+    "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz",
+    "hash": "sha256-S7QrG4Abk7/xa5ykRqHQRgSi8MRL29u19V5lutROPdQ="
   },
-  "npm": {
-    "@silvia-odwyer/photon-node": {
-      "version": "0.3.4",
-      "urlTemplate": "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-{version}.tgz",
-      "hash": "sha256-KuKwcs3bXqZpJiKLr45EMfJrQkhZ6NZtgaUSFuqGCb8="
-    },
-    "undici": {
-      "version": "7.29.0",
-      "urlTemplate": "https://registry.npmjs.org/undici/-/undici-{version}.tgz",
-      "hash": "sha256-xtWGZuAjA6c8p3EjgweXN6Au1sMLg9JZOKPXNFCMIjs="
-    }
+  "cargoHash": "sha256-9WPwC4V2SMqCAedx/OKnMWFzRbjs4bq24VuuVnLr4gI=",
+  "bundledCatalogs": {
+    "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v{version}/prime-agent-{version}-linux-x64.tar.gz",
+    "hash": "sha256-4VlORIGsQvBY+Bq2LJcHL5D49VHWDRxWzW+Um1EocWA="
   },
   "python": {
     "httpcore2": {

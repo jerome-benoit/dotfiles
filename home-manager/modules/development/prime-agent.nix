@@ -7,8 +7,7 @@
 
 let
   cfg = config.modules.development.primeAgent;
-  stdenv = pkgs.stdenvNoCC;
-  hp = stdenv.hostPlatform;
+  hp = pkgs.stdenv.hostPlatform;
   pins =
     (import ./pins {
       inherit lib;
@@ -24,13 +23,8 @@ let
   version = pins.version;
   src = pins.src;
 
-  # Native/runtime deps external to the esbuild bundle, pinned with the Prime Agent release data.
-  photonSrc = pins.npm."@silvia-odwyer/photon-node".src;
-  # cli-main dynamically imports undici, which is external to the esbuild bundle.
-  undiciSrc = pins.npm.undici.src;
-
   py = pkgs.python312;
-  runtimeRoot = "${src}/dist/prime-agent-runtime";
+  runtimeRoot = "${src}/prime-agent-runtime";
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";
 
@@ -129,9 +123,44 @@ let
     // {
       inherit rlm;
       "${pins.snapshotRequirement}" = ps.${pins.snapshotRequirement};
-      jupyter-client = ps.jupyter-client;
     };
-  kernelPython = py.withPackages (_ps: builtins.attrValues kernelRequirements);
+  bundledSkills =
+    lib.mapAttrs
+      (
+        name: spec:
+        py.pkgs.buildPythonPackage {
+          pname = spec.pname or name;
+          version = "0.1.0";
+          pyproject = true;
+          src = "${src}/skills/${name}";
+          build-system = [ py.pkgs.hatchling ];
+          dependencies = [ rlm ] ++ (spec.dependencies or [ ]);
+          pythonImportsCheck = [ spec.importName ];
+          doCheck = false;
+        }
+      )
+      {
+        agent-message.importName = "agent_message";
+        agent-observe.importName = "agent_observe";
+        attach-image = {
+          pname = "prime-agent-skill-attach-image";
+          importName = "attach_image";
+          dependencies = [ py.pkgs.pillow ];
+        };
+        compact.importName = "compact";
+        edit.importName = "edit";
+        goal.importName = "goal";
+        refine.importName = "refine";
+        rlm-heartbeat.importName = "rlm_heartbeat";
+        websearch = {
+          pname = "prime-agent-skill-websearch";
+          importName = "websearch";
+          dependencies = [ py.pkgs.httpx ];
+        };
+      };
+  kernelPython = py.withPackages (
+    _ps: builtins.attrValues kernelRequirements ++ builtins.attrValues bundledSkills
+  );
 
   supported = builtins.elem hp.system platforms;
 
@@ -139,11 +168,26 @@ let
     if !supported then
       null
     else
-      stdenv.mkDerivation {
+      pkgs.rustPlatform.buildRustPackage {
         pname = "prime-agent";
         inherit version src;
+        inherit (pins) cargoHash;
+        cargoDepsName = "prime-agent";
+        # Workaround: 0.10.0 keeps stale TS spacing/ANSI assertions in three
+        # CLI tests. Remove this patch once upstream drops those render snapshots.
+        patches = [ ../../../patches/prime-agent-cli-tests.patch ];
+        cargoBuildFlags = [
+          "-p"
+          "pa-cli"
+        ];
+        cargoTestFlags = [
+          "-p"
+          "pa-cli"
+          "--lib"
+        ];
         passthru = {
           inherit
+            bundledSkills
             pythonRuntimePackages
             kernelPython
             kernelRequirements
@@ -151,64 +195,43 @@ let
             runtimePackage
             runtimeProject
             ;
-          runtimeSources = {
-            "@silvia-odwyer/photon-node" = photonSrc;
-            undici = undiciSrc;
-          };
         };
 
         nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
-
         strictDeps = true;
-        dontConfigure = true;
-        dontBuild = true;
 
-        installPhase = ''
-          runHook preInstall
-
-          mkdir -p $out/lib/prime-agent
-          cp -r dist docs skills $out/lib/prime-agent/
-          # The CLI's getPackageDir() walks up from dist/bundle for the dir that holds package.json
-          # (to read version + piConfig); ship it at the package root.
-          cp package.json $out/lib/prime-agent/
-
-          nm=$out/lib/prime-agent/node_modules
-          mkdir -p "$nm/@silvia-odwyer/photon-node" "$nm/undici"
-          cp -r ${photonSrc}/. "$nm/@silvia-odwyer/photon-node/"
-          cp -r ${undiciSrc}/. "$nm/undici/"
-
-          makeBinaryWrapper ${lib.getExe pkgs.nodejs_22} $out/bin/prime-agent \
-            --add-flags $out/lib/prime-agent/dist/bundle/cli.js \
+        postInstall = ''
+          mkdir -p $out/share/prime-agent
+          cp -r prime-agent-runtime docs skills $out/share/prime-agent/
+          # Catalogs are generated outside the source tree. Keep the official
+          # release snapshots; its prebuilt executable is not installed.
+          cp ${pins.bundledCatalogs}/models.bundled.json \
+            ${pins.bundledCatalogs}/mcp-services.bundled.json $out/share/prime-agent/
+        '';
+        postFixup = ''
+          wrapProgram $out/bin/prime-agent \
+            --set PI_PACKAGE_DIR $out/share/prime-agent \
             --prefix PATH : ${
               lib.makeBinPath [
-                pkgs.nodejs_22
                 kernelPython
+                pkgs.bash
                 pkgs.git
                 pkgs.fd
                 pkgs.ripgrep
               ]
             } \
             --set PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3 \
-            --set PRIME_AGENT_INSTALL_UV 0 \
             --set-default PI_OFFLINE 1
-
-          runHook postInstall
         '';
 
         doInstallCheck = true;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
         versionCheckProgramArg = "--version";
-        # Exercise the real runtime plumbing versionCheckHook misses: load every external native dep
-        # and the kernel import surface.
         preInstallCheck = ''
-          (
-            cd $out/lib/prime-agent
-            ${lib.getExe pkgs.nodejs_22} -e '
-              require("@silvia-odwyer/photon-node");
-              require("undici");
-            '
-          )
-          ${kernelPython}/bin/python3 -c 'import rlm; from mcp import ClientSession, StdioServerParameters; from mcp.client import streamable_http'
+          export HOME=$(mktemp -d)
+          export DO_NOT_TRACK=1
+          ${kernelPython}/bin/python3 scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
+          $out/bin/prime-agent --prime-agent-bootstrap
         '';
 
         meta = {
@@ -217,9 +240,6 @@ let
           license = lib.licenses.mit;
           mainProgram = "prime-agent";
           inherit platforms;
-          sourceProvenance = with lib.sourceTypes; [
-            binaryBytecode
-          ];
         };
       };
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
@@ -235,7 +255,7 @@ in
 
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = primeAgentPackage;
-      defaultText = lib.literalExpression "prime-agent assembled from the release tarball for the host platform";
+      defaultText = lib.literalExpression "prime-agent built from the pinned Rust source release";
       description = "prime-agent package (null on unsupported systems)";
     };
   };

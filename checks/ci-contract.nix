@@ -13,7 +13,7 @@ let
     fetchzip = arguments: arguments;
   };
   primeAgentSource = pkgs.fetchzip sources.primeAgent.src;
-  primeAgentRuntimeRoot = "${primeAgentSource}/dist/prime-agent-runtime";
+  primeAgentRuntimeRoot = "${primeAgentSource}/prime-agent-runtime";
   primeAgentRuntimeProject = lib.importTOML "${primeAgentRuntimeRoot}/pyproject.toml";
   primeAgentRuntimeLock = lib.importTOML "${primeAgentRuntimeRoot}/uv.lock";
   dummyPythonPackages = lib.genAttrs [
@@ -78,10 +78,6 @@ let
     }
   );
 
-  plainString = builtins.unsafeDiscardStringContext;
-  usesIn = dependency: script: lib.hasInfix (plainString (toString dependency)) (plainString script);
-  hasExactTrimmedLine =
-    expected: script: builtins.elem expected (map lib.trim (lib.splitString "\n" (plainString script)));
   consumerContractValid =
     system:
     let
@@ -89,23 +85,13 @@ let
       piPackage = packages.pi;
       ompPackage = packages.omp;
       primeAgentPackage = packages.primeAgent;
-      primeRuntimeSources = primeAgentPackage.runtimeSources;
-      platformKey = platformKeys.${system};
-      lockStorePath = plainString piPackage.contractLockStorePath;
-      expectedPiPostPatch = "rm -f npm-shrinkwrap.json\ncp ${lockStorePath} package-lock.json";
-      expectedPiNpmPostPatch = "cp ${lockStorePath} package-lock.json";
-      expectedKernelAssignment = lib.trim ''
-        --set PRIME_AGENT_KERNEL_PYTHON ${primeAgentPackage.kernelPython}/bin/python3 \
-      '';
       expectedKernelNames = lib.sort builtins.lessThan (
         [
-          "jupyter-client"
           "rlm"
           sources.primeAgent.snapshotRequirement
         ]
         ++ sources.primeAgent.rlmExtraPackages
       );
-      kernelPackages = primeAgentPackage.kernelPython.python.pkgs;
       pythonRuntimePackages = primeAgentPackage.pythonRuntimePackages;
       runtimeProject = primeAgentRuntimeProject;
       runtimeLock = primeAgentRuntimeLock;
@@ -122,33 +108,6 @@ let
       actualRuntimeDependencies = lib.sort builtins.lessThan (
         map (dependency: dependency.pname) expectedRlm.dependencies
       );
-      expectedTyro = kernelPackages.tyro.overridePythonAttrs (_: {
-        doCheck = false;
-      });
-      expectedMappedKernelRequirements = lib.genAttrs sources.primeAgent.rlmExtraPackages (
-        name: if name == "tyro" then expectedTyro else kernelPackages.${name}
-      );
-      expectedKernelRequirements = expectedMappedKernelRequirements // {
-        rlm = expectedRlm;
-        "${sources.primeAgent.snapshotRequirement}" =
-          kernelPackages.${sources.primeAgent.snapshotRequirement};
-        jupyter-client = kernelPackages.jupyter-client;
-      };
-      kernelRequirementIdentity =
-        requirements: lib.mapAttrs (_name: requirement: plainString (toString requirement)) requirements;
-      kernelRequirementPaths = map toString (builtins.attrValues primeAgentPackage.kernelRequirements);
-      kernelEnvironmentPaths = map toString primeAgentPackage.kernelPython.paths;
-      runtimeCopyCommands = [
-        ''cp -r ${primeRuntimeSources."@silvia-odwyer/photon-node"}/. "$nm/@silvia-odwyer/photon-node/"''
-        ''cp -r ${primeRuntimeSources.undici}/. "$nm/undici/"''
-      ];
-      runtimeSourceValid =
-        key:
-        let
-          installed = primeRuntimeSources.${key};
-          expected = sources.primeAgent.npm.${key}.src;
-        in
-        installed.url == expected.url && installed.outputHash == expected.hash;
       pythonRuntimePackageValid =
         name:
         let
@@ -185,71 +144,33 @@ let
       message "pi.nix ignores the pinned version"
     )
     && lib.assertMsg (
-      piPackage.src.url == sources.pi.src.url && piPackage.src.outputHash == sources.pi.src.hash
-    ) (message "pi.nix ignores the pinned source")
-    && lib.assertMsg (piPackage.npmDeps.outputHash == sources.pi.npmDepsHash) (
-      message "pi.nix ignores the pinned npm hash"
-    )
-    && lib.assertMsg (
       builtins.elem piPackage packages.installed.packages
       && builtins.elem ompPackage packages.installed.omp
       && builtins.elem primeAgentPackage packages.installed.primeAgent
     ) (message "an enabled development module does not install its configured package")
     && lib.assertMsg (
-      lib.hasSuffix "-${sources.pi.lockFileName}" lockStorePath
-      &&
-        builtins.hashFile "sha256" piPackage.contractLockFile
-        == builtins.hashFile "sha256" sources.pi.lockFile
-      && plainString (lib.trim piPackage.postPatch) == expectedPiPostPatch
-      && plainString (lib.trim piPackage.npmDeps.postPatch) == expectedPiNpmPostPatch
-    ) (message "pi.nix does not copy the pinned lock to package-lock.json in both npm phases")
+      builtins.hashFile "sha256" piPackage.contractLockFile
+      == builtins.hashFile "sha256" sources.pi.lockFile
+    ) (message "pi.nix does not consume the pinned lock")
     && lib.assertMsg (ompPackage.version == sources.omp.version) (
       message "omp.nix ignores the pinned version"
     )
-    && lib.assertMsg (
-      ompPackage.src.url == sources.omp.sources.${platformKey}.url
-      && ompPackage.src.outputHash == sources.omp.sources.${platformKey}.hash
-    ) (message "omp.nix ignores the pinned platform source")
     && lib.assertMsg (primeAgentPackage.version == sources.primeAgent.version) (
       message "prime-agent.nix ignores the pinned version"
     )
     && lib.assertMsg (
-      primeAgentPackage.src.url == sources.primeAgent.src.url
-      && primeAgentPackage.src.outputHash == sources.primeAgent.src.hash
-    ) (message "prime-agent.nix ignores the pinned source")
-    && lib.assertMsg (
-      builtins.attrNames primeRuntimeSources == builtins.attrNames sources.primeAgent.npm
-      && builtins.all runtimeSourceValid (builtins.attrNames primeRuntimeSources)
-    ) (message "prime-agent.nix runtime source set differs from its pins")
-    && lib.assertMsg (builtins.all (command: usesIn command primeAgentPackage.installPhase)
-      runtimeCopyCommands
-    ) (message "prime-agent.nix does not install every runtime source at its canonical destination")
-    && lib.assertMsg (
       builtins.attrNames pythonRuntimePackages == builtins.attrNames sources.primeAgent.python
       && builtins.all pythonRuntimePackageValid (builtins.attrNames pythonRuntimePackages)
-      &&
-        primeAgentPackage.runtimeProject
-        == "${primeAgentPackage.src}/dist/prime-agent-runtime/pyproject.toml"
-      && primeAgentPackage.runtimeLock == "${primeAgentPackage.src}/dist/prime-agent-runtime/uv.lock"
       && runtimeProject.project.name == "prime-agent-runtime"
       && runtimeProject.project.version == expectedRlm.version
-      && expectedRlm.src == "${primeAgentPackage.src}/dist/prime-agent-runtime"
       && declaredRuntimeDependencies == actualRuntimeDependencies
       && builtins.elem pythonRuntimePackages.mcp expectedRlm.dependencies
       && lib.versionAtLeast pythonRuntimePackages.mcp.version "2"
       && lib.versionOlder pythonRuntimePackages.mcp.version "3"
     ) (message "prime-agent.nix runtime package differs from the release Python lock")
-    && lib.assertMsg (
-      builtins.attrNames primeAgentPackage.kernelRequirements == expectedKernelNames
-      &&
-        kernelRequirementIdentity primeAgentPackage.kernelRequirements
-        == kernelRequirementIdentity expectedKernelRequirements
-      && builtins.all (
-        requirement: builtins.elem requirement kernelEnvironmentPaths
-      ) kernelRequirementPaths
-      && hasExactTrimmedLine expectedKernelAssignment primeAgentPackage.installPhase
-      && usesIn primeAgentPackage.kernelPython primeAgentPackage.preInstallCheck
-    ) (message "prime-agent.nix kernel environment differs from its pinned requirements");
+    && lib.assertMsg (builtins.attrNames primeAgentPackage.kernelRequirements == expectedKernelNames) (
+      message "prime-agent.nix kernel requirements differ from the pinned package set"
+    );
 
   effectiveContract = {
     pi = {
@@ -267,12 +188,13 @@ let
       inherit (sources.primeAgent)
         version
         src
+        cargoHash
         rlmExtraPackages
         snapshotRequirement
         ;
-      npm = lib.mapAttrs (_key: dependency: {
-        inherit (dependency) version src;
-      }) sources.primeAgent.npm;
+      bundledCatalogs = {
+        inherit (sources.primeAgent.bundledCatalogs) url hash;
+      };
       python = lib.mapAttrs (_key: dependency: {
         inherit (dependency) version src;
       }) sources.primeAgent.python;
@@ -281,7 +203,6 @@ let
   effectiveContractFile = pkgs.writeText "ci-effective-contract.json" (
     builtins.toJSON effectiveContract
   );
-  ompSourceArchives = map pkgs.fetchurl (builtins.attrValues sources.omp.sources);
   updateTestRlmExtraPackages = [
     "beautifulsoup4"
     "httpx"
@@ -297,7 +218,7 @@ let
     "tyro"
   ];
   updateTestBootstrap = lib.concatMapStringsSep "\n" (
-    dependency: ''const dep = { uvArg: "${dependency}" };''
+    dependency: ''("${dependency}", "${dependency}", "${dependency}"),''
   ) updateTestRlmExtraPackages;
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
@@ -312,14 +233,12 @@ let
         "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz")
           hash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           ;;
-        file://*)
+        file://* | "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.9.tar.gz" | \
+          "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.10.tar.gz")
           hash=sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP=
           ;;
-        "https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-10.0.1.tgz")
-          hash=sha256-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=
-          ;;
-        "https://registry.npmjs.org/undici/-/undici-10.0.3.tgz")
-          hash=sha256-UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU=
+        "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.9/prime-agent-9.9.9-linux-x64.tar.gz")
+          hash=sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM=
           ;;
         *)
           echo "unexpected unpacked prefetch URL:$5" >&2
@@ -343,6 +262,28 @@ let
           exit 1
           ;;
       esac
+    elif [ "$#" -eq 5 ] && [ "$1" = build ] && [ "$2" = --impure ] \
+      && [ "$3" = --no-link ] && [ "$4" = --expr ]; then
+      if [ "$NIX_HASH_FIX_ROOT" != "$MOCK_FLAKE_ROOT" ] \
+        || [ "$NIX_HASH_FIX_URL" != "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.9.tar.gz" ] \
+        || [ "$NIX_HASH_FIX_SOURCE_HASH" != sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP= ]; then
+        echo "unexpected Cargo vendoring source" >&2
+        exit 1
+      fi
+      if [ -n "''${MOCK_CARGO_WRONG_MISMATCH:-}" ]; then
+        cat >&2 <<'EOF'
+    error: hash mismatch in fixed-output derivation '/nix/store/00000000000000000000000000000000-other-vendor-staging.drv':
+             specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+                got:    sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
+    EOF
+        exit 1
+      fi
+      cat >&2 <<'EOF'
+    error: hash mismatch in fixed-output derivation '/nix/store/00000000000000000000000000000000-prime-agent-vendor-staging.drv':
+             specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+                got:    sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
+    EOF
+      exit 1
     elif [ "$#" -eq 5 ] && [ "$1" = eval ] && [ "$2" = --impure ] && [ "$3" = --json ] && [ "$4" = --expr ]; then
       exec ${pkgs.nix}/bin/nix --extra-experimental-features nix-command "$@"
     elif [ "$#" -eq 7 ] && [ "$1" = hash ] && [ "$2" = convert ] \
@@ -374,47 +315,41 @@ let
     set -euo pipefail
     if [ "$#" -eq 4 ] && [ "$1" = -sfSL ] && [ "$3" = -o ]; then
       case "$2" in
-        "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.9/package-lock.json" | \
-          "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.10/package-lock.json")
-          ;;
-        "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.9/prime-agent-9.9.9.tgz" | \
-          "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/v9.9.10/prime-agent-9.9.10.tgz")
-          cat "$MOCK_PRIME_TARBALL" > "$4"
-          exit
-          ;;
-        *)
-          echo "unexpected package-lock URL:$2" >&2
-          exit 1
-          ;;
-      esac
-      jq -n '{
-        packages: {
-          "node_modules/@silvia-odwyer/photon-node": { version: "10.0.1" },
-          "node_modules/undici": { version: "10.0.3" }
-        }
-      }' > "$4"
-    elif [ "$#" -eq 2 ] && [ "$1" = -sfSL ]; then
-      case "$2" in
-        "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.9/packages/coding-agent/src/core/kernel/bootstrap.ts" | \
-          "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/v9.9.10/packages/coding-agent/src/core/kernel/bootstrap.ts")
-          printf '%s\n' ${lib.escapeShellArg updateTestBootstrap}
+        "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.9.tar.gz" | \
+          "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.10.tar.gz")
+          source=$(mktemp -d)
+          tar xzf "$MOCK_PRIME_TARBALL" -C "$source"
+          bootstrap="$source/prime-agent-9.9.9/crates/pa-core/src/kernel/bootstrap"
+          count=${toString (builtins.length updateTestRlmExtraPackages)}
           if [ -n "''${MOCK_RLM_DRIFT:-}" ]; then
-            printf '%s\n' 'const drift = { uvArg: "unpinned-package" };'
+            count=$((count + 1))
           fi
+          {
+            printf 'pub const DEFAULT_RLM_EXTRA_PACKAGES: [(&str, &str, &str); %s] = [\n' "$count"
+            printf '%s\n' ${lib.escapeShellArg updateTestBootstrap}
+            if [ -n "''${MOCK_RLM_DRIFT:-}" ]; then
+              printf '%s\n' '("unpinned-package", "unpinned_package", "unpinned-package"),'
+            fi
+            printf '%s\n' '];'
+          } > "$bootstrap/mod.rs"
           if [ -n "''${MOCK_SNAPSHOT_DRIFT:-}" ]; then
-            printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "cloudpickle";'
+            snapshot=cloudpickle
           else
-            printf '%s\n' 'const STATE_SNAPSHOT_REQUIREMENT = "dill";'
+            snapshot=dill
           fi
-          ;;
-        "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz")
-          cat "$MOCK_PI_TARBALL"
+          printf 'pub(super) const STATE_SNAPSHOT_REQUIREMENT: &str = "%s";\n' "$snapshot" \
+            > "$bootstrap/venv/version.rs"
+          tar czf "$4" -C "$source" prime-agent-9.9.9
+          rm -rf "$source"
           ;;
         *)
-          echo "unexpected curl URL:$2" >&2
+          echo "unexpected archive URL:$2" >&2
           exit 1
           ;;
       esac
+    elif [ "$#" -eq 2 ] && [ "$1" = -sfSL ] \
+      && [ "$2" = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz" ]; then
+      cat "$MOCK_PI_TARBALL"
     else
       echo "unexpected curl invocation:$*" >&2
       exit 1
@@ -468,9 +403,6 @@ pkgs.runCommandLocal "check-ci-contract"
   }
   ''
     export HOME="$TMPDIR/home"
-    for archive in ${lib.escapeShellArgs (map toString ompSourceArchives)}; do
-      test -f "$archive"
-    done
     export XDG_CACHE_HOME="$TMPDIR/cache"
     mkdir -p "$HOME" "$XDG_CACHE_HOME"
     bash ${self}/scripts/fix-nix-hashes.sh validate ${self} ${effectiveContractFile}
@@ -479,6 +411,7 @@ pkgs.runCommandLocal "check-ci-contract"
     remote="$TMPDIR/update-remote.git"
     cp -R ${self} "$fixture"
     chmod -R u+w "$fixture"
+    rm -rf "$fixture/.git"
     cd "$fixture"
     jq '.root as $root | .nodes["fixture-root"] = .nodes[$root] | del(.nodes[$root]) | .root = "fixture-root"' \
       flake.lock > "$TMPDIR/flake.lock"
@@ -552,14 +485,17 @@ pkgs.runCommandLocal "check-ci-contract"
     printf '%s\n' '{"name":"pi-contract-fixture"}' > "$TMPDIR/pi-source/package/package.json"
     tar czf "$TMPDIR/pi-source.tgz" -C "$TMPDIR/pi-source" package
     export MOCK_PI_TARBALL="$TMPDIR/pi-source.tgz"
-    mkdir -p "$TMPDIR/prime-source/package/dist/prime-agent-runtime"
-    cat > "$TMPDIR/prime-source/package/dist/prime-agent-runtime/pyproject.toml" <<'EOF'
+    primeFixture="$TMPDIR/prime-source/prime-agent-9.9.9"
+    mkdir -p "$primeFixture/prime-agent-runtime" "$primeFixture/crates/pa-core/src/kernel/bootstrap/venv"
+    printf '%s\n' '[workspace]' 'members = []' > "$primeFixture/Cargo.toml"
+    printf '%s\n' 'version = 4' > "$primeFixture/Cargo.lock"
+    cat > "$primeFixture/prime-agent-runtime/pyproject.toml" <<'EOF'
     [project]
     name = "prime-agent-runtime"
     version = "0.1.0"
     dependencies = ["mcp>=2,<3", "tyro"]
     EOF
-    cat > "$TMPDIR/prime-source/package/dist/prime-agent-runtime/uv.lock" <<EOF
+    cat > "$primeFixture/prime-agent-runtime/uv.lock" <<EOF
     version = 1
 
     [[package]]
@@ -582,7 +518,7 @@ pkgs.runCommandLocal "check-ci-contract"
     version = "20.0.4"
     wheels = [{ url = "https://files.pythonhosted.org/mock/mcp_types-20.0.4-py3-none-any.whl", hash = "sha256:$(printf 'd%.0s' {1..64})" }]
     EOF
-    tar czf "$TMPDIR/prime-source.tgz" -C "$TMPDIR/prime-source" package
+    tar czf "$TMPDIR/prime-source.tgz" -C "$TMPDIR/prime-source" prime-agent-9.9.9
     export MOCK_PRIME_TARBALL="$TMPDIR/prime-source.tgz"
     export PATH="${updateTestNix}/bin:${updateTestCurl}/bin:${updateTestNpm}/bin:$PATH"
     export MOCK_FLAKE_ROOT="$fixture"
@@ -595,6 +531,7 @@ pkgs.runCommandLocal "check-ci-contract"
     git push --quiet origin HEAD:main
     git switch --quiet renovate/ci-contract
     cp "$ompPin" "$TMPDIR/branch-omp.json"
+    cp "$primePin" "$TMPDIR/branch-prime.json"
 
     jq '.version = "9.9.9"' "$piPin" > "$TMPDIR/pin.json"
     mv "$TMPDIR/pin.json" "$piPin"
@@ -605,16 +542,15 @@ pkgs.runCommandLocal "check-ci-contract"
     assert_remote_unchanged "$remoteBefore"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
-    jq -e \
-      --arg src sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
-      --arg npm sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= \
-      '.src.hash == $src and .npmDepsHash == $npm' "$piPin" >/dev/null
     jq -e '
       .name == "pi-contract-fixture"
       and .lockfileVersion == 3
       and .packages[""].name == "pi-contract-fixture"
     ' home-manager/modules/development/pi-package-lock.json >/dev/null
     cmp "$TMPDIR/branch-omp.json" "$ompPin"
+    cmp "$TMPDIR/branch-prime.json" "$primePin"
+    cp "$piPin" "$TMPDIR/updated-pi.json"
+    cp home-manager/modules/development/pi-package-lock.json "$TMPDIR/updated-pi-lock.json"
 
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.9"' "$ompPin" > "$TMPDIR/pin.json"
@@ -626,16 +562,10 @@ pkgs.runCommandLocal "check-ci-contract"
     assert_remote_unchanged "$remoteBefore"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
-    jq -e \
-      --arg darwin sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD= \
-      --arg arm sha256-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL= \
-      --arg x64 sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX= '
-        .hashes == {
-          "darwin-arm64": $darwin,
-          "linux-arm64": $arm,
-          "linux-x64": $x64
-        }
-      ' "$ompPin" >/dev/null
+    cmp "$TMPDIR/updated-pi.json" "$piPin"
+    cmp "$TMPDIR/updated-pi-lock.json" home-manager/modules/development/pi-package-lock.json
+    cmp "$TMPDIR/branch-prime.json" "$primePin"
+    cp "$ompPin" "$TMPDIR/updated-omp.json"
 
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.9"' "$primePin" > "$TMPDIR/pin.json"
@@ -647,29 +577,26 @@ pkgs.runCommandLocal "check-ci-contract"
     assert_remote_unchanged "$remoteBefore"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
-    jq -e \
-      --arg src sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP= \
-      --arg photon sha256-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH= \
-      --arg undici sha256-UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU= \
-      --arg httpcore2 sha256-1111111111111111111111111111111111111111111= \
-      --arg httpx2 sha256-2222222222222222222222222222222222222222222= \
-      --arg mcp sha256-3333333333333333333333333333333333333333333= \
-      --arg mcpTypes sha256-4444444444444444444444444444444444444444444= '
-        .src.hash == $src
-        and .npm["@silvia-odwyer/photon-node"].version == "10.0.1"
-        and .npm["@silvia-odwyer/photon-node"].hash == $photon
-        and .npm.undici.version == "10.0.3"
-        and .npm.undici.hash == $undici
-        and .python.httpcore2.version == "20.0.1"
-        and .python.httpcore2.url == "https://files.pythonhosted.org/mock/httpcore2-20.0.1-py3-none-any.whl"
-        and .python.httpcore2.hash == $httpcore2
-        and .python.httpx2.version == "20.0.2"
-        and .python.httpx2.hash == $httpx2
-        and .python.mcp.version == "20.0.3"
-        and .python.mcp.hash == $mcp
-        and .python["mcp-types"].version == "20.0.4"
-        and .python["mcp-types"].hash == $mcpTypes
-      ' "$primePin" >/dev/null
+    cmp "$TMPDIR/updated-pi.json" "$piPin"
+    cmp "$TMPDIR/updated-pi-lock.json" home-manager/modules/development/pi-package-lock.json
+    cmp "$TMPDIR/updated-omp.json" "$ompPin"
+    jq -e '
+      .python.httpcore2.version == "20.0.1"
+      and .python.httpx2.version == "20.0.2"
+      and .python.mcp.version == "20.0.3"
+      and .python["mcp-types"].version == "20.0.4"
+    ' "$primePin" >/dev/null
+    before=$(git rev-parse HEAD)
+    remoteBefore=$(remote_head)
+    if MOCK_CARGO_WRONG_MISMATCH=1 bash ${self}/scripts/fix-nix-hashes.sh update "$base" \
+      > "$TMPDIR/cargo-error.log" 2>&1; then
+      echo "update accepted an unrelated dependency hash mismatch" >&2
+      exit 1
+    fi
+    grep -Fq "cannot determine Prime Agent Cargo hash" "$TMPDIR/cargo-error.log"
+    test "$(git rev-parse HEAD)" = "$before"
+    assert_tracked_clean
+    assert_remote_unchanged "$remoteBefore"
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.10"' "$primePin" > "$TMPDIR/prime-agent.json"
     mv "$TMPDIR/prime-agent.json" "$primePin"
