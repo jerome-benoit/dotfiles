@@ -163,6 +163,8 @@ in
       pkgs.deno
       pkgs.ffmpeg
       pkgs.firefox
+      pkgs.gawk
+      pkgs.gnupatch
       pkgs.gnused
       pkgs.gnutar
       pkgs.go
