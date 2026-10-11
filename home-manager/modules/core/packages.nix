@@ -224,7 +224,7 @@ in
           brew "mole"
           brew "ollama", restart_service: true
           brew "jundot/omlx/omlx"
-          brew "podman", restart_service: true
+          brew "podman"
           brew "podman-compose"
         '';
       };
