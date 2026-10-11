@@ -222,7 +222,7 @@ in
           cask "growlrrr"
           cask "podman-desktop"
           brew "mole"
-          brew "ollama"
+          brew "ollama", restart_service: true
           brew "jundot/omlx/omlx"
           brew "podman"
           brew "podman-compose"
