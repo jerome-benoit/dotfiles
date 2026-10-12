@@ -104,6 +104,7 @@ in
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
+      pkgs.ortie
       ggmlCliTools
       pkgs.volta
     ]
@@ -132,6 +133,7 @@ in
       pkgs.bruno
       pkgs.cloudfoundry-cli
       pkgs.codex
+      pkgs.ghidra
       pkgs.lychee
       pkgs.nerd-fonts.jetbrains-mono
       pkgs.nil
