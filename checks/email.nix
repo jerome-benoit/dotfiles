@@ -261,6 +261,11 @@ pkgs.runCommandLocal "check-email-accounts"
 
     primary = config["accounts"]["primary"]
     assert primary["default"] is True
+    assert primary["email"] == "email-test@example.invalid"
+    assert primary["display-name"] == "Email Test"
+    secondary = config["accounts"]["secondary"]
+    assert secondary["email"] == "email-test@example.invalid"
+    assert secondary["display-name"] == "Email Test"
     assert primary["mailbox"]["alias"] == {
         "inbox": "INBOX",
         "trash": "Trash",
@@ -270,7 +275,6 @@ pkgs.runCommandLocal "check-email-accounts"
     assert primary["smtp"]["server"] == "smtps://smtp.example.invalid:465"
     assert primary["smtp"]["starttls"] is False
 
-    secondary = config["accounts"]["secondary"]
     assert secondary["default"] is False
     assert secondary["imap"]["server"] == "imap://starttls.example.invalid:143"
     assert secondary["imap"]["starttls"] is True

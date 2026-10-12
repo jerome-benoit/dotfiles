@@ -30,17 +30,23 @@ in
       {
         himalaya = {
           enable = true;
-          # Workaround: Home Manager joins credential argv without shell quoting.
-          # Remove when its Himalaya renderer preserves command arguments.
-          settings = lib.mkIf (enabled && account.passwordCommand != null) (
-            lib.genAttrs
-              (builtins.filter (protocol: account.${protocol} != null) [
-                "imap"
-                "smtp"
-              ])
-              (_: {
-                sasl.login.password.command = lib.mkOptionDefault account.passwordCommand;
-              })
+          settings = lib.mkMerge (
+            lib.optional (enabled && account.address != null) {
+              email = account.address;
+              display-name = lib.mkIf (account.realName != null) account.realName;
+            }
+            ++ lib.optional (enabled && account.passwordCommand != null) (
+              # Workaround: Home Manager joins credential argv without shell quoting.
+              # Remove when its Himalaya renderer preserves command arguments.
+              lib.genAttrs
+                (builtins.filter (protocol: account.${protocol} != null) [
+                  "imap"
+                  "smtp"
+                ])
+                (_: {
+                  sasl.login.password.command = lib.mkOptionDefault account.passwordCommand;
+                })
+            )
           );
         };
         # Override only the implicit Maildir (1500), below user defaults (1000).
