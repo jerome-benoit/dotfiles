@@ -72,6 +72,7 @@ let
               trash = "Trash";
             })
             {
+              identity = "work";
               imap = {
                 host = "starttls.example.invalid";
                 port = 143;
@@ -264,8 +265,14 @@ pkgs.runCommandLocal "check-email-accounts"
     assert primary["email"] == "email-test@example.invalid"
     assert primary["display-name"] == "Email Test"
     secondary = config["accounts"]["secondary"]
-    assert secondary["email"] == "email-test@example.invalid"
+    assert secondary["email"] == "email-test-work@example.invalid"
     assert secondary["display-name"] == "Email Test"
+    assert secondary["mailbox"]["alias"] == {
+        "inbox": "INBOX",
+        "sent": "Sent",
+        "drafts": "Drafts",
+        "trash": "Trash",
+    }
     assert primary["mailbox"]["alias"] == {
         "inbox": "INBOX",
         "trash": "Trash",
@@ -278,6 +285,11 @@ pkgs.runCommandLocal "check-email-accounts"
     assert secondary["default"] is False
     assert secondary["imap"]["server"] == "imap://starttls.example.invalid:143"
     assert secondary["imap"]["starttls"] is True
+    assert secondary["imap"]["sasl"]["login"]["username"] == "email-test-work@example.invalid"
+    assert secondary["imap"]["sasl"]["login"]["password"]["command"] == [
+        "cat",
+        "/home/email-test/.config/sops-nix/secrets/email-secondary-password",
+    ]
     assert "smtp" not in secondary
 
     for path, expected in [
