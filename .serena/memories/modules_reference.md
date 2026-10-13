@@ -67,10 +67,10 @@ Auto-detects Linux distribution via `/etc/os-release`:
 
 - `vendor` selects automatic host detection or an explicit vendor; `acceleration` is read-only (`cuda`, `rocm`, `vulkan`, or native package defaults).
 - `scripts/gpu-env.sh` snapshots the NVIDIA driver and AMD KFD targets using native file reads, and validates the NVIDIA compute-capability query. Mutable sysfs values are not fetched through Nix's URL cache.
-- CUDA requires a complete successful probe and selects by driver floor plus detected and explicitly configured targets. Stock scopes are preserved when they cover the host; legacy targets customize a coherent CUDA package scope.
+- CUDA requires a complete successful probe and selects the newest driver-compatible scope whose final targets cover all detected and explicitly configured targets and satisfy combined platform constraints. Stock scopes are preserved when suitable; legacy targets customize a coherent scope. Unusable scopes are skipped before falling back.
 - `cudaCapabilities` and `rocmTargets` expose the validated snapshot/selected targets; `cudaPackages` provides the selected scope to consumers. `nvidiaDriverVersion` is the explicit fallback when the native version probe is unavailable.
 - Generic Linux uses Home Manager's `/run/opengl-driver` integration with an exact NVIDIA version; NixOS is excluded from that provisioning. Darwin consumers retain native Metal/CoreML defaults.
-- The `gpu` check covers snapshot freshness/disappearance, probe failures, toolkit boundaries, legacy targets, nested CUDA consumers and NixOS activation isolation.
+- The `gpu` check covers snapshot freshness/disappearance, probe failures, toolkit boundaries, legacy targets, captured overlay scopes, collective/platform target constraints, nested CUDA consumers and NixOS activation isolation.
 
 ### lib.nix
 

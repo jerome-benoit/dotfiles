@@ -4,13 +4,19 @@
   home-manager,
 }:
 let
-  linuxPkgs = import nixpkgs {
-    system = "x86_64-linux";
-    config.allowUnfree = true;
-  };
   lib = pkgs.lib;
+  platformPkgs = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (
+    system:
+    import nixpkgs {
+      inherit system;
+      config.allowUnfree = true;
+    }
+  );
+  linuxPkgs = platformPkgs.x86_64-linux;
   evaluate =
     {
+      system ? "x86_64-linux",
+      overlays ? [ ],
       driver ? "615.71.09",
       status ? "ok",
       capabilities ? "8.9",
@@ -22,17 +28,18 @@ let
       nixos ? false,
     }:
     let
-      fixturePkgs =
+      configuredPkgs =
         if configuredCapabilities == [ ] then
-          linuxPkgs
+          platformPkgs.${system}
         else
-          linuxPkgs.extend (
+          platformPkgs.${system}.extend (
             _: previous: {
               config = previous.config // {
                 cudaCapabilities = configuredCapabilities;
               };
             }
           );
+      fixturePkgs = if overlays == [ ] then configuredPkgs else configuredPkgs.appendOverlays overlays;
       environment = {
         NIX_GPU_NVIDIA_DRIVER_VERSION = driver;
         NIX_GPU_CUDA_PROBE_STATUS = status;
@@ -84,6 +91,41 @@ let
     modules = [ "amdgpu" ];
     kfd = true;
     targets = "gfx90a,gfx9999";
+  };
+  fixedScopeTargets = name: capabilities: _: previous: {
+    ${name} = previous.${name}.override {
+      config = previous.config // {
+        cudaCapabilities = capabilities;
+      };
+    };
+  };
+  capturedScope = evaluate {
+    overlays = [ (fixedScopeTargets "cudaPackages_13_4" [ "9.0" ]) ];
+  };
+  capturedConfigured = evaluate {
+    configuredCapabilities = [ "9.0" ];
+    overlays = [ (fixedScopeTargets "cudaPackages_13_4" [ "8.9" ]) ];
+  };
+  blockedScope = evaluate {
+    driver = "560.35.05";
+    render = true;
+    overlays = [ (fixedScopeTargets "cudaPackages_12_6" [ "9.0" ]) ];
+  };
+  mixedJetson = evaluate {
+    system = "aarch64-linux";
+    driver = "575.57.08";
+    configuredCapabilities = [ "8.7" ];
+    render = true;
+  };
+  mixedSbsa = evaluate {
+    system = "aarch64-linux";
+    driver = "580.126.20";
+    configuredCapabilities = [ "8.7" ];
+  };
+  jetson = evaluate {
+    system = "aarch64-linux";
+    driver = "575.57.08";
+    capabilities = "8.7";
   };
   consumerCudaArchitectures =
     gpu:
@@ -163,6 +205,44 @@ assert lib.all (condition: condition) [
       "61"
       "89"
     ]
+  ))
+  (check "captured scope targets select the next usable toolkit" (
+    capturedScope.acceleration == "cuda"
+    && capturedScope.cudaPackages.cudaMajorMinorVersion == "13.3"
+    && builtins.elem "89" (consumerCudaArchitectures capturedScope)
+  ))
+  (check "captured scope cannot silently drop configured targets" (
+    capturedConfigured.acceleration == "cuda"
+    &&
+      lib.all (architecture: builtins.elem architecture (consumerCudaArchitectures capturedConfigured))
+        [
+          "89"
+          "90"
+        ]
+  ))
+  (check "blocked final scope retains the Vulkan fallback" (blockedScope.acceleration == "vulkan"))
+  (check "incompatible Jetson and SBSA targets fall back" (
+    mixedJetson.acceleration == "vulkan"
+    && !(builtins.elem "8.7" mixedJetson.cudaPackages.flags.cudaCapabilities)
+  ))
+  (check "CUDA 13 accepts the valid Orin and Ada combination" (
+    mixedSbsa.acceleration == "cuda"
+    && mixedSbsa.cudaPackages.cudaMajorMinorVersion == "13.0"
+    && lib.all (architecture: builtins.elem architecture (consumerCudaArchitectures mixedSbsa)) [
+      "87"
+      "89"
+    ]
+  ))
+  (check "CUDA 12 retains the valid Jetson-only scope" (
+    jetson.acceleration == "cuda"
+    && jetson.cudaPackages.cudaMajorMinorVersion == "12.9"
+    && builtins.elem "87" (consumerCudaArchitectures jetson)
+  ))
+  (check "Jetson targets require the ARM host platform" (
+    (evaluate {
+      capabilities = "8.7";
+      render = true;
+    }).acceleration == "vulkan"
   ))
   (check "CUDA 12.8 update boundary" (
     (evaluate { driver = "570.211.00"; }).cudaPackages.cudaMajorMinorVersion == "12.6"

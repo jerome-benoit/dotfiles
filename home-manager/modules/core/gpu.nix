@@ -76,38 +76,52 @@ let
       lib.filter (entry: lib.versionAtLeast detectedNvidiaVersion entry.minDriver) cudaMatrix
     else
       [ ];
+  cudaTargetPkgs = pkgs.extend (
+    _: previous: {
+      config = previous.config // {
+        cudaCapabilities = requiredCudaCapabilities;
+      };
+    }
+  );
+  cudaScopeCoversRequired =
+    scope:
+    let
+      capabilities = scope.flags.cudaCapabilities;
+      attempt = builtins.tryEval (
+        builtins.deepSeq capabilities (
+          scope.backendStdenv.hostRedistSystem != "unsupported"
+          && lib.all (capability: builtins.elem capability capabilities) requiredCudaCapabilities
+        )
+      );
+    in
+    attempt.success && attempt.value;
+  cudaScopeFor =
+    entry:
+    if
+      !lib.all (
+        capability:
+        builtins.elem capability cudaMetadataPkgs.${entry.name}.backendStdenv.supportedCudaCapabilities
+      ) requiredCudaCapabilities
+    then
+      null
+    else
+      let
+        stock = pkgs.${entry.name};
+        targeted = cudaTargetPkgs.${entry.name};
+      in
+      if cudaScopeCoversRequired stock then
+        stock
+      else if cudaScopeCoversRequired targeted then
+        targeted
+      else
+        null;
   selectedCuda =
     if cudaProbeValid then
-      lib.findFirst (
-        entry:
-        lib.all (
-          capability:
-          builtins.elem capability cudaMetadataPkgs.${entry.name}.backendStdenv.supportedCudaCapabilities
-        ) requiredCudaCapabilities
-      ) null driverCompatibleCuda
+      lib.findFirst (scope: scope != null) null (map cudaScopeFor driverCompatibleCuda)
     else
       null;
   minSupportedDriver = (lib.last cudaMatrix).minDriver;
-  cudaPkgs =
-    if selectedCuda == null then
-      cudaMetadataPkgs.cudaPackages_12_6
-    else
-      let
-        stock = pkgs.${selectedCuda.name};
-        stockCoversHost = lib.all (
-          capability: builtins.elem capability stock.flags.cudaCapabilities
-        ) detectedCudaCapabilities;
-      in
-      if stockCoversHost then
-        stock
-      else
-        (pkgs.extend (
-          _: previous: {
-            config = previous.config // {
-              cudaCapabilities = requiredCudaCapabilities;
-            };
-          }
-        )).${selectedCuda.name};
+  cudaPkgs = if selectedCuda == null then cudaMetadataPkgs.cudaPackages_12_6 else selectedCuda;
 
   hasAmdgpu = isLinux && builtins.pathExists /sys/module/amdgpu;
   hasIntelGpu =
@@ -163,7 +177,7 @@ let
       if cudaProbeStatus == "" then "missing" else cudaProbeStatus
     } is not valid; CUDA disabled" cudaProbeValid)
     && (lib.warnIf (selectedCuda == null)
-      "modules.core.gpu: no driver-compatible CUDA toolkit supports capabilities ${builtins.toJSON requiredCudaCapabilities}"
+      "modules.core.gpu: no driver-compatible CUDA package scope can satisfy capabilities ${builtins.toJSON requiredCudaCapabilities} on ${pkgs.stdenv.hostPlatform.system}"
       (selectedCuda != null)
     );
   rocmEnable =
