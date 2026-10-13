@@ -17,6 +17,7 @@
   email = import ./email.nix {
     inherit home-manager pkgs sops-nix;
   };
+  gpu = import ./gpu.nix { inherit pkgs nixpkgs home-manager; };
   secrets = import ./secrets.nix { inherit pkgs; };
   formatting = (import ./formatting.nix { inherit self pkgs; }).check;
   symlinks = import ./symlinks.nix { inherit self pkgs; };

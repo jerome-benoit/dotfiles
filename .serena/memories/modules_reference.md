@@ -63,6 +63,15 @@ Auto-detects Linux distribution via `/etc/os-release`:
 - `config.modules.core.distro.ids` - Attribute set of supported distros
 - Emits warning for unsupported distributions
 
+### gpu.nix
+
+- `vendor` selects automatic host detection or an explicit vendor; `acceleration` is read-only (`cuda`, `rocm`, `vulkan`, or native package defaults).
+- `scripts/gpu-env.sh` snapshots the NVIDIA driver and AMD KFD targets using native file reads, and validates the NVIDIA compute-capability query. Mutable sysfs values are not fetched through Nix's URL cache.
+- CUDA requires a complete successful probe and selects the newest driver-compatible scope whose final targets cover all detected and explicitly configured targets and satisfy combined platform constraints. Stock scopes are preserved when suitable; legacy targets customize a coherent scope. Unusable scopes are skipped before falling back.
+- `cudaCapabilities` and `rocmTargets` expose the validated snapshot/selected targets; `cudaPackages` provides the selected scope to consumers. `nvidiaDriverVersion` is the explicit fallback when the native version probe is unavailable.
+- Generic Linux uses Home Manager's `/run/opengl-driver` integration with an exact NVIDIA version; NixOS is excluded from that provisioning. Darwin consumers retain native Metal/CoreML defaults.
+- The `gpu` check covers snapshot freshness/disappearance, probe failures, toolkit boundaries, legacy targets, captured overlay scopes including invalid metadata, collective/platform target constraints, nested CUDA consumers and NixOS activation isolation.
+
 ### lib.nix
 
 Shared library functions:
@@ -87,7 +96,8 @@ Base home-manager configuration:
 
 Common packages for all platforms:
 
-- **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta, whisper-cpp
+- **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta
+- **GGML inference tools**: llama.cpp, stable-diffusion.cpp (`sd-cli`, `sd-server`) and whisper.cpp on desktop and server profiles. Linux uses the shared CUDA/ROCm/Vulkan selection; Apple Silicon retains native Metal defaults. Only `/bin` and `/share` are exposed in the profile, keeping each package's private libraries isolated.
 - **Linux server**: delta, grc (only on server profile)
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
 - **OpenClaw tools** (via `nix-openclaw-tools` flake input): camsnap, discrawl, gogcli, goplaces, sag, sonoscli, summarize and wacrawl (all platforms); imsg, peekaboo and poltergeist (macOS desktop only). These standalone tools do not install the OpenClaw application or gateway.
