@@ -52,6 +52,23 @@ let
       }
     else
       pkgs.llama-cpp;
+  stableDiffusionCpp =
+    if acceleration == "cuda" then
+      pkgs.stable-diffusion-cpp.override {
+        cudaSupport = true;
+        cudaPackages = gpu.cudaPackages;
+      }
+    else if acceleration == "rocm" then
+      pkgs.stable-diffusion-cpp.override {
+        rocmSupport = true;
+        rocmGpuTargets = gpu.rocmTargets;
+      }
+    else if acceleration == "vulkan" then
+      pkgs.stable-diffusion-cpp.override {
+        vulkanSupport = true;
+      }
+    else
+      pkgs.stable-diffusion-cpp;
   whisperCpp =
     if acceleration == "cuda" then
       pkgs.whisper-cpp.override {
@@ -61,7 +78,7 @@ let
     else if acceleration == "rocm" then
       pkgs.whisper-cpp.override {
         rocmSupport = true;
-        rocmGpuTargets = lib.concatStringsSep ";" gpu.rocmTargets;
+        llama-cpp = llamaCpp;
       }
     else if acceleration == "vulkan" then
       pkgs.whisper-cpp.override {
@@ -73,11 +90,11 @@ let
     name = "ggml-cli-tools";
     paths = [
       llamaCpp
+      stableDiffusionCpp
       whisperCpp
     ];
-    # Both packages bundle incompatible GGML ABIs under /lib. Their binaries
-    # retain runtime references to their original outputs, so expose only CLI
-    # assets.
+    # Keep private GGML libraries out of the profile; binaries retain runtime
+    # references to their original package outputs.
     pathsToLink = [
       "/bin"
       "/share"
