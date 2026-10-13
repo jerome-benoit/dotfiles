@@ -11,19 +11,10 @@ let
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
   isNixOS = builtins.pathExists /etc/NIXOS;
 
-  hostFile =
-    path:
-    if builtins.pathExists path then
-      lib.trim (lib.fileContents (builtins.fetchurl "file://${path}"))
-    else
-      "";
-
   nvidiaDetected = isLinux && builtins.pathExists /sys/module/nvidia;
+  probedNvidiaVersion = builtins.getEnv "NIX_GPU_NVIDIA_DRIVER_VERSION";
   detectedNvidiaVersion =
-    let
-      sysfsVersion = if nvidiaDetected then hostFile "/sys/module/nvidia/version" else "";
-    in
-    if sysfsVersion != "" then sysfsVersion else cfg.nvidiaDriverVersion;
+    if probedNvidiaVersion != "" then probedNvidiaVersion else cfg.nvidiaDriverVersion;
   nvidiaVersionKnown = detectedNvidiaVersion != null;
 
   # Exact toolkit driver versions from NVIDIA CUDA Release Notes, Table 3;
@@ -31,57 +22,92 @@ let
   cudaMatrix = [
     {
       minDriver = "615.71.09";
-      packages = pkgs.cudaPackages_13_4;
+      name = "cudaPackages_13_4";
     }
     {
       minDriver = "610.43.02";
-      packages = pkgs.cudaPackages_13_3;
+      name = "cudaPackages_13_3";
     }
     {
-      minDriver = "595.58.03";
-      packages = pkgs.cudaPackages_13_2;
+      minDriver = "595.71.05";
+      name = "cudaPackages_13_2";
     }
     {
       minDriver = "590.48.01";
-      packages = pkgs.cudaPackages_13_1;
+      name = "cudaPackages_13_1";
     }
     {
       minDriver = "580.126.20";
-      packages = pkgs.cudaPackages_13_0;
+      name = "cudaPackages_13_0";
     }
     {
       minDriver = "575.57.08";
-      packages = pkgs.cudaPackages_12_9;
+      name = "cudaPackages_12_9";
     }
     {
-      minDriver = "570.124.06";
-      packages = pkgs.cudaPackages_12_8;
+      minDriver = "570.211.01";
+      name = "cudaPackages_12_8";
     }
     {
       minDriver = "560.35.05";
-      packages = pkgs.cudaPackages_12_6;
+      name = "cudaPackages_12_6";
     }
   ];
-  selectedCuda =
+  cudaProbeStatus = builtins.getEnv "NIX_GPU_CUDA_PROBE_STATUS";
+  rawCudaCapabilities = builtins.getEnv "NIX_GPU_CUDA_CAPABILITIES";
+  cudaCapabilityRows = lib.splitString "," rawCudaCapabilities;
+  cudaProbeValid =
+    cudaProbeStatus == "ok"
+    && rawCudaCapabilities != ""
+    && lib.all (capability: builtins.match "[0-9]+\\.[0-9]+" capability != null) cudaCapabilityRows;
+  detectedCudaCapabilities = if cudaProbeValid then lib.unique cudaCapabilityRows else [ ];
+  requiredCudaCapabilities = lib.unique (
+    (pkgs.config.cudaCapabilities or [ ]) ++ detectedCudaCapabilities
+  );
+  cudaMetadataPkgs = pkgs.extend (
+    _: previous: {
+      config = previous.config // {
+        cudaCapabilities = [ ];
+      };
+    }
+  );
+  driverCompatibleCuda =
     if nvidiaVersionKnown then
-      lib.findFirst (entry: lib.versionAtLeast detectedNvidiaVersion entry.minDriver) null cudaMatrix
+      lib.filter (entry: lib.versionAtLeast detectedNvidiaVersion entry.minDriver) cudaMatrix
+    else
+      [ ];
+  selectedCuda =
+    if cudaProbeValid then
+      lib.findFirst (
+        entry:
+        lib.all (
+          capability:
+          builtins.elem capability cudaMetadataPkgs.${entry.name}.backendStdenv.supportedCudaCapabilities
+        ) requiredCudaCapabilities
+      ) null driverCompatibleCuda
     else
       null;
   minSupportedDriver = (lib.last cudaMatrix).minDriver;
-  cudaPkgs = if selectedCuda != null then selectedCuda.packages else pkgs.cudaPackages_12_6;
-  cudaProbeStatus = builtins.getEnv "NIX_GPU_CUDA_PROBE_STATUS";
-  detectedCudaCapabilities = lib.unique (
-    lib.filter (capability: builtins.match "[0-9]+\\.[0-9]+" capability != null) (
-      lib.splitString "," (builtins.getEnv "NIX_GPU_CUDA_CAPABILITIES")
-    )
-  );
-  cudaProbeValid =
-    cudaProbeStatus == "" || (cudaProbeStatus == "ok" && detectedCudaCapabilities != [ ]);
-  cudaCapabilitiesBuilt =
-    detectedCudaCapabilities == [ ]
-    || lib.all (
-      capability: builtins.elem capability cudaPkgs.flags.cudaCapabilities
-    ) detectedCudaCapabilities;
+  cudaPkgs =
+    if selectedCuda == null then
+      cudaMetadataPkgs.cudaPackages_12_6
+    else
+      let
+        stock = pkgs.${selectedCuda.name};
+        stockCoversHost = lib.all (
+          capability: builtins.elem capability stock.flags.cudaCapabilities
+        ) detectedCudaCapabilities;
+      in
+      if stockCoversHost then
+        stock
+      else
+        (pkgs.extend (
+          _: previous: {
+            config = previous.config // {
+              cudaCapabilities = requiredCudaCapabilities;
+            };
+          }
+        )).${selectedCuda.name};
 
   hasAmdgpu = isLinux && builtins.pathExists /sys/module/amdgpu;
   hasIntelGpu =
@@ -92,45 +118,9 @@ let
     && builtins.pathExists driDirectory
     && lib.any (lib.hasPrefix "renderD") (builtins.attrNames (builtins.readDir driDirectory));
 
-  kfdNodesDirectory = "/sys/class/kfd/kfd/topology/nodes";
-  kfdNodeNames =
-    if isLinux && builtins.pathExists kfdNodesDirectory then
-      builtins.attrNames (builtins.readDir kfdNodesDirectory)
-    else
-      [ ];
-  kfdGpuNodes = lib.filter (
-    node:
-    let
-      gpuId = hostFile "${kfdNodesDirectory}/${node}/gpu_id";
-    in
-    gpuId != "" && gpuId != "0"
-  ) kfdNodeNames;
-  kfdProperty =
-    node: name:
-    let
-      prefix = "${name} ";
-      line = lib.findFirst (candidate: lib.hasPrefix prefix candidate) "" (
-        lib.splitString "\n" (hostFile "${kfdNodesDirectory}/${node}/properties")
-      );
-    in
-    lib.removePrefix prefix line;
-  # KFD encodes GFX targets as major * 10000 + minor * 100 + stepping;
-  # hexadecimal minor/stepping values preserve targets such as gfx90a.
-  decodeGfxTarget =
-    encoded:
-    if encoded == "" || builtins.match "[0-9]+" encoded == null then
-      null
-    else
-      let
-        value = lib.toInt encoded;
-        major = builtins.div value 10000;
-        minor = lib.mod (builtins.div value 100) 100;
-        stepping = lib.mod value 100;
-      in
-      "gfx${toString major}${lib.toLower (lib.toHexString minor)}${lib.toLower (lib.toHexString stepping)}";
   detectedGfxTargets = lib.unique (
-    lib.filter (target: target != null) (
-      map (node: decodeGfxTarget (kfdProperty node "gfx_target_version")) kfdGpuNodes
+    lib.filter (target: builtins.match "gfx[0-9a-f]+" target != null) (
+      lib.splitString "," (builtins.getEnv "NIX_GPU_ROCM_TARGETS")
     )
   );
   supportedRocmTargets = lib.filter (
@@ -165,17 +155,16 @@ let
     && (lib.warnIf (
       !nvidiaVersionKnown
     ) "modules.core.gpu: NVIDIA driver version unknown; CUDA disabled" nvidiaVersionKnown)
-    && (lib.warnIf (nvidiaVersionKnown && selectedCuda == null)
+    && (lib.warnIf (driverCompatibleCuda == [ ])
       "modules.core.gpu: NVIDIA driver ${toString detectedNvidiaVersion} < ${minSupportedDriver} — CUDA disabled"
+      (driverCompatibleCuda != [ ])
+    )
+    && (lib.warnIf (!cudaProbeValid) "modules.core.gpu: NVIDIA compute capability probe ${
+      if cudaProbeStatus == "" then "missing" else cudaProbeStatus
+    } is not valid; CUDA disabled" cudaProbeValid)
+    && (lib.warnIf (selectedCuda == null)
+      "modules.core.gpu: no driver-compatible CUDA toolkit supports capabilities ${builtins.toJSON requiredCudaCapabilities}"
       (selectedCuda != null)
-    )
-    && (lib.warnIf (!cudaProbeValid)
-      "modules.core.gpu: NVIDIA compute capability probe ${cudaProbeStatus}; CUDA disabled"
-      cudaProbeValid
-    )
-    && (lib.warnIf (!cudaCapabilitiesBuilt)
-      "modules.core.gpu: detected CUDA capabilities ${builtins.toJSON detectedCudaCapabilities} are not built by the selected CUDA package set"
-      cudaCapabilitiesBuilt
     );
   rocmEnable =
     cfg.enable
@@ -244,9 +233,9 @@ in
       default = null;
       example = "595.80";
       description = ''
-        Fallback NVIDIA driver version when /sys/module/nvidia/version is unavailable
-        during impure evaluation. It must match the running driver. When sysfs is
-        unavailable, null disables CUDA and the Generic Linux NVIDIA target.
+        Fallback NVIDIA driver version when the native host probe cannot read it.
+        It must match the running driver. Null disables the Generic Linux NVIDIA
+        target when no version is probed. CUDA also requires a valid capability probe.
       '';
     };
 

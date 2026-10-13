@@ -18,7 +18,7 @@ let
   profileModules = config.modules.core.profile.modules;
 in
 {
-  targets.genericLinux.enable = pkgs.stdenv.hostPlatform.isLinux;
+  targets.genericLinux.enable = pkgs.stdenv.hostPlatform.isLinux && !builtins.pathExists /etc/NIXOS;
 
   systemd.user.startServices = lib.mkIf pkgs.stdenv.hostPlatform.isLinux "sd-switch";
 
