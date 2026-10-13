@@ -30,16 +30,6 @@ hmp  # personal
 make switch SPEC=work
 ```
 
-### GPU acceleration
-
-Use `make bootstrap`, `make build`, `make switch`, or the `hm` commands for host-aware builds. These entry points collect a fresh GPU snapshot through `scripts/gpu-env.sh` and enable impure evaluation. Direct host-aware Nix commands must use the same wrapper and `--impure`.
-
-On Linux, CUDA requires a successful compute-capability probe. The newest usable package scope is selected by the conservative driver floor and all detected/configured GPU targets. Final scope targets and their combined platform constraints are validated, including scopes customized by overlays. Stock scopes are retained when suitable; supported legacy targets use a coherent custom scope. If neither scope is usable, selection tries an older compatible toolkit; failed capability assertions in a candidate's metadata also reject that candidate. AMD uses detected KFD targets supported by the pinned ROCm packages; Vulkan is the fallback when a render node is present. Apple Silicon keeps native package defaults.
-
-On non-NixOS Linux, follow Home Manager's `sudo non-nixos-gpu-setup` instruction when `/run/opengl-driver` needs updating. NVIDIA userspace libraries must match the running kernel module. After an OS driver update, ensure the module and NVML agree before rebuilding; a failed probe disables CUDA rather than assuming compatibility. Home Manager does not update the privileged driver link automatically. NixOS manages its own driver link.
-
-Pure Linux evaluation does not detect host GPUs. The `gpu` flake check exercises native-file snapshots and deterministic CUDA/ROCm/Vulkan selection scenarios without GPU hardware; it is not a GPU inference test.
-
 ### Private configuration and credentials
 
 Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.
