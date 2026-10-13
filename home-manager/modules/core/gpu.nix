@@ -97,12 +97,15 @@ let
     attempt.success && attempt.value;
   cudaScopeFor =
     entry:
-    if
-      !lib.all (
-        capability:
-        builtins.elem capability cudaMetadataPkgs.${entry.name}.backendStdenv.supportedCudaCapabilities
-      ) requiredCudaCapabilities
-    then
+    let
+      capabilities = cudaMetadataPkgs.${entry.name}.backendStdenv.supportedCudaCapabilities;
+      attempt = builtins.tryEval (
+        builtins.deepSeq capabilities (
+          lib.all (capability: builtins.elem capability capabilities) requiredCudaCapabilities
+        )
+      );
+    in
+    if !attempt.success || !attempt.value then
       null
     else
       let

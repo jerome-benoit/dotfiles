@@ -102,6 +102,12 @@ let
   capturedScope = evaluate {
     overlays = [ (fixedScopeTargets "cudaPackages_13_4" [ "9.0" ]) ];
   };
+  invalidCapturedScope = evaluate {
+    overlays = [
+      (fixedScopeTargets "cudaPackages_13_4" [ "9.0" ])
+      (fixedScopeTargets "cudaPackages_13_3" [ "6.1" ])
+    ];
+  };
   capturedConfigured = evaluate {
     configuredCapabilities = [ "9.0" ];
     overlays = [ (fixedScopeTargets "cudaPackages_13_4" [ "8.9" ]) ];
@@ -210,6 +216,11 @@ assert lib.all (condition: condition) [
     capturedScope.acceleration == "cuda"
     && capturedScope.cudaPackages.cudaMajorMinorVersion == "13.3"
     && builtins.elem "89" (consumerCudaArchitectures capturedScope)
+  ))
+  (check "invalid captured metadata does not block an older usable scope" (
+    invalidCapturedScope.acceleration == "cuda"
+    && invalidCapturedScope.cudaPackages.cudaMajorMinorVersion == "13.2"
+    && builtins.elem "89" (consumerCudaArchitectures invalidCapturedScope)
   ))
   (check "captured scope cannot silently drop configured targets" (
     capturedConfigured.acceleration == "cuda"
