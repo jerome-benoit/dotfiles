@@ -1,6 +1,6 @@
 {
   "renovate": "datasource=github-releases depName=can1357/oh-my-pi",
-  "version": "18.10.4",
+  "version": "18.11.0",
   "urlTemplate": "https://github.com/can1357/oh-my-pi/releases/download/v{version}/omp-{key}",
   "hashes": {
     "darwin-arm64": "sha256-dFkzN2DvDiZdXUBEXqRZ2j0YoQ7z7ElYMC4Zd7Usiis=",
