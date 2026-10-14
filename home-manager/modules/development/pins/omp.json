@@ -1,10 +1,10 @@
 {
   "renovate": "datasource=github-releases depName=can1357/oh-my-pi",
-  "version": "18.10.4",
+  "version": "18.11.0",
   "urlTemplate": "https://github.com/can1357/oh-my-pi/releases/download/v{version}/omp-{key}",
   "hashes": {
-    "darwin-arm64": "sha256-dFkzN2DvDiZdXUBEXqRZ2j0YoQ7z7ElYMC4Zd7Usiis=",
-    "linux-arm64": "sha256-WNcR1W+gyV0gjBUFdd/bCP6PwSYuOCDS2QDwpedQEQs=",
-    "linux-x64": "sha256-/1n8G0hMEwinJHrSCDBQBWJ7P6xitEBzfCsYNawyB04="
+    "darwin-arm64": "sha256-hf5qua7FWnlNlghgIRNklfdhPWscjysIwFhA1oIzcWo=",
+    "linux-arm64": "sha256-KZ4LY8SC148A8rrnUACBWtaJDLYZLLyfZsjZjpznC4A=",
+    "linux-x64": "sha256-wjpYrYqS9Oc4qhLckE87ChrHA1uVO5v105txoiYXn28="
   }
 }
