@@ -123,14 +123,25 @@ let
     configuredCapabilities = [ "8.7" ];
     render = true;
   };
+  mixedBeforeSbsa = evaluate {
+    system = "aarch64-linux";
+    driver = "595.71.04";
+    configuredCapabilities = [ "8.7" ];
+    render = true;
+  };
   mixedSbsa = evaluate {
     system = "aarch64-linux";
-    driver = "580.126.20";
+    driver = "595.71.05";
     configuredCapabilities = [ "8.7" ];
+  };
+  mixedThorAda = evaluate {
+    system = "aarch64-linux";
+    driver = "580.126.20";
+    configuredCapabilities = [ "11.0" ];
   };
   jetson = evaluate {
     system = "aarch64-linux";
-    driver = "575.57.08";
+    driver = "580.126.20";
     capabilities = "8.7";
   };
   consumerCudaArchitectures =
@@ -236,17 +247,31 @@ assert lib.all (condition: condition) [
     mixedJetson.acceleration == "vulkan"
     && !(builtins.elem "8.7" mixedJetson.cudaPackages.flags.cudaCapabilities)
   ))
-  (check "CUDA 13 accepts the valid Orin and Ada combination" (
+  (check "Orin and Ada fall back below the CUDA 13.2 driver floor" (
+    mixedBeforeSbsa.acceleration == "vulkan"
+  ))
+  (check "Orin and Ada use the unified SBSA toolkit at the CUDA 13.2 driver floor" (
     mixedSbsa.acceleration == "cuda"
-    && mixedSbsa.cudaPackages.cudaMajorMinorVersion == "13.0"
+    && mixedSbsa.cudaPackages.cudaMajorMinorVersion == "13.2"
+    && mixedSbsa.cudaPackages.backendStdenv.hostRedistSystem == "linux-sbsa"
     && lib.all (architecture: builtins.elem architecture (consumerCudaArchitectures mixedSbsa)) [
       "87"
       "89"
     ]
   ))
-  (check "CUDA 12 retains the valid Jetson-only scope" (
+  (check "Thor and Ada retain CUDA 13.0 SBSA support" (
+    mixedThorAda.acceleration == "cuda"
+    && mixedThorAda.cudaPackages.cudaMajorMinorVersion == "13.0"
+    && mixedThorAda.cudaPackages.backendStdenv.hostRedistSystem == "linux-sbsa"
+    && lib.all (architecture: builtins.elem architecture (consumerCudaArchitectures mixedThorAda)) [
+      "110"
+      "89"
+    ]
+  ))
+  (check "Orin skips unsupported CUDA 13 scopes and retains the Jetson redistributable" (
     jetson.acceleration == "cuda"
     && jetson.cudaPackages.cudaMajorMinorVersion == "12.9"
+    && jetson.cudaPackages.backendStdenv.hostRedistSystem == "linux-aarch64"
     && builtins.elem "87" (consumerCudaArchitectures jetson)
   ))
   (check "Jetson targets require the ARM host platform" (
@@ -301,6 +326,20 @@ assert lib.all (condition: condition) [
   ))
   (check "AMD snapshot preserves supported hexadecimal targets" (
     rocm.acceleration == "rocm" && rocm.rocmTargets == [ "gfx90a" ]
+  ))
+  (check "unsupported ROCm compiler platforms retain Vulkan and CPU fallbacks" (
+    let
+      arm =
+        render:
+        evaluate {
+          system = "aarch64-linux";
+          modules = [ "amdgpu" ];
+          kfd = true;
+          targets = "gfx90a";
+          inherit render;
+        };
+    in
+    (arm true).acceleration == "vulkan" && (arm false).acceleration == "default"
   ))
   (check "AMD without KFD falls back to Vulkan" (
     (evaluate {

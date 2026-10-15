@@ -68,9 +68,10 @@ Auto-detects Linux distribution via `/etc/os-release`:
 - `vendor` selects automatic host detection or an explicit vendor; `acceleration` is read-only (`cuda`, `rocm`, `vulkan`, or native package defaults).
 - `scripts/gpu-env.sh` snapshots the NVIDIA driver and AMD KFD targets using native file reads, and validates the NVIDIA compute-capability query. Mutable sysfs values are not fetched through Nix's URL cache.
 - CUDA requires a complete successful probe and selects the newest driver-compatible scope whose final targets cover all detected and explicitly configured targets and satisfy combined platform constraints. Stock scopes are preserved when suitable; legacy targets customize a coherent scope. Unusable scopes are skipped before falling back.
+- ROCm requires a host platform supported by the pinned HIP compiler, KFD and a detected target in the pinned CLR target list. Unsupported compiler platforms retain Vulkan or native package defaults; the CLR list is not a hardware certification matrix.
 - `cudaCapabilities` and `rocmTargets` expose the validated snapshot/selected targets; `cudaPackages` provides the selected scope to consumers. `nvidiaDriverVersion` is the explicit fallback when the native version probe is unavailable.
 - Generic Linux uses Home Manager's `/run/opengl-driver` integration with an exact NVIDIA version; NixOS is excluded from that provisioning. Darwin consumers retain native Metal/CoreML defaults.
-- The `gpu` check covers snapshot freshness/disappearance, probe failures, toolkit boundaries, legacy targets, captured overlay scopes including invalid metadata, collective/platform target constraints, nested CUDA consumers and NixOS activation isolation.
+- The `gpu` check covers snapshot freshness/disappearance, probe failures, toolkit boundaries, legacy targets, captured overlay scopes including invalid metadata, Orin/Thor SBSA transitions and legacy Jetson fallback, ROCm host-platform fallbacks, nested CUDA consumers and NixOS activation isolation.
 
 ### lib.nix
 
