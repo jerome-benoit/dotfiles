@@ -75,7 +75,9 @@ in
         keybind = "global:ctrl+grave_accent=toggle_quick_terminal";
         quick-terminal-position = "center";
         quick-terminal-animation-duration = 0;
-        macos-option-as-alt = true;
+        # Option Key
+        # Left = Alt/Meta; right stays a dead key for AZERTY (right-handed).
+        macos-option-as-alt = "left";
       };
     };
 
