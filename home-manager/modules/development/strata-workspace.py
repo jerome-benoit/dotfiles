@@ -89,11 +89,14 @@ def prepare_workspace(state, revision, remote=REMOTE):
         return _prepare_workspace(state, revision, remote)
 
 
-def refresh_runtime(root, revision):
+def refresh_runtime(root, revision, lock_fd):
     marker = root / ".git" / RUNTIME_REVISION
     if marker.exists() and marker.read_text().strip() == revision:
         return
-    subprocess.run(["sh", str(root / "setup.sh"), "--update"], check=True, stdout=sys.stderr)
+    subprocess.run(
+        ["sh", str(root / "setup.sh"), "--update"],
+        check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
+    )
     temporary = marker.with_suffix(".tmp")
     temporary.write_text(revision + "\n")
     temporary.replace(marker)
@@ -106,7 +109,8 @@ def run_workspace(state, revision, args):
         if venv.is_dir() and not os.access(venv / "bin/python", os.X_OK):
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        refresh_runtime(root, revision)
+        refresh_runtime(root, revision, lock.fileno())
+        os.environ["STRATA_EXECV"] = "1"
         os.set_inheritable(lock.fileno(), True)
         os.execv(root / "setup.sh", [str(root / "setup.sh"), *args])
 

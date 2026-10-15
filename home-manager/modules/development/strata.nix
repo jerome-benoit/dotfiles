@@ -38,7 +38,8 @@ in
         All supplied arguments are forwarded to upstream setup.sh.
         After a source change, upstream update mode refreshes all installed
         configurations and dependencies before the requested command runs.
-        Workspace access is serialized while Strata is running.
+        The updater and server processes retain the workspace lock for their
+        lifetime; the server replaces setup.py so signals reach it directly.
         Upstream manages the virtual environment, engine, model downloads and
         remembered data directory. Home Manager activation does not run the installer.
         A virtual environment whose Python interpreter is no longer executable
