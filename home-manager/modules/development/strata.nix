@@ -8,6 +8,18 @@
 }:
 let
   cfg = config.modules.development.strata;
+  setupLauncher = pkgs.writeShellApplication {
+    name = "strata-setup";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = ''
+      appDir=$1
+      shift
+      if [[ -d "$appDir/.venv" && ! -x "$appDir/.venv/bin/python" ]]; then
+        rm -rf -- "$appDir/.venv"
+      fi
+      exec "$appDir/setup.sh" "$@"
+    '';
+  };
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
     runtimeInputs = [
@@ -28,7 +40,7 @@ let
         trap - EXIT
       fi
       exec nix develop --no-update-lock-file "path:${self}#strata" \
-        --command "$appDir/setup.sh" "$@"
+        --command ${setupLauncher}/bin/strata-setup "$appDir" "$@"
     '';
   };
 in
@@ -46,6 +58,9 @@ in
         with the supplied arguments. Upstream manages the virtual environment,
         engine, model downloads and remembered data directory. Home Manager
         activation does not run the installer.
+        A virtual environment whose Python interpreter is no longer executable
+        is recreated after entering the development shell, without resetting
+        the source tree, configuration or model data.
       '';
     };
   };
