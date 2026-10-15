@@ -59,7 +59,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     strata = {
-      url = "github:Niko1221/Strata/v0.1.44.1";
+      url = "github:Niko1221/Strata/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     hermes-agent = {
