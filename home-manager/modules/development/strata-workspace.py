@@ -117,7 +117,11 @@ def run_workspace(state, revision, args):
         ):
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        refresh_runtime(root, revision, lock.fileno())
+        rollback_requested = any(
+            len(arg) > 2 and "--rollback-engine".startswith(arg) for arg in args
+        )
+        if not rollback_requested:
+            refresh_runtime(root, revision, lock.fileno())
         os.environ["STRATA_EXECV"] = "1"
         os.set_inheritable(lock.fileno(), True)
         os.execv(root / "setup.sh", [str(root / "setup.sh"), *args])

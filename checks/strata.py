@@ -21,7 +21,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 if len(sys.argv) > 5 and sys.argv[5] == "run":
     module.REMOTE = sys.argv[4]
-    module.run_workspace(sys.argv[2], sys.argv[3], ["--build", "--no-browser"])
+    module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"])
 elif len(sys.argv) > 5:
     with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
         module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno())
@@ -163,6 +163,47 @@ class WorkspaceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(cache.read_text(), "runtime state")
         self.assertEqual((root / "code.py").read_text(), "old source\n")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
+    def test_engine_rollback_precedes_pending_runtime_refresh(self):
+        state = self.state
+        for flag in ("--rollback-engine", "--rollback-eng"):
+            with self.subTest(flag=flag):
+                self.state = state / flag.removeprefix("--")
+                root = self.prepare(self.old)
+                shutil.copyfile(Path(UPSTREAM) / "setup.py", root / "setup.py")
+                setup = root / "setup.sh"
+                setup.write_text(f'''#!{shutil.which("sh")}
+cd "$(dirname "$0")" || exit 8
+exec "{sys.executable}" - "$@" <<'PY'
+import setup
+import sys
+if sys.argv[1:] == ["--update"]:
+    setup.install_unpacked(setup.ROOT / "engine/incoming", setup.engine_dir())
+else:
+    sys.exit(setup.main())
+PY
+''')
+                setup.chmod(0o700)
+                engine = root / "engine"
+                previous = engine / ".previous"
+                incoming = engine / "incoming"
+                for folder, version in ((engine, "B"), (previous, "A"), (incoming, "C")):
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / "strata").write_text(version)
+                    (folder / "BUILD.json").write_text(json.dumps({"version": version}))
+                marker = root / ".git/strata-runtime-revision"
+                command = self.command(self.new) + ["run", flag]
+                for current, saved in (("A", "B"), ("B", "A")):
+                    result = subprocess.run(command, env=self.env, capture_output=True,
+                                            text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((root / "code.py").read_text(), "new source\n")
+                    for folder, version in ((engine, current), (previous, saved), (incoming, "C")):
+                        self.assertEqual((folder / "strata").read_text(), version)
+                        self.assertEqual(json.loads((folder / "BUILD.json").read_text())["version"],
+                                         version)
+                    self.assertEqual(marker.read_text().strip(), self.old)
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
     def test_runtime_update_failure_retries_and_success_uses_upstream(self):
