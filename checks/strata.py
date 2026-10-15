@@ -250,6 +250,44 @@ class WorkspaceTests(unittest.TestCase):
         peer.close()
         self.assert_workspace_unlocked()
 
+    def test_executable_venv_without_pip_invalidates_runtime_before_update(self):
+        root = self.prepare(self.new)
+        venv = root / ".venv"
+        subprocess.run([sys.executable, "-m", "venv", str(venv)], env=self.env, check=True)
+        python = venv / "bin/python"
+        for path in venv.glob("lib/python*/site-packages/pip*"):
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        self.assertTrue(os.access(python, os.X_OK))
+        probe = subprocess.run([str(python), "-m", "pip", "--version"],
+                               env=self.env, capture_output=True)
+        self.assertNotEqual(probe.returncode, 0)
+        config = root / "strata-user.json"
+        expected_config = {
+            "exe": sys.executable, "args": [], "backend": "hip", "custom": "preserve",
+        }
+        config.write_text(json.dumps(expected_config))
+        marker = root / ".git/strata-runtime-revision"
+        self.assertEqual(marker.read_text().strip(), self.new)
+        gate = self.base / "updater.py"
+        gate.write_text(GATE)
+        setup = root / "setup.sh"
+        setup.write_text(f'#!{shutil.which("sh")}\nexec "{sys.executable}" "{gate}"\n')
+        setup.chmod(0o700)
+        process, child_pid, peer = self.gated_process(self.command(self.new) + ["run"])
+        self.assertFalse(venv.exists())
+        self.assertFalse(marker.exists())
+        self.assertNotEqual(child_pid, process.pid)
+        self.assertEqual(json.loads(config.read_text()), expected_config)
+        self.assert_workspace_locked()
+        process.kill()
+        process.wait(timeout=10)
+        peer.sendall(b"q")
+        peer.close()
+        self.assert_workspace_unlocked()
+
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
     def test_upstream_server_exec_keeps_pid_and_lock(self):
         shutil.copytree(UPSTREAM, self.repo, dirs_exist_ok=True)

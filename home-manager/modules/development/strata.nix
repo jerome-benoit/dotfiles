@@ -42,9 +42,10 @@ in
         lifetime; the server replaces setup.py so signals reach it directly.
         Upstream manages the virtual environment, engine, model downloads and
         remembered data directory. Home Manager activation does not run the installer.
-        A virtual environment whose Python interpreter is no longer executable
-        is recreated after entering the development shell, without resetting
-        the source tree, configuration or model data.
+        A virtual environment whose Python interpreter or pip is unusable is
+        recreated after entering the development shell, and its runtime marker
+        is invalidated so upstream update mode restores dependencies. Source,
+        configuration and model data are preserved.
       '';
     };
   };

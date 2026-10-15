@@ -106,7 +106,15 @@ def run_workspace(state, revision, args):
     with workspace_lock(state) as (state, lock):
         root = _prepare_workspace(state, revision, REMOTE)
         venv = root / ".venv"
-        if venv.is_dir() and not os.access(venv / "bin/python", os.X_OK):
+        python = venv / "bin/python"
+        if venv.is_dir() and (
+            not os.access(python, os.X_OK)
+            or subprocess.run(
+                [str(python), "-m", "pip", "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode != 0
+        ):
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
         refresh_runtime(root, revision, lock.fileno())
