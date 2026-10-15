@@ -183,11 +183,16 @@ let
       "modules.core.gpu: no driver-compatible CUDA package scope can satisfy capabilities ${builtins.toJSON requiredCudaCapabilities} on ${pkgs.stdenv.hostPlatform.system}"
       (selectedCuda != null)
     );
+  rocmPlatformSupported = lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.rocmPackages.llvm.clang-unwrapped;
   rocmEnable =
     cfg.enable
     && isLinux
     && effectiveVendor == "amd"
     && builtins.pathExists /dev/kfd
+    && (lib.warnIf (!rocmPlatformSupported)
+      "modules.core.gpu: ROCm compiler is not available on ${pkgs.stdenv.hostPlatform.system}; ROCm disabled"
+      rocmPlatformSupported
+    )
     && (lib.warnIf (supportedRocmTargets == [ ])
       "modules.core.gpu: no detected AMD GFX target is supported by the selected ROCm package set: ${builtins.toJSON detectedGfxTargets}"
       (supportedRocmTargets != [ ])
