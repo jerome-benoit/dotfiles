@@ -75,9 +75,9 @@ def _prepare_workspace(state, revision, remote):
             git(root, "reset", "--quiet", "--mixed", "FETCH_HEAD")
         else:
             git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", "FETCH_HEAD")
-    marker = root / ".git" / RUNTIME_REVISION
-    if not marker.exists():
-        marker.write_bytes(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"]))
+        marker = root / ".git" / RUNTIME_REVISION
+        if not marker.exists():
+            marker.write_bytes(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"]))
     if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
     git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)

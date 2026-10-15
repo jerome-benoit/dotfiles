@@ -250,8 +250,7 @@ class WorkspaceTests(unittest.TestCase):
         peer.close()
         self.assert_workspace_unlocked()
 
-    def test_executable_venv_without_pip_invalidates_runtime_before_update(self):
-        root = self.prepare(self.new)
+    def make_venv_without_pip(self, root):
         venv = root / ".venv"
         subprocess.run([sys.executable, "-m", "venv", str(venv)], env=self.env, check=True)
         python = venv / "bin/python"
@@ -264,6 +263,11 @@ class WorkspaceTests(unittest.TestCase):
         probe = subprocess.run([str(python), "-m", "pip", "--version"],
                                env=self.env, capture_output=True)
         self.assertNotEqual(probe.returncode, 0)
+        return venv
+
+    def test_executable_venv_without_pip_invalidates_runtime_before_update(self):
+        root = self.prepare(self.new)
+        venv = self.make_venv_without_pip(root)
         config = root / "strata-user.json"
         expected_config = {
             "exe": sys.executable, "args": [], "backend": "hip", "custom": "preserve",
@@ -287,6 +291,42 @@ class WorkspaceTests(unittest.TestCase):
         peer.sendall(b"q")
         peer.close()
         self.assert_workspace_unlocked()
+
+    def test_failed_venv_repair_is_retried_across_launcher_invocations(self):
+        root = self.prepare(self.new)
+        venv = self.make_venv_without_pip(root)
+        marker = root / ".git/strata-runtime-revision"
+        config = root / "strata-user.json"
+        expected_config = {"exe": sys.executable, "args": [], "custom": "preserve"}
+        config.write_text(json.dumps(expected_config))
+        allow_success = self.base / "allow-success"
+        setup = root / "setup.sh"
+        setup.write_text(f'''#!{shutil.which("sh")}
+cd "$(dirname "$0")" || exit 8
+if [ "${{1:-}}" = --update ]; then
+    "{sys.executable}" -m venv .venv || exit 8
+    test -f "{allow_success}" || exit 7
+fi
+''')
+        setup.chmod(0o700)
+        command = self.command(self.new) + ["run"]
+        for _ in range(2):
+            result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertTrue(os.access(venv / "bin/python", os.X_OK))
+            subprocess.run([str(venv / "bin/python"), "-m", "pip", "--version"],
+                           env=self.env, check=True, stdout=subprocess.DEVNULL)
+            self.assertEqual(json.loads(config.read_text()), expected_config)
+        allow_success.touch()
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(marker.read_text().strip(), self.new)
+        self.assertEqual(json.loads(config.read_text()), expected_config)
+        allow_success.unlink()
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(marker.read_text().strip(), self.new)
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
     def test_upstream_server_exec_keeps_pid_and_lock(self):

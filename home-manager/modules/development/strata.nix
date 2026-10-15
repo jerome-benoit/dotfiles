@@ -46,6 +46,8 @@ in
         recreated after entering the development shell, and its runtime marker
         is invalidated so upstream update mode restores dependencies. Source,
         configuration and model data are preserved.
+        Failed repairs remain pending across launches until upstream update
+        succeeds; preparing an existing checkout does not validate its runtime.
       '';
     };
   };
