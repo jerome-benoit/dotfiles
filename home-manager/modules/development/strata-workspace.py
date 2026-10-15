@@ -78,8 +78,11 @@ def _prepare_workspace(state, revision, remote):
         marker = root / ".git" / RUNTIME_REVISION
         if not marker.exists():
             marker.write_bytes(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"]))
+    current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    git(root, "update-ref", f"refs/strata/revisions/{current}", current)
     if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
+    git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
     git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
     return root
 
@@ -89,12 +92,12 @@ def prepare_workspace(state, revision, remote=REMOTE):
         return _prepare_workspace(state, revision, remote)
 
 
-def refresh_runtime(root, revision, lock_fd):
+def refresh_runtime(root, revision, lock_fd, args):
     marker = root / ".git" / RUNTIME_REVISION
     if marker.exists() and marker.read_text().strip() == revision:
         return
     subprocess.run(
-        ["sh", str(root / "setup.sh"), "--update"],
+        ["sh", str(root / "setup.sh"), "--update", *args],
         check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
     )
     temporary = marker.with_suffix(".tmp")
@@ -117,11 +120,17 @@ def run_workspace(state, revision, args):
         ):
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        rollback_requested = any(
-            len(arg) > 2 and "--rollback-engine".startswith(arg) for arg in args
+        standalone_requested = any(
+            option.startswith("-h") or (
+                len(option) > 2 and any(
+                    flag.startswith(option)
+                    for flag in ("--help", "--check", "--inspect", "--rollback-engine")
+                )
+            )
+            for option in (arg.partition("=")[0] for arg in args)
         )
-        if not rollback_requested:
-            refresh_runtime(root, revision, lock.fileno())
+        if not standalone_requested:
+            refresh_runtime(root, revision, lock.fileno(), args)
         os.environ["STRATA_EXECV"] = "1"
         os.set_inheritable(lock.fileno(), True)
         os.execv(root / "setup.sh", [str(root / "setup.sh"), *args])

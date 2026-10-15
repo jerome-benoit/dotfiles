@@ -24,7 +24,7 @@ if len(sys.argv) > 5 and sys.argv[5] == "run":
     module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"])
 elif len(sys.argv) > 5:
     with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
-        module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno())
+        module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno(), sys.argv[6:])
 else:
     print(module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4]))
 """
@@ -117,7 +117,16 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse((root / "removed.py").exists())
         for name, text in expected.items():
             self.assertEqual((root / name).read_text(), text, name)
+        (self.repo / "code.py").write_text("third source\n")
+        third = self.commit()
+        self.assertEqual(self.prepare(third), legacy)
+        for args in (("reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"),
+                     ("gc", "--prune=now")):
+            subprocess.run(["git", "-C", str(root), *args], env=self.env, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.repo.rename(self.base / "remote-offline")
+        self.assertEqual(self.prepare(self.new), legacy)
+        self.assertEqual((root / "code.py").read_text(), "new source\n")
         self.assertEqual(self.prepare(self.old), legacy)
         self.assertEqual((root / "removed.py").read_text(), "obsolete source\n")
         for name, text in expected.items():
@@ -163,6 +172,88 @@ class WorkspaceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(cache.read_text(), "runtime state")
         self.assertEqual((root / "code.py").read_text(), "old source\n")
+
+    def test_existing_detached_revision_survives_gc_and_offline_rollback(self):
+        root = self.prepare(self.old)
+        subprocess.run(["git", "-C", str(root), "update-ref", "-d",
+                        f"refs/strata/revisions/{self.old}"], env=self.env, check=True)
+        self.prepare(self.new)
+        for args in (("reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"),
+                     ("gc", "--prune=now")):
+            subprocess.run(["git", "-C", str(root), *args], env=self.env, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.repo.rename(self.base / "remote-offline")
+        self.assertEqual(self.prepare(self.old), root)
+        self.assertEqual((root / "code.py").read_text(), "old source\n")
+
+    def make_updater_workspace(self):
+        root = self.prepare(self.old)
+        shutil.copyfile(Path(UPSTREAM) / "setup.py", root / "setup.py")
+        setup = root / "setup.sh"
+        setup.write_text(f'''#!{shutil.which("sh")}
+cd "$(dirname "$0")" || exit 8
+exec "{sys.executable}" - "$@" <<'PY'
+from pathlib import Path
+import setup
+import sys
+setup.pip_install = lambda *args: None
+def install(url):
+    candidate = setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
+    if (candidate / "strata").exists():
+        setup.install_unpacked(candidate, setup.engine_dir())
+setup.update_installed_engine = install
+sys.exit(setup.main())
+PY
+''')
+        setup.chmod(0o700)
+        for name, version in (("", "B"), (".previous", "A"), ("default", "C"), ("custom", "D")):
+            folder = root / "engine" / name
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "strata").write_text(version)
+            (folder / "BUILD.json").write_text(json.dumps({"version": version}))
+        (root / "strata-fixture.json").write_text(json.dumps({
+            "exe": str(root / "engine/strata"), "args": [], "backend": "cuda",
+        }))
+        return root
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_refresh_respects_engine_build_and_custom_source(self):
+        state = self.state
+        for build, flag_value in ((True, False), (False, False), (False, True)):
+            with self.subTest(build=build, flag_value=flag_value):
+                self.state = state / f"{build}-{flag_value}"
+                root = self.make_updater_workspace()
+                source = str(root / "engine/custom")
+                if flag_value:
+                    (root / "engine/custom").rename(root / "--check")
+                    source = "--check"
+                args = ["--update", f"--prebuilt={source}"]
+                if build:
+                    args.append("--buil")
+                result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "engine/strata").read_text(), "B" if build else "D")
+                self.assertEqual((root / "engine/.previous/strata").read_text(), "A" if build else "B")
+                self.assertEqual((root / "engine/default/strata").read_text(), "C")
+                self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.new)
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_help_preserves_engine_and_pending_refresh(self):
+        state = self.state
+        for flag in ("-h", "--help", "--hel"):
+            with self.subTest(flag=flag):
+                self.state = state / flag.lstrip("-")
+                root = self.make_updater_workspace()
+                config = (root / "strata-fixture.json").read_bytes()
+                result = subprocess.run(self.command(self.new) + ["run", flag], env=self.env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "engine/strata").read_text(), "B")
+                self.assertEqual((root / "engine/.previous/strata").read_text(), "A")
+                self.assertEqual((root / "engine/default/strata").read_text(), "C")
+                self.assertEqual((root / "strata-fixture.json").read_bytes(), config)
+                self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.old)
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
     def test_engine_rollback_precedes_pending_runtime_refresh(self):
