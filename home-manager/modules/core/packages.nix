@@ -239,6 +239,7 @@ in
           cask "ghostty"
           cask "gpg-suite@nightly"
           cask "growlrrr"
+          cask "openvpn-connect"
           cask "podman-desktop"
           brew "mole"
           brew "ollama", restart_service: true
