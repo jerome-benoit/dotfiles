@@ -85,6 +85,7 @@ in
       pi.enable = profileModules.development.pi;
       primeAgent.enable = profileModules.development.primeAgent;
       qmd.enable = bunSupported && profileModules.development.qmd;
+      strata.enable = profileModules.development.strata;
     };
 
     programs = {

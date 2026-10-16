@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 
@@ -51,6 +52,7 @@ let
       pi = true;
       primeAgent = true;
       qmd = true;
+      strata = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
     };
 
     programs = {
@@ -122,6 +124,7 @@ let
       pi = false;
       primeAgent = false;
       qmd = false;
+      strata = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
     };
 
     programs = {

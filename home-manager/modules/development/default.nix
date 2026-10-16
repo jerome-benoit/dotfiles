@@ -18,5 +18,6 @@
     ./pi.nix
     ./prime-agent.nix
     ./qmd.nix
+    ./strata.nix
   ];
 }
