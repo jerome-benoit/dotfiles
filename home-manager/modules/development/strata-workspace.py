@@ -92,9 +92,9 @@ def prepare_workspace(state, revision, remote=REMOTE):
         return _prepare_workspace(state, revision, remote)
 
 
-def refresh_runtime(root, revision, lock_fd, args):
+def refresh_runtime(root, revision, lock_fd, args, *, force=False):
     marker = root / ".git" / RUNTIME_REVISION
-    if marker.exists() and marker.read_text().strip() == revision:
+    if not force and marker.exists() and marker.read_text().strip() == revision:
         return
     subprocess.run(
         ["sh", str(root / "setup.sh"), "--update", *args],
@@ -105,32 +105,54 @@ def refresh_runtime(root, revision, lock_fd, args):
     temporary.replace(marker)
 
 
+def retain_interpreter(state, venv):
+    python = venv / "bin/python" if venv.is_dir() else Path(sys.executable)
+    interpreter = python.resolve()
+    store = Path(os.environ.get("NIX_STORE_DIR", "/nix/store"))
+    root = state / ".python-root"
+    if interpreter.is_relative_to(store):
+        package = store / interpreter.relative_to(store).parts[0]
+        if not root.is_symlink() or root.resolve() != package or not os.access(python, os.X_OK):
+            subprocess.run(
+                ["nix-store", "--realise", str(package), "--add-root", str(root)],
+                check=True, stdout=sys.stderr,
+            )
+    elif root.is_symlink():
+        root.unlink()
+    if venv.is_dir() and not os.access(python, os.X_OK):
+        raise RuntimeError(f"Interpreter {python} is unavailable; virtual environment preserved at {venv}")
+
+
 def run_workspace(state, revision, args):
     with workspace_lock(state) as (state, lock):
         root = _prepare_workspace(state, revision, REMOTE)
         venv = root / ".venv"
+        retain_interpreter(state, venv)
         python = venv / "bin/python"
-        if venv.is_dir() and (
-            not os.access(python, os.X_OK)
-            or subprocess.run(
-                [str(python), "-m", "pip", "--version"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            ).returncode != 0
-        ):
+        if venv.is_dir() and subprocess.run(
+            [str(python), "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode != 0:
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        standalone_requested = any(
-            option.startswith("-h") or (
-                len(option) > 2 and any(
-                    flag.startswith(option)
-                    for flag in ("--help", "--check", "--inspect", "--rollback-engine")
-                )
-            )
-            for option in (arg.partition("=")[0] for arg in args)
+            retain_interpreter(state, venv)
+        options = [arg.partition("=")[0] for arg in args]
+        requested = {
+            flag for flag in ("--help", "--check", "--inspect", "--rollback-engine", "--update")
+            if any(len(option) > 2 and flag.startswith(option) for option in options)
+        }
+        if any(option.startswith("-h") for option in options):
+            requested.add("--help")
+        explicit_update = "--update" in requested
+        standalone_requested = bool(requested & {"--help", "--inspect", "--rollback-engine"}) or (
+            "--check" in requested and not explicit_update
         )
         if not standalone_requested:
-            refresh_runtime(root, revision, lock.fileno(), args)
+            refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)
+        retain_interpreter(state, venv)
+        if explicit_update and not standalone_requested:
+            return
         os.environ["STRATA_EXECV"] = "1"
         os.set_inheritable(lock.fileno(), True)
         os.execv(root / "setup.sh", [str(root / "setup.sh"), *args])
@@ -141,3 +163,5 @@ if __name__ == "__main__":
         run_workspace(sys.argv[1], sys.argv[2], sys.argv[3:])
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
+    except RuntimeError as error:
+        sys.exit(str(error))

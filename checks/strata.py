@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 
 WORKSPACE = sys.argv.pop(1)
@@ -51,7 +52,13 @@ class WorkspaceTests(unittest.TestCase):
         self.repo = self.base / "remote"
         self.repo.mkdir()
         self.env = dict(os.environ, HOME=str(self.base / "home"),
-                        XDG_CONFIG_HOME=str(self.base / "config"))
+                        XDG_CONFIG_HOME=str(self.base / "config"),
+                        NIX_STORE_DIR=str(self.base / "nix-store"),
+                        NIX_STATE_DIR=str(self.base / "nix-state"),
+                        NIX_LOG_DIR=str(self.base / "nix-log"),
+                        NIX_CONF_DIR=str(self.base / "nix-conf"),
+                        NIX_REMOTE="local",
+                        NIX_CONFIG="experimental-features = nix-command flakes\nrequire-sigs = false\n")
         self.git("init", "--quiet")
         (self.repo / ".gitignore").write_text(".venv/\nengine/\nbuild/\nstrata-*.json\n")
         (self.repo / "code.py").write_text("old source\n")
@@ -227,7 +234,7 @@ PY
                 if flag_value:
                     (root / "engine/custom").rename(root / "--check")
                     source = "--check"
-                args = ["--update", f"--prebuilt={source}"]
+                args = ["--up", "--check", f"--prebuilt={source}"]
                 if build:
                     args.append("--buil")
                 result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
@@ -237,6 +244,15 @@ PY
                 self.assertEqual((root / "engine/.previous/strata").read_text(), "A" if build else "B")
                 self.assertEqual((root / "engine/default/strata").read_text(), "C")
                 self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.new)
+                if not build:
+                    candidate = root / source
+                    (candidate / "strata").write_text("E")
+                    (candidate / "BUILD.json").write_text(json.dumps({"version": "E"}))
+                    result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                                            capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((root / "engine/strata").read_text(), "E")
+                    self.assertEqual((root / "engine/.previous/strata").read_text(), "D")
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_help_preserves_engine_and_pending_refresh(self):
@@ -396,6 +412,91 @@ PY
                                env=self.env, capture_output=True)
         self.assertNotEqual(probe.returncode, 0)
         return venv
+
+    @unittest.skipUnless(sys.platform == "linux", "Nix interpreter restoration on Linux")
+    def test_collected_interpreter_restores_sdk_without_recreating_venv(self):
+        root = self.prepare(self.new)
+        staged = self.base / "python-sdk"
+        (staged / "bin").mkdir(parents=True)
+        executable = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        shutil.copy2(sys.executable, staged / "bin" / executable)
+
+        def run(*command):
+            result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout.strip()
+
+        store = run("nix-store", "--add", str(staged))
+        venv = root / ".venv"
+        run(f"{store}/bin/{executable}", "-m", "venv", "--symlinks", str(venv))
+        python = venv / "bin/python"
+        wheel = self.base / "sdk_probe-1.0-py3-none-any.whl"
+        files = {
+            "sdk_probe/__init__.py": (
+                "from importlib.resources import files\n"
+                "def main():\n"
+                "    values = files('sdk_probe').joinpath('runtime/data').read_text().split()\n"
+                "    print(sum(int(value) ** 2 for value in values))\n"
+            ),
+            "sdk_probe/runtime/data": "3 5 7\n",
+            "sdk_probe-1.0.dist-info/METADATA": "Metadata-Version: 2.1\nName: sdk-probe\nVersion: 1.0\n",
+            "sdk_probe-1.0.dist-info/WHEEL": (
+                "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+            ),
+            "sdk_probe-1.0.dist-info/entry_points.txt": "[console_scripts]\nsdk-probe = sdk_probe:main\n",
+        }
+        files["sdk_probe-1.0.dist-info/RECORD"] = "".join(f"{name},,\n" for name in files)
+        with zipfile.ZipFile(wheel, "w") as archive:
+            for name, content in files.items():
+                archive.writestr(name, content)
+        run(str(python), "-m", "pip", "install", "--no-index", "--no-deps", str(wheel))
+        probe = venv / "bin/sdk-probe"
+        self.assertEqual(run(str(probe)), "83")
+        purelib = Path(run(str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"))
+        library = purelib / "sdk_probe/runtime"
+        expected = {
+            "engine/BUILD.json": json.dumps({"backend": "hip", "lib_dirs": [str(library)]}),
+            "strata-first.json": json.dumps({"api_key": "first-key", "lib_dirs": [str(library)]}),
+            "strata-second.json": json.dumps({"api_key": "second-key", "custom": {"preserve": True}}),
+            "strata-first.shared-settings.json": '{"temperature": 0.7}',
+        }
+        for name, content in expected.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        setup = root / "setup.sh"
+        setup.write_text(f'#!{shutil.which("sh")}\nexec "{probe}"\n')
+        setup.chmod(0o700)
+        cache = self.base / "binary-cache"
+        run("nix", "copy", "--to", f"file://{cache}", store)
+        run("nix-store", "--delete", store)
+        self.assertFalse(os.access(python, os.X_OK))
+        self.env["NIX_CONFIG"] += f"substituters = file://{cache}\n"
+        result = subprocess.run(self.command(self.new) + ["run"], env=self.env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "83")
+        self.assertEqual(run(str(probe)), "83")
+        run(str(python), "-m", "pip", "--version")
+        for name, content in expected.items():
+            self.assertEqual((root / name).read_text(), content)
+        protected = subprocess.run(["nix-store", "--delete", store], env=self.env, capture_output=True)
+        self.assertNotEqual(protected.returncode, 0)
+        self.assertEqual(run(str(probe)), "83")
+        (self.state / ".python-root").unlink()
+        run("nix-store", "--delete", store)
+        empty = self.base / "empty-cache"
+        empty.mkdir()
+        self.env["NIX_CONFIG"] += f"substituters = file://{empty}\n"
+        marker = root / ".git/strata-runtime-revision"
+        marker.unlink()
+        failed = subprocess.run(self.command(self.new) + ["run"], env=self.env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertEqual((library / "data").read_text(), "3 5 7\n")
+        for name, content in expected.items():
+            self.assertEqual((root / name).read_text(), content)
 
     def test_executable_venv_without_pip_invalidates_runtime_before_update(self):
         root = self.prepare(self.new)

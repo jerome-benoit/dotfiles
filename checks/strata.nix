@@ -3,6 +3,7 @@ pkgs.runCommand "check-strata-workspace"
   {
     nativeBuildInputs = [
       pkgs.git
+      pkgs.nix
       pkgs.python3
     ];
   }
