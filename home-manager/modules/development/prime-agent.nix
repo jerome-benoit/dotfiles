@@ -29,8 +29,7 @@ let
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";
 
-  # Workaround: Prime Agent requires MCP 2 before nixpkgs provides it.
-  # Remove when nixpkgs satisfies the pinned runtime requirements.
+  # Preserve the MCP dependency versions from the runtime lock.
   mkLockedWheel =
     name: dependencies: pythonImportsCheck:
     py.pkgs.buildPythonPackage {
@@ -97,7 +96,7 @@ let
   # Workaround: tyro's completion tests flake on aarch64-darwin.
   # Remove when its source build checks are reliable there.
   tyro = py.pkgs.tyro.overridePythonAttrs (_: {
-    doCheck = false;
+    doCheck = !pkgs.stdenv.hostPlatform.isDarwin;
   });
   scipy = py.pkgs.scipy;
 
@@ -174,8 +173,7 @@ let
         inherit version src;
         inherit (pins) cargoHash;
         cargoDepsName = "prime-agent";
-        # prime-agent-nix-self-update: refuse self-update for this Nix build (every
-        # path exits 75, defers to the package manager; offline via pa_models::offline).
+        # Refuse self-update for this Nix-managed installation.
         # Remove when upstream offers a managed-install switch.
         # prime-agent-darwin-tests: platform-correct the AF_UNIX sun_path limit (104
         # on macOS/BSD vs 108 on Linux), gate the Linux-only /proc re-anchor test, skip
@@ -201,13 +199,8 @@ let
           "pa-types"
           "--lib"
         ];
-        # Skip pa-cli tests the hermetic/parallel check breaks (kept compiled, no
-        # patch): three assert uncolored TS layout but the crate emits ANSI off a TTY;
-        # a_live_producer_resets_the_window is a wall-clock test that flakes under load.
+        # This wall-clock test flakes under load.
         checkFlags = [
-          "--skip=daemon_discovery::format::tests::table_matches_the_ts_layout"
-          "--skip=incident::report::tests::reconstructs_the_incident_narrative_in_one_report"
-          "--skip=incident::report::tests::the_report_layout_matches_the_ts_shape"
           "--skip=piped_stdin::tests::a_live_producer_resets_the_window"
         ];
         passthru = {
