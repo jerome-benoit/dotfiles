@@ -1,18 +1,22 @@
 """Exercise the installed CLI, shared recovery store and Nix ownership boundary."""
 
 from datetime import datetime, timedelta, timezone
+import http.client
 import json
 import os
 from pathlib import Path
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 
 package = Path(sys.argv[1])
 git = sys.argv[2]
+node = sys.argv[3]
 
 with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     root = Path(temporary)
@@ -34,11 +38,11 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
         "TERM": "dumb",
     }
 
-    def run(binary, *arguments, data=None, check=True, cwd=None):
+    def run(binary, *arguments, data=None, check=True, cwd=None, environment=None):
         result = subprocess.run(
             [str(package / "bin" / binary), *arguments],
             input=data,
-            env=env,
+            env=environment if environment is not None else env,
             cwd=cwd or root,
             capture_output=True,
             timeout=30,
@@ -207,4 +211,57 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert json.loads(settings.read_text())["hooks"]["PreToolUse"] == [foreign_hook]
     assert_recorded_calls(3)
 
-print("Caveman: ownership, recovery, proxy analysis and installed Blocks hook state checks passed")
+    # A persisted native hook bypasses the CLI wrapper. A GUI-like PATH must
+    # still let its delegated CLI revive the proxy with MCP recovery available.
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    hook_env = {
+        **env,
+        "PATH": os.defpath,
+        "CAVE_GATEWAY_URL": f"http://127.0.0.1:{port}",
+        "CAVEMAN_LISTEN": f"127.0.0.1:{port}",
+        "DO_NOT_TRACK": "1",
+        "CAVEMAN_TELEMETRY": "0",
+    }
+    event = {
+        "hook_event_name": "SessionStart",
+        "session_id": "native-hook-fixture",
+        "cwd": str(repo),
+    }
+    try:
+        revival = run(
+            "caveman-proxy", "native-hook", "claude",
+            "--adapter", str(package / "lib/caveman/dist/native-hook-fast.js"),
+            "--node", node, data=json.dumps(event).encode(), environment=hook_env,
+        )
+        deadline = time.monotonic() + 10
+        while True:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+            try:
+                connection.request("GET", "/health/live")
+                response = connection.getresponse()
+                health = json.loads(response.read())
+                assert response.status == 200, health
+                assert health["ok"] is True, health
+                assert health["service"] == "caveman-proxy", health
+                assert health["schema"] == "caveman.proxy.health.v1", health
+                state = json.loads((cave / "run" / f"{port}.json").read_text())
+                assert state["instance_token"] == response.getheader("X-Caveman-Instance"), state
+                assert state["recovery_via_mcp"] is True, state
+                break
+            except (OSError, http.client.HTTPException) as error:
+                if time.monotonic() >= deadline:
+                    raise AssertionError(
+                        f"native hook did not revive proxy: {revival.stderr.decode()}"
+                    ) from error
+                time.sleep(0.05)
+            finally:
+                connection.close()
+    finally:
+        run("caveman", "stop", environment=hook_env)
+    with socket.socket() as stopped:
+        stopped.settimeout(1)
+        assert stopped.connect_ex(("127.0.0.1", port)) != 0, "proxy still listening after stop"
+
+print("Caveman: ownership, recovery, proxy analysis, Blocks hooks and native proxy revival passed")

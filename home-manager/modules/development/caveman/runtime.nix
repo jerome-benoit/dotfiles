@@ -52,7 +52,7 @@ stdenvNoCC.mkDerivation {
       '') pins.licenses
     )}
     wrapProgram "$out/bin/caveman-proxy" \
-      --prefix PATH : ${lib.makeBinPath [ git ]}
+      --prefix PATH : "$out/bin:${lib.makeBinPath [ git ]}"
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \
       --set-default CAVEMAN_BROWSE_CHROME ${lib.escapeShellArg browserExecutable}

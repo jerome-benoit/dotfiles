@@ -27,7 +27,13 @@ buildGoModule {
   patches = [ ../../../../patches/caveman-blocks-nix-hooks.patch ];
 
   postInstall = ''
-    install -Dm644 LICENSE "$out/share/licenses/caveman-blocks/LICENSE"
+    for name in LICENSE NOTICE; do
+      install -Dm644 "$name" "$out/share/licenses/caveman-blocks/$name"
+    done
+    for dependency in github.com/pelletier/go-toml/v2 github.com/spf13/pflag; do
+      install -Dm644 "vendor/$dependency/LICENSE" \
+        "$out/share/licenses/caveman-blocks/$dependency/LICENSE"
+    done
     wrapProgram "$out/bin/caveman-blocks" \
       --prefix PATH : ${
         lib.makeBinPath [
