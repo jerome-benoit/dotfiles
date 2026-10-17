@@ -16,6 +16,10 @@ let
   primeAgentRuntimeRoot = "${primeAgentSource}/prime-agent-runtime";
   primeAgentRuntimeProject = lib.importTOML "${primeAgentRuntimeRoot}/pyproject.toml";
   primeAgentRuntimeLock = lib.importTOML "${primeAgentRuntimeRoot}/uv.lock";
+  cavemanSource = pkgs.fetchzip sources.caveman.src;
+  blocksRelease = builtins.match "v([^ ]+) [0-9a-f]+\n?" (
+    builtins.readFile "${cavemanSource}/packages/cli/BLOCKS_RELEASE"
+  );
   dummyPythonPackages = lib.genAttrs [
     "beautifulsoup4"
     "httpx"
@@ -163,6 +167,7 @@ let
     caveman = {
       inherit (sources.caveman)
         version
+        blocks
         cli
         src
         runtime
@@ -227,8 +232,12 @@ let
       toHashFormat = "sri";
     }
   ) sources.caveman.licenses;
+  updateTestCavemanSource = pkgs.writeTextDir "packages/cli/BLOCKS_RELEASE" (
+    "v9.8.7 " + lib.concatStrings (lib.replicate 64 "a") + "\n"
+  );
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
+    storePath=""
     if [ "$#" -eq 5 ] && [ "$1" = store ] && [ "$2" = prefetch-file ] \
       && [ "$3" = --unpack ] && [ "$4" = --json ]; then
       case "$5" in
@@ -241,6 +250,14 @@ let
           ;;
         "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v9.9.9.tar.gz")
           hash=sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS=
+          storePath=${updateTestCavemanSource}
+          ;;
+        "https://github.com/caveman-ai/blocks/archive/refs/tags/v9.8.7.tar.gz")
+          if [ -n "''${MOCK_BLOCKS_SOURCE_MISSING:-}" ]; then
+            echo "missing Blocks source" >&2
+            exit 1
+          fi
+          hash=sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
           ;;
         *)
           echo "unexpected unpacked prefetch URL:$5" >&2
@@ -296,6 +313,21 @@ let
       esac
     elif [ "$#" -eq 5 ] && [ "$1" = build ] && [ "$2" = --impure ] \
       && [ "$3" = --no-link ] && [ "$4" = --expr ]; then
+      if [ -n "''${NIX_HASH_FIX_BLOCKS_URL:-}" ]; then
+        if [ "$NIX_HASH_FIX_BLOCKS_URL" != "https://github.com/caveman-ai/blocks/archive/refs/tags/v9.8.7.tar.gz" ] \
+          || [ "$NIX_HASH_FIX_BLOCKS_SOURCE_HASH" != sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= ]; then
+          echo "unexpected Blocks vendoring source" >&2
+          exit 1
+        fi
+        name=caveman-blocks-vendor-go-modules
+        if [ -n "''${MOCK_BLOCKS_VENDOR_WRONG_MISMATCH:-}" ]; then
+          name=unrelated-go-modules
+        fi
+        printf "error: hash mismatch in fixed-output derivation '/nix/store/00000000000000000000000000000000-%s.drv':\n" "$name" >&2
+        printf '         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n' >&2
+        printf '            got:    sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG=\n' >&2
+        exit 1
+      fi
       if [ "$NIX_HASH_FIX_ROOT" != "$MOCK_FLAKE_ROOT" ] \
         || [ "$NIX_HASH_FIX_URL" != "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.9.tar.gz" ] \
         || [ "$NIX_HASH_FIX_SOURCE_HASH" != sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP= ]; then
@@ -337,7 +369,7 @@ let
       echo "unexpected nix invocation:$invocation" >&2
       exit 1
     fi
-    printf '{"hash":"%s"}\n' "$hash"
+    printf '{"hash":"%s","storePath":"%s"}\n' "$hash" "$storePath"
   '';
   updateTestCurl = pkgs.writeShellScriptBin "curl" ''
     set -euo pipefail
@@ -392,6 +424,7 @@ assert
   == builtins.attrNames sources.omp.sources;
 assert builtins.attrNames rlmPackages == sources.primeAgent.rlmExtraPackages;
 assert builtins.all consumerContractValid consumerSystems;
+assert blocksRelease != null && sources.caveman.blocks.version == builtins.head blocksRelease;
 pkgs.runCommandLocal "check-ci-contract"
   {
     nativeBuildInputs = [
@@ -604,6 +637,17 @@ pkgs.runCommandLocal "check-ci-contract"
     cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
     assert_tracked_clean
     assert_remote_unchanged "$remoteBefore"
+    for failure in MOCK_BLOCKS_SOURCE_MISSING MOCK_BLOCKS_VENDOR_WRONG_MISMATCH; do
+      if env "$failure=1" bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
+        > "$TMPDIR/blocks-error.log" 2>&1; then
+        echo "update accepted invalid Blocks source or vendor evidence" >&2
+        exit 1
+      fi
+      test "$(git rev-parse HEAD)" = "$before"
+      cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
+      assert_tracked_clean
+      assert_remote_unchanged "$remoteBefore"
+    done
     bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase"
     assert_remote_unchanged "$remoteBefore"
     push_fixture_head
@@ -615,6 +659,9 @@ pkgs.runCommandLocal "check-ci-contract"
       .version == "9.9.9"
       and .cli.hash == "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN="
       and .src.hash == "sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS="
+      and .blocks.version == "9.8.7"
+      and .blocks.src.hash == "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+      and .blocks.vendorHash == "sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG="
       and .runtime.hashes == $runtime
       and .licenses.hashes == $licenses
     ' "$cavemanPin" >/dev/null

@@ -1,0 +1,58 @@
+diff --git a/internal/repo/repo.go b/internal/repo/repo.go
+--- a/internal/repo/repo.go
++++ b/internal/repo/repo.go
+@@ -278,2 +278,25 @@ func InstallBinary(src, version string) (path string, changed bool, err error) {
+ 	path = BinaryPath()
++	// Nix owns the executable and its dependency-providing wrapper. Keep the
++	// stable hook path, but follow the explicitly selected package revision.
++	if wrapper := os.Getenv("CAVEMAN_BLOCKS_NIX_WRAPPER"); wrapper != "" {
++		if target, err := os.Readlink(path); err == nil && target == wrapper {
++			return path, false, nil
++		}
++		if err := os.MkdirAll(home, 0o755); err != nil {
++			return "", false, err
++		}
++		tmp, err := os.MkdirTemp(home, ".caveman-blocks-*")
++		if err != nil {
++			return "", false, err
++		}
++		defer os.RemoveAll(tmp)
++		link := filepath.Join(tmp, "hook")
++		if err := os.Symlink(wrapper, link); err != nil {
++			return "", false, err
++		}
++		if err := os.Rename(link, path); err != nil {
++			return "", false, err
++		}
++		return path, true, nil
++	}
+ 	if InstalledVersion(path) == version {
+diff --git a/cmd/caveman-blocks/common.go b/cmd/caveman-blocks/common.go
+--- a/cmd/caveman-blocks/common.go
++++ b/cmd/caveman-blocks/common.go
+@@ -175,2 +175,11 @@ func refreshBinary() (string, bool) {
+ 	installed := repo.BinaryPath()
++	if os.Getenv("CAVEMAN_BLOCKS_NIX_WRAPPER") != "" {
++		// Refresh existing hooks, including a same-version raw copy or a
++		// dangling link after GC, but never install hooks implicitly.
++		if _, err := os.Lstat(installed); err != nil {
++			return "", false
++		}
++		p, changed, err := repo.InstallBinary("", version)
++		return p, err == nil && changed
++	}
+ 	mine, ok := semver(version)
+diff --git a/cmd/caveman-blocks/cmd_hooks.go b/cmd/caveman-blocks/cmd_hooks.go
+--- a/cmd/caveman-blocks/cmd_hooks.go
++++ b/cmd/caveman-blocks/cmd_hooks.go
+@@ -45,4 +45,8 @@
+ 			if err != nil {
+-				return fmt.Errorf("copy binary: %w", err)
++				return fmt.Errorf("install binary: %w", err)
+ 			}
+-			fmt.Fprintf(out, "binary: %s (%s)\n", bin, either(changed, "copied", "unchanged"))
++			action := "copied"
++			if os.Getenv("CAVEMAN_BLOCKS_NIX_WRAPPER") != "" {
++				action = "linked"
++			}
++			fmt.Fprintf(out, "binary: %s (%s)\n", bin, either(changed, action, "unchanged"))

@@ -69,9 +69,15 @@ validate_pin_files() {
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
-    and (keys == ["cli", "licenses", "renovate", "runtime", "src", "version"])
+    and (keys == ["blocks", "cli", "licenses", "renovate", "runtime", "src", "version"])
     and (.renovate == "datasource=github-releases depName=JuliusBrussee/caveman")
     and (.version | type == "string" and length > 0)
+    and (.blocks | keys == ["src", "vendorHash", "version"])
+    and (.blocks.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"))
+    and (.blocks.src | keys == ["hash", "urlTemplate"])
+    and (.blocks.src.urlTemplate == "https://github.com/caveman-ai/blocks/archive/refs/tags/v{version}.tar.gz")
+    and (.blocks.src.hash | test($hash))
+    and (.blocks.vendorHash | test($hash))
     and (.cli | keys == ["hash", "urlTemplate"])
     and (.cli.hash | test($hash))
     and (.cli.urlTemplate == "https://registry.npmjs.org/@caveman-ai/cli/-/cli-{version}.tgz")
@@ -82,14 +88,14 @@ validate_pin_files() {
     and (.runtime.urlTemplate == "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}_{platform}")
     and (.runtime.hashes | keys == ["darwin_arm64", "linux_amd64", "linux_arm64"])
     and ([.runtime.hashes[] | keys == [
-      "caveman-blocks", "caveman-browse", "caveman-engine", "caveman-mcp",
+      "caveman-browse", "caveman-engine", "caveman-mcp",
       "caveman-proxy", "caveman-shrink", "cavemem"
     ]] | all)
     and ([.runtime.hashes[][] | test($hash)] | all)
     and (.licenses | keys == ["hashes", "urlTemplate"])
     and (.licenses.urlTemplate == "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}")
     and (.licenses.hashes | keys == [
-      "COPYRIGHT.musl", "LICENSE.caveman-blocks", "LICENSE.zig", "NOTICE.browse",
+      "COPYRIGHT.musl", "LICENSE.zig", "NOTICE.browse",
       "NOTICE.engine-pixel", "SPLEEN_LICENSE.txt", "THIRD_PARTY_GO_LICENSES.tar.gz",
       "UNIFONT_LICENSE.txt"
     ])
@@ -144,7 +150,7 @@ validate_effective_contract() {
   version=$(jq -r .version "$caveman")
   jq -e --slurpfile pin "$caveman" '
     .caveman.version == $pin[0].version
-    and (.caveman | keys == ["cli", "licenses", "runtime", "src", "version"])
+    and (.caveman | keys == ["blocks", "cli", "licenses", "runtime", "src", "version"])
     and (.caveman.licenses | keys) == ($pin[0].licenses.hashes | keys)
     and (.caveman.runtime | keys) == ($pin[0].runtime.hashes | keys)
   ' "$effective" >/dev/null || fail "Caveman effective version or source keys differ from its pin"
@@ -157,6 +163,14 @@ validate_effective_contract() {
       '.caveman[$key].hash == $pin[0][$key].hash' "$effective" >/dev/null \
       || fail "Caveman effective $key hash does not consume its pin"
   done
+  expected=$(render_url "$(jq -r .blocks.src.urlTemplate "$caveman")" "$(jq -r .blocks.version "$caveman")")
+  actual=$(jq -r .caveman.blocks.src.url "$effective")
+  [ "$actual" = "$expected" ] || fail "Blocks effective source URL does not consume its pin"
+  jq -e --slurpfile pin "$caveman" '
+    .caveman.blocks.version == $pin[0].blocks.version
+    and .caveman.blocks.src.hash == $pin[0].blocks.src.hash
+    and .caveman.blocks.vendorHash == $pin[0].blocks.vendorHash
+  ' "$effective" >/dev/null || fail "Blocks effective build metadata differs from its pin"
   template=$(jq -r .runtime.urlTemplate "$caveman")
   while IFS= read -r platform; do
     jq -e --arg platform "$platform" --slurpfile pin "$caveman" \
@@ -409,19 +423,30 @@ update_omp() {
 }
 
 update_caveman() {
-  local pin=$1 version template key url hash platform name
+  local pin=$1 version template key url hash platform name fetched source blocks_version blocks_hash
   version=$(jq -r .version "$pin")
   for key in cli src; do
     template=$(jq -r --arg key "$key" '.[$key].urlTemplate' "$pin")
     url=$(render_url "$template" "$version")
     if [ "$key" = src ]; then
-      hash=$(nix store prefetch-file --unpack --json "$url" | jq -r .hash)
+      fetched=$(nix store prefetch-file --unpack --json "$url")
+      hash=$(jq -r .hash <<< "$fetched")
+      source=$(jq -er .storePath <<< "$fetched")
     else
       hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
     fi
     [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman $key hash: $hash"
     set_json "$pin" --arg key "$key" --arg hash "$hash" '.[$key].hash = $hash'
   done
+  blocks_version=$(jq -Rser '
+    capture("^v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?) [0-9a-f]{64}\\n?$").version
+  ' "$source/packages/cli/BLOCKS_RELEASE") || fail "invalid upstream Blocks release"
+  url=$(render_url "$(jq -r .blocks.src.urlTemplate "$pin")" "$blocks_version")
+  blocks_hash=$(nix store prefetch-file --unpack --json "$url" | jq -r .hash)
+  [[ $blocks_hash =~ $HASH_PATTERN ]] || fail "invalid Blocks source hash"
+  hash=$(blocks_vendor_hash "$url" "$blocks_hash")
+  set_json "$pin" --arg version "$blocks_version" --arg source "$blocks_hash" --arg vendor "$hash" \
+    '.blocks.version = $version | .blocks.src.hash = $source | .blocks.vendorHash = $vendor'
   template=$(jq -r .runtime.urlTemplate "$pin")
   while IFS= read -r platform; do
     while IFS= read -r name; do
@@ -439,6 +464,42 @@ update_caveman() {
     [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman license hash for $name: $hash"
     set_json "$pin" --arg name "$name" --arg hash "$hash" '.licenses.hashes[$name] = $hash'
   done < <(jq -r '.licenses.hashes | keys[]' "$pin")
+}
+
+blocks_vendor_hash() {
+  local url=$1 source_hash=$2 log hash
+  log=$(mktemp)
+  if NIX_HASH_FIX_BLOCKS_URL="$url" NIX_HASH_FIX_BLOCKS_SOURCE_HASH="$source_hash" \
+    nix build --impure --no-link --expr '
+      let
+        flake = builtins.getFlake ("git+file://" + toString ./.);
+        pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+        src = pkgs.fetchzip {
+          url = builtins.getEnv "NIX_HASH_FIX_BLOCKS_URL";
+          hash = builtins.getEnv "NIX_HASH_FIX_BLOCKS_SOURCE_HASH";
+        };
+      in (pkgs.buildGoModule {
+        pname = "caveman-blocks";
+        version = "vendor";
+        inherit src;
+        vendorHash = pkgs.lib.fakeHash;
+      }).goModules
+    ' > /dev/null 2> "$log"; then
+    rm -f "$log"
+    fail "Blocks vendor fake-hash probe unexpectedly succeeded"
+  fi
+  if ! hash=$(jq -Rser '
+    . as $log
+    | [match("hash mismatch in fixed-output derivation \u0027[^\u0027\\n]*/[^/\u0027\\n]+-caveman-blocks-vendor-go-modules\\.drv\u0027:\\s+specified:\\s+sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\\s+got:\\s+(sha256-[A-Za-z0-9+/]{43}=)"; "g") | .captures[0].string]
+    | if length == 1 and ([$log | scan("got:\\s+sha256-[A-Za-z0-9+/=]+") ] | length) == 1
+      then .[0] else error("not a unique Blocks Go module fixed-output mismatch") end
+  ' "$log"); then
+    cat "$log" >&2
+    rm -f "$log"
+    fail "cannot determine Blocks vendor hash"
+  fi
+  rm -f "$log"
+  printf '%s\n' "$hash"
 }
 
 prime_bootstrap_packages() {

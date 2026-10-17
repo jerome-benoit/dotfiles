@@ -2,7 +2,7 @@
   lib,
   stdenvNoCC,
   makeWrapper,
-  python3,
+  callPackage,
   git,
   chromium,
   google-chrome,
@@ -19,6 +19,7 @@ let
     platforms.${stdenvNoCC.hostPlatform.system}
       or (throw "Caveman runtime is unsupported on ${stdenvNoCC.hostPlatform.system}");
   binaries = pins.runtime.${platform};
+  blocks = callPackage ./blocks.nix { pins = pins.blocks; };
   browserExecutable =
     if stdenvNoCC.hostPlatform.isDarwin then
       "${google-chrome}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -41,6 +42,7 @@ stdenvNoCC.mkDerivation {
         install -m755 ${binary} "$out/bin/${name}"
       '') binaries
     )}
+    ln -s ${blocks}/bin/caveman-blocks "$out/bin/caveman-blocks"
     for name in LICENSE LICENSE-MIT LICENSING.md NOTICE; do
       install -m644 "${pins.src}/$name" "$out/share/licenses/caveman-runtime/$name"
     done
@@ -51,16 +53,6 @@ stdenvNoCC.mkDerivation {
     )}
     wrapProgram "$out/bin/caveman-proxy" \
       --prefix PATH : ${lib.makeBinPath [ git ]}
-    # Blocks executes Python scripts, checking for Python >= 3.10 on PATH.
-    wrapProgram "$out/bin/caveman-blocks" \
-      --prefix PATH : ${
-        lib.makeBinPath [
-          python3
-          git
-        ]
-      } \
-      --set-default DO_NOT_TRACK 1 \
-      --set-default CAVEMAN_TELEMETRY 0
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \
       --set-default CAVEMAN_BROWSE_CHROME ${lib.escapeShellArg browserExecutable}

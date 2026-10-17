@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -32,12 +34,12 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
         "TERM": "dumb",
     }
 
-    def run(binary, *arguments, data=None, check=True):
+    def run(binary, *arguments, data=None, check=True, cwd=None):
         result = subprocess.run(
             [str(package / "bin" / binary), *arguments],
             input=data,
             env=env,
-            cwd=root,
+            cwd=cwd or root,
             capture_output=True,
             timeout=30,
         )
@@ -143,4 +145,66 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert evidence["without_commit"]["tokens"] == 80000, evidence
     assert evidence["without_commit_token_share_pct"] == 50, evidence
 
-print("Caveman: managed installs refused; CLI/MCP recovery, TOON and standalone proxy commit analysis passed")
+    # Execute the command actually registered for the harness. A copied native
+    # executable loses Git and writes its events under a different repository id.
+    settings = home / ".claude/settings.json"
+    foreign_hook = {"matcher": "Read", "hooks": [{"type": "command", "command": "echo preserve"}]}
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [foreign_hook]}}))
+    stable_hook = home / ".local/share/caveman-blocks/bin/caveman-blocks"
+    run("caveman-blocks", "init", cwd=repo)
+    assert not stable_hook.exists(), "init must not install a hook"
+    run("caveman-blocks", "hooks", "install", "--harness", "claude-code", cwd=repo)
+    configured = json.loads(settings.read_text())
+    assert foreign_hook in configured["hooks"]["PreToolUse"], configured
+    commands = [
+        hook["command"]
+        for group in configured["hooks"]["PreToolUse"]
+        for hook in group["hooks"]
+        if "caveman-blocks" in hook["command"]
+    ]
+    hook_command = shlex.split(commands[0])
+
+    def send_event(index):
+        event = {
+            "session_id": "fixture-session",
+            "tool_use_id": f"fixture-call-{index}",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "cwd": str(repo),
+            "tool_input": {"command": f"caveman-blocks run json-peek --path sample-{index}.json"},
+        }
+        run(hook_command[0], *hook_command[1:], data=json.dumps(event).encode(), cwd=repo)
+
+    def assert_recorded_calls(count):
+        stats = run("caveman-blocks", "stats", cwd=repo).stdout.decode()
+        assert int(re.search(r"^sessions seen\s+(\d+)", stats, re.M)[1]) == 1, stats
+        assert int(re.search(r"^block calls\s+(\d+)", stats, re.M)[1]) == count, stats
+
+    send_event(1)
+    assert_recorded_calls(1)
+    run("caveman-blocks", "hooks", "install", "--harness", "claude-code", cwd=repo)
+    assert_recorded_calls(1)
+
+    # Seed upstream's same-version raw copy, then refresh through the wrapper.
+    native_blocks = (package / "bin/caveman-blocks").resolve().with_name(".caveman-blocks-wrapped")
+    stable_hook.unlink()
+    run(str(native_blocks), "hooks", "install", "--harness", "claude-code", cwd=repo)
+    assert not stable_hook.is_symlink()
+    run("caveman-blocks", "doctor", cwd=repo)
+    send_event(2)
+    assert_recorded_calls(2)
+
+    # Explicit refresh repairs a collected generation; read-only sync must not.
+    stable_hook.unlink()
+    missing_target = str(root / "removed-generation/bin/caveman-blocks")
+    stable_hook.symlink_to(missing_target)
+    run("caveman-blocks", "sync", "--check", cwd=repo, check=False)
+    assert os.readlink(stable_hook) == missing_target
+    run("caveman-blocks", "doctor", cwd=repo)
+    send_event(3)
+    assert_recorded_calls(3)
+    run("caveman-blocks", "hooks", "uninstall", "--harness", "claude-code", cwd=repo)
+    assert json.loads(settings.read_text())["hooks"]["PreToolUse"] == [foreign_hook]
+    assert_recorded_calls(3)
+
+print("Caveman: ownership, recovery, proxy analysis and installed Blocks hook state checks passed")

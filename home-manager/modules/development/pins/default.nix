@@ -31,6 +31,13 @@ assert
 {
   caveman = {
     inherit (cavemanData) version;
+    blocks = {
+      inherit (cavemanData.blocks) version vendorHash;
+      src = fetchzip {
+        url = renderVersion cavemanData.blocks.src.urlTemplate cavemanData.blocks.version;
+        hash = cavemanData.blocks.src.hash;
+      };
+    };
     cli = fetchurl {
       url = renderVersion cavemanData.cli.urlTemplate cavemanData.version;
       hash = cavemanData.cli.hash;
