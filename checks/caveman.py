@@ -1,5 +1,6 @@
 """Exercise the installed CLI, shared recovery store and Nix ownership boundary."""
 
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import tempfile
 
 
 package = Path(sys.argv[1])
+git = sys.argv[2]
 
 with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     root = Path(temporary)
@@ -87,4 +89,58 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     decoded = run("caveman-engine", "toon", "decode", data=encoded).stdout
     assert json.loads(decoded) == document
 
-print("Caveman: managed installs refused; CLI/engine/MCP byte-exact recovery and TOON round trip passed")
+    # A standalone proxy must retain commit-based analysis without Git on the
+    # caller's PATH. Only fixture preparation receives an absolute Git path.
+    repo = root / "repo"
+    repo.mkdir()
+    first = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=2)
+    second = first + timedelta(days=1)
+
+    def timestamp(value):
+        return value.isoformat().replace("+00:00", "Z")
+
+    def fixture_git(*arguments, dates=None):
+        subprocess.run(
+            [git, "-c", "core.hooksPath=/dev/null", *arguments],
+            env={**env, "GIT_CONFIG_NOSYSTEM": "1", **(dates or {})},
+            cwd=repo,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+
+    fixture_git("-c", "init.defaultBranch=main", "init", ".")
+    fixture_git(
+        "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "--allow-empty", "-m", "Fixture",
+        dates={"GIT_AUTHOR_DATE": timestamp(first), "GIT_COMMITTER_DATE": timestamp(first)},
+    )
+    sessions = home / ".claude/projects/fixture"
+    sessions.mkdir(parents=True)
+    for index in range(8):
+        record = {
+            "type": "assistant",
+            "cwd": str(repo),
+            "timestamp": timestamp(first if index < 4 else second),
+            "message": {
+                "id": f"fixture-{index}",
+                "model": "claude-sonnet-4",
+                "usage": {"input_tokens": 20000},
+            },
+        }
+        (sessions / f"session-{index}.jsonl").write_text(json.dumps(record) + "\n")
+    plan = json.loads(run(
+        "caveman-proxy", "learn", "scan", "--sources", "claude",
+        "--since", "30d", "--no-remember",
+    ).stdout)
+    assert plan["sessions_by_source"]["claude"] == 8, plan
+    outcome = next(sink for sink in plan["sinks"] if sink["sink_id"] == "session_outcomes")
+    evidence = outcome["evidence"]
+    assert evidence["repositories_measured"] == 1, evidence
+    assert evidence["sessions_measured"] == 8, evidence
+    assert evidence["with_commit"]["sessions"] == 4, evidence
+    assert evidence["without_commit"]["sessions"] == 4, evidence
+    assert evidence["without_commit"]["tokens"] == 80000, evidence
+    assert evidence["without_commit_token_share_pct"] == 50, evidence
+
+print("Caveman: managed installs refused; CLI/MCP recovery, TOON and standalone proxy commit analysis passed")

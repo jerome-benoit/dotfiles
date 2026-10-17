@@ -49,6 +49,8 @@ stdenvNoCC.mkDerivation {
         install -m644 ${license} "$out/share/licenses/caveman-runtime/${name}"
       '') pins.licenses
     )}
+    wrapProgram "$out/bin/caveman-proxy" \
+      --prefix PATH : ${lib.makeBinPath [ git ]}
     # Blocks executes Python scripts, checking for Python >= 3.10 on PATH.
     wrapProgram "$out/bin/caveman-blocks" \
       --prefix PATH : ${

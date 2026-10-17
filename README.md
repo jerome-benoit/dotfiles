@@ -58,9 +58,11 @@ tool output and should be treated as sensitive.
 
 CLI and Blocks wrappers default telemetry off. Cloud login and Auto routing
 remain upstream opt-in actions; telemetry opt-out is not a routing opt-out.
-`caveman update`, `setup --install`, and internal executable installers refuse
-to create a second installation outside Nix. Versions, binaries, and license
-hashes are maintained together through
+`caveman update`, `setup --install`, and the CLI's internal executable installers
+refuse to create a second installation outside Nix. Explicit manual Blocks hook
+integration retains upstream's executable-copy and refresh mechanism; the CLI
+guards do not govern it. Versions, binaries, and license hashes are maintained
+together through
 `home-manager/modules/development/pins/caveman.json` and the existing Renovate
 hash-update workflow.
 
