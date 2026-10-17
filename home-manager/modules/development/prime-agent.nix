@@ -187,6 +187,7 @@ let
         # runtime smoke checks exercise this build's immutable Nix ownership.
         preCheck = ''
           unset PRIME_AGENT_NIX_MANAGED
+          export NO_COLOR=1
         '';
         cargoBuildFlags = [
           "-p"
