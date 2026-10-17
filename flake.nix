@@ -205,6 +205,10 @@
 
       devShells.x86_64-linux.strata = inputs.strata.devShells.x86_64-linux.default;
 
+      packages = forAllSystems (arch: {
+        caveman = (mkPkgs arch).callPackage ./home-manager/modules/development/caveman/package.nix { };
+      });
+
       formatter = forAllSystems (
         arch:
         let

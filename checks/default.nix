@@ -6,6 +6,10 @@
   sops-nix,
 }:
 {
+  caveman = import ./caveman.nix {
+    inherit pkgs;
+    package = self.packages.${pkgs.stdenv.hostPlatform.system}.caveman;
+  };
   ci-contract = import ./ci-contract.nix {
     inherit
       home-manager

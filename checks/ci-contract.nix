@@ -160,6 +160,15 @@ let
     );
 
   effectiveContract = {
+    caveman = {
+      inherit (sources.caveman)
+        version
+        cli
+        src
+        runtime
+        licenses
+        ;
+    };
     omp = {
       inherit (sources.omp) version sources;
     };
@@ -199,6 +208,25 @@ let
   updateTestBootstrap = lib.concatMapStringsSep "\n" (
     dependency: ''("${dependency}", "${dependency}", "${dependency}"),''
   ) updateTestRlmExtraPackages;
+  updateTestCavemanRuntime = lib.mapAttrs (
+    platform:
+    lib.mapAttrs (
+      name: _source:
+      builtins.convertHash {
+        hash = builtins.hashString "sha256" "${name}_${platform}";
+        hashAlgo = "sha256";
+        toHashFormat = "sri";
+      }
+    )
+  ) sources.caveman.runtime;
+  updateTestCavemanLicenses = lib.mapAttrs (
+    name: _source:
+    builtins.convertHash {
+      hash = builtins.hashString "sha256" name;
+      hashAlgo = "sha256";
+      toHashFormat = "sri";
+    }
+  ) sources.caveman.licenses;
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
     if [ "$#" -eq 5 ] && [ "$1" = store ] && [ "$2" = prefetch-file ] \
@@ -210,6 +238,9 @@ let
           ;;
         "${sources.primeAgent.bundledCatalogs.url}")
           hash=sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM=
+          ;;
+        "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v9.9.9.tar.gz")
+          hash=sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS=
           ;;
         *)
           echo "unexpected unpacked prefetch URL:$5" >&2
@@ -228,6 +259,36 @@ let
         "https://github.com/can1357/oh-my-pi/releases/download/v9.9.9/omp-linux-x64")
           hash=sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=
           ;;
+        "https://registry.npmjs.org/@caveman-ai/cli/-/cli-9.9.9.tgz")
+          hash=sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN=
+          ;;
+        ${lib.concatStringsSep "\n" (
+          lib.mapAttrsToList (
+            platform: binaries:
+            lib.concatStringsSep "\n" (
+              lib.mapAttrsToList (name: hash: ''
+                "https://github.com/JuliusBrussee/caveman/releases/download/bin-v9.9.9/${name}_${platform}")
+                  if [ -n "''${MOCK_CAVEMAN_MISSING:-}" ]; then
+                    echo "missing Caveman release asset" >&2
+                    exit 1
+                  fi
+                  hash=${lib.escapeShellArg hash}
+                  ;;
+              '') binaries
+            )
+          ) updateTestCavemanRuntime
+        )}
+        ${lib.concatStringsSep "\n" (
+          lib.mapAttrsToList (name: hash: ''
+            "https://github.com/JuliusBrussee/caveman/releases/download/bin-v9.9.9/${name}")
+              if [ -n "''${MOCK_CAVEMAN_LICENSE_MISSING:-}" ]; then
+                echo "missing Caveman license asset" >&2
+                exit 1
+              fi
+              hash=${lib.escapeShellArg hash}
+              ;;
+          '') updateTestCavemanLicenses
+        )}
         *)
           echo "unexpected flat prefetch URL:$4" >&2
           exit 1
@@ -422,6 +483,7 @@ pkgs.runCommandLocal "check-ci-contract"
 
     ompPin=home-manager/modules/development/pins/omp.json
     primePin=home-manager/modules/development/pins/prime-agent.json
+    cavemanPin=home-manager/modules/development/pins/caveman.json
     primeFixture="$TMPDIR/prime-source/prime-agent-9.9.9"
     mkdir -p "$primeFixture/prime-agent-runtime" "$primeFixture/crates/pa-core/src/kernel/bootstrap/venv"
     printf '%s\n' '[workspace]' 'members = []' > "$primeFixture/Cargo.toml"
@@ -468,6 +530,7 @@ pkgs.runCommandLocal "check-ci-contract"
     git push --quiet origin HEAD:main
     git switch --quiet renovate/ci-contract
     cp "$primePin" "$TMPDIR/branch-prime.json"
+    cp "$cavemanPin" "$TMPDIR/branch-caveman.json"
 
     jq '.version = "9.9.9"' "$ompPin" > "$TMPDIR/pin.json"
     mv "$TMPDIR/pin.json" "$ompPin"
@@ -479,6 +542,7 @@ pkgs.runCommandLocal "check-ci-contract"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     cmp "$TMPDIR/branch-prime.json" "$primePin"
+    cmp "$TMPDIR/branch-caveman.json" "$cavemanPin"
     cp "$ompPin" "$TMPDIR/updated-omp.json"
 
     base=$(git rev-parse HEAD)
@@ -492,6 +556,7 @@ pkgs.runCommandLocal "check-ci-contract"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
     cmp "$TMPDIR/updated-omp.json" "$ompPin"
+    cmp "$TMPDIR/branch-caveman.json" "$cavemanPin"
     jq -e '
       .python.httpcore2.version == "20.0.1"
       and .python.httpx2.version == "20.0.2"
@@ -509,6 +574,51 @@ pkgs.runCommandLocal "check-ci-contract"
     test "$(git rev-parse HEAD)" = "$before"
     assert_tracked_clean
     assert_remote_unchanged "$remoteBefore"
+
+    cp "$primePin" "$TMPDIR/updated-prime.json"
+    cavemanBase=$(git rev-parse HEAD)
+    jq '.version = "9.9.9"' "$cavemanPin" > "$TMPDIR/pin.json"
+    mv "$TMPDIR/pin.json" "$cavemanPin"
+    git add "$cavemanPin"
+    git commit --quiet -m "renovate: bump Caveman"
+    cp "$cavemanPin" "$TMPDIR/pending-caveman.json"
+    before=$(git rev-parse HEAD)
+    remoteBefore=$(remote_head)
+    if MOCK_CAVEMAN_MISSING=1 bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
+      > "$TMPDIR/caveman-error.log" 2>&1; then
+      echo "update accepted a missing Caveman runtime asset" >&2
+      exit 1
+    fi
+    grep -Fq "missing Caveman release asset" "$TMPDIR/caveman-error.log"
+    test "$(git rev-parse HEAD)" = "$before"
+    cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
+    assert_tracked_clean
+    assert_remote_unchanged "$remoteBefore"
+    if MOCK_CAVEMAN_LICENSE_MISSING=1 bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
+      > "$TMPDIR/caveman-license-error.log" 2>&1; then
+      echo "update accepted a missing Caveman license asset" >&2
+      exit 1
+    fi
+    grep -Fq "missing Caveman license asset" "$TMPDIR/caveman-license-error.log"
+    test "$(git rev-parse HEAD)" = "$before"
+    cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
+    assert_tracked_clean
+    assert_remote_unchanged "$remoteBefore"
+    bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase"
+    assert_remote_unchanged "$remoteBefore"
+    push_fixture_head
+    test "$(git rev-list --count "$cavemanBase"..HEAD)" -eq 2
+    cmp "$TMPDIR/updated-omp.json" "$ompPin"
+    cmp "$TMPDIR/updated-prime.json" "$primePin"
+    jq -e --argjson runtime ${lib.escapeShellArg (builtins.toJSON updateTestCavemanRuntime)} \
+      --argjson licenses ${lib.escapeShellArg (builtins.toJSON updateTestCavemanLicenses)} '
+      .version == "9.9.9"
+      and .cli.hash == "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN="
+      and .src.hash == "sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS="
+      and .runtime.hashes == $runtime
+      and .licenses.hashes == $licenses
+    ' "$cavemanPin" >/dev/null
+    assert_tracked_clean
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.10"' "$primePin" > "$TMPDIR/prime-agent.json"
     mv "$TMPDIR/prime-agent.json" "$primePin"

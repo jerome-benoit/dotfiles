@@ -29,6 +29,7 @@ let
         enableWeb = true;
       };
       bun = true;
+      caveman = true;
       ccusage = true;
       claudeCode = true;
       colibri = true;
@@ -101,6 +102,7 @@ let
         enableWeb = false;
       };
       bun = false;
+      caveman = false;
       ccusage = false;
       claudeCode = false;
       colibri = true;

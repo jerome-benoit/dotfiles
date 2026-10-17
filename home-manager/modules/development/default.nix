@@ -3,6 +3,7 @@
     ./agtx.nix
     ./aoe.nix
     ./bun.nix
+    ./caveman.nix
     ./ccusage.nix
     ./claude-code.nix
     ./colibri.nix
