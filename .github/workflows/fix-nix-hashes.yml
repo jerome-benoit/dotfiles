@@ -4,7 +4,6 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "home-manager/modules/development/pins/pi.json"
       - "home-manager/modules/development/pins/omp.json"
       - "home-manager/modules/development/pins/prime-agent.json"
 
@@ -35,11 +34,6 @@ jobs:
           github_access_token: ""
           nix_conf: |
             extra-experimental-features = nix-command flakes
-
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: '24'
 
       - name: Fix Nix hashes
         env:

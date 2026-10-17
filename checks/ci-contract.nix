@@ -46,7 +46,6 @@ let
       pkgs = import nixpkgs { inherit system; };
       modules = [
         ../home-manager/modules/core/lib.nix
-        ../home-manager/modules/development/pi.nix
         ../home-manager/modules/development/omp.nix
         ../home-manager/modules/development/prime-agent.nix
         {
@@ -62,16 +61,13 @@ let
   consumerPackages = lib.genAttrs consumerSystems (
     system:
     let
-      piConfig = (mkConsumer system "pi").config;
       ompConfig = (mkConsumer system "omp").config;
       primeAgentConfig = (mkConsumer system "primeAgent").config;
     in
     {
-      pi = piConfig.modules.development.pi.package;
       omp = ompConfig.modules.development.omp.package;
       primeAgent = primeAgentConfig.modules.development.primeAgent.package;
       installed = {
-        inherit (piConfig.home) packages;
         omp = ompConfig.home.packages;
         primeAgent = primeAgentConfig.home.packages;
       };
@@ -82,7 +78,6 @@ let
     system:
     let
       packages = consumerPackages.${system};
-      piPackage = packages.pi;
       ompPackage = packages.omp;
       primeAgentPackage = packages.primeAgent;
       expectedKernelNames = lib.sort builtins.lessThan (
@@ -140,18 +135,10 @@ let
         && actual.src.outputHash == expected.src.hash;
       message = detail: "ci-contract (${system}): ${detail}";
     in
-    lib.assertMsg (piPackage.version == sources.pi.version) (
-      message "pi.nix ignores the pinned version"
-    )
-    && lib.assertMsg (
-      builtins.elem piPackage packages.installed.packages
-      && builtins.elem ompPackage packages.installed.omp
+    lib.assertMsg (
+      builtins.elem ompPackage packages.installed.omp
       && builtins.elem primeAgentPackage packages.installed.primeAgent
     ) (message "an enabled development module does not install its configured package")
-    && lib.assertMsg (
-      builtins.hashFile "sha256" piPackage.contractLockFile
-      == builtins.hashFile "sha256" sources.pi.lockFile
-    ) (message "pi.nix does not consume the pinned lock")
     && lib.assertMsg (ompPackage.version == sources.omp.version) (
       message "omp.nix ignores the pinned version"
     )
@@ -173,14 +160,6 @@ let
     );
 
   effectiveContract = {
-    pi = {
-      inherit (sources.pi)
-        version
-        src
-        npmDepsHash
-        ;
-      lockFile = sources.pi.lockFileName;
-    };
     omp = {
       inherit (sources.omp) version sources;
     };
@@ -222,17 +201,9 @@ let
   ) updateTestRlmExtraPackages;
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
-    if [ "$#" -eq 6 ] && [ "$1" = run ] \
-      && [ "$2" = --inputs-from ] && [ "$3" = "$MOCK_FLAKE_ROOT" ] \
-      && [ "$4" = "nixpkgs#prefetch-npm-deps" ] && [ "$5" = -- ] \
-      && [ "$6" = ./package-lock.json ]; then
-      hash=sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
-    elif [ "$#" -eq 5 ] && [ "$1" = store ] && [ "$2" = prefetch-file ] \
+    if [ "$#" -eq 5 ] && [ "$1" = store ] && [ "$2" = prefetch-file ] \
       && [ "$3" = --unpack ] && [ "$4" = --json ]; then
       case "$5" in
-        "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz")
-          hash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-          ;;
         file://* | "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.9.tar.gz" | \
           "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v9.9.10.tar.gz")
           hash=sha256-PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP=
@@ -305,11 +276,7 @@ let
       echo "unexpected nix invocation:$invocation" >&2
       exit 1
     fi
-    if [ "$1" = run ]; then
-      printf '%s\n' "$hash"
-    else
-      printf '{"hash":"%s"}\n' "$hash"
-    fi
+    printf '{"hash":"%s"}\n' "$hash"
   '';
   updateTestCurl = pkgs.writeShellScriptBin "curl" ''
     set -euo pipefail
@@ -347,35 +314,10 @@ let
           exit 1
           ;;
       esac
-    elif [ "$#" -eq 2 ] && [ "$1" = -sfSL ] \
-      && [ "$2" = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-9.9.9.tgz" ]; then
-      cat "$MOCK_PI_TARBALL"
     else
       echo "unexpected curl invocation:$*" >&2
       exit 1
     fi
-  '';
-  updateTestNpm = pkgs.writeShellScriptBin "npm" ''
-    set -euo pipefail
-    if [ "$#" -ne 5 ] || [ "$1" != install ] || [ "$2" != --package-lock-only ] \
-      || [ "$3" != --ignore-scripts ] || [ "$4" != --no-audit ] || [ "$5" != --no-fund ]; then
-      echo "unexpected npm invocation: $*" >&2
-      exit 1
-    fi
-    if [ ! -f package.json ]; then
-      echo "npm fixture requires an extracted package.json" >&2
-      exit 1
-    fi
-    name=$(jq -er '.name | select(type == "string" and length > 0)' package.json) \
-      || {
-        echo "npm fixture package.json requires a name" >&2
-        exit 1
-      }
-    jq -n --arg name "$name" '{
-      name: $name,
-      lockfileVersion: 3,
-      packages: {"": {name: $name}}
-    }' > package-lock.json
   '';
 in
 assert
@@ -478,13 +420,8 @@ pkgs.runCommandLocal "check-ci-contract"
     assert_tracked_clean
     assert_remote_head
 
-    piPin=home-manager/modules/development/pins/pi.json
     ompPin=home-manager/modules/development/pins/omp.json
     primePin=home-manager/modules/development/pins/prime-agent.json
-    mkdir -p "$TMPDIR/pi-source/package"
-    printf '%s\n' '{"name":"pi-contract-fixture"}' > "$TMPDIR/pi-source/package/package.json"
-    tar czf "$TMPDIR/pi-source.tgz" -C "$TMPDIR/pi-source" package
-    export MOCK_PI_TARBALL="$TMPDIR/pi-source.tgz"
     primeFixture="$TMPDIR/prime-source/prime-agent-9.9.9"
     mkdir -p "$primeFixture/prime-agent-runtime" "$primeFixture/crates/pa-core/src/kernel/bootstrap/venv"
     printf '%s\n' '[workspace]' 'members = []' > "$primeFixture/Cargo.toml"
@@ -520,50 +457,27 @@ pkgs.runCommandLocal "check-ci-contract"
     EOF
     tar czf "$TMPDIR/prime-source.tgz" -C "$TMPDIR/prime-source" prime-agent-9.9.9
     export MOCK_PRIME_TARBALL="$TMPDIR/prime-source.tgz"
-    export PATH="${updateTestNix}/bin:${updateTestCurl}/bin:${updateTestNpm}/bin:$PATH"
+    export PATH="${updateTestNix}/bin:${updateTestCurl}/bin:$PATH"
     export MOCK_FLAKE_ROOT="$fixture"
 
     git switch --quiet -c main "$base"
-    jq '.version = "9.9.10"' "$ompPin" > "$TMPDIR/base-omp.json"
-    mv "$TMPDIR/base-omp.json" "$ompPin"
-    git add "$ompPin"
-    git commit --quiet -m "main: advance OMP independently"
+    jq '.version = "9.9.10"' "$primePin" > "$TMPDIR/base-prime.json"
+    mv "$TMPDIR/base-prime.json" "$primePin"
+    git add "$primePin"
+    git commit --quiet -m "main: advance Prime Agent independently"
     git push --quiet origin HEAD:main
     git switch --quiet renovate/ci-contract
-    cp "$ompPin" "$TMPDIR/branch-omp.json"
     cp "$primePin" "$TMPDIR/branch-prime.json"
 
-    jq '.version = "9.9.9"' "$piPin" > "$TMPDIR/pin.json"
-    mv "$TMPDIR/pin.json" "$piPin"
-    git add "$piPin"
-    git commit --quiet -m "renovate: bump Pi"
-    remoteBefore=$(remote_head)
-    bash ${self}/scripts/fix-nix-hashes.sh update origin/main
-    assert_remote_unchanged "$remoteBefore"
-    push_fixture_head
-    test "$(git rev-list --count "$base"..HEAD)" -eq 2
-    jq -e '
-      .name == "pi-contract-fixture"
-      and .lockfileVersion == 3
-      and .packages[""].name == "pi-contract-fixture"
-    ' home-manager/modules/development/pi-package-lock.json >/dev/null
-    cmp "$TMPDIR/branch-omp.json" "$ompPin"
-    cmp "$TMPDIR/branch-prime.json" "$primePin"
-    cp "$piPin" "$TMPDIR/updated-pi.json"
-    cp home-manager/modules/development/pi-package-lock.json "$TMPDIR/updated-pi-lock.json"
-
-    base=$(git rev-parse HEAD)
     jq '.version = "9.9.9"' "$ompPin" > "$TMPDIR/pin.json"
     mv "$TMPDIR/pin.json" "$ompPin"
     git add "$ompPin"
     git commit --quiet -m "renovate: bump OMP"
     remoteBefore=$(remote_head)
-    bash ${self}/scripts/fix-nix-hashes.sh update "$base"
+    bash ${self}/scripts/fix-nix-hashes.sh update origin/main
     assert_remote_unchanged "$remoteBefore"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
-    cmp "$TMPDIR/updated-pi.json" "$piPin"
-    cmp "$TMPDIR/updated-pi-lock.json" home-manager/modules/development/pi-package-lock.json
     cmp "$TMPDIR/branch-prime.json" "$primePin"
     cp "$ompPin" "$TMPDIR/updated-omp.json"
 
@@ -577,8 +491,6 @@ pkgs.runCommandLocal "check-ci-contract"
     assert_remote_unchanged "$remoteBefore"
     push_fixture_head
     test "$(git rev-list --count "$base"..HEAD)" -eq 2
-    cmp "$TMPDIR/updated-pi.json" "$piPin"
-    cmp "$TMPDIR/updated-pi-lock.json" home-manager/modules/development/pi-package-lock.json
     cmp "$TMPDIR/updated-omp.json" "$ompPin"
     jq -e '
       .python.httpcore2.version == "20.0.1"

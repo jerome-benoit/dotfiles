@@ -2,14 +2,12 @@
 set -euo pipefail
 
 PIN_DIR_REL=home-manager/modules/development/pins
-PI_PIN_REL=$PIN_DIR_REL/pi.json
 OMP_PIN_REL=$PIN_DIR_REL/omp.json
 PRIME_PIN_REL=$PIN_DIR_REL/prime-agent.json
-PI_LOCK_REL=home-manager/modules/development/pi-package-lock.json
 FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
 
-PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(pi|omp|prime-agent)\.json$/'
+PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(omp|prime-agent)\.json$/'
 PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"[^{]*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
 VERSIONING_TEMPLATE='{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}'
 HASH_PATTERN='^sha256-[A-Za-z0-9+/=]+$'
@@ -31,22 +29,7 @@ render_url() {
 }
 
 validate_pin_files() {
-  local pi=$1 omp=$2 prime=$3 expected_lock_rel
-
-  jq -e --arg hash "$HASH_PATTERN" '
-    type == "object"
-    and (keys == ["lockFile", "npmDepsHash", "renovate", "src", "version"])
-    and (.renovate == "datasource=npm depName=@earendil-works/pi-coding-agent")
-    and (.version | type == "string" and length > 0)
-    and (.lockFile == "pi-package-lock.json")
-    and (.npmDepsHash | test($hash))
-    and (.src | keys == ["hash", "urlTemplate"])
-    and (.src.hash | test($hash))
-    and (.src.urlTemplate == "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-{version}.tgz")
-  ' "$pi" >/dev/null || fail "invalid Pi pin contract"
-  expected_lock_rel=${PIN_DIR_REL%/pins}/$(jq -r .lockFile "$pi")
-  [ "$PI_LOCK_REL" = "$expected_lock_rel" ] \
-    || fail "Pi updater lock destination differs from the effective module lock"
+  local omp=$1 prime=$2
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
@@ -84,20 +67,8 @@ validate_pin_files() {
 
 validate_effective_contract() {
   local root=$1 effective=$2
-  local pi=$root/$PI_PIN_REL omp=$root/$OMP_PIN_REL prime=$root/$PRIME_PIN_REL
+  local omp=$root/$OMP_PIN_REL prime=$root/$PRIME_PIN_REL
   local version template key expected actual
-
-  version=$(jq -r .version "$pi")
-  template=$(jq -r .src.urlTemplate "$pi")
-  expected=$(render_url "$template" "$version")
-  actual=$(jq -r .pi.src.url "$effective")
-  [ "$actual" = "$expected" ] || fail "Pi effective source URL does not consume its pin"
-  jq -e --slurpfile pin "$pi" '
-    .pi.version == $pin[0].version
-    and .pi.src.hash == $pin[0].src.hash
-    and .pi.npmDepsHash == $pin[0].npmDepsHash
-    and .pi.lockFile == $pin[0].lockFile
-  ' "$effective" >/dev/null || fail "Pi effective values do not consume their pin"
 
   version=$(jq -r .version "$omp")
   jq -e --slurpfile pin "$omp" \
@@ -155,20 +126,18 @@ validate_workflows() {
   local root=$1
   local fix=$root/$FIX_WORKFLOW_REL check=$root/$CHECK_WORKFLOW_REL
   local expected_paths actual condition run base_ref push_run
-  local fix_checkout fix_nix fix_node check_checkout check_disk check_nix check_cache
+  local fix_checkout fix_nix check_checkout check_disk check_nix check_cache
 
   actionlint "$fix" "$check"
 
-  [ "$(yq -r '[.jobs.fix-hashes.steps[] | select(has("uses"))] | length' "$fix")" -eq 3 ] \
-    || fail "fix workflow must use exactly three actions"
+  [ "$(yq -r '[.jobs.fix-hashes.steps[] | select(has("uses"))] | length' "$fix")" -eq 2 ] \
+    || fail "fix workflow must use exactly two actions"
   fix_checkout=$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/checkout@")) | .uses' "$fix")
   fix_nix=$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^nixbuild/nix-quick-install-action@")) | .uses' "$fix")
-  fix_node=$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/setup-node@")) | .uses' "$fix")
   validate_action_ref "$fix_checkout" actions/checkout
   validate_action_ref "$fix_nix" nixbuild/nix-quick-install-action
-  validate_action_ref "$fix_node" actions/setup-node
 
-  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PI_PIN_REL" "$PRIME_PIN_REL" | LC_ALL=C sort)
+  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PRIME_PIN_REL" | LC_ALL=C sort)
   actual=$(sorted_workflow_paths "$fix" '.on.pull_request.paths[]')
   [ "$actual" = "$expected_paths" ] || fail "fix workflow paths do not match dependency inputs"
   [ "$(yq -r '.on.pull_request.branches[]' "$fix")" = main ] \
@@ -188,8 +157,6 @@ validate_workflows() {
   [ -n "$fix_nix" ] || fail "fix workflow must install Nix"
   [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^nixbuild/nix-quick-install-action@")) | .with.github_access_token' "$fix")" = "" ] \
     || fail "fix workflow Nix installer must not persist the GitHub token"
-  [ "$(yq -r '.jobs.fix-hashes.steps[] | select(.uses | test("^actions/setup-node@")) | .with.node-version' "$fix")" = 24 ] \
-    || fail "fix workflow must install Node.js 24"
 
   run=$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Fix Nix hashes") | .run' "$fix")
   base_ref=$(yq -r '.jobs.fix-hashes.steps[] | select(.name == "Fix Nix hashes") | .env.BASE_REF' "$fix")
@@ -268,7 +235,6 @@ validate_renovate() {
 
   tmp=$(mktemp -d)
   mkdir -p "$tmp/$PIN_DIR_REL"
-  cp "$root/$PI_PIN_REL" "$tmp/$PI_PIN_REL"
   cp "$root/$OMP_PIN_REL" "$tmp/$OMP_PIN_REL"
   cp "$root/$PRIME_PIN_REL" "$tmp/$PRIME_PIN_REL"
   cp "$config" "$tmp/renovate.json"
@@ -279,7 +245,6 @@ validate_renovate() {
   )
   jq -s -e \
     --arg ompVersion "$(jq -r .version "$root/$OMP_PIN_REL")" \
-    --arg piVersion "$(jq -r .version "$root/$PI_PIN_REL")" \
     --arg primeVersion "$(jq -r .version "$root/$PRIME_PIN_REL")" '
       [
         .[]
@@ -305,13 +270,6 @@ validate_renovate() {
           versioning: "semver"
         },
         {
-          packageFile: "home-manager/modules/development/pins/pi.json",
-          datasource: "npm",
-          depName: "@earendil-works/pi-coding-agent",
-          currentValue: $piVersion,
-          versioning: "semver"
-        },
-        {
           packageFile: "home-manager/modules/development/pins/prime-agent.json",
           datasource: "github-releases",
           depName: "PrimeIntellect-ai/prime-agent",
@@ -330,7 +288,7 @@ validate_contract() {
   require_command renovate
   require_command renovate-config-validator
   require_command yq
-  validate_pin_files "$root/$PI_PIN_REL" "$root/$OMP_PIN_REL" "$root/$PRIME_PIN_REL"
+  validate_pin_files "$root/$OMP_PIN_REL" "$root/$PRIME_PIN_REL"
   validate_effective_contract "$root" "$effective"
   validate_workflows "$root"
   validate_renovate "$root"
@@ -354,30 +312,6 @@ path_changed_since() {
     status=$?
   fi
   [ "$status" -eq 1 ] || fail "cannot compare $path between $commit and HEAD"
-}
-
-update_pi() {
-  local root=$1 pin=$2 lock_output=$3
-  local version template url fetch_hash workdir npm_hash
-  version=$(jq -r .version "$pin")
-  template=$(jq -r .src.urlTemplate "$pin")
-  url=$(render_url "$template" "$version")
-  fetch_hash=$(nix store prefetch-file --unpack --json "$url" | jq -r .hash)
-  [[ $fetch_hash == sha256-* ]] || fail "invalid Pi source hash: $fetch_hash"
-
-  workdir=$(mktemp -d)
-  curl -sfSL "$url" | tar xz -C "$workdir" --strip-components=1
-  (
-    cd "$workdir"
-    rm -f npm-shrinkwrap.json
-    npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-    npm_hash=$(nix run --inputs-from "$root" nixpkgs#prefetch-npm-deps -- ./package-lock.json)
-    [[ $npm_hash == sha256-* ]] || fail "invalid Pi npm hash: $npm_hash"
-    cp package-lock.json "$lock_output"
-    set_json "$pin" --arg src "$fetch_hash" --arg npm "$npm_hash" \
-      '.src.hash = $src | .npmDepsHash = $npm'
-  )
-  rm -rf "$workdir"
 }
 
 update_omp() {
@@ -514,7 +448,7 @@ update_prime_agent() {
 
 update_contract() {
   local base=$1 root work merge_base
-  local pi_changed=false omp_changed=false prime_changed=false
+  local omp_changed=false prime_changed=false
   root=$(git rev-parse --show-toplevel)
   cd "$root"
   require_command jq
@@ -522,44 +456,33 @@ update_contract() {
     || fail "base ref does not resolve to a commit: $base"
   merge_base=$(git merge-base "$base" HEAD) \
     || fail "cannot determine merge base between $base and HEAD"
-  validate_pin_files "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL"
+  validate_pin_files "$OMP_PIN_REL" "$PRIME_PIN_REL"
 
-  if path_changed_since "$merge_base" "$PI_PIN_REL"; then
-    pi_changed=true
-  fi
   if path_changed_since "$merge_base" "$OMP_PIN_REL"; then
     omp_changed=true
   fi
   if path_changed_since "$merge_base" "$PRIME_PIN_REL"; then
     prime_changed=true
   fi
-  if ! $pi_changed && ! $omp_changed && ! $prime_changed; then
+  if ! $omp_changed && ! $prime_changed; then
     echo "No supported dependency changes detected"
     return
   fi
 
   work=$(mktemp -d)
-  cp "$PI_PIN_REL" "$work/pi.json"
   cp "$OMP_PIN_REL" "$work/omp.json"
   cp "$PRIME_PIN_REL" "$work/prime-agent.json"
-  if $pi_changed; then
-    update_pi "$root" "$work/pi.json" "$work/pi-package-lock.json"
-  fi
   $omp_changed && update_omp "$work/omp.json"
   $prime_changed && update_prime_agent "$root" "$work/prime-agent.json"
-  validate_pin_files "$work/pi.json" "$work/omp.json" "$work/prime-agent.json"
+  validate_pin_files "$work/omp.json" "$work/prime-agent.json"
 
-  $pi_changed && cp "$work/pi.json" "$PI_PIN_REL"
-  if $pi_changed; then
-    cp "$work/pi-package-lock.json" "$PI_LOCK_REL"
-  fi
   $omp_changed && cp "$work/omp.json" "$OMP_PIN_REL"
   $prime_changed && cp "$work/prime-agent.json" "$PRIME_PIN_REL"
   rm -rf "$work"
 
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git add "$PI_PIN_REL" "$OMP_PIN_REL" "$PRIME_PIN_REL" "$PI_LOCK_REL"
+  git add "$OMP_PIN_REL" "$PRIME_PIN_REL"
   if ! git diff --cached --quiet; then
     git commit -m "fix: update nix hashes for version bump"
   fi

@@ -26,7 +26,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^home-manager/modules/development/pins/(pi|omp|prime-agent)\\.json$/"
+        "/^home-manager/modules/development/pins/(omp|prime-agent)\\.json$/"
       ],
       "matchStrings": [
         "\"renovate\"\\s*:\\s*\"datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?\"[^{]*\\n\\s*\"version\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""

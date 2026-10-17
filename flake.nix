@@ -38,6 +38,10 @@
       url = "github:Fission-AI/OpenSpec";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    pi = {
+      url = "github:earendil-works/pi/stable";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     qmd = {
       url = "github:tobi/qmd";
       inputs = {
