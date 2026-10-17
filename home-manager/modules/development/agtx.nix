@@ -20,9 +20,15 @@ let
       pkgs.makeWrapper
     ];
 
-    # Workaround: default-feature tests call helpers gated by test-mocks.
-    # Remove when upstream's default test configuration is self-contained.
-    doCheck = false;
+    nativeCheckInputs = lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      pkgs.git
+      pkgs.procps
+    ];
+
+    # Upstream test helpers require test-mocks.
+    checkFeatures = [ "test-mocks" ];
+    # Keep Darwin checks disabled until validated in its native sandbox.
+    doCheck = pkgs.stdenv.hostPlatform.isLinux;
 
     postFixup = ''
       wrapProgram $out/bin/agtx \

@@ -95,8 +95,10 @@ let
 
   # Workaround: tyro's completion tests flake on aarch64-darwin.
   # Remove when its source build checks are reliable there.
-  tyro = py.pkgs.tyro.overridePythonAttrs (_: {
+  tyro = py.pkgs.tyro.overridePythonAttrs (previousAttrs: {
     doCheck = !pkgs.stdenv.hostPlatform.isDarwin;
+    # Completion tests need compgen, which stdenv's non-interactive Bash omits.
+    nativeCheckInputs = (previousAttrs.nativeCheckInputs or [ ]) ++ [ pkgs.bashInteractive ];
   });
   scipy = py.pkgs.scipy;
 
