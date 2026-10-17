@@ -8,7 +8,6 @@
 let
   cfg = config.modules.programs.ghostty;
   theme = config.modules.themes.current;
-  mkPlatformPackage = config.modules.core.lib.mkPlatformPackage;
   fontFamily = config.modules.core.constants.fontFamily;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 in
@@ -20,7 +19,7 @@ in
   config = lib.mkIf cfg.enable {
     programs.ghostty = {
       enable = true;
-      package = mkPlatformPackage "ghostty" { nixOn = "linux"; };
+      package = if isDarwin then null else pkgs.ghostty;
 
       settings = {
         # Window

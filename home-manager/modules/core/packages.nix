@@ -15,18 +15,9 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   ollama =
     if acceleration == "cuda" then
-      let
+      pkgs.ollama-cuda.override {
         cudaPackages = gpu.cudaPackages;
-        cudaNvcc = cudaPackages.cuda_nvcc.__spliced.buildHost or cudaPackages.cuda_nvcc;
-      in
-      (pkgs.ollama-cuda.override { inherit cudaPackages; }).overrideAttrs (previousAttrs: {
-        # Workaround: CMake 4.2+ needs CUDAToolkit_ROOT for Ollama's CUDA sub-build.
-        # Remove when the nixpkgs derivation exports it.
-        preBuild = ''
-          export CUDAToolkit_ROOT="${lib.getBin cudaNvcc}"
-        ''
-        + (previousAttrs.preBuild or "");
-      })
+      }
     else if acceleration == "rocm" then
       pkgs.ollama-rocm.override {
         rocmGpuTargets = gpu.rocmTargets;
