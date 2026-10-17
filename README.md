@@ -30,42 +30,6 @@ hmp  # personal
 make switch SPEC=work
 ```
 
-### Caveman
-
-Desktop profiles install the complete Caveman CLI (`caveman`, alias `cave`) and
-its seven companions: `caveman-proxy`, `caveman-engine`, `caveman-mcp`, `cavemem`,
-`caveman-browse`, `caveman-shrink`, and `caveman-blocks`. Server profiles leave
-`modules.development.caveman.enable` disabled.
-
-```bash
-nix build .#caveman                # Build without switching Home Manager
-./result/bin/caveman --version
-./result/bin/caveman setup --json   # Diagnose the installed runtime only
-nix build .#checks.x86_64-linux.caveman
-```
-
-Installation does not configure agents, install skills or hooks, create a
-service, start the proxy, or sign in to Caveman Cloud. Plain `caveman setup`
-starts upstream onboarding; use `setup --json` for inspection without wiring
-agents. Agent integration remains a separate, explicit user action.
-
-All executables are pinned in the Nix store. Node, Python for Blocks, Git, and
-a browser (Chromium on Linux, Google Chrome on macOS) are provided by Nix;
-`CAVEMAN_BROWSE_CHROME` can override the browser. Mutable configuration,
-credentials, and recovery databases remain outside the store, normally under
-`~/.caveman` (override with `CAVEMAN_HOME`). Recovery databases contain original
-tool output and should be treated as sensitive.
-
-CLI and Blocks wrappers default telemetry off. Cloud login and Auto routing
-remain upstream opt-in actions; telemetry opt-out is not a routing opt-out.
-`caveman update`, `setup --install`, and the CLI's internal executable installers
-refuse to create a second installation outside Nix. Explicit manual Blocks hook
-integration retains upstream's executable-copy and refresh mechanism; the CLI
-guards do not govern it. Versions, binaries, and license hashes are maintained
-together through
-`home-manager/modules/development/pins/caveman.json` and the existing Renovate
-hash-update workflow.
-
 ### Private configuration and credentials
 
 Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.
