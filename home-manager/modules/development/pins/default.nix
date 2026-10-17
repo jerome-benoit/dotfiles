@@ -8,7 +8,6 @@ let
   readPin = file: builtins.fromJSON (builtins.readFile file);
   renderVersion = template: version: builtins.replaceStrings [ "{version}" ] [ version ] template;
 
-  piData = readPin ./pi.json;
   ompData = readPin ./omp.json;
   primeAgentData = readPin ./prime-agent.json;
 
@@ -29,16 +28,6 @@ assert builtins.attrNames primeAgentData.python == expectedPrimePythonKeys;
 assert
   primeAgentData.rlmExtraPackages == lib.sort builtins.lessThan primeAgentData.rlmExtraPackages;
 {
-  pi = {
-    inherit (piData) version npmDepsHash;
-    lockFileName = piData.lockFile;
-    lockFile = ../. + "/${piData.lockFile}";
-    src = fetchzip {
-      url = renderVersion piData.src.urlTemplate piData.version;
-      hash = piData.src.hash;
-    };
-  };
-
   omp = {
     inherit (ompData) version;
     sources = lib.mapAttrs (
