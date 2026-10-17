@@ -1,0 +1,24 @@
+diff --git a/dist/index.js b/dist/index.js
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -3191,2 +3191,5 @@
+ async function setupInstall(json, options = {}) {
++    if (process.env.CAVEMAN_NIX_MANAGED === "1") {
++        throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++    }
+     const lock = join(ensureCavemanHome(), ".install.lock");
+@@ -4161,2 +4164,5 @@
+ async function installDurableCli() {
++    if (process.env.CAVEMAN_NIX_MANAGED === "1") {
++        throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++    }
+     const npm = which("npm");
+diff --git a/dist/modules/index-file.js b/dist/modules/index-file.js
+--- a/dist/modules/index-file.js
++++ b/dist/modules/index-file.js
+@@ -98,2 +98,5 @@
+ export async function ensureModuleBinaries(ids, downloading) {
++    if (process.env.CAVEMAN_NIX_MANAGED === "1") {
++        throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++    }
+     const platform = setupPlatform();

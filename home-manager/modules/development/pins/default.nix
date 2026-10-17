@@ -10,6 +10,7 @@ let
 
   ompData = readPin ./omp.json;
   primeAgentData = readPin ./prime-agent.json;
+  cavemanData = readPin ./caveman.json;
 
   expectedOmpKeys = [
     "darwin-arm64"
@@ -28,6 +29,46 @@ assert builtins.attrNames primeAgentData.python == expectedPrimePythonKeys;
 assert
   primeAgentData.rlmExtraPackages == lib.sort builtins.lessThan primeAgentData.rlmExtraPackages;
 {
+  caveman = {
+    inherit (cavemanData) version;
+    blocks = {
+      inherit (cavemanData.blocks) version vendorHash;
+      src = fetchzip {
+        url = renderVersion cavemanData.blocks.src.urlTemplate cavemanData.blocks.version;
+        hash = cavemanData.blocks.src.hash;
+      };
+    };
+    cli = fetchurl {
+      url = renderVersion cavemanData.cli.urlTemplate cavemanData.version;
+      hash = cavemanData.cli.hash;
+    };
+    src = fetchzip {
+      url = renderVersion cavemanData.src.urlTemplate cavemanData.version;
+      hash = cavemanData.src.hash;
+    };
+    licenses = lib.mapAttrs (
+      name: hash:
+      fetchurl {
+        url =
+          builtins.replaceStrings [ "{version}" "{name}" ] [ cavemanData.version name ]
+            cavemanData.licenses.urlTemplate;
+        inherit hash;
+      }
+    ) cavemanData.licenses.hashes;
+    runtime = lib.mapAttrs (
+      platform: binaries:
+      lib.mapAttrs (
+        name: hash:
+        fetchurl {
+          url =
+            builtins.replaceStrings [ "{version}" "{name}" "{platform}" ] [ cavemanData.version name platform ]
+              cavemanData.runtime.urlTemplate;
+          inherit hash;
+        }
+      ) binaries
+    ) cavemanData.runtime.hashes;
+  };
+
   omp = {
     inherit (ompData) version;
     sources = lib.mapAttrs (

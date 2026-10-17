@@ -4,10 +4,11 @@ set -euo pipefail
 PIN_DIR_REL=home-manager/modules/development/pins
 OMP_PIN_REL=$PIN_DIR_REL/omp.json
 PRIME_PIN_REL=$PIN_DIR_REL/prime-agent.json
+CAVEMAN_PIN_REL=$PIN_DIR_REL/caveman.json
 FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
 
-PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(omp|prime-agent)\.json$/'
+PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(caveman|omp|prime-agent)\.json$/'
 PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"[^{]*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
 VERSIONING_TEMPLATE='{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}'
 HASH_PATTERN='^sha256-[A-Za-z0-9+/=]+$'
@@ -22,14 +23,16 @@ require_command() {
 }
 
 render_url() {
-  local template=$1 version=$2 key=${3:-}
+  local template=$1 version=$2 key=${3:-} name=${4:-} platform=${5:-}
   local rendered=${template//\{version\}/$version}
   rendered=${rendered//\{key\}/$key}
+  rendered=${rendered//\{name\}/$name}
+  rendered=${rendered//\{platform\}/$platform}
   printf '%s\n' "$rendered"
 }
 
 validate_pin_files() {
-  local omp=$1 prime=$2
+  local omp=$1 prime=$2 caveman=$3
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
@@ -63,12 +66,47 @@ validate_pin_files() {
     and ([.rlmExtraPackages[] | type == "string" and test("^[a-z0-9-]+$")] | all)
     and (.rlmExtraPackages == (.rlmExtraPackages | sort | unique))
   ' "$prime" >/dev/null || fail "invalid Prime Agent pin contract"
+
+  jq -e --arg hash "$HASH_PATTERN" '
+    type == "object"
+    and (keys == ["blocks", "cli", "licenses", "renovate", "runtime", "src", "version"])
+    and (.renovate == "datasource=github-releases depName=JuliusBrussee/caveman")
+    and (.version | type == "string" and length > 0)
+    and (.blocks | keys == ["src", "vendorHash", "version"])
+    and (.blocks.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"))
+    and (.blocks.src | keys == ["hash", "urlTemplate"])
+    and (.blocks.src.urlTemplate == "https://github.com/caveman-ai/blocks/archive/refs/tags/v{version}.tar.gz")
+    and (.blocks.src.hash | test($hash))
+    and (.blocks.vendorHash | test($hash))
+    and (.cli | keys == ["hash", "urlTemplate"])
+    and (.cli.hash | test($hash))
+    and (.cli.urlTemplate == "https://registry.npmjs.org/@caveman-ai/cli/-/cli-{version}.tgz")
+    and (.src | keys == ["hash", "urlTemplate"])
+    and (.src.hash | test($hash))
+    and (.src.urlTemplate == "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v{version}.tar.gz")
+    and (.runtime | keys == ["hashes", "urlTemplate"])
+    and (.runtime.urlTemplate == "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}_{platform}")
+    and (.runtime.hashes | keys == ["darwin_arm64", "linux_amd64", "linux_arm64"])
+    and ([.runtime.hashes[] | keys == [
+      "caveman-browse", "caveman-engine", "caveman-mcp",
+      "caveman-proxy", "caveman-shrink", "cavemem"
+    ]] | all)
+    and ([.runtime.hashes[][] | test($hash)] | all)
+    and (.licenses | keys == ["hashes", "urlTemplate"])
+    and (.licenses.urlTemplate == "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}")
+    and (.licenses.hashes | keys == [
+      "COPYRIGHT.musl", "LICENSE.zig", "NOTICE.browse",
+      "NOTICE.engine-pixel", "SPLEEN_LICENSE.txt", "THIRD_PARTY_GO_LICENSES.tar.gz",
+      "UNIFONT_LICENSE.txt"
+    ])
+    and ([.licenses.hashes[] | test($hash)] | all)
+  ' "$caveman" >/dev/null || fail "invalid Caveman pin contract"
 }
 
 validate_effective_contract() {
   local root=$1 effective=$2
-  local omp=$root/$OMP_PIN_REL prime=$root/$PRIME_PIN_REL
-  local version template key expected actual
+  local omp=$root/$OMP_PIN_REL prime=$root/$PRIME_PIN_REL caveman=$root/$CAVEMAN_PIN_REL
+  local version template key expected actual platform name
 
   version=$(jq -r .version "$omp")
   jq -e --slurpfile pin "$omp" \
@@ -108,6 +146,55 @@ validate_effective_contract() {
       and .primeAgent.python[$key].src.hash == $pin[0].python[$key].hash
     ' "$effective" >/dev/null || fail "Prime Agent Python values do not consume pin key $key"
   done < <(jq -r '.python | keys[]' "$prime")
+
+  version=$(jq -r .version "$caveman")
+  jq -e --slurpfile pin "$caveman" '
+    .caveman.version == $pin[0].version
+    and (.caveman | keys == ["blocks", "cli", "licenses", "runtime", "src", "version"])
+    and (.caveman.licenses | keys) == ($pin[0].licenses.hashes | keys)
+    and (.caveman.runtime | keys) == ($pin[0].runtime.hashes | keys)
+  ' "$effective" >/dev/null || fail "Caveman effective version or source keys differ from its pin"
+  for key in cli src; do
+    template=$(jq -r --arg key "$key" '.[$key].urlTemplate' "$caveman")
+    expected=$(render_url "$template" "$version")
+    actual=$(jq -r --arg key "$key" '.caveman[$key].url' "$effective")
+    [ "$actual" = "$expected" ] || fail "Caveman effective $key URL does not consume its pin"
+    jq -e --arg key "$key" --slurpfile pin "$caveman" \
+      '.caveman[$key].hash == $pin[0][$key].hash' "$effective" >/dev/null \
+      || fail "Caveman effective $key hash does not consume its pin"
+  done
+  expected=$(render_url "$(jq -r .blocks.src.urlTemplate "$caveman")" "$(jq -r .blocks.version "$caveman")")
+  actual=$(jq -r .caveman.blocks.src.url "$effective")
+  [ "$actual" = "$expected" ] || fail "Blocks effective source URL does not consume its pin"
+  jq -e --slurpfile pin "$caveman" '
+    .caveman.blocks.version == $pin[0].blocks.version
+    and .caveman.blocks.src.hash == $pin[0].blocks.src.hash
+    and .caveman.blocks.vendorHash == $pin[0].blocks.vendorHash
+  ' "$effective" >/dev/null || fail "Blocks effective build metadata differs from its pin"
+  template=$(jq -r .runtime.urlTemplate "$caveman")
+  while IFS= read -r platform; do
+    jq -e --arg platform "$platform" --slurpfile pin "$caveman" \
+      '(.caveman.runtime[$platform] | keys) == ($pin[0].runtime.hashes[$platform] | keys)' \
+      "$effective" >/dev/null || fail "Caveman effective runtime names differ for $platform"
+    while IFS= read -r name; do
+      expected=$(render_url "$template" "$version" "" "$name" "$platform")
+      actual=$(jq -r --arg platform "$platform" --arg name "$name" \
+        '.caveman.runtime[$platform][$name].url' "$effective")
+      [ "$actual" = "$expected" ] || fail "Caveman effective URL does not consume $name/$platform"
+      jq -e --arg platform "$platform" --arg name "$name" --slurpfile pin "$caveman" \
+        '.caveman.runtime[$platform][$name].hash == $pin[0].runtime.hashes[$platform][$name]' \
+        "$effective" >/dev/null || fail "Caveman effective hash does not consume $name/$platform"
+    done < <(jq -r --arg platform "$platform" '.runtime.hashes[$platform] | keys[]' "$caveman")
+  done < <(jq -r '.runtime.hashes | keys[]' "$caveman")
+  template=$(jq -r .licenses.urlTemplate "$caveman")
+  while IFS= read -r name; do
+    expected=$(render_url "$template" "$version" "" "$name")
+    actual=$(jq -r --arg name "$name" '.caveman.licenses[$name].url' "$effective")
+    [ "$actual" = "$expected" ] || fail "Caveman effective license URL does not consume $name"
+    jq -e --arg name "$name" --slurpfile pin "$caveman" \
+      '.caveman.licenses[$name].hash == $pin[0].licenses.hashes[$name]' "$effective" >/dev/null \
+      || fail "Caveman effective license hash does not consume $name"
+  done < <(jq -r '.licenses.hashes | keys[]' "$caveman")
 }
 
 sorted_workflow_paths() {
@@ -137,7 +224,7 @@ validate_workflows() {
   validate_action_ref "$fix_checkout" actions/checkout
   validate_action_ref "$fix_nix" nixbuild/nix-quick-install-action
 
-  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PRIME_PIN_REL" | LC_ALL=C sort)
+  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PRIME_PIN_REL" "$CAVEMAN_PIN_REL" | LC_ALL=C sort)
   actual=$(sorted_workflow_paths "$fix" '.on.pull_request.paths[]')
   [ "$actual" = "$expected_paths" ] || fail "fix workflow paths do not match dependency inputs"
   [ "$(yq -r '.on.pull_request.branches[]' "$fix")" = main ] \
@@ -237,6 +324,7 @@ validate_renovate() {
   mkdir -p "$tmp/$PIN_DIR_REL"
   cp "$root/$OMP_PIN_REL" "$tmp/$OMP_PIN_REL"
   cp "$root/$PRIME_PIN_REL" "$tmp/$PRIME_PIN_REL"
+  cp "$root/$CAVEMAN_PIN_REL" "$tmp/$CAVEMAN_PIN_REL"
   cp "$config" "$tmp/renovate.json"
   logs=$tmp/renovate.log
   (
@@ -245,7 +333,8 @@ validate_renovate() {
   )
   jq -s -e \
     --arg ompVersion "$(jq -r .version "$root/$OMP_PIN_REL")" \
-    --arg primeVersion "$(jq -r .version "$root/$PRIME_PIN_REL")" '
+    --arg primeVersion "$(jq -r .version "$root/$PRIME_PIN_REL")" \
+    --arg cavemanVersion "$(jq -r .version "$root/$CAVEMAN_PIN_REL")" '
       [
         .[]
         | select(.msg == "Extracted dependencies")
@@ -262,6 +351,13 @@ validate_renovate() {
       ]
       | sort_by(.packageFile)
       == [
+        {
+          packageFile: "home-manager/modules/development/pins/caveman.json",
+          datasource: "github-releases",
+          depName: "JuliusBrussee/caveman",
+          currentValue: $cavemanVersion,
+          versioning: "semver"
+        },
         {
           packageFile: "home-manager/modules/development/pins/omp.json",
           datasource: "github-releases",
@@ -288,7 +384,7 @@ validate_contract() {
   require_command renovate
   require_command renovate-config-validator
   require_command yq
-  validate_pin_files "$root/$OMP_PIN_REL" "$root/$PRIME_PIN_REL"
+  validate_pin_files "$root/$OMP_PIN_REL" "$root/$PRIME_PIN_REL" "$root/$CAVEMAN_PIN_REL"
   validate_effective_contract "$root" "$effective"
   validate_workflows "$root"
   validate_renovate "$root"
@@ -324,6 +420,86 @@ update_omp() {
     [[ $hash == sha256-* ]] || fail "invalid OMP hash for $key: $hash"
     set_json "$pin" --arg key "$key" --arg hash "$hash" '.hashes[$key] = $hash'
   done < <(jq -r '.hashes | keys[]' "$pin")
+}
+
+update_caveman() {
+  local pin=$1 version template key url hash platform name fetched source blocks_version blocks_hash
+  version=$(jq -r .version "$pin")
+  for key in cli src; do
+    template=$(jq -r --arg key "$key" '.[$key].urlTemplate' "$pin")
+    url=$(render_url "$template" "$version")
+    if [ "$key" = src ]; then
+      fetched=$(nix store prefetch-file --unpack --json "$url")
+      hash=$(jq -r .hash <<< "$fetched")
+      source=$(jq -er .storePath <<< "$fetched")
+    else
+      hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
+    fi
+    [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman $key hash: $hash"
+    set_json "$pin" --arg key "$key" --arg hash "$hash" '.[$key].hash = $hash'
+  done
+  blocks_version=$(jq -Rser '
+    capture("^v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?) [0-9a-f]{64}\\n?$").version
+  ' "$source/packages/cli/BLOCKS_RELEASE") || fail "invalid upstream Blocks release"
+  url=$(render_url "$(jq -r .blocks.src.urlTemplate "$pin")" "$blocks_version")
+  blocks_hash=$(nix store prefetch-file --unpack --json "$url" | jq -r .hash)
+  [[ $blocks_hash =~ $HASH_PATTERN ]] || fail "invalid Blocks source hash"
+  hash=$(blocks_vendor_hash "$url" "$blocks_hash")
+  set_json "$pin" --arg version "$blocks_version" --arg source "$blocks_hash" --arg vendor "$hash" \
+    '.blocks.version = $version | .blocks.src.hash = $source | .blocks.vendorHash = $vendor'
+  template=$(jq -r .runtime.urlTemplate "$pin")
+  while IFS= read -r platform; do
+    while IFS= read -r name; do
+      url=$(render_url "$template" "$version" "" "$name" "$platform")
+      hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
+      [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman hash for $name/$platform: $hash"
+      set_json "$pin" --arg platform "$platform" --arg name "$name" --arg hash "$hash" \
+        '.runtime.hashes[$platform][$name] = $hash'
+    done < <(jq -r --arg platform "$platform" '.runtime.hashes[$platform] | keys[]' "$pin")
+  done < <(jq -r '.runtime.hashes | keys[]' "$pin")
+  template=$(jq -r .licenses.urlTemplate "$pin")
+  while IFS= read -r name; do
+    url=$(render_url "$template" "$version" "" "$name")
+    hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
+    [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman license hash for $name: $hash"
+    set_json "$pin" --arg name "$name" --arg hash "$hash" '.licenses.hashes[$name] = $hash'
+  done < <(jq -r '.licenses.hashes | keys[]' "$pin")
+}
+
+blocks_vendor_hash() {
+  local url=$1 source_hash=$2 log hash
+  log=$(mktemp)
+  if NIX_HASH_FIX_BLOCKS_URL="$url" NIX_HASH_FIX_BLOCKS_SOURCE_HASH="$source_hash" \
+    nix build --impure --no-link --expr '
+      let
+        flake = builtins.getFlake ("git+file://" + toString ./.);
+        pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+        src = pkgs.fetchzip {
+          url = builtins.getEnv "NIX_HASH_FIX_BLOCKS_URL";
+          hash = builtins.getEnv "NIX_HASH_FIX_BLOCKS_SOURCE_HASH";
+        };
+      in (pkgs.buildGoModule {
+        pname = "caveman-blocks";
+        version = "vendor";
+        inherit src;
+        vendorHash = pkgs.lib.fakeHash;
+      }).goModules
+    ' > /dev/null 2> "$log"; then
+    rm -f "$log"
+    fail "Blocks vendor fake-hash probe unexpectedly succeeded"
+  fi
+  if ! hash=$(jq -Rser '
+    . as $log
+    | [match("hash mismatch in fixed-output derivation \u0027[^\u0027\\n]*/[^/\u0027\\n]+-caveman-blocks-vendor-go-modules\\.drv\u0027:\\s+specified:\\s+sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\\s+got:\\s+(sha256-[A-Za-z0-9+/]{43}=)"; "g") | .captures[0].string]
+    | if length == 1 and ([$log | scan("got:\\s+sha256-[A-Za-z0-9+/=]+") ] | length) == 1
+      then .[0] else error("not a unique Blocks Go module fixed-output mismatch") end
+  ' "$log"); then
+    cat "$log" >&2
+    rm -f "$log"
+    fail "cannot determine Blocks vendor hash"
+  fi
+  rm -f "$log"
+  printf '%s\n' "$hash"
 }
 
 prime_bootstrap_packages() {
@@ -448,7 +624,7 @@ update_prime_agent() {
 
 update_contract() {
   local base=$1 root work merge_base
-  local omp_changed=false prime_changed=false
+  local omp_changed=false prime_changed=false caveman_changed=false
   root=$(git rev-parse --show-toplevel)
   cd "$root"
   require_command jq
@@ -456,7 +632,7 @@ update_contract() {
     || fail "base ref does not resolve to a commit: $base"
   merge_base=$(git merge-base "$base" HEAD) \
     || fail "cannot determine merge base between $base and HEAD"
-  validate_pin_files "$OMP_PIN_REL" "$PRIME_PIN_REL"
+  validate_pin_files "$OMP_PIN_REL" "$PRIME_PIN_REL" "$CAVEMAN_PIN_REL"
 
   if path_changed_since "$merge_base" "$OMP_PIN_REL"; then
     omp_changed=true
@@ -464,7 +640,10 @@ update_contract() {
   if path_changed_since "$merge_base" "$PRIME_PIN_REL"; then
     prime_changed=true
   fi
-  if ! $omp_changed && ! $prime_changed; then
+  if path_changed_since "$merge_base" "$CAVEMAN_PIN_REL"; then
+    caveman_changed=true
+  fi
+  if ! $omp_changed && ! $prime_changed && ! $caveman_changed; then
     echo "No supported dependency changes detected"
     return
   fi
@@ -472,17 +651,20 @@ update_contract() {
   work=$(mktemp -d)
   cp "$OMP_PIN_REL" "$work/omp.json"
   cp "$PRIME_PIN_REL" "$work/prime-agent.json"
+  cp "$CAVEMAN_PIN_REL" "$work/caveman.json"
   $omp_changed && update_omp "$work/omp.json"
   $prime_changed && update_prime_agent "$root" "$work/prime-agent.json"
-  validate_pin_files "$work/omp.json" "$work/prime-agent.json"
+  $caveman_changed && update_caveman "$work/caveman.json"
+  validate_pin_files "$work/omp.json" "$work/prime-agent.json" "$work/caveman.json"
 
   $omp_changed && cp "$work/omp.json" "$OMP_PIN_REL"
   $prime_changed && cp "$work/prime-agent.json" "$PRIME_PIN_REL"
+  $caveman_changed && cp "$work/caveman.json" "$CAVEMAN_PIN_REL"
   rm -rf "$work"
 
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git add "$OMP_PIN_REL" "$PRIME_PIN_REL"
+  git add "$OMP_PIN_REL" "$PRIME_PIN_REL" "$CAVEMAN_PIN_REL"
   if ! git diff --cached --quiet; then
     git commit -m "fix: update nix hashes for version bump"
   fi

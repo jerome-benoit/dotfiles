@@ -1,0 +1,61 @@
+{
+  "renovate": "datasource=github-releases depName=JuliusBrussee/caveman",
+  "version": "4.0.1",
+  "blocks": {
+    "version": "0.1.0-rc.5",
+    "src": {
+      "urlTemplate": "https://github.com/caveman-ai/blocks/archive/refs/tags/v{version}.tar.gz",
+      "hash": "sha256-pqOoOsWRBB5tHz+ssuiJkkWYmrko8P5z9yTnrgqBZWY="
+    },
+    "vendorHash": "sha256-Jyx3bqWyK1Vthzfb5/rvenknlurQry4henFZHqjkGks="
+  },
+  "cli": {
+    "urlTemplate": "https://registry.npmjs.org/@caveman-ai/cli/-/cli-{version}.tgz",
+    "hash": "sha256-eM2gHSCOtndHvMfAY4aSUqLTFsd4b+UE4/aVlA5ZNm8="
+  },
+  "src": {
+    "urlTemplate": "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v{version}.tar.gz",
+    "hash": "sha256-2xZHdWkWJrPAJ8++qW0Xmb3eORZ41e+GsZjIphqTtlI="
+  },
+  "runtime": {
+    "urlTemplate": "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}_{platform}",
+    "hashes": {
+      "darwin_arm64": {
+        "caveman-browse": "sha256-O2AfYoM9Dooz+DCYXmbwnRB9atBW7TmJ/ZKvbBgAgEE=",
+        "caveman-engine": "sha256-8dGcidmlkvJPuv4pjv/oBshelxL/vcfIf9DM+hjP+l8=",
+        "caveman-mcp": "sha256-WNgJuYnRK1UpQm4ykuzkNuzuQWHRI6qq02xNv5NmhXc=",
+        "caveman-proxy": "sha256-768W0nVpl5kc96fWnBKjtpLuqN8uto3rNAJRM3cALk8=",
+        "caveman-shrink": "sha256-ph5/7sDri5QfTpLSBogUT2MeJ6FwwNpLic/e9rVdCOU=",
+        "cavemem": "sha256-i3cHZVcZjrYMG9pEpA6OCUW9TfubK79Hr4m2Ep1AwOc="
+      },
+      "linux_amd64": {
+        "caveman-browse": "sha256-OS2WMNXu6W5Vx2Orz6lzpX3nI7cTzdQ1LtYBpubQjAY=",
+        "caveman-engine": "sha256-Sb/ojuQL4Sh5nFbnTTimTviYdZmI4k5XKZvcfaAULtc=",
+        "caveman-mcp": "sha256-KfmBbFyXxonEQFK7meACIXjzdUIMNGRIQFQ+6/jI964=",
+        "caveman-proxy": "sha256-ix3A6buol6uox0ma/7djmY6apYKR3EuqbOqBi/GDnVk=",
+        "caveman-shrink": "sha256-KtRSxjgfFc9AEOb+WUdTtrnoLOLRBEPp7u9UdgvoSS4=",
+        "cavemem": "sha256-lVbSnsqooPgA6exe8yRaArKA67RPBlLhPSjVfZxKG7Y="
+      },
+      "linux_arm64": {
+        "caveman-browse": "sha256-XrkG46edK3Q9iU52uIE0dka1Iuv0vNiHdqwVnLRowic=",
+        "caveman-engine": "sha256-hf53MD8UC8W+8D0Npycp2NU94FYmJ8OyY6mnmDVNkCo=",
+        "caveman-mcp": "sha256-kTmIXqri8vekEInilcvsHrEhjw7BCOq/NcR7zwFgxeQ=",
+        "caveman-proxy": "sha256-/BSjxKZApsuIu3GuUbg8QO4IBW8TCjASuDUs7Vvv9Pg=",
+        "caveman-shrink": "sha256-mYbbaD0WFgV/AFQE4MwY1pWO6EmBO75o3fod4zo4qC4=",
+        "cavemem": "sha256-TAhlxZINsXeO0AqS90is5sRbVsBqEg2bozIO8pO0BKE="
+      }
+    }
+  },
+  "licenses": {
+    "urlTemplate": "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}",
+    "hashes": {
+      "COPYRIGHT.musl": "sha256-+bxEI3MjUOsLP37X6R1TAphHb4/sDGxCehwEreImVa8=",
+      "LICENSE.zig": "sha256-XFN9aFPgBSmKKF1QjP+axxks6iNXbIQNSFsrWGp/8Xc=",
+      "NOTICE.browse": "sha256-rIsib7bl18oggEeUvz2pxbrTAwGRwxKonWxVwMFOEE8=",
+      "NOTICE.engine-pixel": "sha256-u03sYr/FOdf37fZtT6we37hO63BXM/j2NhHgqocXE3g=",
+      "SPLEEN_LICENSE.txt": "sha256-8z/oZ51bKr7MTxMTzmxr+lgmKWTeX3vKFGWWpzGAR68=",
+      "THIRD_PARTY_GO_LICENSES.tar.gz": "sha256-pxjVQtlukzQHnIfWtdRAxbO+o7McP2+KJiwLcYxFsk4=",
+      "UNIFONT_LICENSE.txt": "sha256-HnTLgr9HaEPpfCWWKXsEIZsaflH3I4lEqMAxy5QB+oc="
+    }
+  }
+}

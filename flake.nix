@@ -205,6 +205,17 @@
 
       devShells.x86_64-linux.strata = inputs.strata.devShells.x86_64-linux.default;
 
+      packages =
+        nixpkgs.lib.genAttrs
+          [
+            "aarch64-darwin"
+            "aarch64-linux"
+            "x86_64-linux"
+          ]
+          (arch: {
+            caveman = (mkPkgs arch).callPackage ./home-manager/modules/development/caveman/package.nix { };
+          });
+
       formatter = forAllSystems (
         arch:
         let
