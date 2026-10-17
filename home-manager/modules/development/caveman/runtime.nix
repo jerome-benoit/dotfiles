@@ -4,6 +4,7 @@
   makeWrapper,
   callPackage,
   git,
+  darwin,
   chromium,
   google-chrome,
   pins,
@@ -52,7 +53,9 @@ stdenvNoCC.mkDerivation {
       '') pins.licenses
     )}
     wrapProgram "$out/bin/caveman-proxy" \
-      --prefix PATH : "$out/bin:${lib.makeBinPath [ git ]}"
+      --prefix PATH : "$out/bin:${
+        lib.makeBinPath ([ git ] ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ darwin.ps ])
+      }"
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \
       --set-default CAVEMAN_BROWSE_CHROME ${lib.escapeShellArg browserExecutable}

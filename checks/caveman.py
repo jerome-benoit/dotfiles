@@ -211,14 +211,13 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert json.loads(settings.read_text())["hooks"]["PreToolUse"] == [foreign_hook]
     assert_recorded_calls(3)
 
-    # A persisted native hook bypasses the CLI wrapper. A GUI-like PATH must
-    # still let its delegated CLI revive the proxy with MCP recovery available.
+    # A persisted native hook bypasses the CLI wrapper. With only the package
+    # on PATH it must revive, identify and stop its own proxy, including on Darwin.
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
     hook_env = {
         **env,
-        "PATH": os.defpath,
         "CAVE_GATEWAY_URL": f"http://127.0.0.1:{port}",
         "CAVEMAN_LISTEN": f"127.0.0.1:{port}",
         "DO_NOT_TRACK": "1",
@@ -229,39 +228,76 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
         "session_id": "native-hook-fixture",
         "cwd": str(repo),
     }
+    owned_state = None
     try:
-        revival = run(
-            "caveman-proxy", "native-hook", "claude",
-            "--adapter", str(package / "lib/caveman/dist/native-hook-fast.js"),
-            "--node", node, data=json.dumps(event).encode(), environment=hook_env,
-        )
-        deadline = time.monotonic() + 10
-        while True:
-            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
-            try:
-                connection.request("GET", "/health/live")
-                response = connection.getresponse()
-                health = json.loads(response.read())
-                assert response.status == 200, health
-                assert health["ok"] is True, health
-                assert health["service"] == "caveman-proxy", health
-                assert health["schema"] == "caveman.proxy.health.v1", health
-                state = json.loads((cave / "run" / f"{port}.json").read_text())
-                assert state["instance_token"] == response.getheader("X-Caveman-Instance"), state
-                assert state["recovery_via_mcp"] is True, state
-                break
-            except (OSError, http.client.HTTPException) as error:
-                if time.monotonic() >= deadline:
-                    raise AssertionError(
-                        f"native hook did not revive proxy: {revival.stderr.decode()}"
-                    ) from error
-                time.sleep(0.05)
-            finally:
-                connection.close()
+        try:
+            revival = run(
+                "caveman-proxy", "native-hook", "claude",
+                "--adapter", str(package / "lib/caveman/dist/native-hook-fast.js"),
+                "--node", node, data=json.dumps(event).encode(), environment=hook_env,
+            )
+            deadline = time.monotonic() + 10
+            while True:
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+                try:
+                    connection.request("GET", "/health/live")
+                    response = connection.getresponse()
+                    health = json.loads(response.read())
+                    assert response.status == 200, health
+                    assert health["ok"] is True, health
+                    assert health["service"] == "caveman-proxy", health
+                    assert health["schema"] == "caveman.proxy.health.v1", health
+                    state = json.loads((cave / "run" / f"{port}.json").read_text())
+                    assert state["instance_token"] == response.getheader("X-Caveman-Instance"), state
+                    owned_state = state
+                    assert state["recovery_via_mcp"] is True, state
+                    break
+                except (OSError, http.client.HTTPException) as error:
+                    if time.monotonic() >= deadline:
+                        raise AssertionError(
+                            f"native hook did not revive proxy: {revival.stderr.decode()}"
+                        ) from error
+                    time.sleep(0.05)
+                finally:
+                    connection.close()
+            status = json.loads(run(
+                "caveman-proxy", "status", "--json", "--port", str(port), environment=hook_env,
+            ).stdout)
+            assert status["owner"] in {"wrap", "start"}, status
+            assert status["pid"] == state["pid"], status
+        finally:
+            run("caveman", "stop", environment=hook_env)
+        with socket.socket() as stopped:
+            stopped.settimeout(1)
+            assert stopped.connect_ex(("127.0.0.1", port)) != 0, "proxy still listening after stop"
     finally:
-        run("caveman", "stop", environment=hook_env)
-    with socket.socket() as stopped:
-        stopped.settimeout(1)
-        assert stopped.connect_ex(("127.0.0.1", port)) != 0, "proxy still listening after stop"
+        # A failed ownership check makes stop leave the listener alone. Clean up
+        # only our proven fixture, after the normal assertions, without hiding them.
+        if owned_state is not None:
+            with socket.socket() as remaining:
+                remaining.settimeout(1)
+                listening = remaining.connect_ex(("127.0.0.1", port)) == 0
+            if listening:
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+                try:
+                    connection.request(
+                        "POST", "/caveman/shutdown",
+                        headers={"X-Caveman-Shutdown": owned_state["shutdown_token"]},
+                    )
+                    connection.getresponse().read()
+                except (OSError, http.client.HTTPException) as error:
+                    print(f"fixture shutdown failed: {error}", file=sys.stderr)
+                finally:
+                    connection.close()
+                deadline = time.monotonic() + 7
+                while True:
+                    with socket.socket() as remaining:
+                        remaining.settimeout(1)
+                        if remaining.connect_ex(("127.0.0.1", port)) != 0:
+                            break
+                    if time.monotonic() >= deadline:
+                        print("fixture proxy still listening after cleanup", file=sys.stderr)
+                        break
+                    time.sleep(0.05)
 
 print("Caveman: ownership, recovery, proxy analysis, Blocks hooks and native proxy revival passed")
