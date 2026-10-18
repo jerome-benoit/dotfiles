@@ -15,6 +15,16 @@ let
     package:
     if package != null then
       package.overrideAttrs (previousAttrs: {
+        # Workaround: upstream's filtered source omits root build helpers.
+        # Remove when nix/node_modules.nix includes script/.
+        src = lib.fileset.toSource {
+          root = previousAttrs.src.origSrc;
+          fileset = lib.fileset.unions [
+            (lib.fileset.fromSource previousAttrs.src)
+            (previousAttrs.src.origSrc + "/script")
+          ];
+        };
+
         # Workaround: Desktop and Neovim discover service.json, not service-prod.json.
         # Remove when upstream CLI and clients use the same service registry.
         env = (previousAttrs.env or { }) // {
