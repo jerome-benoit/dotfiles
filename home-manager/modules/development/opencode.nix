@@ -45,8 +45,9 @@ let
         # Remove when upstream keys staged binaries by source identity.
         postPatch = (previousAttrs.postPatch or "") + ''
           substituteInPlace packages/desktop/src/main/service/desktop-cli.ts \
-            --replace-fail 'version.replace(/[^a-zA-Z0-9._-]/g, "-")' \
-              '${builtins.toJSON (builtins.baseNameOf (toString cfg.opencodePackage))}'
+            --replace-fail \
+              'const stage = `''${version}-''${process.arch}`.replace(/[^a-zA-Z0-9._-]/g, "-")' \
+              'const stage = `''${version}-''${process.arch}-${builtins.baseNameOf (toString cfg.opencodePackage)}`.replace(/[^a-zA-Z0-9._-]/g, "-")'
         '';
       })
     else
