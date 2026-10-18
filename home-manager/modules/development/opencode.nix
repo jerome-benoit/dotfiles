@@ -9,7 +9,29 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
 
-  baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
+  upstreamOpencodePackage = inputs.opencode.packages.${system}.default or null;
+  baseOpencodePackage =
+    if upstreamOpencodePackage != null then
+      upstreamOpencodePackage.override {
+        # Workaround: include root dependencies to preserve OpenTUI peer identity.
+        # Remove when upstream fixes the filtered Nix dependency installation.
+        node_modules = upstreamOpencodePackage.node_modules.overrideAttrs (previousAttrs: {
+          outputHash =
+            {
+              aarch64-darwin = "sha256-Z5YwB1BqqvgG17yeyD+GJI4uCp/C+yWxnIQwuhvLT1A=";
+              aarch64-linux = "sha256-Z10N70Fk4lLXUPmIm0zt3nUgQ/xJoJLENw/AbOXtOBA=";
+              x86_64-linux = "sha256-WU71OJbvZSJqHXiU8xcEw34SQWOs7z/IyZn0tGYJ4yQ=";
+            }
+            .${system};
+          buildPhase =
+            assert lib.assertMsg (
+              lib.length (lib.splitString "--filter '!./'" previousAttrs.buildPhase) == 2
+            ) "OpenCode dependency install changed; revisit the root peer-context workaround";
+            lib.replaceStrings [ "--filter '!./'" ] [ "--filter './'" ] previousAttrs.buildPhase;
+        });
+      }
+    else
+      upstreamOpencodePackage;
 
   mkOpencodePackage =
     package:
