@@ -3,8 +3,8 @@
   "version": "18.12.3",
   "urlTemplate": "https://github.com/can1357/oh-my-pi/releases/download/v{version}/omp-{key}",
   "hashes": {
-    "darwin-arm64": "sha256-q9mlsP73f0IEB440jiM/qg3T1dgXGc8rapuUeMEO7kg=",
-    "linux-arm64": "sha256-ln1k/OUUWG6Uyaxfl4dDtPzim5mch2N0fOR1SBFAfRo=",
-    "linux-x64": "sha256-lRPvnxnXmRqsauDLYHe88WZiCS3d6GHAAqkc7cb0f5o="
+    "darwin-arm64": "sha256-8qZXszIPyvojBVBTlApFsmqNMlThQSoViDgBPWcNbsU=",
+    "linux-arm64": "sha256-WPfCXptymwghkgSa2gejGCDIslcyVUWl/iMv8WefEJM=",
+    "linux-x64": "sha256-BltQedZf9rd9lhyTW6gI6PD1acpqLLe1+2oejactfew="
   }
 }
