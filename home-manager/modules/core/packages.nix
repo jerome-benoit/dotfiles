@@ -224,6 +224,7 @@ in
         text = ''
           tap "moltenbits/tap", trusted: true
           tap "jundot/omlx", "https://github.com/jundot/omlx", trusted: true
+          tap "incoai/tap", trusted: true
           cask "chatgpt"
           cask "docker-desktop"
           cask "ferdium"
@@ -234,7 +235,8 @@ in
           cask "podman-desktop"
           brew "mole"
           brew "ollama", restart_service: true
-          brew "jundot/omlx/omlx"
+          brew "jundot/omlx/omlx", restart_service: true
+          brew "incoai/tap/splash"
           brew "podman"
           brew "podman-compose"
         '';
