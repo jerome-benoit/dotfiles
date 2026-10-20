@@ -63,11 +63,6 @@ let
         py.pkgs.typing-extensions
       ]
       [ ];
-  sseStarlette = py.pkgs.sse-starlette.overridePythonAttrs (previousAttrs: {
-    # Workaround: nixpkgs omits sse-starlette's declared Starlette dependency.
-    # Remove when the nixpkgs package propagates Starlette itself.
-    dependencies = (previousAttrs.dependencies or [ ]) ++ [ py.pkgs.starlette ];
-  });
   mcp2 =
     mkLockedWheel "mcp"
       [
@@ -80,7 +75,7 @@ let
         py.pkgs.pyjwt
         py.pkgs.cryptography
         py.pkgs.python-multipart
-        sseStarlette
+        py.pkgs.sse-starlette
         py.pkgs.starlette
         py.pkgs.typing-extensions
         py.pkgs.typing-inspection

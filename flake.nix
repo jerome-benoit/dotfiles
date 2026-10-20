@@ -125,20 +125,6 @@
               '';
             });
           }
-          // {
-            # Workaround: CPython 3.11.17/3.12.15 reject server_hostname in
-            # server mode, so anyio's server-side TLS connectable test fails.
-            # Remove when the pin carries agronholm/anyio 818e4ac.
-            python312 = prev.python312.override {
-              packageOverrides = _self: super: {
-                anyio = super.anyio.overridePythonAttrs (previousAttrs: {
-                  disabledTests = (previousAttrs.disabledTests or [ ]) ++ [
-                    "test_tls_connectable"
-                  ];
-                });
-              };
-            };
-          }
         )
       ];
 
