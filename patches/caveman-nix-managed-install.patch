@@ -1,3 +1,8 @@
+# base: @caveman-ai/cli 4.0.1
+# intent: refuse every executable installation and self-update path, so the
+#   pinned Nix package stays the single source of truth. The guards cover
+#   setupInstall (and thus update, which calls it), the durable npm CLI install,
+#   and the module binary download.
 diff --git a/dist/index.js b/dist/index.js
 --- a/dist/index.js
 +++ b/dist/index.js

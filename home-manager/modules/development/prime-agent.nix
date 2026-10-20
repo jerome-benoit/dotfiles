@@ -23,13 +23,15 @@ let
   version = pins.version;
   src = pins.src;
 
-  # Python 3.12: the interpreter prime-agent-runtime's uv.lock resolves against.
+  # Python 3.12: python311 cannot be evaluated here, nixpkgs disables sphinx
+  # below 3.12 and sphinxHook pulls it in, which breaks beautifulsoup4,
+  # python-dotenv, httpx and tyro; the runtime itself accepts >=3.11.
   py = pkgs.python312;
   runtimeRoot = "${src}/prime-agent-runtime";
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";
 
-  # Preserve the MCP dependency versions from the runtime lock.
+  # Pin the MCP stack to the runtime lock rather than nixpkgs package versions.
   mkLockedWheel =
     name: dependencies: pythonImportsCheck:
     py.pkgs.buildPythonPackage {
@@ -110,6 +112,8 @@ let
     doCheck = false;
   };
   runtimePackage = rlm;
+  # PRIME_AGENT_KERNEL_PYTHON bypasses provisioning; supply the runtime and promised packages.
+  # Keep the default package set and snapshot requirement aligned with upstream.
   kernelRequirements =
     let
       ps = py.pkgs;
@@ -170,11 +174,13 @@ let
         inherit version src;
         inherit (pins) cargoHash;
         cargoDepsName = "prime-agent";
-        # Refuse self-update for this Nix-managed installation.
-        # Remove when upstream offers a managed-install switch.
-        # prime-agent-darwin-tests: platform-correct the AF_UNIX sun_path limit (104
-        # on macOS/BSD vs 108 on Linux), gate the Linux-only /proc re-anchor test, skip
-        # the ps ground-truth test without /bin/ps. Remove when upstream carries these.
+        # Workaround: installer-funnel and TUI updates ignore Nix ownership;
+        # release checks also treat PI_OFFLINE=0 as offline.
+        # Remove when upstream fixes both Nix ownership and PI_OFFLINE parsing.
+        # prime-agent-darwin-tests: upstream assumes a 108-byte AF_UNIX sun_path on
+        # every unix target (104 on macOS and the BSDs), re-anchors over-long
+        # paths through /proc, and reads its process ground truth from /bin/ps.
+        # Remove when upstream carries these.
         patches = [
           ../../../patches/prime-agent-nix-self-update.patch
           ../../../patches/prime-agent-darwin-tests.patch

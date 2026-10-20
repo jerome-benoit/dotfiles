@@ -34,6 +34,8 @@ buildGoModule {
       install -Dm644 "vendor/$dependency/LICENSE" \
         "$out/share/licenses/caveman-blocks/$dependency/LICENSE"
     done
+    # Workaround: upstream resolves git and python3 from PATH at run time.
+    # Remove when the upstream binaries take those paths from their configuration.
     wrapProgram "$out/bin/caveman-blocks" \
       --prefix PATH : ${
         lib.makeBinPath [

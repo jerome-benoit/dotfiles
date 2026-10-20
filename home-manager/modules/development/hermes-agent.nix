@@ -38,8 +38,7 @@ let
     package:
     package
     // {
-      # Workaround: upstream overrides replace the default dependency groups.
-      # Remove when additional groups extend the existing integrations.
+      # Merge extra dependency groups across overrides to preserve existing integrations.
       override =
         requested:
         extendHermesDependencyGroups (

@@ -1,3 +1,8 @@
+"""Strata workspace manager: a pinned upstream checkout under the user's state directory.
+
+Each behaviour worked around here is marked in place.
+"""
+
 from contextlib import contextmanager
 import fcntl
 import json
@@ -31,6 +36,11 @@ def workspace_lock(state):
         yield state, lock
 
 
+# Workaround: earlier versions of this wrapper used one directory per revision,
+# named source-<sha>; they are migrated to a single source directory here. The
+# one to adopt is found through the install list upstream keeps in its settings
+# file.
+# Remove when no workspace of the old layout is left to migrate.
 def legacy_workspace(state, revision):
     candidates = [
         p for p in state.glob("source-*")
@@ -79,6 +89,9 @@ def _prepare_workspace(state, revision, remote):
         if not marker.exists():
             marker.write_bytes(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"]))
     current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    # Workaround: upstream pulls its configured branch, not a pinned revision.
+    # Keep visited revisions reachable for GC-safe offline rollback.
+    # Remove when upstream supports both revision pinning and GC-safe offline rollback.
     git(root, "update-ref", f"refs/strata/revisions/{current}", current)
     if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
@@ -105,6 +118,8 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False):
     temporary.replace(marker)
 
 
+# Workaround: upstream's ambient-Python venv can depend on a collectable Nix store path.
+# Remove when every supported bootstrap path keeps its interpreter alive independently.
 def retain_interpreter(state, venv):
     python = venv / "bin/python" if venv.is_dir() else Path(sys.executable)
     interpreter = python.resolve()
@@ -129,6 +144,8 @@ def run_workspace(state, revision, args):
         venv = root / ".venv"
         retain_interpreter(state, venv)
         python = venv / "bin/python"
+        # The runtime marker is ours; invalidate it after dropping a pip-less venv.
+        # Upstream recreates the venv, but --update must restore its dependencies before start.
         if venv.is_dir() and subprocess.run(
             [str(python), "-m", "pip", "--version"],
             stdout=subprocess.DEVNULL,

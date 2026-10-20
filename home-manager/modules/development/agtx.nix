@@ -25,9 +25,11 @@ let
       pkgs.procps
     ];
 
-    # Upstream test helpers require test-mocks.
+    # Workaround: upstream test helpers need the test-mocks feature, absent by default.
+    # Remove when the tests build without the extra feature.
     checkFeatures = [ "test-mocks" ];
-    # Keep Darwin checks disabled until validated in its native sandbox.
+    # Workaround: the test suite drives the git binary, and is unvalidated on Darwin.
+    # Remove when the test suite passes on aarch64-darwin.
     doCheck = pkgs.stdenv.hostPlatform.isLinux;
 
     postFixup = ''

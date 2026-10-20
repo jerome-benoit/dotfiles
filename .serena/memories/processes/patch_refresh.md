@@ -1,18 +1,50 @@
-# Process: Refresh Patches from PRs
+# Process: Refresh Patches
 
 ## Context
 
-Patches in `patches/<project>/*.patch` come from unmerged upstream PRs.
-Apply them via `overrideAttrs` by extending the package's `patches` list.
-When the locked input advances, patch line offsets drift → must refresh.
-
-**Prerequisites**: Flake lock must be current (`nix flake update <input>` already done). If running both processes, run `hermes_agent_sync_main_patched` FIRST (it affects the lock).
+The four local patches live directly under `patches/`. Their builders declare
+the `patches` lists directly; source versions and hashes come from
+`home-manager/modules/development/pins/{prime-agent,caveman}.json`.
+The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
+patch bases. Reassess each patch when its own source pin changes.
 
 ## Current Patches
 
-None.
+None pending refresh. The tree carries four patches, each with a `# base:` and
+`# intent:` header, and a comment at its use site explaining why it exists and
+when it can go:
 
-## Process
+- `patches/prime-agent-nix-self-update.patch` — refuse Nix-managed self-update and fix `PI_OFFLINE` parsing.
+- `patches/prime-agent-darwin-tests.patch` — platform-correct the AF_UNIX sun_path limit, gate the
+  Linux-only /proc re-anchor test, skip the Darwin ps ground-truth test without /bin/ps.
+- `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
+- `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
+
+## Local Patch Refresh
+
+1. Read the patch's `# base:` / `# intent:` headers and its builder's use-site
+   comment. Check every carried change, not only the patch's main purpose.
+2. Resolve the exact source from `pins/default.nix` and the corresponding JSON
+   pin. Use that hash-pinned source, not the current contents of a mutable tag.
+3. Check whether upstream now supplies each fix. Remove only superseded hunks;
+   retire the whole patch only when every carried change is covered upstream.
+4. Regenerate remaining hunks against the pinned source, preserving the headers
+   and updating `# base:` when its version changes.
+5. Verify application without fuzz or offset warnings and inspect the resulting
+   code. Exercise affected behavior when code or upstream assumptions change.
+6. Update the use-site explanation, removal condition and inventory as needed.
+   Commit or push only when requested.
+
+## PR-Derived Patch Refresh
+
+Use this procedure only for a patch associated with an upstream PR. Set the
+actual patch path; no `patches/<project>/` layout is assumed. The commands below
+use a flat `patches/<name>.patch` path.
+
+Resolve the source revision from its actual pin. The `flake.lock` example in
+step 1 applies only to flake inputs, not the current JSON-pinned packages.
+When refreshing a Hermes fork patch, follow `hermes_agent_sync_main_patched`
+before updating its input.
 
 ### 1. Check PR status against locked rev
 
@@ -68,11 +100,11 @@ If `filterdiff` unavailable: manually delete diff sections for build-irrelevant 
 ### 4. Compare & replace
 
 ```bash
-diff patches/<project>/<name>.patch /tmp/filtered.patch
+diff patches/<name>.patch /tmp/filtered.patch
 ```
 
 - If identical → no change needed
-- If different → `cp /tmp/filtered.patch patches/<project>/<name>.patch`
+- If different → replace the patch body, preserving its `# base:` / `# intent:` headers.
 
 ### 5. Verify patch applies
 
@@ -89,7 +121,7 @@ nix build --impure --expr '
       patchDir = /. + "${home}/.nix/patches";
   in pkgs.applyPatches {
     src = flake.inputs.<input>.packages.${system}.default.src;
-    patches = [ (patchDir + "/<project>/<name>.patch") ];
+    patches = [ (patchDir + "/<name>.patch") ];
   }'
 # Full build is only needed when:
 # - Conflict resolution changed patched code semantically (not just offsets)
@@ -109,7 +141,7 @@ nix log <drv-path> 2>&1 | grep -E "(offset|fuzz|FAILED)"
 ### 7. Commit, push, and verify
 
 ```bash
-git add patches/<project>/<name>.patch
+git add patches/<name>.patch
 git commit -m "chore: refresh <project> PR #<N> patch"
 git push
 # MANDATORY: verify

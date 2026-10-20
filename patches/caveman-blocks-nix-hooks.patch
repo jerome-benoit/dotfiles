@@ -1,3 +1,6 @@
+# base: v0.1.0-rc.5
+# intent: keep the Nix wrapper as the installed hook; upstream copies
+#   os.Executable(), which drops the wrapper and its dependency-providing PATH.
 diff --git a/internal/repo/repo.go b/internal/repo/repo.go
 --- a/internal/repo/repo.go
 +++ b/internal/repo/repo.go
