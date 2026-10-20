@@ -1,10 +1,10 @@
 {
   lib,
+  pkgs,
   stdenvNoCC,
   makeWrapper,
   callPackage,
   git,
-  darwin,
   chromium,
   google-chrome,
   pins,
@@ -52,9 +52,15 @@ stdenvNoCC.mkDerivation {
         install -m644 ${license} "$out/share/licenses/caveman-runtime/${name}"
       '') pins.licenses
     )}
+    # Workaround: upstream resolves git and ps from PATH at run time; macOS
+    # ships ps in /bin, outside a Nix-built PATH.
+    # Remove when upstream takes those paths from its own configuration.
     wrapProgram "$out/bin/caveman-proxy" \
       --prefix PATH : "$out/bin:${
-        lib.makeBinPath ([ git ] ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ darwin.ps ])
+        lib.makeBinPath (
+          [ git ]
+          ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ pkgs.darwin.ps ]
+        )
       }"
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \

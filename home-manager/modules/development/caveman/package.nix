@@ -1,5 +1,6 @@
 {
   lib,
+  pkgs,
   stdenvNoCC,
   fetchurl,
   fetchzip,
@@ -33,14 +34,21 @@ stdenvNoCC.mkDerivation {
     for executable in ${runtime}/bin/*; do
       ln -s "$executable" "$out/bin/$(basename "$executable")"
     done
+    # Workaround: upstream resolves git from PATH at run time, and the agent
+    # runs the commands whose output it captures, ps among them, so ps has to
+    # be on the PATH the agent inherits.
+    # Remove when upstream takes those paths from its own configuration.
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/caveman" \
       --add-flags "$out/lib/caveman/dist/index.js" \
       --prefix PATH : ${
-        lib.makeBinPath [
-          runtime
-          git
-          nodejs_22
-        ]
+        lib.makeBinPath (
+          [
+            runtime
+            git
+            nodejs_22
+          ]
+          ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ pkgs.darwin.ps ]
+        )
       } \
       --set CAVEMAN_NIX_MANAGED 1 \
       --set-default DO_NOT_TRACK 1 \
