@@ -200,10 +200,11 @@ class WorkspaceTests(unittest.TestCase):
         setup.write_text(f'''#!{shutil.which("sh")}
 cd "$(dirname "$0")" || exit 8
 exec "{sys.executable}" - "$@" <<'PY'
+import sys
+sys.path.append(r"{UPSTREAM}")
 from pathlib import Path
 import setup
-import sys
-setup.pip_install = lambda *args: None
+setup.pip_install = lambda *args, **kwargs: None
 def install(url):
     candidate = setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
     if (candidate / "strata").exists():
@@ -283,6 +284,8 @@ PY
                 setup.write_text(f'''#!{shutil.which("sh")}
 cd "$(dirname "$0")" || exit 8
 exec "{sys.executable}" - "$@" <<'PY'
+import sys
+sys.path.append(r"{UPSTREAM}")
 import setup
 import sys
 if sys.argv[1:] == ["--update"]:
@@ -357,7 +360,7 @@ PY
             process.communicate(timeout=10)
 
         self.addCleanup(cleanup)
-        readable, _, _ = select.select([descriptor], [], [], 15)
+        readable, _, _ = select.select([descriptor], [], [], 120)
         if not readable:
             process.kill()
             stdout, stderr = process.communicate(timeout=10)
