@@ -45,14 +45,20 @@ diff --git a/cmd/caveman-blocks/common.go b/cmd/caveman-blocks/common.go
 diff --git a/cmd/caveman-blocks/cmd_hooks.go b/cmd/caveman-blocks/cmd_hooks.go
 --- a/cmd/caveman-blocks/cmd_hooks.go
 +++ b/cmd/caveman-blocks/cmd_hooks.go
-@@ -45,4 +45,8 @@
- 			if err != nil {
+@@ -44,8 +44,12 @@
+ 			bin, changed, err := repo.InstallBinary(exe, version)
+-			if err != nil {
 -				return fmt.Errorf("copy binary: %w", err)
-+				return fmt.Errorf("install binary: %w", err)
- 			}
+-			}
 -			fmt.Fprintf(out, "binary: %s (%s)\n", bin, either(changed, "copied", "unchanged"))
++			if err != nil {
++				return fmt.Errorf("install binary: %w", err)
++			}
 +			action := "copied"
 +			if os.Getenv("CAVEMAN_BLOCKS_NIX_WRAPPER") != "" {
 +				action = "linked"
 +			}
 +			fmt.Fprintf(out, "binary: %s (%s)\n", bin, either(changed, action, "unchanged"))
+ 			for _, p := range profiles {
+ 				f, err := install.For(p.ConfigFormat)
+ 				if err != nil {
