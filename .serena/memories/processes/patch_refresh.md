@@ -22,7 +22,7 @@ when it can go:
 - `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17) with session-scoped pending hints.
+- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17), with message-scoped hints and location-relative workdirs.
 
 ## Local Patch Refresh
 

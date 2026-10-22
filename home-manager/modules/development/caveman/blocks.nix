@@ -26,8 +26,8 @@ buildGoModule {
     # Workaround: upstream copies os.Executable(), losing the Nix wrapper.
     # Remove when upstream preserves managed hook launchers and their refresh.
     ../../../../patches/caveman-blocks-nix-hooks.patch
-    # Workaround: the installed plugin predates OpenCode 2's plugin API.
-    # Remove when upstream ships blocks#17 and session-scoped pending hints.
+    # Workaround: plugin lacks OpenCode 2 hooks with message-scoped hints
+    # and location-relative workdirs. Remove when upstream handles all three.
     ../../../../patches/caveman-blocks-opencode2.patch
   ];
 

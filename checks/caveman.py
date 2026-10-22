@@ -249,21 +249,25 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     run("caveman-blocks", "add", "json-peek", cwd=repo)
     run("caveman-blocks", "hooks", "install", "--harness", "opencode", cwd=repo)
     plugin = home / ".config/opencode/plugins/caveman-blocks.js"
-    run(node, "--input-type=module", "-", str(plugin), cwd=repo, data=r"""
+    (repo / "nested").mkdir()
+    (repo / "~literal").mkdir()
+    run(node, "--input-type=module", "-", str(plugin), str(repo), cwd=root, data=r"""
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 const { default: plugin } = await import(pathToFileURL(process.argv[2]));
 const hooks = new Map();
+const directory = process.argv[3];
+assert.notEqual(process.cwd(), directory);
 await plugin.setup({
-  location: { directory: process.cwd() },
+  location: { directory },
   tool: { hook: async (name, callback) => hooks.set(name, callback) },
 });
 const command = "python3 - <<'EOF'\nimport json\nd=json.load(open('x.json'))\nprint(d.keys())\nEOF";
-const before = (id, command, sessionID = `fixture-${id}`) => hooks.get("execute.before")({
-  tool: "shell", sessionID, id, input: { command },
+const before = (id, command, sessionID = `fixture-${id}`, messageID = `msg_${id}`, workdir) => hooks.get("execute.before")({
+  tool: "shell", sessionID, messageID, id, input: { command, workdir },
 });
-const after = (id, result, sessionID = `fixture-${id}`) => ({
-  tool: "shell", sessionID, id, status: "completed", result,
+const after = (id, result, sessionID = `fixture-${id}`, messageID = `msg_${id}`) => ({
+  tool: "shell", sessionID, messageID, id, status: "completed", result,
 });
 const hint = "Blocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>";
 await before("matched", command);
@@ -284,7 +288,7 @@ await hooks.get("execute.after")(plain);
 assert.deepEqual(plain.result, result);
 await before("failed", command);
 await hooks.get("execute.after")({
-  tool: "shell", sessionID: "fixture-failed", id: "failed", status: "error",
+  tool: "shell", sessionID: "fixture-failed", messageID: "msg_failed", id: "failed", status: "error",
   error: new Error("tool failed"),
 });
 const retried = after("failed", result);
@@ -302,7 +306,7 @@ assert.deepEqual(matchingSession.result.content, [...result.content, { type: "te
 await before("shared", command, "session-a");
 await before("shared", command, "session-b");
 await hooks.get("execute.after")({
-  tool: "shell", sessionID: "session-b", id: "shared", status: "error",
+  tool: "shell", sessionID: "session-b", messageID: "msg_shared", id: "shared", status: "error",
   error: new Error("other session failed"),
 });
 const survivingSession = after("shared", result, "session-a");
@@ -311,7 +315,38 @@ assert.deepEqual(survivingSession.result.content, [...result.content, { type: "t
 const failedSession = after("shared", result, "session-b");
 await hooks.get("execute.after")(failedSession);
 assert.deepEqual(failedSession.result, result);
-console.log("OpenCode 2: content hint, exit metadata, unrelated and failed calls passed");
+// Interrupted tools have no after event; call IDs can recur in a later message.
+await before("reused", command, "session-cancel", "msg_interrupted");
+await before("reused", "printf ok", "session-cancel", "msg_resumed");
+const resumed = after("reused", result, "session-cancel", "msg_resumed");
+await hooks.get("execute.after")(resumed);
+assert.deepEqual(resumed.result, result);
+await before("reused", command, "session-cancel", "msg_next");
+const late = after("reused", result, "session-cancel", "msg_interrupted");
+await hooks.get("execute.after")(late);
+const next = after("reused", result, "session-cancel", "msg_next");
+await hooks.get("execute.after")(next);
+assert.deepEqual(next.result.content, [...result.content, { type: "text", text: hint }]);
+const duplicate = after("reused", result, "session-cancel", "msg_next");
+await hooks.get("execute.after")(duplicate);
+assert.deepEqual(duplicate.result, result);
+// The server cwd differs from the location. Home expansion follows POSIX rules.
+for (const [workdir, matches] of [
+  [undefined, true], ["", true], [directory, true], [".", true], ["nested", true],
+  [process.cwd(), false], ["..", false], ["~", false],
+  ["~/../repo", true], ["~/..", false], ["~literal", true],
+]) {
+  const sessionID = `session-cwd-${workdir}`;
+  await before("cwd", command, sessionID, `msg_${workdir}`, workdir);
+  const event = after("cwd", result, sessionID, `msg_${workdir}`);
+  await hooks.get("execute.after")(event);
+  assert.deepEqual(event.result.content, matches
+    ? [...result.content, { type: "text", text: hint }]
+    : result.content, `workdir=${workdir}`);
+  assert.strictEqual(event.result.output, output);
+  assert.deepEqual(event.result.metadata, result.metadata);
+}
+console.log("OpenCode 2: content, metadata, session/message isolation and location workdirs passed");
 """.encode())
     run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo)
 

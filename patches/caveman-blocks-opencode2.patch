@@ -1,7 +1,7 @@
 # base: v0.1.0-rc.5
 # upstream: https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
 # intent: support OpenCode 2 tool hooks while preserving OpenCode 1.x integration.
-# local: scope pending V2 hints by session and call id.
+# local: isolate V2 hints per message and resolve workdirs against the active location.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
 index b1f1f3e..868f669 100644
 --- a/internal/hook/profiles.toml
@@ -39,7 +39,8 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
  import { spawnSync } from "node:child_process";
  import { existsSync } from "node:fs";
  import { homedir } from "node:os";
- import { join } from "node:path";
+-import { join } from "node:path";
++import { join, resolve } from "node:path";
  
  const INSTALLED = "";
 +
@@ -48,10 +49,16 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
  
  function binary() {
    for (const p of [INSTALLED, process.env.CAVEMAN_BLOCKS_BIN, join(homedir(), ".local/share/caveman-blocks/bin/caveman-blocks" + (process.platform === "win32" ? ".exe" : ""))]) {
-@@ -32,11 +44,21 @@
+@@ -32,11 +44,27 @@
    }
  }
  
++// Resolve V2 shell workdirs against the active location, including home paths.
++function shellWorkdir(directory, workdir = directory) {
++  const expanded = workdir === "~" ? homedir() : workdir.startsWith("~/") ? join(homedir(), workdir.slice(2)) : workdir;
++  return resolve(directory, expanded);
++}
++
 +// withHint returns the tool result with the hint appended. OpenCode's bash result carries the text
 +// in `output`; `content` is the fallback shape for tools that return content parts.
 +function withHint(result, hint) {
@@ -71,7 +78,7 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
        const command = String(output.args?.command ?? "");
        const hint = hook({ phase: "pre", session: input.sessionID, call_id: input.callID, cwd: output.args?.workdir || directory, command });
        if (hint) hints.set(input.callID, hint);
-@@ -48,3 +70,36 @@
+@@ -48,3 +76,36 @@
      },
    };
  };
@@ -86,15 +93,15 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
 +    // OpenCode 1.x also calls setup(), with a context that has no tool API.
 +    if (!ctx || !ctx.tool || typeof ctx.tool.hook !== "function") return;
 +
-+    const hints = new Map(); // (session id, call id) -> hint from the pre phase, delivered after the call
-+    const callKey = (event) => JSON.stringify([event.sessionID, event.id]);
-+    const directory = ctx.location?.directory;
++    const hints = new Map(); // (session id, message id, call id) -> hint delivered after the call
++    const callKey = (event) => JSON.stringify([event.sessionID, event.messageID, event.id]);
++    const directory = ctx.location.directory;
 +
 +    await ctx.tool.hook("execute.before", (event) => {
 +      if (!SHELL_TOOLS.has(event.tool)) return;
 +      const input = event.input && typeof event.input === "object" ? event.input : {};
 +      const command = String(input.command ?? "");
-+      const hint = hook({ phase: "pre", session: event.sessionID, call_id: event.id, cwd: input.workdir || directory, command });
++      const hint = hook({ phase: "pre", session: event.sessionID, call_id: event.id, cwd: shellWorkdir(directory, input.workdir), command });
 +      if (hint) hints.set(callKey(event), hint);
 +    });
 +
