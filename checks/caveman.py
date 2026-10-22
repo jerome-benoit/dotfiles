@@ -118,7 +118,8 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     fixture_git("-c", "init.defaultBranch=main", "init", ".")
     fixture_git(
         "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-        "commit", "--allow-empty", "-m", "Fixture",
+        "commit", "--allow-empty", "-m",
+        "Fixture\n\n" + "wrapper recovery fixture line\n" * 64,
         dates={"GIT_AUTHOR_DATE": timestamp(first), "GIT_COMMITTER_DATE": timestamp(first)},
     )
     sessions = home / ".claude/projects/fixture"
@@ -149,9 +150,41 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert evidence["without_commit"]["tokens"] == 80000, evidence
     assert evidence["without_commit_token_share_pct"] == 50, evidence
 
+    settings = home / ".claude/settings.json"
+    # Durable CLI callbacks must keep the wrapper when the caller has no PATH.
+    callback_env = {**env, "PATH": ""}
+    run("caveman", "tools", "hooks", "install", "claude", environment=callback_env)
+    callback_settings = json.loads(settings.read_text())
+    callback = next(
+        hook["command"]
+        for entry in callback_settings["hooks"]["PreToolUse"]
+        if entry["matcher"] == "Bash"
+        for hook in entry["hooks"]
+    )
+    command = "git log -1 --format=%B"
+    rewritten = subprocess.run(
+        shlex.split(callback),
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}).encode(),
+        env=callback_env, cwd=repo, capture_output=True, check=True, timeout=30,
+    )
+    invocation = json.loads(rewritten.stdout)["hookSpecificOutput"]["updatedInput"]["command"]
+    shrunk = subprocess.run(
+        shlex.split(invocation),
+        env=callback_env, cwd=repo, capture_output=True, check=True, timeout=30,
+    )
+    callback_report = json.loads(shrunk.stderr)
+    callback_handle = callback_report["recovery_handle"]
+    assert callback_handle and callback_handle.encode() in shrunk.stdout, callback_report
+    original_log = subprocess.run(
+        [git, "log", "-1", "--format=%B"],
+        env=callback_env, cwd=repo, capture_output=True, check=True, timeout=10,
+    ).stdout
+    assert run(
+        "caveman", "tools", "retrieve", callback_handle, environment=callback_env,
+    ).stdout == original_log
+
     # Execute the command actually registered for the harness. A copied native
     # executable loses Git and writes its events under a different repository id.
-    settings = home / ".claude/settings.json"
     foreign_hook = {"matcher": "Read", "hooks": [{"type": "command", "command": "echo preserve"}]}
     settings.write_text(json.dumps({"hooks": {"PreToolUse": [foreign_hook]}}))
     stable_hook = home / ".local/share/caveman-blocks/bin/caveman-blocks"
@@ -210,6 +243,112 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     run("caveman-blocks", "hooks", "uninstall", "--harness", "claude-code", cwd=repo)
     assert json.loads(settings.read_text())["hooks"]["PreToolUse"] == [foreign_hook]
     assert_recorded_calls(3)
+
+    # OpenCode 2 returns structured shell output plus content parts. Hints must
+    # reach those parts without changing exit metadata or leaking from failed calls.
+    run("caveman-blocks", "add", "json-peek", cwd=repo)
+    run("caveman-blocks", "hooks", "install", "--harness", "opencode", cwd=repo)
+    plugin = home / ".config/opencode/plugins/caveman-blocks.js"
+    (repo / "nested").mkdir()
+    (repo / "~literal").mkdir()
+    run(node, "--input-type=module", "-", str(plugin), str(repo), cwd=root, data=r"""
+import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
+const { default: plugin } = await import(pathToFileURL(process.argv[2]));
+const hooks = new Map();
+const directory = process.argv[3];
+assert.notEqual(process.cwd(), directory);
+await plugin.setup({
+  location: { directory },
+  tool: { hook: async (name, callback) => hooks.set(name, callback) },
+});
+const command = "python3 - <<'EOF'\nimport json\nd=json.load(open('x.json'))\nprint(d.keys())\nEOF";
+const before = (id, command, sessionID = `fixture-${id}`, messageID = `msg_${id}`, workdir) => hooks.get("execute.before")({
+  tool: "shell", sessionID, messageID, id, input: { command, workdir },
+});
+const after = (id, result, sessionID = `fixture-${id}`, messageID = `msg_${id}`) => ({
+  tool: "shell", sessionID, messageID, id, status: "completed", result,
+});
+const hint = "Blocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>";
+await before("matched", command);
+await before("plain", "printf ok");
+const output = { output: "stderr\n", exit: 7, truncated: false, status: "completed" };
+const result = {
+  output,
+  content: [{ type: "text", text: output.output }],
+  metadata: { status: "completed", exit: 7, truncated: false },
+};
+const matched = after("matched", result);
+await hooks.get("execute.after")(matched);
+assert.strictEqual(matched.result.output, output);
+assert.deepEqual(matched.result.metadata, result.metadata);
+assert.deepEqual(matched.result.content, [...result.content, { type: "text", text: hint }]);
+const plain = after("plain", result);
+await hooks.get("execute.after")(plain);
+assert.deepEqual(plain.result, result);
+await before("failed", command);
+await hooks.get("execute.after")({
+  tool: "shell", sessionID: "fixture-failed", messageID: "msg_failed", id: "failed", status: "error",
+  error: new Error("tool failed"),
+});
+const retried = after("failed", result);
+await hooks.get("execute.after")(retried);
+assert.deepEqual(retried.result, result);
+// One plugin serves multiple sessions; provider call IDs are not server-wide IDs.
+await before("shared", command, "session-a");
+await before("shared", "printf ok", "session-b");
+const otherSession = after("shared", result, "session-b");
+await hooks.get("execute.after")(otherSession);
+assert.deepEqual(otherSession.result, result);
+const matchingSession = after("shared", result, "session-a");
+await hooks.get("execute.after")(matchingSession);
+assert.deepEqual(matchingSession.result.content, [...result.content, { type: "text", text: hint }]);
+await before("shared", command, "session-a");
+await before("shared", command, "session-b");
+await hooks.get("execute.after")({
+  tool: "shell", sessionID: "session-b", messageID: "msg_shared", id: "shared", status: "error",
+  error: new Error("other session failed"),
+});
+const survivingSession = after("shared", result, "session-a");
+await hooks.get("execute.after")(survivingSession);
+assert.deepEqual(survivingSession.result.content, [...result.content, { type: "text", text: hint }]);
+const failedSession = after("shared", result, "session-b");
+await hooks.get("execute.after")(failedSession);
+assert.deepEqual(failedSession.result, result);
+// Interrupted tools have no after event; call IDs can recur in a later message.
+await before("reused", command, "session-cancel", "msg_interrupted");
+await before("reused", "printf ok", "session-cancel", "msg_resumed");
+const resumed = after("reused", result, "session-cancel", "msg_resumed");
+await hooks.get("execute.after")(resumed);
+assert.deepEqual(resumed.result, result);
+await before("reused", command, "session-cancel", "msg_next");
+const late = after("reused", result, "session-cancel", "msg_interrupted");
+await hooks.get("execute.after")(late);
+const next = after("reused", result, "session-cancel", "msg_next");
+await hooks.get("execute.after")(next);
+assert.deepEqual(next.result.content, [...result.content, { type: "text", text: hint }]);
+const duplicate = after("reused", result, "session-cancel", "msg_next");
+await hooks.get("execute.after")(duplicate);
+assert.deepEqual(duplicate.result, result);
+// The server cwd differs from the location. Home expansion follows POSIX rules.
+for (const [workdir, matches] of [
+  [undefined, true], ["", true], [directory, true], [".", true], ["nested", true],
+  [process.cwd(), false], ["..", false], ["~", false],
+  ["~/../repo", true], ["~/..", false], ["~literal", true],
+]) {
+  const sessionID = `session-cwd-${workdir}`;
+  await before("cwd", command, sessionID, `msg_${workdir}`, workdir);
+  const event = after("cwd", result, sessionID, `msg_${workdir}`);
+  await hooks.get("execute.after")(event);
+  assert.deepEqual(event.result.content, matches
+    ? [...result.content, { type: "text", text: hint }]
+    : result.content, `workdir=${workdir}`);
+  assert.strictEqual(event.result.output, output);
+  assert.deepEqual(event.result.metadata, result.metadata);
+}
+console.log("OpenCode 2: content, metadata, session/message isolation and location workdirs passed");
+""".encode())
+    run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo)
 
     # A persisted native hook bypasses the CLI wrapper. With only the package
     # on PATH it must revive, identify and stop its own proxy, including on Darwin.

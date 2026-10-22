@@ -2,7 +2,7 @@
 
 ## Context
 
-The eight local patches live directly under `patches/`. Their builders declare
+The nine local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly; source versions and hashes come from
 `home-manager/modules/development/pins/{prime-agent,caveman}.json`.
 The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
@@ -10,7 +10,7 @@ patch bases. Reassess each patch when its own source pin changes.
 
 ## Current Patches
 
-None pending refresh. The tree carries eight patches, each with a `# base:` and
+None pending refresh. The tree carries nine patches, each with a `# base:` and
 `# intent:` header, and a comment at its use site explaining why it exists and
 when it can go:
 
@@ -22,6 +22,7 @@ when it can go:
 - `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
+- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17), with message-scoped hints and location-relative workdirs.
 
 ## Local Patch Refresh
 
@@ -37,6 +38,13 @@ when it can go:
    code. Exercise affected behavior when code or upstream assumptions change.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
+
+After changing the OpenCode plugin, run
+`caveman-blocks hooks install --harness opencode` to refresh an existing install.
+Updating the Nix package alone does not rewrite user-level agent configuration.
+Generated CLI callbacks also require the current Nix wrapper on PATH. Reinstall
+existing raw-Node callbacks with the relevant hook installer, for example
+`caveman tools hooks install claude`.
 
 ## PR-Derived Patch Refresh
 

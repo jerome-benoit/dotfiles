@@ -38,9 +38,10 @@ stdenvNoCC.mkDerivation {
     # runs the commands whose output it captures, ps among them, so ps has to
     # be on the PATH the agent inherits.
     # Remove when upstream takes those paths from its own configuration.
+    # Keep the current wrapper discoverable when generating durable callbacks.
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/caveman" \
       --add-flags "$out/lib/caveman/dist/index.js" \
-      --prefix PATH : ${
+      --prefix PATH : "$out/bin:${
         lib.makeBinPath (
           [
             runtime
@@ -49,7 +50,7 @@ stdenvNoCC.mkDerivation {
           ]
           ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ pkgs.darwin.ps ]
         )
-      } \
+      }" \
       --set CAVEMAN_NIX_MANAGED 1 \
       --set-default DO_NOT_TRACK 1 \
       --set-default CAVEMAN_TELEMETRY 0 \
