@@ -182,12 +182,18 @@ let
           # Workaround: Darwin's /bin/ps probe can fail in the Nix sandbox.
           # Remove when upstream skips comparisons without process ground truth.
           ../../../patches/prime-agent-darwin-tests.patch
+          # Workaround: upstream mission-local exclusions hide default UID socket directories.
+          # Remove when discovery relies only on the invocation's state root.
+          ../../../patches/prime-agent-daemon-discovery.patch
           # Workaround: compatible daemons can keep running a previous Nix executable.
           # Remove when upstream checks executable identity without stopping existing work.
           ../../../patches/prime-agent-nix-daemon-generation.patch
           # Workaround: login guidance references documents absent from release sources.
           # Remove when upstream points to documentation included in its releases.
           ../../../patches/prime-agent-bundled-docs.patch
+          # Workaround: name-only skill imports can execute a different selected source.
+          # Remove when the kernel binds imports to the resolved skill packages.
+          ../../../patches/prime-agent-python-skill-source.patch
         ];
         PRIME_AGENT_NIX_MANAGED = "1";
         # Upstream tests exercise installer-owned builds; installCheck and
@@ -230,14 +236,19 @@ let
 
         postInstall = ''
           mkdir -p $out/share/prime-agent
-          cp -r prime-agent-runtime docs skills README.md LICENSE $out/share/prime-agent/
+          cp -r prime-agent-runtime docs skills README.md LICENSE CHANGELOG.md $out/share/prime-agent/
           # Release archives embed synthetic fixtures. Pin production data
           # independently; catalog updates do not change the Rust source pin.
           cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
           cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
         '';
+        # Keep the payload basename visible to upstream's process ownership census.
+        preFixup = ''
+          mkdir -p $out/libexec
+          mv $out/bin/prime-agent $out/libexec/prime-agent
+        '';
         postFixup = ''
-          wrapProgram $out/bin/prime-agent \
+          makeWrapper $out/libexec/prime-agent $out/bin/prime-agent \
             --set PI_PACKAGE_DIR $out/share/prime-agent \
             --prefix PATH : ${
               lib.makeBinPath [
@@ -249,8 +260,7 @@ let
                 pkgs.nodejs
               ]
             } \
-            --set-default PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3 \
-            --set-default PI_OFFLINE 1
+            --set-default PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3
         '';
 
         doInstallCheck = true;
@@ -259,6 +269,7 @@ let
         preInstallCheck = ''
           export HOME=$(mktemp -d)
           export DO_NOT_TRACK=1
+          export PI_OFFLINE=1
           ${kernelPython}/bin/python3 scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
           # Schema validation intentionally accepts upstream fixture catalogs.
           ${kernelPython}/bin/python3 - "$out/share/prime-agent" <<'PY'
@@ -277,7 +288,7 @@ let
           cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
           # Exercise read-only checks through the wrapper with isolated environments.
           ${kernelPython}/bin/python3 ${./prime-agent-update-readonly.py} "$out/bin/prime-agent"
-          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3"
+          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3" "${lib.getExe pkgs.git}"
           for target in nightly rollback archive coordinator; do
             case "$target" in
               nightly) set -- update --nightly ;;

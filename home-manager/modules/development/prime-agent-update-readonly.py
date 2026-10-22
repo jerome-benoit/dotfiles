@@ -44,7 +44,7 @@ with http.server.ThreadingHTTPServer(("127.0.0.1", 0), ManifestHandler) as serve
         for offline, skip, channel, expected in (
             ("0", None, "stable", ["/latest.json"]),
             (" Yes ", None, "stable", []),
-            (None, None, "stable", []),
+            (None, None, "stable", ["/latest.json"]),
             ("0", "1", "stable", []),
             ("0", None, "nightly", ["/beta.json"]),
         ):

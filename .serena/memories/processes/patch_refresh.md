@@ -2,7 +2,7 @@
 
 ## Context
 
-The six local patches live directly under `patches/`. Their builders declare
+The eight local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly; source versions and hashes come from
 `home-manager/modules/development/pins/{prime-agent,caveman}.json`.
 The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
@@ -10,14 +10,16 @@ patch bases. Reassess each patch when its own source pin changes.
 
 ## Current Patches
 
-None pending refresh. The tree carries six patches, each with a `# base:` and
+None pending refresh. The tree carries eight patches, each with a `# base:` and
 `# intent:` header, and a comment at its use site explaining why it exists and
 when it can go:
 
 - `patches/prime-agent-nix-self-update.patch` — refuse Nix-managed self-update and fix `PI_OFFLINE` parsing.
 - `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when process ground truth is unavailable.
+- `patches/prime-agent-daemon-discovery.patch` — remove mission-local exclusions while preserving state-root ownership.
 - `patches/prime-agent-nix-daemon-generation.patch` — reject different or unverifiable daemon executables without stopping existing sessions.
 - `patches/prime-agent-bundled-docs.patch` — point login guidance to the bundled upstream README.
+- `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
 

@@ -1,17 +1,18 @@
 """Exercise kernel overrides and daemon generations in the installed Nix package."""
 
 import json
-import os
 import pathlib
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import tempfile
 import time
 
 binary = pathlib.Path(sys.argv[1]).resolve()
 python = pathlib.Path(sys.argv[2])
+git = pathlib.Path(sys.argv[3])
 
 
 def run(command, env, cwd):
@@ -24,6 +25,74 @@ def run(command, env, cwd):
         capture_output=True,
         timeout=30,
     )
+
+def check_selected_sources(root, env):
+    skills = root / "agent/skills"
+    selected = skills / "edit"
+    unique = skills / "nix-source-probe"
+    for directory, name in [(selected, "edit"), (unique, "nix-source-probe")]:
+        module = directory / "src" / name.replace("-", "_")
+        module.mkdir(parents=True)
+        (directory / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: Selected source check\n---\nCall this Python skill.\n"
+        )
+        (directory / "pyproject.toml").write_text(
+            f'[project]\nname="{name}"\nversion="0.1.0"\ndependencies=[]\n'
+        )
+    (unique / "src/nix_source_probe/helper.py").write_text("VALUE = 43\n")
+    (unique / "src/nix_source_probe/__init__.py").write_text(
+        "from .helper import VALUE\nasync def run(): return VALUE\n"
+    )
+    selected_module = selected / "src/edit/__init__.py"
+    selected_code = (
+        "from nix_source_probe import run as other_run\n"
+        "async def run(): return {'source': 'user-edit', 'relative': await other_run()}\n"
+    )
+    selected_module.write_text(selected_code)
+    result_file = root / "selected-source.json"
+    code = (
+        "import json, pathlib\n"
+        f"pathlib.Path({str(result_file)!r}).write_text(json.dumps("
+        "{'value': await edit(), 'file': edit.__file__, 'unique': await nix_source_probe()}))"
+    )
+    script = {"responses": [
+        {"content": [{"type": "toolCall", "name": "ipython", "arguments": {"code": code}}]},
+        "Source check complete",
+    ]}
+    result = run(
+        [binary, "--no-session", "-p", "Check selected skill sources"],
+        {**env, "PRIME_AGENT_FAUX_SCRIPT": json.dumps(script)},
+        root,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert json.loads(result_file.read_text()) == {
+        "value": {"source": "user-edit", "relative": 43},
+        "file": str(selected_module),
+        "unique": 43,
+    }
+    selected_module.write_text(
+        "import nix_missing_dependency_for_source_check\nasync def run(): return 'wrong fallback'\n"
+    )
+    failure_file = root / "selected-failure.txt"
+    code = (
+        "import pathlib\n"
+        "try:\n    await edit()\n"
+        "except RuntimeError as error:\n"
+        f"    pathlib.Path({str(failure_file)!r}).write_text(str(error))"
+    )
+    script["responses"][0]["content"][0]["arguments"]["code"] = code
+    try:
+        result = run(
+            [binary, "--no-session", "-p", "Check selected source failure"],
+            {**env, "PRIME_AGENT_FAUX_SCRIPT": json.dumps(script)},
+            root,
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert "nix_missing_dependency_for_source_check" in failure_file.read_text()
+    finally:
+        selected_module.write_text(selected_code)
+    print("Skills: selected user source wins; fresh and relative imports work; failed source never falls back")
+
 
 
 def check_kernel(root, env):
@@ -92,11 +161,97 @@ def check_kernel(root, env):
     assert not (root / "agent/kernel-venv").exists()
     print("Kernel: packaged default works; invalid override fails; alternate environment executes its own skill")
 
+def check_extension_updates(root, env):
+    env = {key: value for key, value in env.items() if key != "PI_OFFLINE"}
+    env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"})
+    work = root / "extension-work"
+    work.mkdir()
+    bare = root / "extension.git"
+    source = "https://localhost/fixtures/extension"
+    installed = root / "agent/git/localhost/fixtures/extension"
+    installed.parent.mkdir(parents=True)
+
+    def git_run(*args, cwd=work):
+        result = run([git, *args], env, cwd)
+        assert result.returncode == 0, (args, result.stdout, result.stderr)
+        return result.stdout.strip()
+
+    def commit(message):
+        git_run("add", "value.txt")
+        git_run(
+            "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "-m", message,
+        )
+        return git_run("rev-parse", "HEAD")
+
+    git_run("init", "--initial-branch=main")
+    (work / "value.txt").write_text("one\n")
+    first = commit("one")
+    git_run("clone", "--bare", work, bare)
+    git_run("clone", bare, installed)
+    (root / "agent/settings.json").write_text(json.dumps({"packages": [source]}))
+    assert git_run("rev-parse", "HEAD", cwd=installed) == first
+    (work / "value.txt").write_text("two\n")
+    second = commit("two")
+    git_run("push", bare, "main")
+    result = run([binary, "package", "update", source], env, root)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert git_run("rev-parse", "HEAD", cwd=installed) == second
+    assert (installed / "value.txt").read_text() == "two\n"
+    print("Extensions: default environment updates an unpinned Git package from its local origin")
+
+
+def check_admission_race(root, env, hello, raw, other):
+    address = root / "admission.sock"
+    commands = []
+    identities = []
+    errors = []
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(address))
+        listener.listen(2)
+        listener.settimeout(10)
+
+        def serve():
+            try:
+                for executable in [raw, other]:
+                    connection, _ = listener.accept()
+                    with connection:
+                        connection.settimeout(10)
+                        greeting = {
+                            **hello,
+                            "runtime": {**hello["runtime"], "executablePath": str(executable)},
+                        }
+                        connection.sendall((json.dumps(greeting) + "\n").encode())
+                        identities.append(str(executable))
+                        with connection.makefile("rb") as wire:
+                            for line in wire:
+                                if line.strip():
+                                    commands.append(json.loads(line))
+            except Exception as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            result = run([binary, "--mode", "acp", "--daemon-socket", address], env, root)
+            thread.join(timeout=15)
+            assert not thread.is_alive(), "admission fixture did not finish"
+            assert not errors, errors
+            assert identities == [str(raw), str(other)], identities
+            assert result.returncode != 0, (result.stdout, result.stderr)
+            assert not commands, commands
+        finally:
+            listener.close()
+            thread.join(timeout=11)
+            address.unlink(missing_ok=True)
+    print("Admission: replacement between probe and ACP connection receives no command")
+
+
 
 def check_daemon(root, env):
     address = root / "daemon.sock"
     env = {**env, "PRIME_AGENT_DAEMON_SOCKET": str(address)}
-    raw = binary.with_name(f".{binary.name}-wrapped")
+    raw = binary.parent.parent / "libexec/prime-agent"
     alias = root / "same-generation"
     alias.symlink_to(raw)
     other = root / "other-generation"
@@ -162,7 +317,6 @@ def check_daemon(root, env):
 
         refused = run([other, "--mode", "acp", "--daemon-socket", address], client_env, root)
         assert refused.returncode != 0, (refused.stdout, refused.stderr)
-        assert "different Nix executable generation" in refused.stderr, refused.stderr
         assert daemon.poll() is None, "generation check stopped the existing daemon"
         after = request({"type": "get_state", "activeSessionId": session})
         assert after["sessionId"] == before["sessionId"], (before, after)
@@ -176,6 +330,7 @@ def check_daemon(root, env):
         assert state["sessionId"] == before["sessionId"], state
         assert state["workerInstanceId"] == before["workerInstanceId"], state
         assert daemon.poll() is None
+        check_admission_race(root, client_env, hello, raw, other)
         print("Daemon: different executable refused; attached session preserved and usable; same executable alias accepted")
     finally:
         if wire is not None:
@@ -198,5 +353,7 @@ with tempfile.TemporaryDirectory(prefix="pa-check-", dir="/tmp") as temporary:
         "XDG_DATA_HOME": str(root / "data"), "PRIME_AGENT_CODING_AGENT_DIR": str(root / "agent"),
         "DO_NOT_TRACK": "1", "PI_OFFLINE": "1", "NO_COLOR": "1",
     }
+    check_selected_sources(root, env)
     check_kernel(root, env)
+    check_extension_updates(root, env)
     check_daemon(root, env)

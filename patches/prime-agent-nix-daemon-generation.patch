@@ -1,76 +1,40 @@
 # base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
-# intent: refuse unverifiable or different Nix daemon executables without stopping existing sessions.
+# intent: verify Nix executable identity on probes, session handshakes and reconnects.
 diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/interactive_mode/daemon.rs
+index 04c0a83..8efb68a 100644
 --- a/crates/pa-cli/src/interactive_mode/daemon.rs
 +++ b/crates/pa-cli/src/interactive_mode/daemon.rs
-@@ -27,13 +27,59 @@
+@@ -27,12 +27,19 @@ enum DaemonProbe {
      Stale(Box<pa_tui::daemon_client::DaemonClient>),
  }
  
 -/// Probe the socket once: connect, read the hello, and classify it.
 -async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
+-    let Ok((client, _events)) = pa_tui::daemon_client::DaemonClient::connect(socket_path).await
 +/// Probe the socket once: connect, verify the Nix executable, and classify the hello.
 +async fn probe_daemon(socket_path: &Path, executable: Option<&Path>) -> Result<DaemonProbe> {
-     let Ok((client, _events)) = pa_tui::daemon_client::DaemonClient::connect(socket_path).await
++    let Ok((mut client, _events)) =
++        pa_tui::daemon_client::DaemonClient::connect_unverified(socket_path).await
      else {
 -        return DaemonProbe::Absent;
 +        return Ok(DaemonProbe::Absent);
      };
-     let hello = client.hello();
-+    if cfg!(unix) && option_env!("PRIME_AGENT_NIX_MANAGED").is_some() {
-+        let validate_identity = || -> Result<()> {
-+            let expected = match executable {
-+                Some(executable) => executable.canonicalize(),
-+                None => std::env::current_exe().and_then(std::fs::canonicalize),
-+            }
-+            .context("resolve the Nix-managed Prime Agent executable")?;
-+            let runtime_path = hello
-+                .get("runtime")
-+                .and_then(|runtime| runtime.get("executablePath"))
-+                .and_then(serde_json::Value::as_str)
-+                .filter(|path| !path.is_empty())
-+                .with_context(|| {
-+                    format!(
-+                        "Cannot verify the Prime Agent daemon executable on {}; leaving the daemon running",
-+                        socket_path.display()
-+                    )
-+                })?;
-+            let runtime_path = Path::new(runtime_path);
-+            anyhow::ensure!(
-+                runtime_path.is_absolute(),
-+                "Cannot verify the non-absolute Prime Agent daemon executable {} on {}; leaving the daemon running",
-+                runtime_path.display(),
-+                socket_path.display()
-+            );
-+            let actual = runtime_path.canonicalize().with_context(|| {
-+                format!(
-+                    "Cannot resolve the Prime Agent daemon executable {} on {}; leaving the daemon running",
-+                    runtime_path.display(),
-+                    socket_path.display()
-+                )
-+            })?;
-+            anyhow::ensure!(
-+                actual == expected,
-+                "The Prime Agent daemon on {} runs a different Nix executable generation (daemon: {}; requested: {}). Existing sessions were left running.\nFinish all agents and background work before running `prime-agent shutdown` (stops all agents and background services), then retry.",
-+                socket_path.display(),
-+                actual.display(),
-+                expected.display()
-+            );
-+            Ok(())
-+        };
-+        if let Err(error) = validate_identity() {
-+            client.close();
-+            return Err(error);
-+        }
++    if let Err(error) =
++        pa_types::daemon::verify_nix_daemon_generation(client.hello(), socket_path, executable)
++    {
++        client.hard_close();
++        return Err(error.into());
 +    }
+     let hello = client.hello();
      let current = hello.get("protocol").and_then(|p| p.get("version"))
          == Some(&serde_json::json!(
-             pa_types::daemon::DAEMON_PROTOCOL_VERSION
-@@ -41,9 +87,9 @@
+@@ -40,10 +47,10 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
+         ))
          && hello.get("schemaId") == Some(&serde_json::json!(pa_types::daemon::DAEMON_SCHEMA_ID));
      if current {
-         client.close();
+-        client.close();
 -        DaemonProbe::Current
++        client.hard_close();
 +        Ok(DaemonProbe::Current)
      } else {
 -        DaemonProbe::Stale(Box::new(client))
@@ -78,7 +42,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
      }
  }
  
-@@ -52,11 +98,11 @@
+@@ -52,11 +59,11 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
  /// shut down, a busy one refuses replacement).
  ///
  /// # Errors
@@ -93,7 +57,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
          DaemonProbe::Current => return Ok(()),
          DaemonProbe::Stale(client) => shutdown_stale_daemon(*client, socket_path).await?,
          DaemonProbe::Absent => {}
-@@ -69,14 +115,14 @@
+@@ -69,14 +76,14 @@ pub async fn ensure_daemon_running(socket_path: &Path, spawn_cwd: &Path) -> Resu
  /// product path uses this process's own binary).
  ///
  /// # Errors
@@ -111,7 +75,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
          DaemonProbe::Current => return Ok(()),
          DaemonProbe::Stale(client) => {
              // A stale daemon appeared between the caller's check and here:
-@@ -88,7 +134,7 @@
+@@ -88,7 +95,7 @@ pub async fn ensure_daemon_running_with(
      spawn_supervisor_detached(socket_path, spawn_cwd, exe)?;
      let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
      loop {
@@ -120,3 +84,409 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
              DaemonProbe::Current => return Ok(()),
              DaemonProbe::Stale(client) => {
                  // A concurrent launcher won the socket with a build whose protocol matches at
+@@ -110,7 +117,7 @@ pub async fn ensure_daemon_running_with(
+ /// Shut a stale daemon down when no session is busy; a busy one refuses
+ /// replacement.
+ async fn shutdown_stale_daemon(
+-    client: pa_tui::daemon_client::DaemonClient,
++    mut client: pa_tui::daemon_client::DaemonClient,
+     socket_path: &Path,
+ ) -> Result<()> {
+     let sessions = client
+@@ -131,23 +138,21 @@ async fn shutdown_stale_daemon(
+                     .any(|row| row.get("isSessionActive") == Some(&serde_json::json!(true)))
+             })
+     });
+-    client.close();
+     if busy {
++        client.hard_close();
+         return Err(anyhow!(
+             "An incompatible Prime Agent daemon is running on {}.\n\nRun:\n  prime-agent shutdown --force\n\nThen retry the original command (the running daemon has active work).",
+             socket_path.display()
+         ));
+     }
+-    if let Ok((client, _)) = pa_tui::daemon_client::DaemonClient::connect(socket_path).await {
+-        let _ = client
+-            .request_ok(pa_types::daemon::DaemonCommand::Shutdown {
+-                id: None,
+-                force: None,
+-                rest: serde_json::Map::default(),
+-            })
+-            .await;
+-        client.close();
+-    }
++    let _ = client
++        .request_ok(pa_types::daemon::DaemonCommand::Shutdown {
++            id: None,
++            force: None,
++            rest: serde_json::Map::default(),
++        })
++        .await;
++    client.hard_close();
+     wait_for_socket_gone(socket_path).await;
+     Ok(())
+ }
+diff --git a/crates/pa-cli/src/update_flow/coordinator.rs b/crates/pa-cli/src/update_flow/coordinator.rs
+index dbeb00f..086e386 100644
+--- a/crates/pa-cli/src/update_flow/coordinator.rs
++++ b/crates/pa-cli/src/update_flow/coordinator.rs
+@@ -109,10 +109,11 @@ async fn drive(
+     let budget = &options.budget;
+     // `Preparing`: connect the old supervisor. An unreachable daemon means a
+     // daemon-less update: the successor boots without a roster.
+-    let daemon = match pa_tui::daemon_client::DaemonClient::connect(&options.socket_path).await {
+-        Ok((client, _events)) => Some(client),
+-        Err(_) => None,
+-    };
++    let daemon =
++        match pa_tui::daemon_client::DaemonClient::connect_unverified(&options.socket_path).await {
++            Ok((client, _events)) => Some(client),
++            Err(_) => None,
++        };
+     let mut predecessor: Option<UpdateProcessIdentity> = None;
+     let mut roster_path: Option<PathBuf> = None;
+     if let Some(client) = &daemon {
+diff --git a/crates/pa-cli/src/update_flow/legacy_restart.rs b/crates/pa-cli/src/update_flow/legacy_restart.rs
+index 9bafb42..6e0feae 100644
+--- a/crates/pa-cli/src/update_flow/legacy_restart.rs
++++ b/crates/pa-cli/src/update_flow/legacy_restart.rs
+@@ -111,7 +111,7 @@ async fn restart(
+     let source_path = agent_dir
+         .join("daemon-update-restarts")
+         .join(format!("{socket_key}.json"));
+-    let connection = pa_tui::daemon_client::DaemonClient::connect(socket).await;
++    let connection = pa_tui::daemon_client::DaemonClient::connect_unverified(socket).await;
+     let (client, _events) = match connection {
+         Ok(connection) => connection,
+         Err(error) => {
+@@ -252,7 +252,7 @@ async fn restart(
+     // A lost prepare reply can also close the connection. Reconnect before
+     // shutdown and verify we still address the recorded predecessor.
+     drop(client);
+-    let (client, _events) = pa_tui::daemon_client::DaemonClient::connect(socket).await?;
++    let (client, _events) = pa_tui::daemon_client::DaemonClient::connect_unverified(socket).await?;
+     anyhow::ensure!(
+         identity_from_hello(client.hello()) == predecessor,
+         "predecessor changed before shutdown"
+@@ -402,7 +402,8 @@ async fn boot_roster(
+         successor.pid == spawned_pid,
+         "a different daemon won the socket during migration"
+     );
+-    let (replacement, _events) = pa_tui::daemon_client::DaemonClient::connect(socket).await?;
++    let (replacement, _events) =
++        pa_tui::daemon_client::DaemonClient::connect_unverified(socket).await?;
+     let replacement_hello = replacement.hello().clone();
+     replacement.close();
+     validate_successor(&replacement_hello, spawned_pid, crate::config::version())?;
+diff --git a/crates/pa-cli/src/update_flow/phases.rs b/crates/pa-cli/src/update_flow/phases.rs
+index d8b5cb6..279f228 100644
+--- a/crates/pa-cli/src/update_flow/phases.rs
++++ b/crates/pa-cli/src/update_flow/phases.rs
+@@ -120,7 +120,7 @@ pub(super) async fn restore_report(
+         tokio::time::Instant::now() + Duration::from_millis(budget.restore_overall_ms.max(1));
+     loop {
+         if let Ok((client, _events)) =
+-            pa_tui::daemon_client::DaemonClient::connect(socket_path).await
++            pa_tui::daemon_client::DaemonClient::connect_unverified(socket_path).await
+         {
+             let response = client
+                 .request_ok(pa_types::daemon::DaemonCommand::UpdateRestoreStatus {
+diff --git a/crates/pa-cli/src/update_flow/successor.rs b/crates/pa-cli/src/update_flow/successor.rs
+index a8abf2e..8ec31d3 100644
+--- a/crates/pa-cli/src/update_flow/successor.rs
++++ b/crates/pa-cli/src/update_flow/successor.rs
+@@ -75,7 +75,7 @@ pub async fn wait_for_hello(socket_path: &Path, budget_ms: u64) -> Option<Update
+     let deadline = Instant::now() + Duration::from_millis(budget_ms.max(1));
+     loop {
+         if let Ok((client, _events)) =
+-            pa_tui::daemon_client::DaemonClient::connect(socket_path).await
++            pa_tui::daemon_client::DaemonClient::connect_unverified(socket_path).await
+         {
+             let identity = identity_from_hello(client.hello());
+             client.close();
+diff --git a/crates/pa-daemon/src/acp/daemon.rs b/crates/pa-daemon/src/acp/daemon.rs
+index f64bc45..5e5c26d 100644
+--- a/crates/pa-daemon/src/acp/daemon.rs
++++ b/crates/pa-daemon/src/acp/daemon.rs
+@@ -98,7 +98,7 @@ impl DaemonLink {
+         // The reader only classifies frames; the consumer loop below owns
+         // the ordering, so a turn's chunks always precede its boundary
+         // frames.
+-        tokio::spawn(async move {
++        let reader_task = tokio::spawn(async move {
+             let mut reader = BufReader::new(reader_half);
+             let mut line = String::new();
+             let mut hello_tx = Some(hello_tx);
+@@ -141,8 +141,20 @@ impl DaemonLink {
+ 
+         let hello = tokio::time::timeout(std::time::Duration::from_secs(3), hello_rx)
+             .await
+-            .map_err(|_| anyhow::anyhow!("the daemon did not send its handshake"))?
+-            .map_err(|_| anyhow::anyhow!("the daemon connection closed before the handshake"))?;
++            .map_err(|_| {
++                reader_task.abort();
++                anyhow::anyhow!("the daemon did not send its handshake")
++            })?
++            .map_err(|_| {
++                reader_task.abort();
++                anyhow::anyhow!("the daemon connection closed before the handshake")
++            })?;
++        if let Err(error) =
++            pa_types::daemon::verify_nix_daemon_generation(&hello, socket_path, None)
++        {
++            reader_task.abort();
++            return Err(error.into());
++        }
+         let protocol = hello
+             .get("protocol")
+             .cloned()
+diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_client.rs
+index 4e28e40..2027342 100644
+--- a/crates/pa-tui/src/daemon_client.rs
++++ b/crates/pa-tui/src/daemon_client.rs
+@@ -319,6 +319,7 @@ pub struct DaemonClient {
+     direct: std::sync::Arc<crate::direct_transport::DirectState>,
+     /// The supervisor reader's death watch (see `reader_dead`).
+     reader_dead_rx: tokio::sync::watch::Receiver<bool>,
++    reader_abort: tokio::task::AbortHandle,
+ }
+ 
+ impl DaemonClient {
+@@ -328,9 +329,26 @@ impl DaemonClient {
+     ///
+     /// # Errors
+     ///
+-    /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
++    /// Returns `Err` on a connect or hello failure, timeout, unknown protocol, or Nix generation mismatch.
+     pub async fn connect(
+         socket_path: &Path,
++    ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
++        let (mut client, events) = Self::connect_unverified(socket_path).await?;
++        if let Err(error) =
++            pa_types::daemon::verify_nix_daemon_generation(client.hello(), socket_path, None)
++        {
++            client.hard_close();
++            return Err(error.into());
++        }
++        Ok((client, events))
++    }
++
++    /// Connect for explicit daemon inspection or update control without session admission.
++    ///
++    /// # Errors
++    /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
++    pub async fn connect_unverified(
++        socket_path: &Path,
+     ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
+         let connect = tokio::time::timeout(
+             Duration::from_millis(CONNECT_TIMEOUT_MS),
+@@ -470,6 +488,7 @@ impl DaemonClient {
+                     retained_event_tx,
+                 )),
+                 reader_dead_rx,
++                reader_abort: reader_task.abort_handle(),
+             },
+             event_rx,
+         ))
+@@ -500,6 +519,9 @@ impl DaemonClient {
+         for attempt in 1..=CONNECT_ATTEMPTS {
+             match DaemonClient::connect(socket_path).await {
+                 Ok(pair) => return Ok(pair),
++                Err(error) if error.is::<pa_types::daemon::NixDaemonGenerationError>() => {
++                    return Err(error);
++                }
+                 Err(error) => {
+                     if attempt == CONNECT_ATTEMPTS {
+                         return Err(error);
+@@ -852,6 +874,9 @@ impl DaemonClient {
+     pub fn hard_close(&mut self) {
+         self.direct.take_event_sender();
+         self.drop_direct();
++        self.reader_abort.abort();
++        self.shared
++            .fail_pending("daemon_", "the daemon connection closed");
+         let (replacement, _) = mpsc::unbounded_channel::<String>();
+         let writer = std::mem::replace(&mut self.writer, replacement);
+         let _ = writer.send(String::new());
+diff --git a/crates/pa-tui/src/interactive/run.rs b/crates/pa-tui/src/interactive/run.rs
+index 2a80daa..f0e19e2 100644
+--- a/crates/pa-tui/src/interactive/run.rs
++++ b/crates/pa-tui/src/interactive/run.rs
+@@ -798,6 +798,7 @@ async fn run_interactive_surface(
+     // Whether the Ctrl+C exit hint painted a frame that the expiry must clear.
+     let mut hint_painted = false;
+     let mut running = true;
++    let mut generation_error: Option<anyhow::Error> = None;
+     let mut wait_idle_deadline: Option<Instant> = None;
+     // The headless `SubmitAndSettle` barrier's target and deadline.
+     let mut settle_target: Option<(u64, Instant)> = None;
+@@ -1781,6 +1782,18 @@ async fn run_interactive_surface(
+                             }
+                         }
+                     }
++                    Ok(Err(error)) if error.is::<pa_types::daemon::NixDaemonGenerationError>() => {
++                        session.note_as(
++                            &format!("{error:#}"),
++                            crate::chat::StatusKind::Warning,
++                            &mut view,
++                        );
++                        session.exit_reason = "daemon_generation_mismatch";
++                        reconnect = None;
++                        session.dirty = true;
++                        running = false;
++                        generation_error = Some(error);
++                    }
+                     Ok(Err(_)) => {
+                         if let Some(state) = reconnect.take() {
+                             reconnect = Some(state.next_attempt());
+@@ -2129,6 +2142,9 @@ async fn run_interactive_surface(
+     if outcome.return_to_agents_view || outcome.selection_request.is_some() {
+         exit_guard.cancel();
+     }
++    if let Some(error) = generation_error {
++        return Err(error);
++    }
+     Ok(outcome)
+ }
+ 
+diff --git a/crates/pa-types/src/daemon/generation.rs b/crates/pa-types/src/daemon/generation.rs
+new file mode 100644
+index 0000000..d43417e
+--- /dev/null
++++ b/crates/pa-types/src/daemon/generation.rs
+@@ -0,0 +1,115 @@
++//! Admission of session clients to a Nix-managed executable generation.
++
++use std::path::Path;
++
++use anyhow::{Context, Result};
++use serde_json::Value;
++
++/// A daemon cannot serve this Nix executable generation without an explicit restart.
++#[derive(Debug, thiserror::Error)]
++#[error("{0}")]
++pub struct NixDaemonGenerationError(String);
++
++/// Verify the executable advertised by the connection that will carry session commands.
++/// Explicit management connections may inspect other generations without this check.
++///
++/// # Errors
++/// Returns an error when a Nix-managed Unix daemon's executable differs or cannot be verified.
++pub fn verify_nix_daemon_generation(
++    hello: &Value,
++    socket_path: &Path,
++    executable: Option<&Path>,
++) -> std::result::Result<(), NixDaemonGenerationError> {
++    if !cfg!(unix) || option_env!("PRIME_AGENT_NIX_MANAGED").is_none() {
++        return Ok(());
++    }
++    verify_generation(hello, socket_path, executable)
++        .map_err(|error| NixDaemonGenerationError(format!("{error:#}")))
++}
++
++fn verify_generation(hello: &Value, socket_path: &Path, executable: Option<&Path>) -> Result<()> {
++    let expected = match executable {
++        Some(executable) => executable.canonicalize(),
++        None => std::env::current_exe().and_then(std::fs::canonicalize),
++    }
++    .context("resolve the Nix-managed Prime Agent executable")?;
++    let runtime_path = hello
++        .get("runtime")
++        .and_then(|runtime| runtime.get("executablePath"))
++        .and_then(Value::as_str)
++        .filter(|path| !path.is_empty())
++        .with_context(|| {
++            format!(
++                "Cannot verify the Prime Agent daemon executable on {}; leaving the daemon running",
++                socket_path.display()
++            )
++        })?;
++    let runtime_path = Path::new(runtime_path);
++    anyhow::ensure!(
++        runtime_path.is_absolute(),
++        "Cannot verify the non-absolute Prime Agent daemon executable {} on {}; leaving the daemon running",
++        runtime_path.display(),
++        socket_path.display()
++    );
++    let actual = runtime_path.canonicalize().with_context(|| {
++        format!(
++            "Cannot resolve the Prime Agent daemon executable {} on {}; leaving the daemon running",
++            runtime_path.display(),
++            socket_path.display()
++        )
++    })?;
++    anyhow::ensure!(
++        actual == expected,
++        "The Prime Agent daemon on {} runs a different Nix executable generation (daemon: {}; requested: {}). Existing sessions were left running.\nFinish all agents and background work before running `prime-agent shutdown` (stops all agents and background services), then retry.",
++        socket_path.display(),
++        actual.display(),
++        expected.display()
++    );
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::json;
++
++    #[test]
++    fn canonical_executable_identity_not_version_controls_admission() {
++        let directory = tempfile::tempdir().unwrap();
++        let expected = directory.path().join("expected");
++        let other = directory.path().join("other");
++        std::fs::write(&expected, b"same version").unwrap();
++        std::fs::write(&other, b"same version").unwrap();
++        let socket = directory.path().join("daemon.sock");
++        let hello = |path: &Path| json!({"runtime": {"executablePath": path}});
++        assert!(verify_generation(&hello(&expected), &socket, Some(&expected)).is_ok());
++        assert!(verify_generation(&hello(&other), &socket, Some(&expected)).is_err());
++        #[cfg(unix)]
++        {
++            let alias = directory.path().join("alias");
++            std::os::unix::fs::symlink(&expected, &alias).unwrap();
++            assert!(verify_generation(&hello(&alias), &socket, Some(&expected)).is_ok());
++        }
++        std::fs::remove_file(&other).unwrap();
++        assert!(verify_generation(&hello(&other), &socket, Some(&expected)).is_err());
++    }
++
++    #[test]
++    fn unverifiable_identity_cannot_be_admitted() {
++        let executable = std::env::current_exe().unwrap();
++        for hello in [
++            json!({}),
++            json!({"runtime": {}}),
++            json!({"runtime": {"executablePath": ""}}),
++            json!({"runtime": {"executablePath": 7}}),
++            json!({"runtime": {"executablePath": "relative/prime-agent"}}),
++        ] {
++            assert!(verify_generation(
++                &hello,
++                Path::new("/fixture/daemon.sock"),
++                Some(&executable)
++            )
++            .is_err());
++        }
++    }
++}
+diff --git a/crates/pa-types/src/daemon/mod.rs b/crates/pa-types/src/daemon/mod.rs
+index 117c23f..f2b446d 100644
+--- a/crates/pa-types/src/daemon/mod.rs
++++ b/crates/pa-types/src/daemon/mod.rs
+@@ -96,6 +96,7 @@ pub struct DaemonEventMeta {
+ pub mod agent_roster;
+ mod command;
+ pub mod framing;
++mod generation;
+ pub mod herdr_env;
+ pub mod launch_env;
+ mod outbound;
+@@ -108,6 +109,7 @@ pub use command::{
+     DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,
+     TranscriptPage,
+ };
++pub use generation::{verify_nix_daemon_generation, NixDaemonGenerationError};
+ pub use outbound::{
+     DaemonClosingReason, DaemonErrorInfo, DaemonEventEnvelope, DaemonOutbound,
+     DaemonPeerTransportTicket, DaemonResponse, DaemonRuntimeIdentity, DaemonSavedSessionInfo,
