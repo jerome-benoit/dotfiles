@@ -1,11 +1,11 @@
 {
   "renovate": "datasource=github-releases depName=PrimeIntellect-ai/prime-agent",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "src": {
     "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz",
-    "hash": "sha256-S7QrG4Abk7/xa5ykRqHQRgSi8MRL29u19V5lutROPdQ="
+    "hash": "sha256-4dEdS+CYzWs5LvnpNPIpKxAJQzrnJSmRvAJ39/cmk/U="
   },
-  "cargoHash": "sha256-9WPwC4V2SMqCAedx/OKnMWFzRbjs4bq24VuuVnLr4gI=",
+  "cargoHash": "sha256-YdvLX0TaoKiB/8isIK9ufPXa4rP6hskpVxoTyY7IGgI=",
   "bundledCatalogs": {
     "url": "https://github.com/PrimeIntellect-ai/prime-agent-catalog/archive/d4a099cf2aae7ea8c231298e93fd535756ef43c9.tar.gz",
     "hash": "sha256-dRDI9/Og95wM9MCYPcgoCP20P2kSKUnTwfMgxoPT5fg="

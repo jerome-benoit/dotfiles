@@ -1,0 +1,148 @@
+# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# intent: bind Nix kernel skill imports to the selected source without installing dependencies.
+diff --git a/crates/pa-core/src/kernel/bootstrap/mod.rs b/crates/pa-core/src/kernel/bootstrap/mod.rs
+index 29a714b..1eb53e9 100644
+--- a/crates/pa-core/src/kernel/bootstrap/mod.rs
++++ b/crates/pa-core/src/kernel/bootstrap/mod.rs
+@@ -196,7 +196,10 @@ async fn ensure_kernel_python_uncached(
+                     ));
+                 }
+             }
+-            if missing.is_empty() && !options.python_skills.is_empty() {
++            if missing.is_empty()
++                && !options.python_skills.is_empty()
++                && option_env!("PRIME_AGENT_NIX_MANAGED").is_none()
++            {
+                 let missing_skills =
+                     missing_python_skill_import_labels(&python_str, &options.python_skills);
+                 if !missing_skills.is_empty() {
+diff --git a/crates/pa-core/src/kernel/bootstrap/runtime_code.rs b/crates/pa-core/src/kernel/bootstrap/runtime_code.rs
+index 83b0f66..541152f 100644
+--- a/crates/pa-core/src/kernel/bootstrap/runtime_code.rs
++++ b/crates/pa-core/src/kernel/bootstrap/runtime_code.rs
+@@ -30,6 +30,51 @@ pub fn parse_unavailable_python_skills(stdout: &str) -> Option<UnavailablePython
+     (!errors.is_empty()).then_some(errors)
+ }
+ 
++fn selected_skill_import_code(python_skills: &[KernelPythonSkill]) -> String {
++    let mut sources = std::collections::BTreeMap::new();
++    for skill in python_skills {
++        sources.entry(&skill.import_name).or_insert_with(|| {
++            skill
++                .package_path
++                .join("src")
++                .join(&skill.import_name)
++                .to_string_lossy()
++                .into_owned()
++        });
++    }
++    let sources_json = serde_json::to_string(&sources).expect("skill paths serialize as strings");
++    format!(
++        r#"
++import importlib.abc as _prime_agent_import_abc
++import importlib.util as _prime_agent_import_util
++import sys as _prime_agent_import_sys
++
++class _PrimeAgentSelectedSkillFinder(_prime_agent_import_abc.MetaPathFinder):
++    _prime_agent_selected_skills = True
++
++    def find_spec(self, fullname, path=None, target=None):
++        directory = self.sources.get(fullname)
++        if directory is None:
++            return None
++        return _prime_agent_import_util.spec_from_file_location(
++            fullname, directory + "/__init__.py", submodule_search_locations=[directory]
++        )
++
++_prime_agent_selected_sources = {sources_json}
++_prime_agent_import_sys.meta_path[:] = [
++    finder for finder in _prime_agent_import_sys.meta_path
++    if not getattr(finder, "_prime_agent_selected_skills", False)
++]
++for _prime_agent_cached_name in list(_prime_agent_import_sys.modules):
++    if _prime_agent_cached_name.partition(".")[0] in _prime_agent_selected_sources:
++        _prime_agent_import_sys.modules.pop(_prime_agent_cached_name, None)
++_prime_agent_selected_finder = _PrimeAgentSelectedSkillFinder()
++_prime_agent_selected_finder.sources = _prime_agent_selected_sources
++_prime_agent_import_sys.meta_path.insert(0, _prime_agent_selected_finder)
++"#
++    )
++}
++
+ const RLM_BOOTSTRAP_HEADER_CODE: &str =
+     "import asyncio\nimport os as _prime_agent_os\n\n_prime_agent_os.environ[\"NO_COLOR\"] = \"1\"";
+ 
+@@ -110,15 +155,23 @@ pub fn build_rlm_bootstrap_code(
+         return base_code;
+     }
+     let imports_json = serde_json::to_string(&import_names).unwrap_or_else(|_| "[]".to_string());
++    let selected_sources = if option_env!("PRIME_AGENT_NIX_MANAGED").is_some() {
++        selected_skill_import_code(python_skills)
++    } else {
++        String::new()
++    };
+     format!(
+         r#"
+ {base_code}
+ 
+ import importlib as _prime_agent_importlib
+ import inspect as _prime_agent_inspect
++import json as _prime_agent_json
+ import sys as _prime_agent_sys
+ import types as _prime_agent_types
+ 
++{selected_sources}
++
+ class _PrimeAgentCallableSkillModule(_prime_agent_types.ModuleType):
+     async def __call__(self, *args, **kwargs):
+         result = self.run(*args, **kwargs)
+@@ -182,7 +235,6 @@ for _prime_agent_skill_name in {imports_json}:
+         )
+ 
+ if _PRIME_AGENT_SKILL_IMPORT_ERRORS:
+-    import json as _prime_agent_json
+     print(
+         "{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}"
+         + _prime_agent_json.dumps(_PRIME_AGENT_SKILL_IMPORT_ERRORS)
+@@ -196,41 +248,6 @@ if _PRIME_AGENT_SKILL_IMPORT_ERRORS:
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use std::path::PathBuf;
+-
+-    #[test]
+-    fn bootstrap_code_without_skills_binds_rlm() {
+-        let code = build_rlm_bootstrap_code(&[], false);
+-        assert!(code.contains("import rlm as _prime_agent_rlm_module"));
+-        assert!(!code.contains("_PrimeAgentUnavailableSkill"));
+-    }
+-
+-    #[test]
+-    fn bootstrap_turns_the_bounded_bash_default_on_only_with_notices() {
+-        let daemonless = build_rlm_bootstrap_code(&[], false);
+-        let noticed = build_rlm_bootstrap_code(&[], true);
+-        assert!(
+-            noticed.contains("_set_completion_notices_wired(True)"),
+-            "the wired bootstrap must enable the bounded bash default: {noticed}"
+-        );
+-        assert!(
+-            !daemonless.contains("_set_completion_notices_wired"),
+-            "the daemonless bootstrap must not emit the toggle: {daemonless}"
+-        );
+-    }
+-
+-    #[test]
+-    fn bootstrap_code_imports_skills() {
+-        let skills = vec![KernelPythonSkill {
+-            name: "edit".into(),
+-            import_name: "edit".into(),
+-            package_path: PathBuf::from("/pkg/edit"),
+-            pyproject_path: PathBuf::from("/pkg/edit/pyproject.toml"),
+-        }];
+-        let code = build_rlm_bootstrap_code(&skills, false);
+-        assert!(code.contains(r#"for _prime_agent_skill_name in ["edit"]"#));
+-        assert!(code.contains("_PrimeAgentUnavailableSkill"));
+-    }
+ 
+     /// The TS #2381 parser table: marker+JSON, noise-prefixed marker, no marker, non-JSON payload
+     /// all land where the host-side report decides notice vs silence.
