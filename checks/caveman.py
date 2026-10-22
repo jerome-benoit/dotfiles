@@ -211,6 +211,56 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert json.loads(settings.read_text())["hooks"]["PreToolUse"] == [foreign_hook]
     assert_recorded_calls(3)
 
+    # OpenCode 2 returns structured shell output plus content parts. Hints must
+    # reach those parts without changing exit metadata or leaking from failed calls.
+    run("caveman-blocks", "add", "json-peek", cwd=repo)
+    run("caveman-blocks", "hooks", "install", "--harness", "opencode", cwd=repo)
+    plugin = home / ".config/opencode/plugins/caveman-blocks.js"
+    run(node, "--input-type=module", "-", str(plugin), cwd=repo, data=r"""
+import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
+const { default: plugin } = await import(pathToFileURL(process.argv[2]));
+const hooks = new Map();
+await plugin.setup({
+  location: { directory: process.cwd() },
+  tool: { hook: async (name, callback) => hooks.set(name, callback) },
+});
+const command = "python3 - <<'EOF'\nimport json\nd=json.load(open('x.json'))\nprint(d.keys())\nEOF";
+const before = (id, command) => hooks.get("execute.before")({
+  tool: "shell", sessionID: `fixture-${id}`, id, input: { command },
+});
+const after = (id, result) => ({
+  tool: "shell", sessionID: `fixture-${id}`, id, status: "completed", result,
+});
+const hint = "Blocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>";
+await before("matched", command);
+await before("plain", "printf ok");
+const output = { output: "stderr\n", exit: 7, truncated: false, status: "completed" };
+const result = {
+  output,
+  content: [{ type: "text", text: output.output }],
+  metadata: { status: "completed", exit: 7, truncated: false },
+};
+const matched = after("matched", result);
+await hooks.get("execute.after")(matched);
+assert.strictEqual(matched.result.output, output);
+assert.deepEqual(matched.result.metadata, result.metadata);
+assert.deepEqual(matched.result.content, [...result.content, { type: "text", text: hint }]);
+const plain = after("plain", result);
+await hooks.get("execute.after")(plain);
+assert.deepEqual(plain.result, result);
+await before("failed", command);
+await hooks.get("execute.after")({
+  tool: "shell", sessionID: "fixture-failed", id: "failed", status: "error",
+  error: new Error("tool failed"),
+});
+const retried = after("failed", result);
+await hooks.get("execute.after")(retried);
+assert.deepEqual(retried.result, result);
+console.log("OpenCode 2: content hint, exit metadata, unrelated and failed calls passed");
+""".encode())
+    run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo)
+
     # A persisted native hook bypasses the CLI wrapper. With only the package
     # on PATH it must revive, identify and stop its own proxy, including on Darwin.
     with socket.socket() as reservation:

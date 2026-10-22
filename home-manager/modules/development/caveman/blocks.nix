@@ -22,9 +22,14 @@ buildGoModule {
     python3
   ];
 
-  # Workaround: upstream copies os.Executable(), losing the Nix wrapper.
-  # Remove when upstream preserves managed hook launchers and their refresh.
-  patches = [ ../../../../patches/caveman-blocks-nix-hooks.patch ];
+  patches = [
+    # Workaround: upstream copies os.Executable(), losing the Nix wrapper.
+    # Remove when upstream preserves managed hook launchers and their refresh.
+    ../../../../patches/caveman-blocks-nix-hooks.patch
+    # Workaround: the installed plugin predates OpenCode 2's plugin API.
+    # Remove when the pinned release includes caveman-ai/blocks#17.
+    ../../../../patches/caveman-blocks-opencode2.patch
+  ];
 
   postInstall = ''
     for name in LICENSE NOTICE; do
