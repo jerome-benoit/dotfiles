@@ -30,19 +30,6 @@ hmp  # personal
 make switch SPEC=work
 ```
 
-### Prime Agent
-
-Prime Agent uses the packaged Python environment by default. Set
-`PRIME_AGENT_KERNEL_PYTHON` to a complete alternative environment for additional
-Python-backed skills. It must provide `rlm`, its required packages and the skill
-modules; override mode installs nothing. An explicitly empty value selects
-upstream's writable environment bootstrap instead.
-
-After a package rebuild, new daemon-backed sessions reject a daemon from another
-executable generation. Existing sessions remain running. Finish all agents and
-background work before running `prime-agent shutdown`, which stops all agents and
-background services. The next launch starts the current package's daemon.
-
 ### Private configuration and credentials
 
 Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.
