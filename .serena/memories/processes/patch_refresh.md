@@ -22,7 +22,7 @@ when it can go:
 - `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17).
+- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17) with session-scoped pending hints.
 
 ## Local Patch Refresh
 
@@ -42,6 +42,9 @@ when it can go:
 After changing the OpenCode plugin, run
 `caveman-blocks hooks install --harness opencode` to refresh an existing install.
 Updating the Nix package alone does not rewrite user-level agent configuration.
+Generated CLI callbacks also require the current Nix wrapper on PATH. Reinstall
+existing raw-Node callbacks with the relevant hook installer, for example
+`caveman tools hooks install claude`.
 
 ## PR-Derived Patch Refresh
 

@@ -1,6 +1,7 @@
 # base: v0.1.0-rc.5
 # upstream: https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
 # intent: support OpenCode 2 tool hooks while preserving OpenCode 1.x integration.
+# local: scope pending V2 hints by session and call id.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
 index b1f1f3e..868f669 100644
 --- a/internal/hook/profiles.toml
@@ -20,10 +21,9 @@ index b1f1f3e..868f669 100644
  [copilot]
  phase = 2
 diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman-blocks/opencode/caveman-blocks.js
-index 81acd79..e7487ff 100644
 --- a/plugins/caveman-blocks/opencode/caveman-blocks.js
 +++ b/plugins/caveman-blocks/opencode/caveman-blocks.js
-@@ -5,6 +5,15 @@
+@@ -5,12 +5,24 @@
  //
  // Install: `caveman-blocks hooks install --harness opencode` writes this file with the binary path
  // baked in, or copy it to ~/.config/opencode/plugins/ or .opencode/plugins/ yourself.
@@ -39,17 +39,16 @@ index 81acd79..e7487ff 100644
  import { spawnSync } from "node:child_process";
  import { existsSync } from "node:fs";
  import { homedir } from "node:os";
-@@ -12,6 +21,9 @@ import { join } from "node:path";
+ import { join } from "node:path";
  
  const INSTALLED = "";
- 
++
 +// The tool that runs a shell command: `bash` on OpenCode 1.x, `shell` on OpenCode 2.x.
 +const SHELL_TOOLS = new Set(["shell", "bash"]);
-+
+ 
  function binary() {
    for (const p of [INSTALLED, process.env.CAVEMAN_BLOCKS_BIN, join(homedir(), ".local/share/caveman-blocks/bin/caveman-blocks" + (process.platform === "win32" ? ".exe" : ""))]) {
-     if (p && existsSync(p)) return p;
-@@ -32,11 +44,21 @@ function hook(req) {
+@@ -32,11 +44,21 @@
    }
  }
  
@@ -72,7 +71,7 @@ index 81acd79..e7487ff 100644
        const command = String(output.args?.command ?? "");
        const hint = hook({ phase: "pre", session: input.sessionID, call_id: input.callID, cwd: output.args?.workdir || directory, command });
        if (hint) hints.set(input.callID, hint);
-@@ -48,3 +70,34 @@ export const CavemanBlocks = async ({ directory }) => {
+@@ -48,3 +70,36 @@
      },
    };
  };
@@ -87,7 +86,8 @@ index 81acd79..e7487ff 100644
 +    // OpenCode 1.x also calls setup(), with a context that has no tool API.
 +    if (!ctx || !ctx.tool || typeof ctx.tool.hook !== "function") return;
 +
-+    const hints = new Map(); // call id -> hint from the pre phase, delivered after the call
++    const hints = new Map(); // (session id, call id) -> hint from the pre phase, delivered after the call
++    const callKey = (event) => JSON.stringify([event.sessionID, event.id]);
 +    const directory = ctx.location?.directory;
 +
 +    await ctx.tool.hook("execute.before", (event) => {
@@ -95,13 +95,14 @@ index 81acd79..e7487ff 100644
 +      const input = event.input && typeof event.input === "object" ? event.input : {};
 +      const command = String(input.command ?? "");
 +      const hint = hook({ phase: "pre", session: event.sessionID, call_id: event.id, cwd: input.workdir || directory, command });
-+      if (hint) hints.set(event.id, hint);
++      if (hint) hints.set(callKey(event), hint);
 +    });
 +
 +    await ctx.tool.hook("execute.after", (event) => {
-+      const hint = hints.get(event.id);
++      const key = callKey(event);
++      const hint = hints.get(key);
 +      if (!hint) return;
-+      hints.delete(event.id);
++      hints.delete(key);
 +      if (event.status !== "completed") return;
 +      event.result = withHint(event.result, hint);
 +    });

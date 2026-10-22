@@ -118,7 +118,8 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     fixture_git("-c", "init.defaultBranch=main", "init", ".")
     fixture_git(
         "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-        "commit", "--allow-empty", "-m", "Fixture",
+        "commit", "--allow-empty", "-m",
+        "Fixture\n\n" + "wrapper recovery fixture line\n" * 64,
         dates={"GIT_AUTHOR_DATE": timestamp(first), "GIT_COMMITTER_DATE": timestamp(first)},
     )
     sessions = home / ".claude/projects/fixture"
@@ -149,9 +150,41 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert evidence["without_commit"]["tokens"] == 80000, evidence
     assert evidence["without_commit_token_share_pct"] == 50, evidence
 
+    settings = home / ".claude/settings.json"
+    # Durable CLI callbacks must keep the wrapper when the caller has no PATH.
+    callback_env = {**env, "PATH": ""}
+    run("caveman", "tools", "hooks", "install", "claude", environment=callback_env)
+    callback_settings = json.loads(settings.read_text())
+    callback = next(
+        hook["command"]
+        for entry in callback_settings["hooks"]["PreToolUse"]
+        if entry["matcher"] == "Bash"
+        for hook in entry["hooks"]
+    )
+    command = "git log -1 --format=%B"
+    rewritten = subprocess.run(
+        shlex.split(callback),
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}).encode(),
+        env=callback_env, cwd=repo, capture_output=True, check=True, timeout=30,
+    )
+    invocation = json.loads(rewritten.stdout)["hookSpecificOutput"]["updatedInput"]["command"]
+    shrunk = subprocess.run(
+        shlex.split(invocation),
+        env=callback_env, cwd=repo, capture_output=True, check=True, timeout=30,
+    )
+    callback_report = json.loads(shrunk.stderr)
+    callback_handle = callback_report["recovery_handle"]
+    assert callback_handle and callback_handle.encode() in shrunk.stdout, callback_report
+    original_log = subprocess.run(
+        [git, "log", "-1", "--format=%B"],
+        env=callback_env, cwd=repo, capture_output=True, check=True, timeout=10,
+    ).stdout
+    assert run(
+        "caveman", "tools", "retrieve", callback_handle, environment=callback_env,
+    ).stdout == original_log
+
     # Execute the command actually registered for the harness. A copied native
     # executable loses Git and writes its events under a different repository id.
-    settings = home / ".claude/settings.json"
     foreign_hook = {"matcher": "Read", "hooks": [{"type": "command", "command": "echo preserve"}]}
     settings.write_text(json.dumps({"hooks": {"PreToolUse": [foreign_hook]}}))
     stable_hook = home / ".local/share/caveman-blocks/bin/caveman-blocks"
@@ -226,11 +259,11 @@ await plugin.setup({
   tool: { hook: async (name, callback) => hooks.set(name, callback) },
 });
 const command = "python3 - <<'EOF'\nimport json\nd=json.load(open('x.json'))\nprint(d.keys())\nEOF";
-const before = (id, command) => hooks.get("execute.before")({
-  tool: "shell", sessionID: `fixture-${id}`, id, input: { command },
+const before = (id, command, sessionID = `fixture-${id}`) => hooks.get("execute.before")({
+  tool: "shell", sessionID, id, input: { command },
 });
-const after = (id, result) => ({
-  tool: "shell", sessionID: `fixture-${id}`, id, status: "completed", result,
+const after = (id, result, sessionID = `fixture-${id}`) => ({
+  tool: "shell", sessionID, id, status: "completed", result,
 });
 const hint = "Blocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>";
 await before("matched", command);
@@ -257,6 +290,27 @@ await hooks.get("execute.after")({
 const retried = after("failed", result);
 await hooks.get("execute.after")(retried);
 assert.deepEqual(retried.result, result);
+// One plugin serves multiple sessions; provider call IDs are not server-wide IDs.
+await before("shared", command, "session-a");
+await before("shared", "printf ok", "session-b");
+const otherSession = after("shared", result, "session-b");
+await hooks.get("execute.after")(otherSession);
+assert.deepEqual(otherSession.result, result);
+const matchingSession = after("shared", result, "session-a");
+await hooks.get("execute.after")(matchingSession);
+assert.deepEqual(matchingSession.result.content, [...result.content, { type: "text", text: hint }]);
+await before("shared", command, "session-a");
+await before("shared", command, "session-b");
+await hooks.get("execute.after")({
+  tool: "shell", sessionID: "session-b", id: "shared", status: "error",
+  error: new Error("other session failed"),
+});
+const survivingSession = after("shared", result, "session-a");
+await hooks.get("execute.after")(survivingSession);
+assert.deepEqual(survivingSession.result.content, [...result.content, { type: "text", text: hint }]);
+const failedSession = after("shared", result, "session-b");
+await hooks.get("execute.after")(failedSession);
+assert.deepEqual(failedSession.result, result);
 console.log("OpenCode 2: content hint, exit metadata, unrelated and failed calls passed");
 """.encode())
     run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo)

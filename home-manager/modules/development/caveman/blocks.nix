@@ -27,7 +27,7 @@ buildGoModule {
     # Remove when upstream preserves managed hook launchers and their refresh.
     ../../../../patches/caveman-blocks-nix-hooks.patch
     # Workaround: the installed plugin predates OpenCode 2's plugin API.
-    # Remove when the pinned release includes caveman-ai/blocks#17.
+    # Remove when upstream ships blocks#17 and session-scoped pending hints.
     ../../../../patches/caveman-blocks-opencode2.patch
   ];
 
