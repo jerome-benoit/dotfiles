@@ -174,15 +174,13 @@ let
         inherit version src;
         inherit (pins) cargoHash;
         cargoDepsName = "prime-agent";
-        # Workaround: installer-funnel and TUI updates ignore Nix ownership;
-        # release checks also treat PI_OFFLINE=0 as offline.
-        # Remove when upstream fixes both Nix ownership and PI_OFFLINE parsing.
-        # prime-agent-darwin-tests: upstream assumes a 108-byte AF_UNIX sun_path on
-        # every unix target (104 on macOS and the BSDs), re-anchors over-long
-        # paths through /proc, and reads its process ground truth from /bin/ps.
-        # Remove when upstream carries these.
         patches = [
+          # Workaround: installer-funnel and TUI updates ignore Nix ownership;
+          # release checks also treat PI_OFFLINE=0 as offline.
+          # Remove when upstream fixes both Nix ownership and PI_OFFLINE parsing.
           ../../../patches/prime-agent-nix-self-update.patch
+          # Workaround: Darwin's /bin/ps probe can fail in the Nix sandbox.
+          # Remove when upstream skips comparisons without process ground truth.
           ../../../patches/prime-agent-darwin-tests.patch
         ];
         PRIME_AGENT_NIX_MANAGED = "1";
@@ -227,7 +225,7 @@ let
         postInstall = ''
           mkdir -p $out/share/prime-agent
           cp -r prime-agent-runtime docs skills $out/share/prime-agent/
-          # The 0.10.0 release embeds synthetic fixtures. Pin production data
+          # Release archives embed synthetic fixtures. Pin production data
           # independently; catalog updates do not change the Rust source pin.
           cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
           cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
@@ -273,11 +271,16 @@ let
           cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
           # Exercise read-only checks through the wrapper with isolated environments.
           ${kernelPython}/bin/python3 ${./prime-agent-update-readonly.py} "$out/bin/prime-agent"
-          for target in nightly rollback archive; do
+          for target in nightly rollback archive coordinator; do
             case "$target" in
               nightly) set -- update --nightly ;;
               rollback) set -- update --rollback ;;
               archive) set -- update --archive /nonexistent --source https://example.invalid ;;
+              coordinator)
+                set -- update --internal-update-restart-coordinator \
+                  --daemon-socket "$TMPDIR/coordinator.sock" \
+                  --internal-update-restart-status "$TMPDIR/coordinator/status.json"
+                ;;
             esac
             if $out/bin/prime-agent "$@"; then
               echo "Nix-managed self-update unexpectedly succeeded" >&2
@@ -288,6 +291,8 @@ let
             cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
             test ! -e "$HOME/.local"
           done
+          test ! -e "$TMPDIR/coordinator"
+          test ! -e "$TMPDIR/coordinator.sock"
           $out/bin/prime-agent package update
           cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
         '';

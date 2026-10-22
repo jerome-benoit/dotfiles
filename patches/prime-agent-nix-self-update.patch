@@ -1,7 +1,7 @@
-# base: v0.10.0
+# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
 # intent: refuse imperative self-update for Nix-managed builds (PRIME_AGENT_NIX_MANAGED);
-#   every update entry point returns exit 75 and defers to the package manager.
-#   Also routes offline detection through pa_models::offline::is_catalog_offline().
+#   CLI entries return exit 75; TUI/core entries report the same refusal before side effects.
+#   Keep --check read-only and parse PI_OFFLINE through pa_models::offline::is_catalog_offline().
 diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
 index 7c820e9..0894793 100644
 --- a/crates/pa-cli/src/client_update.rs
@@ -130,31 +130,31 @@ index e0b9275..10f2282 100644
      // version infers it.
      let channel = options
 diff --git a/crates/pa-cli/src/update_flow/update_command.rs b/crates/pa-cli/src/update_flow/update_command.rs
-index a72ebef..f551a70 100644
 --- a/crates/pa-cli/src/update_flow/update_command.rs
 +++ b/crates/pa-cli/src/update_flow/update_command.rs
-@@ -42,6 +42,9 @@ pub struct UpdateCommandOptions {
+@@ -42,6 +42,10 @@ pub struct UpdateCommandOptions {
  /// Returns an error when the binary is not installer-owned or a phase,
  /// the lock, a status write, or the coordinator spawn fails.
  pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
 +    if let Some(message) = pa_types::nix_self_update_refusal() {
-+        anyhow::bail!(message);
++        println!("{message}");
++        return Ok(crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE);
 +    }
      let agent_dir = crate::config::get_agent_dir();
      let socket_path = pa_daemon::socket::default_daemon_socket_path();
      let install_root = super::activation_root().map_err(|_| {
-@@ -628,6 +631,9 @@ pub async fn run_coordinator_mode(
+@@ -618,6 +622,10 @@ pub async fn run_coordinator_mode(
      status_path: PathBuf,
      origin: Option<&str>,
  ) -> Result<i32> {
 +    if let Some(message) = pa_types::nix_self_update_refusal() {
-+        anyhow::bail!(message);
++        println!("{message}");
++        return Ok(crate::installer_update::SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE);
 +    }
      let agent_dir = crate::config::get_agent_dir();
      // TS parity: the status file belongs under the agent dir's `update-restarts/` - the coordinator
      // never writes status elsewhere.
 diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/installer.rs
-index e32f3d1..ae4cbd2 100644
 --- a/crates/pa-core/src/update/installer.rs
 +++ b/crates/pa-core/src/update/installer.rs
 @@ -197,6 +197,11 @@ pub async fn run_installer(
@@ -194,7 +194,6 @@ index e32f3d1..ae4cbd2 100644
      // unix path only ever borrows the handle.
      #[cfg_attr(not(windows), allow(unused_mut))]
 diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/release.rs
-index d77931b..629692a 100644
 --- a/crates/pa-core/src/update/release.rs
 +++ b/crates/pa-core/src/update/release.rs
 @@ -58,7 +58,7 @@ pub fn update_user_agent(version: &str) -> String {
@@ -206,7 +205,7 @@ index d77931b..629692a 100644
  /// malformed manifest is `None`, never an error - `Planning` decides skip.
  ///
  /// # Errors
-@@ -70,7 +70,7 @@ pub async fn latest_release(
+@@ -74,7 +74,7 @@ pub async fn latest_release(
      base_url: &str,
      timeout: Duration,
  ) -> Result<Option<LatestRelease>> {
@@ -216,10 +215,9 @@ index d77931b..629692a 100644
      }
      let manifest_path =
 diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/session_ui/commands.rs
-index 7551bce..dded163 100644
 --- a/crates/pa-tui/src/session_ui/commands.rs
 +++ b/crates/pa-tui/src/session_ui/commands.rs
-@@ -303,13 +303,23 @@ impl SessionUi {
+@@ -334,13 +334,23 @@ impl SessionUi {
                      } else {
                          "inferred from the running version"
                      };
@@ -250,7 +248,7 @@ index 7551bce..dded163 100644
                      return Ok(());
                  }
                  if arg == "off" || arg == "stable" {
-@@ -323,10 +333,17 @@ impl SessionUi {
+@@ -354,10 +364,17 @@ impl SessionUi {
                          self.error_row(&format!("{error:#}"), view);
                          return Ok(());
                      }
@@ -272,7 +270,7 @@ index 7551bce..dded163 100644
                      return Ok(());
                  }
                  if !arg.is_empty() && arg != "on" {
-@@ -341,10 +358,17 @@ impl SessionUi {
+@@ -372,10 +389,17 @@ impl SessionUi {
                      self.error_row(&format!("{error:#}"), view);
                      return Ok(());
                  }
@@ -294,7 +292,7 @@ index 7551bce..dded163 100644
              }
              // `/factory [on|off|status]`: the factory's opt-in gate (the
              // operator's directive: the factory is disabled until the
-@@ -494,6 +518,10 @@ impl SessionUi {
+@@ -525,6 +549,10 @@ impl SessionUi {
                      self.error_row("Usage: /update", view);
                      return Ok(());
                  }
@@ -321,10 +319,9 @@ index ec81fcc..15da1a8 100644
              self.note("/update is not available in this client yet", view);
              return;
 diff --git a/crates/pa-types/src/lib.rs b/crates/pa-types/src/lib.rs
-index 875ed03..2022707 100644
 --- a/crates/pa-types/src/lib.rs
 +++ b/crates/pa-types/src/lib.rs
-@@ -18,6 +18,18 @@ pub mod slash_commands;
+@@ -19,6 +19,18 @@ pub mod slash_commands;
  pub mod themes;
  pub mod usage;
  

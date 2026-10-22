@@ -15,8 +15,7 @@ None pending refresh. The tree carries four patches, each with a `# base:` and
 when it can go:
 
 - `patches/prime-agent-nix-self-update.patch` — refuse Nix-managed self-update and fix `PI_OFFLINE` parsing.
-- `patches/prime-agent-darwin-tests.patch` — platform-correct the AF_UNIX sun_path limit, gate the
-  Linux-only /proc re-anchor test, skip the Darwin ps ground-truth test without /bin/ps.
+- `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when process ground truth is unavailable.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
 

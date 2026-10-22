@@ -1,51 +1,18 @@
-# base: v0.10.0
-# intent: platform-correct AF_UNIX sun_path (104 on macOS/BSD vs 108 on Linux),
-#   gate the Linux-only /proc re-anchor test, and skip the Darwin ps ground-truth
-#   test when /bin/ps is unavailable (restricted/sandboxed macOS builds).
+# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# intent: skip the Darwin ps comparison when /bin/ps cannot read the live process.
+#   Native process identity and liveness tests remain active.
 diff --git a/crates/pa-types/src/platform/process.rs b/crates/pa-types/src/platform/process.rs
-index 83babd0..a3c2aae 100644
 --- a/crates/pa-types/src/platform/process.rs
 +++ b/crates/pa-types/src/platform/process.rs
-@@ -678,6 +678,12 @@ mod darwin_process_record_tests {
+@@ -678,6 +678,11 @@ mod darwin_process_record_tests {
              );
              return;
          }
-+        // The ground truth shells out to `/bin/ps`; the macOS Nix build
-+        // sandbox blocks process enumeration (`ps` yields nothing), so skip
-+        // the comparison when the ground truth cannot be read.
++        // Skip the comparison when `/bin/ps` cannot read this live process.
++        // Native process identity and liveness tests still run.
 +        if ps_lstart_identity(std::process::id()).is_none() {
 +            return;
 +        }
          // Detached stdio: a sleep leaked by an assert failure cannot hold
          // the parent's output pipes open.
          let mut child = Command::new("/bin/sleep")
-diff --git a/crates/pa-types/src/platform/transport.rs b/crates/pa-types/src/platform/transport.rs
-index 3607489..66271dc 100644
---- a/crates/pa-types/src/platform/transport.rs
-+++ b/crates/pa-types/src/platform/transport.rs
-@@ -53,9 +53,13 @@ impl TransportListener for tokio::net::UnixListener {
-     }
- }
- 
--/// `AF_UNIX` `sun_path` capacity: 108 bytes including the terminating NUL.
--#[cfg(unix)]
-+/// `AF_UNIX` `sun_path` capacity minus the terminating NUL: 107 usable bytes
-+/// on Linux (108-byte `sun_path`), 103 on macOS and the BSDs (104-byte
-+/// `sun_path`).
-+#[cfg(all(unix, target_os = "linux"))]
- const MAX_SUN_PATH: usize = 107;
-+#[cfg(all(unix, not(target_os = "linux")))]
-+const MAX_SUN_PATH: usize = 103;
- 
- /// A kernel-valid `AF_UNIX` address for `bind`/`connect`. Paths within the limit pass through; a
- /// longer path is re-anchored through an `O_PATH` descriptor on its parent
-@@ -391,6 +395,9 @@ mod tests {
-         dir
-     }
- 
-+    // The too-long re-anchor is Linux-only (`/proc/self/fd`); macOS and the
-+    // BSDs have no equivalent, so over-limit paths cannot bind there.
-+    #[cfg(target_os = "linux")]
-     #[tokio::test]
-     async fn over_limit_paths_bind_connect_and_land_in_place() {
-         use tokio::io::AsyncReadExt;
