@@ -1,0 +1,122 @@
+# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# intent: refuse unverifiable or different Nix daemon executables without stopping existing sessions.
+diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/interactive_mode/daemon.rs
+--- a/crates/pa-cli/src/interactive_mode/daemon.rs
++++ b/crates/pa-cli/src/interactive_mode/daemon.rs
+@@ -27,13 +27,59 @@
+     Stale(Box<pa_tui::daemon_client::DaemonClient>),
+ }
+ 
+-/// Probe the socket once: connect, read the hello, and classify it.
+-async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
++/// Probe the socket once: connect, verify the Nix executable, and classify the hello.
++async fn probe_daemon(socket_path: &Path, executable: Option<&Path>) -> Result<DaemonProbe> {
+     let Ok((client, _events)) = pa_tui::daemon_client::DaemonClient::connect(socket_path).await
+     else {
+-        return DaemonProbe::Absent;
++        return Ok(DaemonProbe::Absent);
+     };
+     let hello = client.hello();
++    if cfg!(unix) && option_env!("PRIME_AGENT_NIX_MANAGED").is_some() {
++        let validate_identity = || -> Result<()> {
++            let expected = match executable {
++                Some(executable) => executable.canonicalize(),
++                None => std::env::current_exe().and_then(std::fs::canonicalize),
++            }
++            .context("resolve the Nix-managed Prime Agent executable")?;
++            let runtime_path = hello
++                .get("runtime")
++                .and_then(|runtime| runtime.get("executablePath"))
++                .and_then(serde_json::Value::as_str)
++                .filter(|path| !path.is_empty())
++                .with_context(|| {
++                    format!(
++                        "Cannot verify the Prime Agent daemon executable on {}; leaving the daemon running",
++                        socket_path.display()
++                    )
++                })?;
++            let runtime_path = Path::new(runtime_path);
++            anyhow::ensure!(
++                runtime_path.is_absolute(),
++                "Cannot verify the non-absolute Prime Agent daemon executable {} on {}; leaving the daemon running",
++                runtime_path.display(),
++                socket_path.display()
++            );
++            let actual = runtime_path.canonicalize().with_context(|| {
++                format!(
++                    "Cannot resolve the Prime Agent daemon executable {} on {}; leaving the daemon running",
++                    runtime_path.display(),
++                    socket_path.display()
++                )
++            })?;
++            anyhow::ensure!(
++                actual == expected,
++                "The Prime Agent daemon on {} runs a different Nix executable generation (daemon: {}; requested: {}). Existing sessions were left running.\nFinish all agents and background work before running `prime-agent shutdown` (stops all agents and background services), then retry.",
++                socket_path.display(),
++                actual.display(),
++                expected.display()
++            );
++            Ok(())
++        };
++        if let Err(error) = validate_identity() {
++            client.close();
++            return Err(error);
++        }
++    }
+     let current = hello.get("protocol").and_then(|p| p.get("version"))
+         == Some(&serde_json::json!(
+             pa_types::daemon::DAEMON_PROTOCOL_VERSION
+@@ -41,9 +87,9 @@
+         && hello.get("schemaId") == Some(&serde_json::json!(pa_types::daemon::DAEMON_SCHEMA_ID));
+     if current {
+         client.close();
+-        DaemonProbe::Current
++        Ok(DaemonProbe::Current)
+     } else {
+-        DaemonProbe::Stale(Box::new(client))
++        Ok(DaemonProbe::Stale(Box::new(client)))
+     }
+ }
+ 
+@@ -52,11 +98,11 @@
+ /// shut down, a busy one refuses replacement).
+ ///
+ /// # Errors
+-/// Returns an error when the executable path cannot be resolved, a stale
+-/// daemon refuses replacement, the supervisor cannot be spawned, or no
++/// Returns an error when the Nix executable identity differs or cannot be verified,
++/// a stale daemon refuses replacement, the supervisor cannot be spawned, or no
+ /// current daemon starts before the startup timeout.
+ pub async fn ensure_daemon_running(socket_path: &Path, spawn_cwd: &Path) -> Result<()> {
+-    match probe_daemon(socket_path).await {
++    match probe_daemon(socket_path, None).await? {
+         DaemonProbe::Current => return Ok(()),
+         DaemonProbe::Stale(client) => shutdown_stale_daemon(*client, socket_path).await?,
+         DaemonProbe::Absent => {}
+@@ -69,14 +115,14 @@
+ /// product path uses this process's own binary).
+ ///
+ /// # Errors
+-/// Returns an error when the supervisor cannot be spawned or no current
+-/// daemon starts before the startup timeout.
++/// Returns an error when the Nix executable identity differs or cannot be verified,
++/// the supervisor cannot be spawned, or no current daemon starts before the startup timeout.
+ pub async fn ensure_daemon_running_with(
+     exe: &Path,
+     socket_path: &Path,
+     spawn_cwd: &Path,
+ ) -> Result<()> {
+-    match probe_daemon(socket_path).await {
++    match probe_daemon(socket_path, Some(exe)).await? {
+         DaemonProbe::Current => return Ok(()),
+         DaemonProbe::Stale(client) => {
+             // A stale daemon appeared between the caller's check and here:
+@@ -88,7 +134,7 @@
+     spawn_supervisor_detached(socket_path, spawn_cwd, exe)?;
+     let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
+     loop {
+-        match probe_daemon(socket_path).await {
++        match probe_daemon(socket_path, Some(exe)).await? {
+             DaemonProbe::Current => return Ok(()),
+             DaemonProbe::Stale(client) => {
+                 // A concurrent launcher won the socket with a build whose protocol matches at

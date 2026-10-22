@@ -1,0 +1,42 @@
+# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# intent: point provider login guidance at the bundled, version-matched upstream README.
+diff --git a/crates/pa-cli/src/list_models.rs b/crates/pa-cli/src/list_models.rs
+--- a/crates/pa-cli/src/list_models.rs
++++ b/crates/pa-cli/src/list_models.rs
+@@ -46,13 +46,13 @@
+     Ok(0)
+ }
+ 
+-/// Guidance plus the bundled docs paths for providers and models.
++/// Guidance plus the bundled getting-started documentation.
+ fn no_models_available_message() -> String {
+-    let docs = pa_core::packages::docs_path();
++    let mut readme = pa_core::packages::docs_path();
++    readme.set_file_name("README.md");
+     format!(
+-        "No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
+-        docs.join("providers.md").display(),
+-        docs.join("models.md").display()
++        "No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}",
++        readme.display()
+     )
+ }
+ 
+diff --git a/crates/pa-daemon/src/agent_engine/turn/model.rs b/crates/pa-daemon/src/agent_engine/turn/model.rs
+--- a/crates/pa-daemon/src/agent_engine/turn/model.rs
++++ b/crates/pa-daemon/src/agent_engine/turn/model.rs
+@@ -65,10 +65,10 @@
+                 } else {
+-                    let docs = pa_core::packages::docs_path();
++                    let mut readme = pa_core::packages::docs_path();
++                    readme.set_file_name("README.md");
+                     format!(
+-                        "No API key found for {}.\n\nUse /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
++                        "No API key found for {}.\n\nUse /login to log into a provider via OAuth or API key. See:\n  {}",
+                         preflight_model.provider,
+-                        docs.join("providers.md").display(),
+-                        docs.join("models.md").display()
++                        readme.display()
+                     )
+                 };
+                 return TurnResult::Error {

@@ -182,6 +182,12 @@ let
           # Workaround: Darwin's /bin/ps probe can fail in the Nix sandbox.
           # Remove when upstream skips comparisons without process ground truth.
           ../../../patches/prime-agent-darwin-tests.patch
+          # Workaround: compatible daemons can keep running a previous Nix executable.
+          # Remove when upstream checks executable identity without stopping existing work.
+          ../../../patches/prime-agent-nix-daemon-generation.patch
+          # Workaround: login guidance references documents absent from release sources.
+          # Remove when upstream points to documentation included in its releases.
+          ../../../patches/prime-agent-bundled-docs.patch
         ];
         PRIME_AGENT_NIX_MANAGED = "1";
         # Upstream tests exercise installer-owned builds; installCheck and
@@ -224,7 +230,7 @@ let
 
         postInstall = ''
           mkdir -p $out/share/prime-agent
-          cp -r prime-agent-runtime docs skills $out/share/prime-agent/
+          cp -r prime-agent-runtime docs skills README.md LICENSE $out/share/prime-agent/
           # Release archives embed synthetic fixtures. Pin production data
           # independently; catalog updates do not change the Rust source pin.
           cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
@@ -243,7 +249,7 @@ let
                 pkgs.nodejs
               ]
             } \
-            --set PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3 \
+            --set-default PRIME_AGENT_KERNEL_PYTHON ${kernelPython}/bin/python3 \
             --set-default PI_OFFLINE 1
         '';
 
@@ -271,6 +277,7 @@ let
           cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
           # Exercise read-only checks through the wrapper with isolated environments.
           ${kernelPython}/bin/python3 ${./prime-agent-update-readonly.py} "$out/bin/prime-agent"
+          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3"
           for target in nightly rollback archive coordinator; do
             case "$target" in
               nightly) set -- update --nightly ;;
