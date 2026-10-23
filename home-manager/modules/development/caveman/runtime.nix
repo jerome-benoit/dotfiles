@@ -57,10 +57,7 @@ stdenvNoCC.mkDerivation {
     # Remove when upstream takes those paths from its own configuration.
     wrapProgram "$out/bin/caveman-proxy" \
       --prefix PATH : "$out/bin:${
-        lib.makeBinPath (
-          [ git ]
-          ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ pkgs.darwin.ps ]
-        )
+        lib.makeBinPath ([ git ] ++ lib.optionals stdenvNoCC.hostPlatform.isDarwin [ pkgs.darwin.ps ])
       }"
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \
