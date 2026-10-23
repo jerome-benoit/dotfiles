@@ -23,7 +23,7 @@ let
     nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.autoreconfHook ];
     patches = (previousAttrs.patches or [ ]) ++ [
       (pkgs.fetchpatch {
-        url = "https://github.com/NixOS/patchelf/commit/3e996dbef1fa0658012f8dd290bddcf0302acade.patch";
+        url = "https://github.com/NixOS/patchelf/commit/59acc3d98b4961cfddf02090d9426ac735603218.patch";
         hash = "sha256-MgJft8jCQ8TsOtXyTtuZuAVw1y5PFkqDapdLSTUAUeY=";
       })
     ];
