@@ -2,7 +2,7 @@
 
 ## Context
 
-The nine local patches live directly under `patches/`. Their builders declare
+The eleven local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly; source versions and hashes come from
 `home-manager/modules/development/pins/{prime-agent,caveman}.json`.
 The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
@@ -10,7 +10,7 @@ patch bases. Reassess each patch when its own source pin changes.
 
 ## Current Patches
 
-None pending refresh. The tree carries nine patches, each with a `# base:` and
+The tree carries eleven patches, each with a `# base:` and
 `# intent:` header, and a comment at its use site explaining why it exists and
 when it can go:
 
@@ -21,8 +21,10 @@ when it can go:
 - `patches/prime-agent-bundled-docs.patch` — point login guidance to the bundled upstream README.
 - `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
-- `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17), with message-scoped hints and location-relative workdirs.
+- `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
+- `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
+- `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
+- `patches/caveman-blocks-opencode2.patch` — backport Blocks PR #17 and the generic fixes for issues #18/#19, with behavioral regressions.
 
 ## Local Patch Refresh
 
@@ -32,8 +34,10 @@ when it can go:
    pin. Use that hash-pinned source, not the current contents of a mutable tag.
 3. Check whether upstream now supplies each fix. Remove only superseded hunks;
    retire the whole patch only when every carried change is covered upstream.
-4. Regenerate remaining hunks against the pinned source, preserving the headers
-   and updating `# base:` when its version changes.
+4. Apply prerequisite patches in the builder's declared order before regenerating
+   remaining hunks. Preserve the headers and update `# base:` when its version or
+   prerequisite changes. The CLI registration patch includes the managed-install
+   guard in its base; neither patch corrects the other.
 5. Verify application without fuzz or offset warnings and inspect the resulting
    code. Exercise affected behavior when code or upstream assumptions change.
 6. Update the use-site explanation, removal condition and inventory as needed.
@@ -42,9 +46,45 @@ when it can go:
 After changing the OpenCode plugin, run
 `caveman-blocks hooks install --harness opencode` to refresh an existing install.
 Updating the Nix package alone does not rewrite user-level agent configuration.
-Generated CLI callbacks also require the current Nix wrapper on PATH. Reinstall
-existing raw-Node callbacks with the relevant hook installer, for example
-`caveman tools hooks install claude`.
+
+### Caveman registrations
+
+Home Manager supplies `home.profileDirectory` to the Caveman package. Standalone,
+XDG and `useUserPackages` installations therefore select their effective profile
+without a second agent-root table. Package-only callers invoke a profile's
+`bin/caveman` or `bin/caveman-install`, or explicitly set
+`CAVEMAN_REGISTRATION_ROOT` to an absolute lexical profile prefix. Do not resolve
+that executable/profile link into the store.
+
+Execution-time companion paths stay in the package closure. Generated
+registrations use the selected profile's public commands and private
+`share/caveman/node`, `share/caveman/bash` and `share/caveman/dist` payloads.
+Neither interpreter is added as a global profile command.
+
+Agent registration remains manual. Reinstall existing generation-specific
+registrations with their owning command (`caveman enable`, `caveman tools mcp
+install`, `caveman tools hooks install`, or `caveman-install`); do not rewrite
+stored paths or ownership journals. Agent roots, credentials and foreign entries
+remain managed by the upstream serializers.
+
+The standalone installer ships the pinned source-shaped payload. Its Claude
+channel prepares an owned mutable local marketplace and delegates registration
+to Claude. `--prepare-plugin claude` and `--prepare-plugin cursor` expose the same
+explicit mutable layer without changing host caches or writing into the store.
+Existing upstream Claude installations must be removed through their host before
+choosing the local channel. Reinstall does not re-enable disabled plugins.
+Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
+removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
+
+The package does not activate, repair, download or register integrations on
+installation. Skills-only and delegated-manager channels keep their existing
+upstream destinations and do not acquire an MCP requirement.
+
+The runtime check includes `checks/caveman-profiles.py` and
+`checks/caveman-installer.py`. They exercise generated callbacks, protocols and
+ownership across same-version fixture generations. Pi recovery uses the real
+TypeBox dependency, not an SDK substitute. Real host sessions and native platform
+execution remain separate smoke tests.
 
 ## PR-Derived Patch Refresh
 

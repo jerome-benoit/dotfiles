@@ -17,20 +17,24 @@ import time
 package = Path(sys.argv[1])
 git = sys.argv[2]
 node = sys.argv[3]
+blocks = Path(sys.argv[4])
 
 with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     root = Path(temporary)
     home = root / "home"
     home.mkdir()
+    profile_path = root / "profile"
+    profile_path.symlink_to(package, target_is_directory=True)
     cave = home / ".caveman"
     env = {
-        "PATH": str(package / "bin"),
+        "PATH": str(profile_path / "bin"),
         "HOME": str(home),
         "USERPROFILE": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
         "XDG_CACHE_HOME": str(home / ".cache"),
         "XDG_DATA_HOME": str(home / ".local/share"),
         "CAVEMAN_HOME": str(cave),
+        "CAVEMAN_REGISTRATION_ROOT": str(profile_path),
         "CAVE_NO_KEYCHAIN": "1",
         "CAVEMAN_OFFLINE": "1",
         "CI": "1",
@@ -40,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
 
     def run(binary, *arguments, data=None, check=True, cwd=None, environment=None):
         result = subprocess.run(
-            [str(package / "bin" / binary), *arguments],
+            [str(profile_path / "bin" / binary), *arguments],
             input=data,
             env=environment if environment is not None else env,
             cwd=cwd or root,
@@ -223,7 +227,7 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert_recorded_calls(1)
 
     # Seed upstream's same-version raw copy, then refresh through the wrapper.
-    native_blocks = (package / "bin/caveman-blocks").resolve().with_name(".caveman-blocks-wrapped")
+    native_blocks = blocks.resolve().with_name(".caveman-blocks-wrapped")
     stable_hook.unlink()
     run(str(native_blocks), "hooks", "install", "--harness", "claude-code", cwd=repo)
     assert not stable_hook.is_symlink()
@@ -240,9 +244,20 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     run("caveman-blocks", "doctor", cwd=repo)
     send_event(3)
     assert_recorded_calls(3)
+    # Running the installed launcher must not rewrite its link to itself.
+    selected_wrapper = os.readlink(stable_hook)
+    for index, selected_root in enumerate((None, str(stable_hook.parent.parent)), start=4):
+        launcher_env = {**env}
+        launcher_env.pop("CAVEMAN_REGISTRATION_ROOT")
+        if selected_root is not None:
+            launcher_env["CAVEMAN_REGISTRATION_ROOT"] = selected_root
+        run(str(stable_hook), "doctor", cwd=repo, environment=launcher_env, check=False)
+        assert os.readlink(stable_hook) == selected_wrapper
+        send_event(index)
+        assert_recorded_calls(index)
     run("caveman-blocks", "hooks", "uninstall", "--harness", "claude-code", cwd=repo)
     assert json.loads(settings.read_text())["hooks"]["PreToolUse"] == [foreign_hook]
-    assert_recorded_calls(3)
+    assert_recorded_calls(5)
 
     # OpenCode 2 returns structured shell output plus content parts. Hints must
     # reach those parts without changing exit metadata or leaking from failed calls.

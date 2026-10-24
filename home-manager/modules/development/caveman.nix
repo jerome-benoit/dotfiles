@@ -11,7 +11,13 @@ let
     "aarch64-linux"
     "x86_64-linux"
   ];
-  cavemanPackage = if supported then pkgs.callPackage ./caveman/package.nix { } else null;
+  cavemanPackage =
+    if supported then
+      pkgs.callPackage ./caveman/package.nix {
+        registrationProfile = config.home.profileDirectory;
+      }
+    else
+      null;
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
     {
       package = cfg.package;
@@ -21,10 +27,12 @@ let
 in
 {
   options.modules.development.caveman = {
-    enable = lib.mkEnableOption "Caveman CLI and complete local runtime (without agent integration)";
+    enable = lib.mkEnableOption "Caveman CLI and complete local runtime";
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = cavemanPackage;
-      defaultText = lib.literalExpression "pkgs.callPackage ./caveman/package.nix { }";
+      defaultText = lib.literalExpression ''
+        pkgs.callPackage ./caveman/package.nix { registrationProfile = config.home.profileDirectory; }
+      '';
       description = "Caveman CLI and companion executables (null on unsupported systems)";
     };
   };

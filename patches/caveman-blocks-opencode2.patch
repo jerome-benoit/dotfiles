@@ -1,7 +1,9 @@
 # base: v0.1.0-rc.5
 # upstream: https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
-# intent: support OpenCode 2 tool hooks while preserving OpenCode 1.x integration.
-# local: isolate V2 hints per message and resolve workdirs against the active location.
+# issues: https://github.com/caveman-ai/blocks/issues/18 https://github.com/caveman-ai/blocks/issues/19
+# intent: backport the dual OpenCode API with invocation-scoped hints and active-location workdirs.
+# source: PR17 plus generic fixes and real-engine e2e regressions; no Nix-specific hook behavior.
+# scope: source, hook profile and behavioral e2e only; upstream docs and source-text assertions excluded.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
 index b1f1f3e..868f669 100644
 --- a/internal/hook/profiles.toml
@@ -21,9 +23,10 @@ index b1f1f3e..868f669 100644
  [copilot]
  phase = 2
 diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman-blocks/opencode/caveman-blocks.js
+index 81acd79..895f790 100644
 --- a/plugins/caveman-blocks/opencode/caveman-blocks.js
 +++ b/plugins/caveman-blocks/opencode/caveman-blocks.js
-@@ -5,12 +5,24 @@
+@@ -5,13 +5,25 @@
  //
  // Install: `caveman-blocks hooks install --harness opencode` writes this file with the binary path
  // baked in, or copy it to ~/.config/opencode/plugins/ or .opencode/plugins/ yourself.
@@ -43,18 +46,19 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
 +import { join, resolve } from "node:path";
  
  const INSTALLED = "";
-+
+ 
 +// The tool that runs a shell command: `bash` on OpenCode 1.x, `shell` on OpenCode 2.x.
 +const SHELL_TOOLS = new Set(["shell", "bash"]);
- 
++
  function binary() {
    for (const p of [INSTALLED, process.env.CAVEMAN_BLOCKS_BIN, join(homedir(), ".local/share/caveman-blocks/bin/caveman-blocks" + (process.platform === "win32" ? ".exe" : ""))]) {
-@@ -32,11 +44,27 @@
+     if (p && existsSync(p)) return p;
+@@ -32,11 +44,27 @@ function hook(req) {
    }
  }
  
-+// Resolve V2 shell workdirs against the active location, including home paths.
-+function shellWorkdir(directory, workdir = directory) {
++// Match the shell's workdir semantics without treating POSIX names like ~project as home paths.
++function shellWorkdir(directory, workdir = "") {
 +  const expanded = workdir === "~" ? homedir() : workdir.startsWith("~/") ? join(homedir(), workdir.slice(2)) : workdir;
 +  return resolve(directory, expanded);
 +}
@@ -78,7 +82,7 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
        const command = String(output.args?.command ?? "");
        const hint = hook({ phase: "pre", session: input.sessionID, call_id: input.callID, cwd: output.args?.workdir || directory, command });
        if (hint) hints.set(input.callID, hint);
-@@ -48,3 +76,36 @@
+@@ -48,3 +76,42 @@ export const CavemanBlocks = async ({ directory }) => {
      },
    };
  };
@@ -93,16 +97,22 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
 +    // OpenCode 1.x also calls setup(), with a context that has no tool API.
 +    if (!ctx || !ctx.tool || typeof ctx.tool.hook !== "function") return;
 +
-+    const hints = new Map(); // (session id, message id, call id) -> hint delivered after the call
++    const hints = new Map(); // (session id, message id, call id) -> hint for that invocation
 +    const callKey = (event) => JSON.stringify([event.sessionID, event.messageID, event.id]);
-+    const directory = ctx.location.directory;
++    const directory = ctx.location?.directory || process.cwd();
 +
 +    await ctx.tool.hook("execute.before", (event) => {
 +      if (!SHELL_TOOLS.has(event.tool)) return;
-+      const input = event.input && typeof event.input === "object" ? event.input : {};
-+      const command = String(input.command ?? "");
-+      const hint = hook({ phase: "pre", session: event.sessionID, call_id: event.id, cwd: shellWorkdir(directory, input.workdir), command });
-+      if (hint) hints.set(callKey(event), hint);
++      const key = callKey(event);
++      hints.delete(key);
++      try {
++        const input = event.input && typeof event.input === "object" ? event.input : {};
++        const command = String(input.command ?? "");
++        const hint = hook({ phase: "pre", session: event.sessionID, call_id: event.id, cwd: shellWorkdir(directory, input.workdir), command });
++        if (hint) hints.set(key, hint);
++      } catch {
++        // Invalid workdirs must not prevent the shell command from running.
++      }
 +    });
 +
 +    await ctx.tool.hook("execute.after", (event) => {
@@ -115,3 +125,136 @@ diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman
 +    });
 +  },
 +};
+diff --git a/testdata/e2e/opencode-plugin.txtar b/testdata/e2e/opencode-plugin.txtar
+index f383857..ee30d5e 100644
+--- a/testdata/e2e/opencode-plugin.txtar
++++ b/testdata/e2e/opencode-plugin.txtar
+@@ -16,13 +16,23 @@ grep '^// .*/caveman-blocks hook --harness generic$' $WORK/home/.config/opencode
+ exec bun ../drive.mjs $WORK/home/.config/opencode/plugins/caveman-blocks.js
+ stdout '^matched: 1 rows\n\nBlocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>$'
+ stdout '^plain: ok$'
++stdout '^v2 matched: 1 rows\n\nBlocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>$'
++stdout '^v2 plain: ok$'
++stdout '^v2 identity isolation: ok$'
++stdout '^v2 workdirs: ok$'
++stdout '^v2 fail-open: ok$'
+ 
+ exec caveman-blocks hooks uninstall --harness opencode
+ stdout '^opencode: removed from ~/.config/opencode/plugins/caveman-blocks.js$'
+ ! exists $WORK/home/.config/opencode/plugins/caveman-blocks.js
+ 
+ -- drive.mjs --
+-// Plays OpenCode: one plugin instance, a before and an after per call, cwd the repo.
++// Plays OpenCode twice: the V1 hook map (tool `bash`) and the V2 default export (tool `shell`),
++// one before and one after per call, cwd the repo.
++import assert from "node:assert/strict";
++import { mkdirSync } from "node:fs";
++import { homedir } from "node:os";
++import { dirname, join, relative } from "node:path";
+ const mod = await import(process.argv[2]);
+ const hooks = await mod.CavemanBlocks({ directory: process.cwd() });
+ const run = async (callID, command, result) => {
+@@ -32,5 +42,102 @@ const run = async (callID, command, result) => {
+   await hooks["tool.execute.after"]({ tool: "bash", sessionID: "e2e", callID, args }, output);
+   return output.output;
+ };
+-console.log("matched: " + await run("c1", "python3 - <<'EOF'\nimport json\nd=json.load(open('x.json'))\nprint(d.keys())\nEOF", "1 rows"));
++
++const registered = {};
++await mod.default.setup({
++  location: { directory: process.cwd() },
++  tool: { hook: async (name, cb) => { registered[name] = cb; } },
++});
++const runV2 = async (callID, command, result) => {
++  await registered["execute.before"]({ tool: "shell", sessionID: "e2e", id: callID, input: { command } });
++  const event = { tool: "shell", sessionID: "e2e", id: callID, input: { command }, status: "completed", result: { output: result } };
++  await registered["execute.after"](event);
++  return event.result.output;
++};
++
++const script = "python3 - <<'EOF'\nimport json\nd=json.load(open('x.json'))\nprint(d.keys())\nEOF";
++console.log("matched: " + await run("c1", script, "1 rows"));
+ console.log("plain: " + await run("c2", "ls", "ok"));
++console.log("v2 matched: " + await runV2("c3", script, "1 rows"));
++console.log("v2 plain: " + await runV2("c4", "ls", "ok"));
++
++// Exercise the installed adapter and real engine, not the plugin's source text.
++const before = async (event, command = script, workdir) => {
++  await registered["execute.before"]({ tool: "shell", ...event, input: { command, workdir } });
++};
++const after = async (event, status = "completed") => {
++  const completed = { tool: "shell", ...event, status, result: { output: "ok" } };
++  await registered["execute.after"](completed);
++  return completed.result.output;
++};
++const hinted = (output) => output.includes("Blocks: json-peek");
++const a = { sessionID: "session-a", messageID: "message-a", id: "reused" };
++const b = { sessionID: "session-b", messageID: "message-a", id: "reused" };
++await before(a);
++await before(b, "printf plain");
++assert.equal(await after(b), "ok");
++assert.ok(hinted(await after(a)));
++assert.equal(await after(a), "ok"); // Duplicate completion cannot deliver twice.
++
++// An interrupted message must not contaminate a later message with the same call id.
++const later = { ...a, messageID: "message-b" };
++await before(a);
++await before(later, "printf plain");
++assert.equal(await after(later), "ok");
++assert.ok(hinted(await after(a))); // A late completion still owns its original hint.
++
++// Failed calls consume only their own hint, including when another session shares the id.
++await before(a);
++await before(b);
++assert.equal(await after(a, "failed"), "ok");
++assert.ok(hinted(await after(b)));
++assert.equal(await after(a), "ok");
++
++// A repeated before-event that no longer matches must clear only its own pending hint.
++await before(a);
++await before(b);
++await before(a, "printf plain");
++assert.equal(await after(a), "ok");
++assert.ok(hinted(await after(b)));
++console.log("v2 identity isolation: ok");
++
++// The server runs outside the project. Workdirs belong to ctx.location.directory.
++const directory = process.cwd();
++process.chdir(dirname(directory));
++mkdirSync(join(directory, "nested"));
++mkdirSync(join(directory, "~literal"));
++const workdirs = [
++  undefined,
++  "",
++  ".",
++  directory,
++  "nested/..",
++  "~literal",
++  `~/${relative(homedir(), directory)}`,
++];
++// Bare ~ selects HOME (which has no blocks), not the active project.
++const homeHooks = {};
++await mod.default.setup({
++  location: { directory },
++  tool: { hook: async (name, cb) => { homeHooks[name] = cb; } },
++});
++const homeEvent = { tool: "shell", sessionID: "home", messageID: "home", id: "call", input: { command: script, workdir: "~" } };
++await homeHooks["execute.before"](homeEvent);
++const homeResult = { ...homeEvent, status: "completed", result: { output: "ok" } };
++await homeHooks["execute.after"](homeResult);
++assert.equal(homeResult.result.output, "ok");
++for (const [index, workdir] of workdirs.entries()) {
++  const event = { sessionID: "workdirs", messageID: String(index), id: "call" };
++  await before(event, script, workdir);
++  assert.ok(hinted(await after(event)), `workdir ${JSON.stringify(workdir)}`);
++}
++// Absolute paths must not be rebased onto the active location.
++const outside = { sessionID: "workdirs", messageID: "outside", id: "call" };
++await before(outside, script, process.cwd());
++assert.equal(await after(outside), "ok");
++console.log("v2 workdirs: ok");
++
++const invalid = { sessionID: "workdirs", messageID: "invalid", id: "call" };
++await before(invalid, script, { invalid: true });
++assert.equal(await after(invalid), "ok");
++console.log("v2 fail-open: ok");
