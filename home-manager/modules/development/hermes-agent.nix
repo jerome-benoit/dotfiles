@@ -17,30 +17,9 @@ let
   hermesModuleCommon = import "${inputs.hermes-agent}/nix/moduleCommon.nix" {
     inherit lib;
   };
-  # Workaround: patchelf 0.19.2 corrupts the stripped Node ELF (patchelf#672).
-  # Remove when nixpkgs ships the fix.
-  hermesPatchelf = pkgs.patchelf.overrideAttrs (previousAttrs: {
-    nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.autoreconfHook ];
-    patches = (previousAttrs.patches or [ ]) ++ [
-      (pkgs.fetchpatch {
-        url = "https://github.com/NixOS/patchelf/commit/59acc3d98b4961cfddf02090d9426ac735603218.patch";
-        hash = "sha256-MgJft8jCQ8TsOtXyTtuZuAVw1y5PFkqDapdLSTUAUeY=";
-      })
-    ];
-  });
-  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override (previous: {
+  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override {
     inherit (pkgs) callPackage;
-    pmPackages = previous.pmPackages // {
-      node = previous.pmPackages.node.overrideAttrs (
-        previousAttrs:
-        # Darwin's Node is Mach-O; the upstream autoPatchelfHook must not run.
-        if isDarwin then
-          { dontAutoPatchelf = true; }
-        else
-          { nativeBuildInputs = [ hermesPatchelf ] ++ (previousAttrs.nativeBuildInputs or [ ]); }
-      );
-    };
-  });
+  };
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
