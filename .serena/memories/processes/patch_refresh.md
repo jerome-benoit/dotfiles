@@ -61,6 +61,10 @@ registrations use the selected profile's public commands and private
 `share/caveman/node`, `share/caveman/bash` and `share/caveman/dist` payloads.
 Neither interpreter is added as a global profile command.
 
+`--with-mcp-shrink` registers the shipped JavaScript middleware through private
+profile Node. It is distinct from the native `caveman-shrink` companion; preserve
+the upstream command and arguments when refreshing this serializer.
+
 Agent registration remains manual. Reinstall existing generation-specific
 registrations with their owning command (`caveman enable`, `caveman tools mcp
 install`, `caveman tools hooks install`, or `caveman-install`); do not rewrite
@@ -76,15 +80,23 @@ choosing the local channel. Reinstall does not re-enable disabled plugins.
 Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
 removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
 
+Prepared plugin destinations require physical directory ancestors. Stable
+executable profile symlinks remain allowed, but mutable payload ancestors may
+not be symlinks, even outside the store. If `HOME` or `CAVEMAN_HOME` is aliased,
+set `CAVEMAN_HOME` to a physical mutable path before installation. Alternatively,
+use `--prepare-plugin` with a physical absolute `--plugin-dir`, then load that
+prepared payload through the host. Never point these mutable paths into the store.
+
 The package does not activate, repair, download or register integrations on
 installation. Skills-only and delegated-manager channels keep their existing
 upstream destinations and do not acquire an MCP requirement.
 
-The runtime check includes `checks/caveman-profiles.py` and
-`checks/caveman-installer.py`. They exercise generated callbacks, protocols and
-ownership across same-version fixture generations. Pi recovery uses the real
-TypeBox dependency, not an SDK substitute. Real host sessions and native platform
-execution remain separate smoke tests.
+The runtime check runs the installer's behavioral Node suite and
+`checks/caveman-profiles.py` / `checks/caveman-installer.py`. They exercise generated
+callbacks, protocols and ownership across independent same-version generations,
+with A removed after selecting B. Pi recovery uses the real TypeBox dependency,
+not an SDK substitute. Real host sessions and native platform execution remain
+separate smoke tests.
 
 ## PR-Derived Patch Refresh
 

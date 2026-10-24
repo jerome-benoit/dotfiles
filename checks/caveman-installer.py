@@ -6,12 +6,20 @@ This exercises real copying/preparation and hook writers, not fake host managers
 The exported writers are the same functions called after a successful skills
 manager install. Calling them directly deliberately does not claim that npx or a
 host discovered, installed, trusted, enabled, or ran the integration.
+
+Lifetime cases copy the source, CLI dist, and genuine Node/Bash executables into
+owned A/B generations. Deleting all of A models unavailable package paths, not
+Nix garbage collection; external shared libraries and closure tools remain.
+Callback harnesses observe real events, mode files, and MCP recovery, not a
+running host application's discovery or trust decisions.
 """
 
 import json
 import os
 from pathlib import Path
 import re
+import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -62,8 +70,36 @@ def call(arguments, env, cwd, *, data=None, success=True):
     return result
 
 
+def native_executable(path):
+    """Unwrap fixture inputs without changing the installed package or store."""
+    path = Path(path).resolve()
+    for _ in range(8):
+        with path.open("rb") as stream:
+            if stream.read(2) != b"#!":
+                return path
+        candidates = [
+            Path(token)
+            for line in path.read_text().splitlines()
+            if line.lstrip().startswith("exec ")
+            for token in shlex.split(line)
+            if token.startswith("/") and Path(token).is_file()
+        ]
+        assert candidates, f"Cannot find native executable behind {path}"
+        path = candidates[0].resolve()
+    raise AssertionError(f"Wrapper cycle at {path}")
+
+
+def writable_copy(original, destination):
+    shutil.copytree(original, destination)
+    for directory, _, files in os.walk(destination):
+        Path(directory).chmod(0o755)
+        for name in files:
+            target = Path(directory) / name
+            target.chmod(stat.S_IMODE(target.stat().st_mode) | 0o600)
+
+
 class Fixture:
-    def __init__(self, root):
+    def __init__(self, root, *, lifetime=False):
         self.root = root
         self.home = root / "home"
         self.home.mkdir(parents=True)
@@ -78,24 +114,95 @@ class Fixture:
             "CAVEMAN_HOME": str(self.home / ".caveman"),
             "CAVEMAN_DEFAULT_MODE": "caveman", "CAVEMAN_OFFLINE": "1",
             "CAVE_NO_KEYCHAIN": "1", "CI": "1", "NO_COLOR": "1",
-            "TERM": "dumb", "CAVEMAN_REGISTRATION_ROOT": str(root / "profile"),
+            "TERM": "dumb",
         }
+        # Ordinary ownership cases exercise the shipped package directly.
+        # Only lifetime cases need independent, writable executable generations.
         self.profile = root / "profile"
+        self.env["CAVEMAN_REGISTRATION_ROOT"] = str(self.profile)
         self.generations = []
-        # These are two distinct generations of the exact same package version.
-        # Their executable/payload links reference the real built package, never
-        # fixture programs that merely report success.
-        for generation in ("generation-a", "generation-b"):
-            location = root / generation
-            (location / "share/caveman").mkdir(parents=True)
-            (location / "bin").symlink_to(package / "bin", target_is_directory=True)
-            for name in ("source", "dist", "node", "bash"):
-                (location / "share/caveman" / name).symlink_to(
-                    package / "share/caveman" / name,
-                    target_is_directory=name in ("source", "dist"),
-                )
-            self.generations.append(location)
-        self.profile.symlink_to(self.generations[0], target_is_directory=True)
+        self.source = source
+        if lifetime:
+            self.trace = root / "node-events.jsonl"
+            observer = root / "observe-node.cjs"
+            observer.write_text("""
+const fs = require('node:fs');
+const entry = process.argv[1];
+fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
+  executable: process.execPath,
+  entry: entry && fs.existsSync(entry) ? fs.realpathSync(entry) : null,
+}) + '\\n');
+""")
+            self.env["NODE_OPTIONS"] = "--require=" + str(observer)
+            self.env["CAVEMAN_TEST_NODE_EVENTS"] = str(self.trace)
+            self.generations.append(self.generation("generation-a"))
+            self.profile.symlink_to(self.generations[0], target_is_directory=True)
+            self.source = self.profile / "share/caveman/source"
+            self.version = call(
+                [self.profile / "bin/caveman", "--version"],
+                {**self.env, "PATH": ""}, self.root,
+            ).stdout
+        else:
+            self.profile.symlink_to(package, target_is_directory=True)
+
+    def generation(self, name):
+        location = self.root / name
+        private = location / "share/caveman"
+        private.mkdir(parents=True)
+        (location / "bin").mkdir()
+        writable_copy(source, private / "source")
+        writable_copy(package / "share/caveman/dist", private / "dist")
+        shutil.copy2(package / "lib/caveman/package.json", private / "package.json")
+        (private / "package.json").chmod(0o644)
+        node_launcher = (package / "share/caveman/node").read_text()
+        launcher_shell = Path(shlex.split(node_launcher.splitlines()[0][2:])[0])
+        launcher_node = next(
+            Path(token) for line in node_launcher.splitlines()
+            if line.lstrip().startswith("exec ")
+            for token in shlex.split(line)
+            if token.startswith("/") and Path(token).is_file()
+        )
+        interpreters = {
+            native_executable(launcher_node): private / ".node-real",
+            native_executable(launcher_shell): private / ".bash-real",
+        }
+        for original, copied in interpreters.items():
+            shutil.copy2(original, copied)
+            copied.chmod(0o755)
+            assert not os.path.samefile(copied, original)
+        replacements = {
+            str(source.resolve()): str(private / "source"),
+            str((package / "share/caveman/dist").resolve()): str(private / "dist"),
+            str(package / "lib/caveman"): str(private),
+            str(package): str(location),
+            str(native_executable(node)): str(private / ".node-real"),
+            str(Path(node)): str(private / ".node-real"),
+            str(launcher_node): str(private / ".node-real"),
+            str(native_executable(package / "share/caveman/bash")): str(private / ".bash-real"),
+            str(launcher_shell): str(private / ".bash-real"),
+        }
+        # Preserve the shipped launchers' real closure environment, including
+        # Bash's grep/sed/coreutils. Only owned payload/interpreter paths move;
+        # shared native libraries and external closure tools remain in Nix.
+        launchers = [
+            entry.relative_to(package) for entry in (package / "bin").iterdir()
+        ] + [Path("share/caveman/node"), Path("share/caveman/bash")]
+        for relative in launchers:
+            original_path = package / relative
+            destination = location / relative
+            with original_path.open("rb") as stream:
+                is_script = stream.read(2) == b"#!"
+            if not is_script:
+                # Native companions are separate immutable closure inputs, not
+                # the A/B JavaScript implementation or private interpreters.
+                destination.symlink_to(original_path.resolve())
+                continue
+            text = original_path.read_text()
+            for original, copied in sorted(replacements.items(), key=lambda item: -len(item[0])):
+                text = text.replace(original, copied)
+            destination.write_text(text)
+            destination.chmod(0o755)
+        return location
 
     def install(self, *arguments, success=True):
         return call(
@@ -104,10 +211,43 @@ class Fixture:
         )
 
     def switch(self):
+        assert len(self.generations) == 1
+        self.generations.append(self.generation("generation-b"))
         self.profile.unlink()
         self.profile.symlink_to(self.generations[1], target_is_directory=True)
-        self.generations[0].rename(self.root / "generation-a-unavailable")
+        shutil.rmtree(self.generations[0])
         assert not self.generations[0].exists()
+        # Exercise the real private launcher and native executable, not merely
+        # lexical profile spelling while the original interpreter stays live.
+        actual = call(
+            [self.profile / "share/caveman/node", "-p", "process.execPath"],
+            {**self.env, "PATH": ""}, self.root,
+        ).stdout.decode().strip()
+        assert Path(actual) == self.generations[1] / "share/caveman/.node-real", actual
+        actual_shell = call(
+            [self.profile / "share/caveman/bash", "-c", 'printf "%s" "$BASH"'],
+            {**self.env, "PATH": ""}, self.root,
+        ).stdout.decode()
+        assert Path(actual_shell).resolve() == self.generations[1] / "share/caveman/.bash-real", actual_shell
+        before = len(self.node_events())
+        version = call(
+            [self.profile / "bin/caveman", "--version"],
+            {**self.env, "PATH": ""}, self.root,
+        ).stdout
+        assert version == self.version
+        events = self.node_events()[before:]
+        self.assert_current_node(events)
+        assert any(
+            event["entry"] == str(self.generations[1] / "share/caveman/dist/index.js")
+            for event in events
+        ), events
+
+    def node_events(self):
+        return [json.loads(line) for line in self.trace.read_text().splitlines()]
+
+    def assert_current_node(self, events):
+        expected = self.generations[-1] / "share/caveman/.node-real"
+        assert events and all(Path(event["executable"]) == expected for event in events), events
 
     def writer(self, name):
         # No manager substitutes: run the real owning preparation function.
@@ -124,17 +264,25 @@ Promise.resolve(installer[process.argv[2]](ctx)).then(value => {
   if (process.argv[2] === 'installHooks' && value !== 'ok') throw new Error(String(value));
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """
-        return call([node, "-e", program, source, name], self.env, self.root)
+        interpreter = self.profile / "share/caveman/node" if self.generations else node
+        return call([interpreter, "-e", program, self.source, name], self.env, self.root)
 
-    def command(self, command, *, environment=None, mode="caveman"):
+    def command(self, command, *, environment=None, mode="caveman", payload=None):
         assert str(self.profile / "share/caveman/node") in command, command
-        assert str(self.generations[0]) not in command, command
-        env = {**self.env, "CAVEMAN_DEFAULT_MODE": mode, **(environment or {})}
+        assert self.generations and str(self.generations[0]) not in command, command
+        env = {**self.env, "PATH": "", "CAVEMAN_DEFAULT_MODE": mode, **(environment or {})}
         data = json.dumps({
             "cwd": str(self.root), "workspace_roots": [str(self.root)],
             "source": "startup", "session_id": "installer-acceptance",
+            **(payload or {}),
         }).encode()
-        return call([shell, "-c", command], env, self.root, data=data).stdout.decode()
+        before = len(self.node_events())
+        result = call(
+            [self.profile / "share/caveman/.bash-real", "-c", command],
+            env, self.root, data=data,
+        )
+        self.assert_current_node(self.node_events()[before:])
+        return result.stdout.decode()
 
 
 def ruleset(mode="caveman"):
@@ -144,8 +292,92 @@ def ruleset(mode="caveman"):
 
 def assert_context(output, key=None, mode="caveman"):
     text = json.loads(output)[key] if key else output
-    assert f"CAVEMAN MODE ACTIVE — mode: {mode}" in text, text[:300]
+    assert text.strip(), output
     assert ruleset(mode) in text, text[:300]
+
+
+def claude_events(fixture, hooks, config_dir, *, environment=None, prepared=False):
+    """Run every emitted Claude callback and assert state/events, not exit 0."""
+    def command(event, marker):
+        return next(
+            hook["command"] for group in hooks[event] for hook in group["hooks"]
+            if marker in hook["command"]
+        )
+
+    activate = command("SessionStart", "caveman-activate")
+    output = fixture.command(activate, environment=environment)
+    assert output.strip(), output
+    if prepared:
+        assert_context(output)
+    flag = config_dir / ".caveman-sessions/installer-acceptance.mode"
+    assert flag.read_text().strip() == "caveman"
+    tracker = command("UserPromptSubmit", "caveman-mode-tracker")
+    output = json.loads(fixture.command(
+        tracker, environment=environment, payload={"prompt": "/ultracave"},
+    ))["hookSpecificOutput"]
+    assert output["hookEventName"] == "UserPromptSubmit", output
+    assert output["additionalContext"].strip(), output
+    assert flag.read_text().strip() == "ultracave"
+    if prepared:
+        assert_context(output["additionalContext"], mode="ultracave")
+    subagent = command("SubagentStart", "caveman-activate")
+    output = json.loads(fixture.command(subagent, environment=environment))["hookSpecificOutput"]
+    assert output["hookEventName"] == "SubagentStart", output
+    assert output["additionalContext"].strip(), output
+    assert flag.read_text().strip() == "ultracave"
+    if prepared:
+        assert_context(output["additionalContext"], mode="ultracave")
+    transcript = fixture.root / "installer-acceptance.jsonl"
+    transcript.write_text(json.dumps({
+        "type": "assistant", "message": {
+            "id": "observed-response", "model": "protocol-fixture",
+            "usage": {"output_tokens": 37, "cache_read_input_tokens": 11},
+        },
+    }) + "\n")
+    fixture.command(
+        command("SessionEnd", "caveman-stats"), environment=environment,
+        payload={"transcript_path": str(transcript)},
+    )
+    rows = [
+        json.loads(line)
+        for line in (config_dir / ".caveman-history.jsonl").read_text().splitlines()
+    ]
+    assert rows[-1]["session_id"] == "installer-acceptance", rows
+    assert rows[-1]["output_tokens"] == 37, rows
+    assert rows[-1]["cache_read_input_tokens"] == 11, rows
+
+
+def mcp(fixture, argv, *requests):
+    messages = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2024-11-05", "capabilities": {},
+            "clientInfo": {"name": "installer-check", "version": "1"},
+        }},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        *requests,
+    ]
+    result = call(
+        argv, {**fixture.env, "PATH": ""}, fixture.root,
+        data=b"".join((json.dumps(message) + "\n").encode() for message in messages),
+    )
+    replies = {
+        item["id"]: item for line in result.stdout.splitlines()
+        if (item := json.loads(line)).get("id") is not None
+    }
+    assert set(replies) == {message["id"] for message in messages if "id" in message}, replies
+    assert all("error" not in reply for reply in replies.values()), replies
+    assert replies[1]["result"]["protocolVersion"], replies
+    assert {"caveman_compress", "caveman_retrieve"} <= {
+        tool["name"] for tool in replies[2]["result"]["tools"]
+    }, replies
+    return replies
+
+
+def tool_text(reply):
+    result = reply["result"]
+    assert not result.get("isError"), result
+    return "".join(item.get("text", "") for item in result["content"])
 
 
 with tempfile.TemporaryDirectory(prefix="caveman-installer-check-") as temporary:
@@ -155,9 +387,9 @@ with tempfile.TemporaryDirectory(prefix="caveman-installer-check-") as temporary
     # plugin registration, or managed executable cache in the isolated HOME.
     fixture = Fixture(root / "no-implicit-setup")
     before = snapshot(fixture.home)
-    call([fixture.profile / "bin/caveman", "--help"], fixture.env, fixture.root)
-    fixture.install("--help")
-    fixture.install("--list")
+    call([package / "bin/caveman", "--help"], fixture.env, fixture.root)
+    for argument in ("--help", "--list"):
+        call([package / "bin/caveman-install", argument], fixture.env, fixture.root)
     assert snapshot(fixture.home) == before
     assert not (package / "bin/node").exists(), "Node must remain private"
 
@@ -270,12 +502,10 @@ with tempfile.TemporaryDirectory(prefix="caveman-installer-check-") as temporary
     # Real OMP preparation and the generated extension's actual event output.
     # The API object drives plugin callbacks; it does not impersonate the host
     # manager or claim that OMP discovered/loaded this prepared package.
-    fixture = Fixture(root / "omp-preparation")
+    fixture = Fixture(root / "omp-preparation", lifetime=True)
     omp_plugin = fixture.home / ".omp/caveman-plugin"
     omp_program = """
-const installer = require(process.argv[1] + '/installer/install.js');
-const directory = process.argv[2];
-installer.writeOmpPluginPackage({repoRoot: process.argv[1]}, directory);
+const directory = process.argv[1];
 const callbacks = new Map();
 require(directory + '/index.cjs')({on: (name, callback) => callbacks.set(name, callback)});
 Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign prompt']})).then(async result => {
@@ -285,13 +515,22 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
   process.stdout.write(JSON.stringify({result, duplicate: duplicate === undefined, badges}));
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """
+    call(
+        [fixture.profile / "share/caveman/node", "-e",
+         "require(process.argv[1] + '/installer/install.js').writeOmpPluginPackage({repoRoot: process.argv[1]}, process.argv[2]);",
+         fixture.source, omp_plugin],
+        fixture.env, fixture.root,
+    )
+    fixture.switch()
+    before_events = len(fixture.node_events())
     omp_output = json.loads(call(
-        [node, "-e", omp_program, source, omp_plugin], fixture.env, fixture.root,
+        [fixture.profile / "share/caveman/node", "-e", omp_program, omp_plugin],
+        {**fixture.env, "PATH": ""}, fixture.root,
     ).stdout)
+    fixture.assert_current_node(fixture.node_events()[before_events:])
     assert omp_output["result"]["systemPrompt"][0] == "foreign prompt"
-    assert omp_output["result"]["systemPrompt"][1] == (
-        "CAVEMAN MODE ACTIVE - session ruleset applies.\n\n"
-        + (source / "src/rules/caveman-activate.md").read_text()
+    assert (source / "src/rules/caveman-activate.md").read_text().strip() in (
+        "\n".join(omp_output["result"]["systemPrompt"])
     )
     assert omp_output["duplicate"] is True
     assert omp_output["badges"] == [["caveman", "CAVEMAN"]]
@@ -303,7 +542,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     assert not (fixture.home / ".pi").exists(), "OMP and Pi are separate identities"
 
     # Native OpenCode plugin and commands use XDG, not another host's root.
-    fixture = Fixture(root / "opencode")
+    fixture = Fixture(root / "opencode", lifetime=True)
     fixture.env["XDG_CONFIG_HOME"] = str(fixture.root / "xdg config")
     opencode = Path(fixture.env["XDG_CONFIG_HOME"]) / "opencode"
     opencode.mkdir(parents=True)
@@ -329,11 +568,111 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     before = snapshot(opencode)
     fixture.install("--only", "opencode")
     assert snapshot(opencode) == before
+    fixture.switch()
+    opencode_program = """
+import {pathToFileURL} from 'node:url';
+import {readFileSync} from 'node:fs';
+const plugin = await import(pathToFileURL(process.argv[1]).href);
+const callbacks = await plugin.CavemanPlugin({});
+const state = () => readFileSync(process.argv[2], 'utf8').trim();
+await callbacks.event({event: {type: 'session.created'}});
+const started = state();
+await callbacks['chat.message']({}, {parts: [{type: 'text', text: '/ultracave'}]});
+const changed = state();
+const output = {system: ['foreign prompt']};
+await callbacks['experimental.chat.system.transform']({}, output);
+await callbacks['experimental.chat.system.transform']({}, output);
+process.stdout.write(JSON.stringify({started, changed, output}));
+"""
+    before_events = len(fixture.node_events())
+    observed = json.loads(call(
+        [fixture.profile / "share/caveman/node", "--input-type=module", "-e",
+         opencode_program, opencode / "plugins/caveman/plugin.js", opencode / ".caveman-active"],
+        {**fixture.env, "PATH": ""}, fixture.root,
+    ).stdout)
+    fixture.assert_current_node(fixture.node_events()[before_events:])
+    assert observed["started"] == "caveman", observed
+    assert observed["changed"] == "ultracave", observed
+    context = "\n".join(observed["output"]["system"])
+    assert context.startswith("foreign prompt"), context
+    assert context.count(ruleset("ultracave")) == 1, context
     fixture.install("--uninstall")
     assert json.loads(config.read_text()) == original_config
     assert agents.read_text() == "Foreign OpenCode rules.\n"
     assert not (opencode / "plugins/caveman").exists()
     assert not (fixture.home / ".config/opencode").exists()
+
+    # The public installer must persist the bundled JavaScript middleware, not
+    # bare npx or the different native Go shrink command. The upstream launcher
+    # only records argv and runs the genuine packaged MCP server over stdio.
+    fixture = Fixture(root / "opencode-mcp-generation-switch", lifetime=True)
+    upstream_server = fixture.root / "upstream-mcp"
+    shutil.copy2(native_executable(package / "bin/caveman-mcp"), upstream_server)
+    upstream_server.chmod(0o755)
+    observed_arguments = fixture.root / "upstream-arguments.json"
+    fixture.env.update(
+        CAVEMAN_TEST_UPSTREAM=str(upstream_server),
+        CAVEMAN_TEST_UPSTREAM_ARGUMENTS=str(observed_arguments),
+    )
+    upstream_launcher = """
+const fs = require('node:fs');
+const {spawnSync} = require('node:child_process');
+fs.writeFileSync(process.env.CAVEMAN_TEST_UPSTREAM_ARGUMENTS, JSON.stringify({
+  argv: process.argv.slice(1), executable: process.execPath,
+}));
+const result = spawnSync(process.env.CAVEMAN_TEST_UPSTREAM, [], {stdio: 'inherit'});
+if (result.error) throw result.error;
+process.exitCode = result.status === null ? 1 : result.status;
+"""
+    upstream_arguments = ["argument with spaces", "single ' quote", 'double " quote', "backslash\\tail"]
+    upstream_argv = [
+        str(fixture.profile / "share/caveman/node"), "-e", upstream_launcher,
+        *upstream_arguments,
+    ]
+    fixture.install("--only", "opencode", "--with-mcp-shrink=" + json.dumps(upstream_argv))
+    config_root = Path(fixture.env["XDG_CONFIG_HOME"]) / "opencode"
+    configs = list(config_root.glob("opencode.json*"))
+    assert len(configs) == 1, configs
+    stored = json.loads(configs[0].read_text())["mcp"]["caveman-shrink"]
+    assert stored["enabled"] is True, stored
+    argv = stored["command"]
+    assert isinstance(argv, list) and argv, stored
+    fixture.switch()
+    baseline = mcp(fixture, [upstream_server])
+    original = json.dumps({
+        "rows": [
+            {"id": index, "label": "café", "detail": f"Recover exact record {index}: spaces, 'quotes', and \\slashes."}
+            for index in range(128)
+        ],
+    }, ensure_ascii=False)
+    before_events = len(fixture.node_events())
+    compressed = mcp(fixture, argv, {
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+            "name": "caveman_compress", "arguments": {"input": original, "content_type": "json"},
+        },
+    })
+    events = fixture.node_events()[before_events:]
+    fixture.assert_current_node(events)
+    middleware = fixture.generations[1] / "share/caveman/source/src/mcp-servers/caveman-shrink/index.js"
+    assert any(event["entry"] == str(middleware) for event in events), events
+    observed = json.loads(observed_arguments.read_text())
+    assert observed["argv"] == upstream_arguments, observed
+    assert observed["executable"] == str(fixture.generations[1] / "share/caveman/.node-real"), observed
+    descriptions = {
+        tool["name"]: tool["description"] for tool in baseline[2]["result"]["tools"]
+    }
+    assert any(
+        tool["description"] != descriptions[tool["name"]]
+        for tool in compressed[2]["result"]["tools"]
+    ), compressed[2]
+    report = json.loads(tool_text(compressed[3]))
+    assert report["compressed"] != original and report["recovery_handle"], report
+    retrieved = mcp(fixture, argv, {
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+            "name": "caveman_retrieve", "arguments": {"recovery_handle": report["recovery_handle"]},
+        },
+    })
+    assert tool_text(retrieved[3]).encode() == original.encode(), retrieved[3]
 
     # Explicit overrides and host-native layout remain the original upstream
     # layout. Hermes is skills-only; it does not gain an MCP callback here.
@@ -372,7 +711,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
 
     # Real owning hook writers, with all external-manager work excluded. Distinct
     # roots include spaces, shell metacharacters and a non-default XDG directory.
-    fixture = Fixture(root / "hook-generation-switch")
+    fixture = Fixture(root / "hook-generation-switch", lifetime=True)
     roots = {
         "claude": fixture.root / "claude $profile",
         "codex": fixture.root / "codex $profile",
@@ -413,7 +752,6 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     assert stat.S_IMODE(claude_settings.stat().st_mode) == 0o640
     assert stat.S_IMODE(codex_hooks.stat().st_mode) == 0o640
     commands = {
-        "claude": next(entry["command"] for group in claude["hooks"]["SessionStart"] for entry in group["hooks"] if "caveman-activate" in entry["command"]),
         "codex": next(entry["command"] for group in codex["hooks"]["SessionStart"] for entry in group["hooks"] if "codex-sessionstart" in entry["command"]),
         "cursor": cursor["hooks"]["sessionStart"][0]["command"],
         "copilot": copilot["hooks"]["sessionStart"][0]["bash"],
@@ -426,9 +764,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     assert_context(fixture.command(commands["codex"]))
     assert_context(fixture.command(commands["cursor"]), "additional_context")
     assert_context(fixture.command(commands["copilot"]), "additionalContext")
-    activation = fixture.command(commands["claude"])
-    assert "CAVEMAN MODE ACTIVE — mode: caveman" in activation, activation
-    assert "Respond terse like smart caveman. All technical substance stay. Only fluff die." in activation
+    claude_events(fixture, claude["hooks"], roots["claude"])
     assert_context(fixture.command(commands["codex"], mode="ultracave"), mode="ultracave")
     assert fixture.command(commands["codex"], mode="off") == ""
     assert json.loads(fixture.command(commands["copilot"], mode="off")) == {}
@@ -457,7 +793,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
 
     # The default Claude statusline is a separate interpreter surface. Test its
     # generated command and actual badge with no user shell tools on PATH.
-    fixture = Fixture(root / "statusline-generation-switch")
+    fixture = Fixture(root / "statusline-generation-switch", lifetime=True)
     claude_root = fixture.root / "claude status"
     claude_root.mkdir()
     fixture.env["CLAUDE_CONFIG_DIR"] = str(claude_root)
@@ -470,9 +806,11 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
         for entry in group["hooks"] if "caveman-activate" in entry["command"]
     )
     fixture.switch()
-    assert "CAVEMAN MODE ACTIVE — mode: caveman" in fixture.command(activation_command)
+    assert fixture.command(activation_command).strip()
+    assert (claude_root / ".caveman-sessions/installer-acceptance.mode").read_text().strip() == "caveman"
     badge = call(
-        [shell, "-c", status_command], fixture.env, fixture.root,
+        [fixture.profile / "share/caveman/.bash-real", "-c", status_command],
+        {**fixture.env, "PATH": ""}, fixture.root,
         data=b'{"session_id":"installer-acceptance"}',
     ).stdout
     assert b"[CAVEMAN]" in badge, badge
@@ -480,7 +818,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     # Local plugin preparation does not invent ownership of host marketplace
     # state. Inspect real generated manifests and execute their registered hooks.
     for host in ("claude", "cursor"):
-        fixture = Fixture(root / f"prepared-{host}")
+        fixture = Fixture(root / f"prepared-{host}", lifetime=True)
         destination = fixture.root / "mutable payload" / f"{host}-plugin"
         arguments = ("--prepare-plugin", host, "--plugin-dir", str(destination))
         fixture.install(*arguments)
@@ -499,10 +837,13 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
         fixture.install(*arguments)
         assert snapshot(destination) == before
         fixture.switch()
-        output = fixture.command(command, environment={f"{host.upper()}_PLUGIN_ROOT": str(destination)})
+        environment = {f"{host.upper()}_PLUGIN_ROOT": str(destination)}
         if host == "claude":
-            assert_context(output)
+            config_dir = fixture.root / "claude-state"
+            environment["CLAUDE_CONFIG_DIR"] = str(config_dir)
+            claude_events(fixture, manifest["hooks"], config_dir, environment=environment, prepared=True)
         else:
+            output = fixture.command(command, environment=environment)
             assert_context(output, "additional_context")
         modified = destination / "skills/caveman/SKILL.md"
         modified.chmod(0o600)
@@ -598,6 +939,6 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     else:
         print("UNEXERCISED: read-only directory refusal requires a non-root test user")
 
-print("Caveman installer: native copies, protected ownership, real hook context and same-version profile switch passed")
+print("Caveman installer: owned A/B payloads/interpreters, protected ownership, real callback events and MCP shrink recovery passed")
 print("UNEXERCISED: real npx skills destinations/scopes and real host discovery/trust/enable/disable sessions; no network or host managers used")
 print("UNEXERCISED: Darwin host behavior unless this check itself runs on Darwin; Windows remains outside the Nix platform scope")
