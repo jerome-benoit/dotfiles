@@ -225,6 +225,7 @@ OpenCode AI assistant:
 - Existing build environment and post-fixup hooks are preserved
 - Generated Desktop bundles the selected CLI and stages it by Nix store identity
 - Generated Desktop requires a non-null CLI package selection
+- Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
 - Warnings if packages unavailable for system
 
@@ -247,6 +248,7 @@ Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
   onto herdr built-ins (tokyonight→tokyo-night/-day, catppuccin→catppuccin/-latte);
   override with any built-in name (tokyo-night, catppuccin, dracula, nord, gruvbox, ...)
 - Config: `~/.config/herdr/config.toml` on Linux and macOS (seeds `onboarding=false` + `[theme]` on first activation; editable in-app via prefix+s / `herdr server reload-config`)
+- Activation preserves existing regular files, including empty files; dry runs never create config files or directories
 - Package consumed from the `herdr` flake input (`inputs.herdr.packages.${system}.default`), no vendor/src hash to maintain
 - No conductor/telegram/slack integration (unlike the former agent-deck)
 
@@ -259,6 +261,7 @@ Agent of Empires session manager:
 - Default tool: opencode (supports claude, opencode, vibe, codex, gemini)
 - Theme: tokyo-night-storm (supports phosphor, tokyo-night-storm, catppuccin-latte, dracula, empire)
 - Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
+- Config is seeded only when no regular config file exists; dry runs leave files and directories unchanged
 - Shell completions: bash, fish, zsh
 - Built from flake input with `rustPlatform.buildRustPackage`
 

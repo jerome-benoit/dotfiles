@@ -49,6 +49,11 @@ After changing the OpenCode plugin, run
 `caveman-blocks hooks install --harness opencode` to refresh an existing install.
 Updating the Nix package alone does not rewrite user-level agent configuration.
 
+Both OpenCode APIs resolve shell workdirs against the active project. Pending
+hints use session/call identity in V1 and session/message/call identity in V2;
+recomputing an invocation clears its previous hint. Keep both API paths covered
+in the installed-plugin check and the patch's e2e driver.
+
 ### Caveman registrations
 
 Home Manager supplies `home.profileDirectory` to the Caveman package. Standalone,

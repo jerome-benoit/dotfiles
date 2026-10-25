@@ -97,7 +97,9 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    modules.development.opencode.desktopPackage = lib.mkIf cfg.enableDesktop mkDesktopPackage;
+    modules.development.opencode.desktopPackage = lib.mkIf cfg.enableDesktop (
+      lib.mkDefault mkDesktopPackage
+    );
 
     home.packages = optionalPackages.packages;
     warnings = optionalPackages.warnings;

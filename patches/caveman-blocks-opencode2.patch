@@ -4,10 +4,9 @@
 # intent: support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
 # local fixes: hint identity (#18) and workdir resolution (#19), with behavioral regressions.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
-index b1f1f3e..868f669 100644
 --- a/internal/hook/profiles.toml
 +++ b/internal/hook/profiles.toml
-@@ -42,10 +42,10 @@ dialect = "generic"
+@@ -42,10 +42,10 @@
  detect = ["~/.config/opencode"]
  config = "~/.config/opencode/plugins/caveman-blocks.js"
  config_format = "opencode-plugin"
@@ -22,10 +21,9 @@ index b1f1f3e..868f669 100644
  [copilot]
  phase = 2
 diff --git a/plugins/caveman-blocks/opencode/caveman-blocks.js b/plugins/caveman-blocks/opencode/caveman-blocks.js
-index 81acd79..895f790 100644
 --- a/plugins/caveman-blocks/opencode/caveman-blocks.js
 +++ b/plugins/caveman-blocks/opencode/caveman-blocks.js
-@@ -5,13 +5,25 @@
+@@ -5,12 +5,24 @@
  //
  // Install: `caveman-blocks hooks install --harness opencode` writes this file with the binary path
  // baked in, or copy it to ~/.config/opencode/plugins/ or .opencode/plugins/ yourself.
@@ -45,14 +43,13 @@ index 81acd79..895f790 100644
 +import { join, resolve } from "node:path";
  
  const INSTALLED = "";
- 
++
 +// The tool that runs a shell command: `bash` on OpenCode 1.x, `shell` on OpenCode 2.x.
 +const SHELL_TOOLS = new Set(["shell", "bash"]);
-+
+ 
  function binary() {
    for (const p of [INSTALLED, process.env.CAVEMAN_BLOCKS_BIN, join(homedir(), ".local/share/caveman-blocks/bin/caveman-blocks" + (process.platform === "win32" ? ".exe" : ""))]) {
-     if (p && existsSync(p)) return p;
-@@ -32,11 +44,27 @@ function hook(req) {
+@@ -32,19 +44,82 @@
    }
  }
  
@@ -73,15 +70,33 @@ index 81acd79..895f790 100644
 +}
 +
  export const CavemanBlocks = async ({ directory }) => {
-   const hints = new Map(); // callID -> hint from the pre phase, delivered after the call
+-  const hints = new Map(); // callID -> hint from the pre phase, delivered after the call
++  const hints = new Map(); // (session id, call id) -> hint for that invocation
++  const callKey = (input) => JSON.stringify([input.sessionID, input.callID]);
    return {
      "tool.execute.before": async (input, output) => {
 -      if (input.tool !== "bash") return;
+-      const command = String(output.args?.command ?? "");
+-      const hint = hook({ phase: "pre", session: input.sessionID, call_id: input.callID, cwd: output.args?.workdir || directory, command });
+-      if (hint) hints.set(input.callID, hint);
 +      if (!SHELL_TOOLS.has(input.tool)) return;
-       const command = String(output.args?.command ?? "");
-       const hint = hook({ phase: "pre", session: input.sessionID, call_id: input.callID, cwd: output.args?.workdir || directory, command });
-       if (hint) hints.set(input.callID, hint);
-@@ -48,3 +76,42 @@ export const CavemanBlocks = async ({ directory }) => {
++      const key = callKey(input);
++      hints.delete(key);
++      try {
++        const command = String(output.args?.command ?? "");
++        const hint = hook({ phase: "pre", session: input.sessionID, call_id: input.callID, cwd: shellWorkdir(directory, output.args?.workdir), command });
++        if (hint) hints.set(key, hint);
++      } catch {
++        // Invalid workdirs must not prevent the shell command from running.
++      }
+     },
+     "tool.execute.after": async (input, output) => {
+-      const hint = hints.get(input.callID);
+-      hints.delete(input.callID);
++      const key = callKey(input);
++      const hint = hints.get(key);
++      hints.delete(key);
+       if (hint) output.output = `${output.output}\n\n${hint}`;
      },
    };
  };
@@ -125,15 +140,17 @@ index 81acd79..895f790 100644
 +  },
 +};
 diff --git a/testdata/e2e/opencode-plugin.txtar b/testdata/e2e/opencode-plugin.txtar
-index f383857..ee30d5e 100644
 --- a/testdata/e2e/opencode-plugin.txtar
 +++ b/testdata/e2e/opencode-plugin.txtar
-@@ -16,13 +16,23 @@ grep '^// .*/caveman-blocks hook --harness generic$' $WORK/home/.config/opencode
+@@ -16,13 +16,26 @@
  exec bun ../drive.mjs $WORK/home/.config/opencode/plugins/caveman-blocks.js
  stdout '^matched: 1 rows\n\nBlocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>$'
  stdout '^plain: ok$'
 +stdout '^v2 matched: 1 rows\n\nBlocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>$'
 +stdout '^v2 plain: ok$'
++stdout '^v1 identity isolation: ok$'
++stdout '^v1 workdirs: ok$'
++stdout '^v1 fail-open: ok$'
 +stdout '^v2 identity isolation: ok$'
 +stdout '^v2 workdirs: ok$'
 +stdout '^v2 fail-open: ok$'
@@ -153,7 +170,7 @@ index f383857..ee30d5e 100644
  const mod = await import(process.argv[2]);
  const hooks = await mod.CavemanBlocks({ directory: process.cwd() });
  const run = async (callID, command, result) => {
-@@ -32,5 +42,102 @@ const run = async (callID, command, result) => {
+@@ -32,5 +45,140 @@
    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "e2e", callID, args }, output);
    return output.output;
  };
@@ -187,6 +204,28 @@ index f383857..ee30d5e 100644
 +  return completed.result.output;
 +};
 +const hinted = (output) => output.includes("Blocks: json-peek");
++const beforeV1 = async (event, command = script, workdir) => {
++  await hooks["tool.execute.before"]({ tool: "bash", ...event }, { args: { command, workdir } });
++};
++const afterV1 = async (event) => {
++  const output = { output: "ok" };
++  await hooks["tool.execute.after"]({ tool: "bash", ...event }, output);
++  return output.output;
++};
++const v1a = { sessionID: "v1-session-a", callID: "reused" };
++const v1b = { sessionID: "v1-session-b", callID: "reused" };
++await beforeV1(v1a);
++await beforeV1(v1b, "printf plain");
++assert.equal(await afterV1(v1b), "ok");
++assert.ok(hinted(await afterV1(v1a)));
++assert.equal(await afterV1(v1a), "ok");
++await beforeV1(v1a);
++await beforeV1(v1b);
++await beforeV1(v1a, "printf plain");
++assert.equal(await afterV1(v1a), "ok");
++assert.ok(hinted(await afterV1(v1b)));
++console.log("v1 identity isolation: ok");
++
 +const a = { sessionID: "session-a", messageID: "message-a", id: "reused" };
 +const b = { sessionID: "session-b", messageID: "message-a", id: "reused" };
 +await before(a);
@@ -231,6 +270,22 @@ index f383857..ee30d5e 100644
 +  "~literal",
 +  `~/${relative(homedir(), directory)}`,
 +];
++for (const [index, workdir] of workdirs.entries()) {
++  const event = { sessionID: "v1-workdirs", callID: String(index) };
++  await beforeV1(event, script, workdir);
++  assert.ok(hinted(await afterV1(event)), `v1 workdir ${JSON.stringify(workdir)}`);
++}
++for (const workdir of ["~", process.cwd()]) {
++  const event = { sessionID: "v1-workdirs", callID: workdir };
++  await beforeV1(event, script, workdir);
++  assert.equal(await afterV1(event), "ok");
++}
++console.log("v1 workdirs: ok");
++const v1invalid = { sessionID: "v1-workdirs", callID: "invalid" };
++await beforeV1(v1invalid);
++await beforeV1(v1invalid, script, { invalid: true });
++assert.equal(await afterV1(v1invalid), "ok");
++console.log("v1 fail-open: ok");
 +// Bare ~ selects HOME (which has no blocks), not the active project.
 +const homeHooks = {};
 +await mod.default.setup({
