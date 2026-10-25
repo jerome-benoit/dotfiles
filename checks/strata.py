@@ -89,24 +89,12 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip())
 
-    def make_legacy_workspace(self):
-        legacy = self.state / f"source-{self.old}"
-        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(legacy)],
-                       env=self.env, check=True)
-        subprocess.run(["git", "-C", str(legacy), "checkout", "--quiet", self.old],
-                       env=self.env, check=True)
-        shutil.rmtree(legacy / ".git")
-        return legacy
-
-    def test_legacy_multi_model_update_and_offline_rollback(self):
-        legacy = self.make_legacy_workspace()
-        settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
-        settings.parent.mkdir(parents=True)
-        settings.write_text(json.dumps({"installs": [str(legacy)]}))
+    def test_user_state_survives_update_gc_and_offline_rollback(self):
+        root = self.prepare(self.old)
         expected = {}
         for model in ("first", "second"):
             expected[f"strata-{model}.json"] = json.dumps({
-                "exe": str(legacy / "engine/strata"), "cwd": str(legacy),
+                "exe": str(root / "engine/strata"), "cwd": str(root),
                 "args": ["--native", str(self.state / "Strata-data" / model)],
                 "custom": {"api_key": f"{model}-test-key"},
             })
@@ -115,26 +103,25 @@ class WorkspaceTests(unittest.TestCase):
         expected[".venv/user-cache"] = "existing virtual environment"
         expected["build/user-cache"] = "existing build cache"
         for name, text in expected.items():
-            path = legacy / name
+            path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
-        root = self.prepare(self.new)
-        self.assertEqual(root, legacy)
+        self.assertEqual(self.prepare(self.new), root)
         self.assertEqual((root / "code.py").read_text(), "new source\n")
         self.assertFalse((root / "removed.py").exists())
         for name, text in expected.items():
             self.assertEqual((root / name).read_text(), text, name)
         (self.repo / "code.py").write_text("third source\n")
         third = self.commit()
-        self.assertEqual(self.prepare(third), legacy)
+        self.assertEqual(self.prepare(third), root)
         for args in (("reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"),
                      ("gc", "--prune=now")):
             subprocess.run(["git", "-C", str(root), *args], env=self.env, check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.repo.rename(self.base / "remote-offline")
-        self.assertEqual(self.prepare(self.new), legacy)
+        self.assertEqual(self.prepare(self.new), root)
         self.assertEqual((root / "code.py").read_text(), "new source\n")
-        self.assertEqual(self.prepare(self.old), legacy)
+        self.assertEqual(self.prepare(self.old), root)
         self.assertEqual((root / "removed.py").read_text(), "obsolete source\n")
         for name, text in expected.items():
             self.assertEqual((root / name).read_text(), text, name)
@@ -156,15 +143,53 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual((roots[0] / "code.py").read_text(), "user edit\n")
         self.assertTrue((roots[0] / "removed.py").exists())
 
-    def test_invalid_settings_preserve_existing_workspace(self):
-        legacy = self.make_legacy_workspace()
+    def test_existing_source_symlink_without_git_preserves_user_state(self):
+        root = self.prepare(self.old)
+        legacy = root.with_name(f"source-{self.old}")
+        root.rename(legacy)
+        source = self.state / "source"
+        source.symlink_to(legacy.name, target_is_directory=True)
         config = legacy / "strata-user.json"
-        config.write_text('{"custom": "preserve"}')
+        expected = '{"custom": "preserve"}'
+        config.write_text(expected)
+        subprocess.run(["git", "-C", str(legacy), "check-ignore", "--quiet", config.name],
+                       env=self.env, check=True)
+        shutil.rmtree(legacy / ".git")
+        self.assertFalse((legacy / ".git").exists())
+        (self.repo / "code.py").write_text("third source\n")
+        revision = self.commit()
+        self.assertEqual(self.prepare(revision), legacy)
+        self.assertTrue(source.is_symlink())
+        self.assertEqual(os.readlink(source), legacy.name)
+        self.assertTrue((legacy / ".git").is_dir())
+        self.assertEqual((legacy / "code.py").read_text(), "third source\n")
+        self.assertFalse((legacy / "removed.py").exists())
+        self.assertEqual(config.read_text(), expected)
+        self.repo.rename(self.base / "remote-offline")
+        self.assertEqual(self.prepare(self.old), legacy)
+        self.assertEqual((legacy / "code.py").read_text(), "old source\n")
+        self.assertEqual((legacy / "removed.py").read_text(), "obsolete source\n")
+        self.assertEqual(config.read_text(), expected)
+
+    def test_settings_do_not_select_the_workspace(self):
+        self.state.mkdir()
+        candidate = self.state / f"source-{self.old}"
+        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(candidate)],
+                       env=self.env, check=True)
+        subprocess.run(["git", "-C", str(candidate), "checkout", "--quiet", self.old],
+                       env=self.env, check=True)
+        config = candidate / "strata-user.json"
+        expected = '{"custom": "preserve"}'
+        config.write_text(expected)
         settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
         settings.parent.mkdir(parents=True)
-        settings.write_text('{"installs":')
-        self.assertEqual(self.prepare(self.new), legacy)
-        self.assertEqual(config.read_text(), '{"custom": "preserve"}')
+        settings.write_text(json.dumps({"installs": [str(candidate)]}))
+        root = self.prepare(self.new)
+        self.assertEqual(root, self.state / "source")
+        self.assertFalse(root.is_symlink())
+        self.assertEqual((root / "code.py").read_text(), "new source\n")
+        self.assertEqual(config.read_text(), expected)
+        self.assertEqual((candidate / "code.py").read_text(), "old source\n")
 
     def test_ignored_runtime_collision_is_not_overwritten(self):
         root = self.prepare(self.old)

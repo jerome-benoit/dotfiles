@@ -5,7 +5,6 @@ Each behaviour worked around here is marked in place.
 
 from contextlib import contextmanager
 import fcntl
-import json
 import os
 from pathlib import Path
 import re
@@ -36,48 +35,16 @@ def workspace_lock(state):
         yield state, lock
 
 
-# Workaround: earlier versions of this wrapper used one directory per revision,
-# named source-<sha>; they are migrated to a single source directory here. The
-# one to adopt is found through the install list upstream keeps in its settings
-# file.
-# Remove when no workspace of the old layout is left to migrate.
-def legacy_workspace(state, revision):
-    candidates = [
-        p for p in state.glob("source-*")
-        if p.is_dir() and re.fullmatch(r"source-[0-9a-f]{40}", p.name)
-    ]
-    settings = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "strata/settings.json"
-    try:
-        data = json.loads(settings.read_text(encoding="utf-8"))
-        installs = data.get("installs", []) if isinstance(data, dict) else []
-    except (OSError, ValueError):
-        installs = []
-    if isinstance(installs, list):
-        for entry in installs:
-            if isinstance(entry, str) and Path(entry) in candidates:
-                return Path(entry)
-    current = state / f"source-{revision}"
-    if current in candidates:
-        return current
-    if candidates:
-        return max(candidates, key=lambda p: max(
-            [p.stat().st_mtime] + [c.stat().st_mtime for c in p.glob("strata-*.json")]
-        ))
-    return None
-
-
 def _prepare_workspace(state, revision, remote):
     source = state / "source"
     if not source.exists():
-        legacy = legacy_workspace(state, revision)
-        if legacy is not None:
-            source.symlink_to(legacy.name, target_is_directory=True)
-        else:
-            source.mkdir(mode=0o700)
+        source.mkdir(mode=0o700)
     root = source.resolve()
     if not (root / ".git").exists():
         git(root, "init", "--quiet")
     if git(root, "rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode:
+        # A pre-existing source symlink can target an uninitialised source-<sha>
+        # tree; index that tree instead of checking out over its untracked files.
         match = re.fullmatch(r"source-([0-9a-f]{40})", root.name)
         initial = match[1] if match else revision
         git(root, "fetch", "--quiet", "--depth=1", remote, initial)
