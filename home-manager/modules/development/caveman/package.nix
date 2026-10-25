@@ -43,13 +43,13 @@ let
         case "$registrationLauncher" in
           /nix/store/*) ;;
           */bin/*) registrationRoot="''${registrationLauncher%/bin/*}" ;;
-          */share/caveman/node|*/share/caveman/bash)
-            registrationRoot="''${registrationLauncher%/share/caveman/*}"
+          */lib/caveman/node|*/lib/caveman/bash)
+            registrationRoot="''${registrationLauncher%/lib/caveman/*}"
             ;;
         esac
         if [ -n "$registrationRoot" ] \
-          && [ -x "$registrationRoot/share/caveman/node" ] \
-          && [ -f "$registrationRoot/share/caveman/dist/index.js" ]; then
+          && [ -x "$registrationRoot/lib/caveman/node" ] \
+          && [ -f "$registrationRoot/lib/caveman/dist/index.js" ]; then
           export CAVEMAN_REGISTRATION_ROOT="$registrationRoot"
         fi
       fi
@@ -76,11 +76,10 @@ stdenvNoCC.mkDerivation {
 
   installPhase = ''
     runHook preInstall
-    mkdir -p "$out/lib/caveman" "$out/bin" "$out/share/doc/caveman" "$out/share/caveman"
+    mkdir -p "$out/lib/caveman" "$out/bin" "$out/share/doc/caveman"
     cp -r dist package.json "$out/lib/caveman/"
     cp LICENSE NOTICE README.md "$out/share/doc/caveman/"
-    ln -s "$out/lib/caveman/dist" "$out/share/caveman/dist"
-    ln -s ${installerSource} "$out/share/caveman/source"
+    ln -s ${installerSource} "$out/lib/caveman/source"
     for executable in ${runtime}/bin/*; do
       name="$(basename "$executable")"
       if [ "$name" != caveman-proxy ] && [ "$name" != caveman-blocks ]; then
@@ -119,8 +118,8 @@ stdenvNoCC.mkDerivation {
       "''${launcherArgs[@]}" --add-flags "$out/lib/caveman/dist/index.js"
     makeWrapper ${lib.getExe nodejs_22} "$out/bin/caveman-install" \
       "''${launcherArgs[@]}" --add-flags "${installerSource}/installer/install.js"
-    makeWrapper ${lib.getExe nodejs_22} "$out/share/caveman/node" "''${launcherArgs[@]}"
-    makeWrapper ${lib.getExe bash} "$out/share/caveman/bash" \
+    makeWrapper ${lib.getExe nodejs_22} "$out/lib/caveman/node" "''${launcherArgs[@]}"
+    makeWrapper ${lib.getExe bash} "$out/lib/caveman/bash" \
       "''${launcherArgs[@]}" --prefix PATH : ${
         lib.makeBinPath [
           pkgs.coreutils

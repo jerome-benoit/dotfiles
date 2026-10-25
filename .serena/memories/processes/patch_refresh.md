@@ -58,8 +58,12 @@ that executable/profile link into the store.
 
 Execution-time companion paths stay in the package closure. Generated
 registrations use the selected profile's public commands and private
-`share/caveman/node`, `share/caveman/bash` and `share/caveman/dist` payloads.
-Neither interpreter is added as a global profile command.
+`lib/caveman/node`, `lib/caveman/bash` and `lib/caveman/dist` payloads.
+The source-shaped installer lives at `lib/caveman/source`, with its own
+`package.json`; the CLI's `package.json` stays beside `dist`. This single private
+namespace survives both NixOS's default profile and Home Manager's filtered
+`useUserPackages` outer profile. Neither interpreter becomes a public command.
+Do not restore a `share/caveman` alias: profile filters need the actual `/lib` tree.
 
 Temporary `wrap` packs and runtime shell-command rewrites use the executing
 closure instead; they do not require a persistent registration profile.
@@ -109,15 +113,30 @@ installation. Skills-only and delegated-manager channels keep their existing
 upstream destinations and do not acquire an MCP requirement.
 
 The runtime check runs the installer's behavioral Node suite and
-`checks/caveman-profiles.py` / `checks/caveman-installer.py`. They exercise generated
-callbacks, protocols and ownership across independent same-version generations,
-with A removed after selecting B. Pi recovery uses the real TypeBox dependency,
-not an SDK substitute. Real host sessions and native platform execution remain
-separate smoke tests.
+`checks/caveman-profiles.py` / `checks/caveman-installer.py`. The profile check
+requires the package, absolute Git and Node commands, TypeBox, and two real
+`buildEnv` outputs: a package profile filtered to `/bin` and `/lib`, and the same
+filter around a default inner profile. Both profiles register Gemini's Delegate
+server through automatic public-launcher inference, an explicit lexical root,
+and private-Node launcher inference. Each generated argv must initialize and
+list `caveman_delegate` with an empty external `PATH`.
+
+The lifetime cases exercise generated callbacks, protocols and ownership across
+independent same-version generations, with A removed after selecting B. Pi
+recovery uses the real TypeBox dependency, not an SDK substitute. Real host
+sessions and native platform execution remain separate smoke tests.
 
 Run manual generation-copy checks with a disk-backed `TMPDIR` and a memory
-limit when the host's `/tmp` is tmpfs. Profile fixtures release each case's copies
-after stopping its processes. Shell fixtures do not load host startup profiles.
+limit when the host's `/tmp` is tmpfs. Large fixture copies stay under inherited
+`TMPDIR`. Each scenario allocates one physically resolved native state leaf
+directly under that temporary parent, falling back to `/tmp` only if needed.
+The allocator bounds `run/native.sock` to 103 filesystem bytes for Darwin/Linux.
+Long-`TMPDIR` smoke runs must retain that invariant without weakening Pi's real
+output-replacement assertion. Stop processes before deleting state or copies;
+a failed stop retains both paths and fails the check. A custom Darwin daemon
+`TMPDIR` that is too long, combined with sandbox denial of `/tmp`, remains
+unverified; no sandbox grants are added. Shell fixtures do not load host startup
+profiles.
 
 ## PR-Derived Patch Refresh
 

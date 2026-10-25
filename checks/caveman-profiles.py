@@ -1,6 +1,6 @@
 """Exercise generated registrations through a lexical profile, not source text.
 
-Usage: caveman-profiles.py PACKAGE ABSOLUTE_GIT ABSOLUTE_NODE TYPEBOX_PACKAGE
+Usage: caveman-profiles.py PACKAGE ABSOLUTE_GIT ABSOLUTE_NODE TYPEBOX_PACKAGE FILTERED_PROFILE NESTED_PROFILE
 
 A/B are owned copies of the installed payload and native executables, with the
 same CLI version. Removing A models unavailable executable generations, not a
@@ -28,6 +28,7 @@ PACKAGE = Path(sys.argv[1]).absolute()
 GIT = Path(sys.argv[2])
 NODE = Path(sys.argv[3])
 TYPEBOX = Path(sys.argv[4])
+PROFILES = (Path(sys.argv[5]), Path(sys.argv[6]))
 SERVERS = {
     "caveman": "caveman_retrieve",
     "caveman-browse": "browser_snapshot",
@@ -71,6 +72,27 @@ def load(path):
     return json.loads(path.read_text())
 
 
+def mcp_exchange(argv, server, env, cwd, *, extra_requests=()):
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2024-11-05", "capabilities": {},
+            "clientInfo": {"name": "profile-check", "version": "1"},
+        }},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        *extra_requests,
+    ]
+    result = execute(argv, env, cwd=cwd,
+                     data=b"".join((json.dumps(item) + "\n").encode() for item in requests))
+    replies = {item["id"]: item for line in result.stdout.splitlines()
+               if (item := json.loads(line)).get("id") is not None}
+    assert "error" not in replies[1], replies
+    assert replies[1]["result"]["protocolVersion"], replies
+    tools = replies[2]["result"]["tools"]
+    assert SERVERS[server] in {tool["name"] for tool in tools}, replies
+    return replies
+
+
 def native_executable(path):
     """Unwrap only fixture inputs; never edit the installed package/store."""
     path = path.resolve()
@@ -97,12 +119,22 @@ def shell_interpreter():
     return shlex.split(first.removeprefix("#!").strip())[0]
 
 
+def short_native_state():
+    """Keep native.sock within Darwin's 103-byte pathname limit."""
+    for parent in dict.fromkeys((tempfile.gettempdir(), "/tmp")):
+        state = Path(tempfile.mkdtemp(prefix="cv-", dir=parent)).resolve()
+        if len(os.fsencode(state / "run/native.sock")) <= 103:
+            return state
+        shutil.rmtree(state)
+    raise AssertionError("Cannot allocate a native state directory with a socket path within 103 bytes")
+
+
 class Fixture:
-    def __init__(self, root):
+    def __init__(self, root, *, cave):
         self.root = root
         self.home = root / "home"
         self.home.mkdir(parents=True)
-        self.cave = self.home / ".caveman"
+        self.cave = cave
         self.profile = root / "profile space ' quote"
         self.hosts = root / "host-probes"
         self.hosts.mkdir()
@@ -143,10 +175,10 @@ class Fixture:
 
     def generation(self, name):
         out = self.root / name
-        private = out / "share/caveman"
+        private = out / "lib/caveman"
         private.mkdir(parents=True)
         (out / "bin").mkdir()
-        shutil.copytree(PACKAGE / "share/caveman/dist", private / "dist")
+        shutil.copytree(PACKAGE / "lib/caveman/dist", private / "dist")
         for directory, _, _ in os.walk(private / "dist"):
             Path(directory).chmod(0o755)
         shutil.copy2(native_executable(NODE), private / ".node-real")
@@ -189,7 +221,7 @@ class Fixture:
                        {**self.env, "GIT_CONFIG_NOSYSTEM": "1"}, cwd=self.repo)
 
     def node(self, source, *args, env=None):
-        return execute([self.profile / "share/caveman/.node-real", "--input-type=module", "-e", source, *args],
+        return execute([self.profile / "lib/caveman/.node-real", "--input-type=module", "-e", source, *args],
                        env or self.env, cwd=self.repo)
 
     def unavailable_a(self):
@@ -228,26 +260,13 @@ class Fixture:
         return command if isinstance(command, list) else [command, *entry.get("args", [])]
 
     def mcp(self, argv, server, *, recover=False, env=None):
-        requests = [
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                "protocolVersion": "2024-11-05", "capabilities": {},
-                "clientInfo": {"name": "profile-check", "version": "1"},
-            }},
-            {"jsonrpc": "2.0", "method": "notifications/initialized"},
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-        ]
+        requests = []
         if recover:
             requests.append({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
                 "name": "caveman_retrieve", "arguments": {"recovery_handle": self.handle},
             }})
-        result = execute(argv, env or {**self.env, "PATH": ""}, cwd=self.repo,
-                         data=b"".join((json.dumps(item) + "\n").encode() for item in requests))
-        replies = {item["id"]: item for line in result.stdout.splitlines()
-                   if (item := json.loads(line)).get("id") is not None}
-        assert "error" not in replies[1], replies
-        assert replies[1]["result"]["protocolVersion"], replies
-        tools = replies[2]["result"]["tools"]
-        assert SERVERS[server] in {tool["name"] for tool in tools}, replies
+        replies = mcp_exchange(argv, server, env or {**self.env, "PATH": ""},
+                               self.repo, extra_requests=requests)
         if recover:
             response = replies[3]["result"]
             assert not response.get("isError"), response
@@ -293,7 +312,7 @@ def mcp_lifetime(f):
         for agent in DIRECT_MCP
     }
     # Both generations have exactly the same version and payload bytes.
-    assert (f.a / "share/caveman/dist/index.js").read_bytes() == (f.b / "share/caveman/dist/index.js").read_bytes()
+    assert (f.a / "lib/caveman/dist/index.js").read_bytes() == (f.b / "lib/caveman/dist/index.js").read_bytes()
     version = f.cli("--version").stdout
     f.switch(f.b)
     assert f.cli("--version").stdout == version
@@ -322,12 +341,12 @@ def custom_delegate(f):
     # A user-selected real Delegate payload remains selected. Do not replace it
     # with a bundled filename merely because Nix provides a durable Node.
     override = f.root / "delegate source ' custom.mjs"
-    shutil.copy2(PACKAGE / "share/caveman/dist/caveman-delegate-mcp.mjs", override)
-    shutil.copy2(PACKAGE / "share/caveman/dist/portable-process.mjs", f.root / "portable-process.mjs")
+    shutil.copy2(PACKAGE / "lib/caveman/dist/caveman-delegate-mcp.mjs", override)
+    shutil.copy2(PACKAGE / "lib/caveman/dist/portable-process.mjs", f.root / "portable-process.mjs")
     environment = {**f.env, "CAVEMAN_DELEGATE_MCP": str(override)}
     f.cli("tools", "mcp", "install", "gemini", "--server", "caveman-delegate", env=environment)
     argv = f.registration("gemini", "caveman-delegate")
-    assert argv == [str(f.profile / "share/caveman/node"), str(override)], argv
+    assert argv == [str(f.profile / "lib/caveman/node"), str(override)], argv
     f.mcp(argv, "caveman-delegate")
     f.switch(f.b)
     f.unavailable_a()
@@ -653,6 +672,41 @@ def ownership_controls(f):
     assert not (f.cave / "integrations/.pending-opencode.json").exists()
 
 
+def filtered_profiles(root):
+    # Real filtered buildEnv outputs must publish the private payload. Copies
+    # would hide both direct and nested profile filtering regressions.
+    assert not (PACKAGE / "share/caveman").exists()
+    for index, target in enumerate(PROFILES):
+        profile = root / f"filtered profile {index} ' quote"
+        profile.symlink_to(target, target_is_directory=True)
+        private = profile / "lib/caveman"
+        for relative in ("node", "bash", "dist/index.js", "package.json",
+                         "source/installer/install.js", "source/package.json"):
+            assert (private / relative).is_file(), private / relative
+        for mode in ("automatic", "explicit", "private"):
+            home = root / f"filtered-home-{index}-{mode}"
+            home.mkdir()
+            env = {
+                "HOME": str(home), "USERPROFILE": str(home), "PATH": "",
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "CAVEMAN_HOME": str(home / ".caveman"), "CAVEMAN_OFFLINE": "1",
+                "CAVE_NO_KEYCHAIN": "1", "CI": "1", "NO_COLOR": "1",
+            }
+            invocation = [profile / "bin/caveman"]
+            if mode == "explicit":
+                env["CAVEMAN_REGISTRATION_ROOT"] = str(profile)
+                invocation = [PACKAGE / "bin/caveman"]
+            elif mode == "private":
+                invocation = [private / "node", private / "dist/index.js"]
+            execute([*invocation, "tools", "mcp", "install", "gemini",
+                     "--server", "caveman-delegate"], env, cwd=root)
+            entry = load(home / ".gemini/settings.json")["mcpServers"]["caveman-delegate"]
+            argv = [entry["command"], *entry.get("args", [])]
+            assert argv == [str(private / "node"), str(private / "dist/caveman-delegate-mcp.mjs")], entry
+            mcp_exchange(argv, "caveman-delegate", env, root)
+        print(f"filtered profile behavioral coverage: {index}", flush=True)
+
+
 def package_invocations(root):
     # Exercise the installed launcher itself, separate from synthetic generation
     # wrappers. Prefix spelling (including spaces/quotes) must survive PATH and
@@ -718,23 +772,44 @@ def package_invocations(root):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="caveman-profile-check-") as temporary:
-        root = Path(temporary).resolve()
+    # Large executable copies stay on inherited TMPDIR. Only native state gets
+    # a separate short path, shared throughout each scenario's A/B lifecycle.
+    root = Path(tempfile.mkdtemp(prefix="caveman-profile-check-")).resolve()
+    retain_root = False
+    try:
         package_invocations(root)
+        filtered_profiles(root)
         for name, case in (
             ("mcp", mcp_lifetime), ("delegate", custom_delegate),
             ("shrink", shrink_callbacks), ("native", native_integrations),
             ("ownership", ownership_controls),
         ):
-            fixture = Fixture(root / name)
+            state = short_native_state()
+            fixture = None
+            case_root = root / name
             try:
+                fixture = Fixture(case_root, cave=state)
                 case(fixture)
             finally:
                 try:
-                    fixture.cli("stop")
+                    # Construction only copies payloads and compresses locally.
+                    # Runtime processes start inside the scenario itself.
+                    if fixture is not None:
+                        fixture.cli("stop")
+                except BaseException as error:
+                    retain_root = True
+                    raise RuntimeError(
+                        f"Cannot stop fixture processes; retained copies at {root} and state at {state}"
+                    ) from error
+                try:
+                    if case_root.exists():
+                        shutil.rmtree(case_root)
                 finally:
-                    shutil.rmtree(fixture.root)
+                    shutil.rmtree(state)
             print(f"profile behavioral coverage: {name}", flush=True)
+    finally:
+        if not retain_root:
+            shutil.rmtree(root)
     print("Limits: synthetic same-version copied generations; no Nix activation/GC or real host sessions.")
     print("Limits: Claude/OpenClaw delegated MCP installers and genuine OpenClaw SDK execution need host E2E.")
     print(f"Platform exercised: {sys.platform}; other native platforms need their own check execution.")

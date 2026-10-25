@@ -30,7 +30,7 @@ package = Path(sys.argv[1]).absolute()
 node = sys.argv[2]
 shell = sys.argv[3]
 upstream = Path(sys.argv[4]) if len(sys.argv) > 4 else None
-source = package / "share/caveman/source"
+source = package / "lib/caveman/source"
 
 
 def snapshot(root):
@@ -137,7 +137,7 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
             self.env["CAVEMAN_TEST_NODE_EVENTS"] = str(self.trace)
             self.generations.append(self.generation("generation-a"))
             self.profile.symlink_to(self.generations[0], target_is_directory=True)
-            self.source = self.profile / "share/caveman/source"
+            self.source = self.profile / "lib/caveman/source"
             self.version = call(
                 [self.profile / "bin/caveman", "--version"],
                 {**self.env, "PATH": ""}, self.root,
@@ -147,14 +147,14 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
 
     def generation(self, name):
         location = self.root / name
-        private = location / "share/caveman"
+        private = location / "lib/caveman"
         private.mkdir(parents=True)
         (location / "bin").mkdir()
         writable_copy(source, private / "source")
-        writable_copy(package / "share/caveman/dist", private / "dist")
+        writable_copy(package / "lib/caveman/dist", private / "dist")
         shutil.copy2(package / "lib/caveman/package.json", private / "package.json")
         (private / "package.json").chmod(0o644)
-        node_launcher = (package / "share/caveman/node").read_text()
+        node_launcher = (package / "lib/caveman/node").read_text()
         launcher_shell = Path(shlex.split(node_launcher.splitlines()[0][2:])[0])
         launcher_node = next(
             Path(token) for line in node_launcher.splitlines()
@@ -172,13 +172,13 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
             assert not os.path.samefile(copied, original)
         replacements = {
             str(source.resolve()): str(private / "source"),
-            str((package / "share/caveman/dist").resolve()): str(private / "dist"),
+            str((package / "lib/caveman/dist").resolve()): str(private / "dist"),
             str(package / "lib/caveman"): str(private),
             str(package): str(location),
             str(native_executable(node)): str(private / ".node-real"),
             str(Path(node)): str(private / ".node-real"),
             str(launcher_node): str(private / ".node-real"),
-            str(native_executable(package / "share/caveman/bash")): str(private / ".bash-real"),
+            str(native_executable(package / "lib/caveman/bash")): str(private / ".bash-real"),
             str(launcher_shell): str(private / ".bash-real"),
         }
         # Preserve the shipped launchers' real closure environment, including
@@ -186,7 +186,7 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
         # shared native libraries and external closure tools remain in Nix.
         launchers = [
             entry.relative_to(package) for entry in (package / "bin").iterdir()
-        ] + [Path("share/caveman/node"), Path("share/caveman/bash")]
+        ] + [Path("lib/caveman/node"), Path("lib/caveman/bash")]
         for relative in launchers:
             original_path = package / relative
             destination = location / relative
@@ -220,15 +220,15 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
         # Exercise the real private launcher and native executable, not merely
         # lexical profile spelling while the original interpreter stays live.
         actual = call(
-            [self.profile / "share/caveman/node", "-p", "process.execPath"],
+            [self.profile / "lib/caveman/node", "-p", "process.execPath"],
             {**self.env, "PATH": ""}, self.root,
         ).stdout.decode().strip()
-        assert Path(actual) == self.generations[1] / "share/caveman/.node-real", actual
+        assert Path(actual) == self.generations[1] / "lib/caveman/.node-real", actual
         actual_shell = call(
-            [self.profile / "share/caveman/bash", "-c", 'printf "%s" "$BASH"'],
+            [self.profile / "lib/caveman/bash", "-c", 'printf "%s" "$BASH"'],
             {**self.env, "PATH": ""}, self.root,
         ).stdout.decode()
-        assert Path(actual_shell).resolve() == self.generations[1] / "share/caveman/.bash-real", actual_shell
+        assert Path(actual_shell).resolve() == self.generations[1] / "lib/caveman/.bash-real", actual_shell
         before = len(self.node_events())
         version = call(
             [self.profile / "bin/caveman", "--version"],
@@ -238,7 +238,7 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
         events = self.node_events()[before:]
         self.assert_current_node(events)
         assert any(
-            event["entry"] == str(self.generations[1] / "share/caveman/dist/index.js")
+            event["entry"] == str(self.generations[1] / "lib/caveman/dist/index.js")
             for event in events
         ), events
 
@@ -246,7 +246,7 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
         return [json.loads(line) for line in self.trace.read_text().splitlines()]
 
     def assert_current_node(self, events):
-        expected = self.generations[-1] / "share/caveman/.node-real"
+        expected = self.generations[-1] / "lib/caveman/.node-real"
         assert events and all(Path(event["executable"]) == expected for event in events), events
 
     def writer(self, name):
@@ -264,11 +264,11 @@ Promise.resolve(installer[process.argv[2]](ctx)).then(value => {
   if (process.argv[2] === 'installHooks' && value !== 'ok') throw new Error(String(value));
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """
-        interpreter = self.profile / "share/caveman/node" if self.generations else node
+        interpreter = self.profile / "lib/caveman/node" if self.generations else node
         return call([interpreter, "-e", program, self.source, name], self.env, self.root)
 
     def command(self, command, *, environment=None, mode="caveman", payload=None):
-        assert str(self.profile / "share/caveman/node") in command, command
+        assert str(self.profile / "lib/caveman/node") in command, command
         assert self.generations and str(self.generations[0]) not in command, command
         env = {**self.env, "PATH": "", "CAVEMAN_DEFAULT_MODE": mode, **(environment or {})}
         data = json.dumps({
@@ -278,7 +278,7 @@ Promise.resolve(installer[process.argv[2]](ctx)).then(value => {
         }).encode()
         before = len(self.node_events())
         result = call(
-            [self.profile / "share/caveman/.bash-real", "-c", command],
+            [self.profile / "lib/caveman/.bash-real", "-c", command],
             env, self.root, data=data,
         )
         self.assert_current_node(self.node_events()[before:])
@@ -516,7 +516,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """
     call(
-        [fixture.profile / "share/caveman/node", "-e",
+        [fixture.profile / "lib/caveman/node", "-e",
          "require(process.argv[1] + '/installer/install.js').writeOmpPluginPackage({repoRoot: process.argv[1]}, process.argv[2]);",
          fixture.source, omp_plugin],
         fixture.env, fixture.root,
@@ -524,7 +524,7 @@ Promise.resolve(callbacks.get('before_agent_start')({systemPrompt: ['foreign pro
     fixture.switch()
     before_events = len(fixture.node_events())
     omp_output = json.loads(call(
-        [fixture.profile / "share/caveman/node", "-e", omp_program, omp_plugin],
+        [fixture.profile / "lib/caveman/node", "-e", omp_program, omp_plugin],
         {**fixture.env, "PATH": ""}, fixture.root,
     ).stdout)
     fixture.assert_current_node(fixture.node_events()[before_events:])
@@ -586,7 +586,7 @@ process.stdout.write(JSON.stringify({started, changed, output}));
 """
     before_events = len(fixture.node_events())
     observed = json.loads(call(
-        [fixture.profile / "share/caveman/node", "--input-type=module", "-e",
+        [fixture.profile / "lib/caveman/node", "--input-type=module", "-e",
          opencode_program, opencode / "plugins/caveman/plugin.js", opencode / ".caveman-active"],
         {**fixture.env, "PATH": ""}, fixture.root,
     ).stdout)
@@ -626,7 +626,7 @@ process.exitCode = result.status === null ? 1 : result.status;
 """
     upstream_arguments = ["argument with spaces", "single ' quote", 'double " quote', "backslash\\tail"]
     upstream_argv = [
-        str(fixture.profile / "share/caveman/node"), "-e", upstream_launcher,
+        str(fixture.profile / "lib/caveman/node"), "-e", upstream_launcher,
         *upstream_arguments,
     ]
     fixture.install("--only", "opencode", "--with-mcp-shrink=" + json.dumps(upstream_argv))
@@ -653,11 +653,11 @@ process.exitCode = result.status === null ? 1 : result.status;
     })
     events = fixture.node_events()[before_events:]
     fixture.assert_current_node(events)
-    middleware = fixture.generations[1] / "share/caveman/source/src/mcp-servers/caveman-shrink/index.js"
+    middleware = fixture.generations[1] / "lib/caveman/source/src/mcp-servers/caveman-shrink/index.js"
     assert any(event["entry"] == str(middleware) for event in events), events
     observed = json.loads(observed_arguments.read_text())
     assert observed["argv"] == upstream_arguments, observed
-    assert observed["executable"] == str(fixture.generations[1] / "share/caveman/.node-real"), observed
+    assert observed["executable"] == str(fixture.generations[1] / "lib/caveman/.node-real"), observed
     descriptions = {
         tool["name"]: tool["description"] for tool in baseline[2]["result"]["tools"]
     }
@@ -800,7 +800,7 @@ process.exitCode = result.status === null ? 1 : result.status;
     fixture.writer("installHooks")
     settings = json.loads((claude_root / "settings.json").read_text())
     status_command = settings["statusLine"]["command"]
-    assert str(fixture.profile / "share/caveman/bash") in status_command, status_command
+    assert str(fixture.profile / "lib/caveman/bash") in status_command, status_command
     activation_command = next(
         entry["command"] for group in settings["hooks"]["SessionStart"]
         for entry in group["hooks"] if "caveman-activate" in entry["command"]
@@ -809,7 +809,7 @@ process.exitCode = result.status === null ? 1 : result.status;
     assert fixture.command(activation_command).strip()
     assert (claude_root / ".caveman-sessions/installer-acceptance.mode").read_text().strip() == "caveman"
     badge = call(
-        [fixture.profile / "share/caveman/.bash-real", "-c", status_command],
+        [fixture.profile / "lib/caveman/.bash-real", "-c", status_command],
         {**fixture.env, "PATH": ""}, fixture.root,
         data=b'{"session_id":"installer-acceptance"}',
     ).stdout
