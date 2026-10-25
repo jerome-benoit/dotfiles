@@ -329,8 +329,7 @@ def mcp_lifetime(f):
             f.cli("tools", "mcp", "install", agent, "--server", server)
         assert {server: f.registration(agent, server) for server in SERVERS} == before[agent]
         f.mcp(f.registration(agent), "caveman", recover=True)
-    # Recreate the previous owned generation and roll the lexical profile back.
-    # This is a copied-payload rollback, not a claim of Nix profile activation.
+    # Roll back copied payloads through the lexical profile, without Nix activation.
     f.a = f.generation("generation-A")
     f.switch(f.a)
     assert f.cli("--version").stdout == version
@@ -338,8 +337,7 @@ def mcp_lifetime(f):
 
 
 def custom_delegate(f):
-    # A user-selected real Delegate payload remains selected. Do not replace it
-    # with a bundled filename merely because Nix provides a durable Node.
+    # Explicit Delegate payloads must survive profile changes unchanged.
     override = f.root / "delegate source ' custom.mjs"
     shutil.copy2(PACKAGE / "lib/caveman/dist/caveman-delegate-mcp.mjs", override)
     shutil.copy2(PACKAGE / "lib/caveman/dist/portable-process.mjs", f.root / "portable-process.mjs")
@@ -361,7 +359,7 @@ def shrink_callbacks(f):
         values = f.hooks(agent, event, "shrink-hook")
         assert len(values) == 1, (agent, values)
         callbacks[agent] = values[0]
-    # Codex rewrite is deliberately retired upstream; no fictitious support.
+    # Codex does not support shell-command rewriting.
     codex_hooks = f.home / ".codex/hooks.json"
     if codex_hooks.exists():
         assert not f.hooks("codex", "PreToolUse", "shrink-hook")
@@ -406,8 +404,7 @@ console.log(JSON.stringify(output));
     handle = re.search(r"ccr_[A-Za-z0-9_-]+", compressed)
     assert handle, compressed
     assert f.cli("tools", "retrieve", handle[0]).stdout == f.original_log
-    # OpenClaw plugin is installed and removed via the real CLI. Execution needs
-    # its genuine plugin-sdk/plugin-entry; never create a fake SDK to pass here.
+    # OpenClaw installation uses the CLI; execution requires its plugin-sdk/plugin-entry.
     assert (f.cave / "openclaw/plugins/caveman-shrink/openclaw.plugin.json").is_file()
     for agent in ("claude", "gemini", "opencode", "hermes", "openclaw"):
         f.cli("tools", "hooks", "uninstall", agent)
@@ -584,8 +581,7 @@ await events.get("session_shutdown")?.({}, ctx);
     assert result["mcp"] == str(alternate), result
     assert json.loads(result["hook"]) == [str(f.profile / "bin/cave")], result
     assert "".join(item.get("text", "") for item in result["recovered"]["content"]).encode() == f.original
-    # Run Pi's output replacement against the actual local native runtime, not
-    # a fabricated decision server. It must advertise and recover exact bytes.
+    # Native Pi replacement must publish a recovery handle and recover exact bytes.
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]

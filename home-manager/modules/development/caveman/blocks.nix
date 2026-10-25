@@ -26,8 +26,8 @@ buildGoModule {
     # Workaround: upstream copies os.Executable(), losing the Nix wrapper.
     # Remove when upstream preserves managed hook launchers and their refresh.
     ../../../../patches/caveman-blocks-nix-hooks.patch
-    # Generic backport: upstream PR #17 plus issues #18 (hint identity) and
-    # #19 (active-location workdirs). Remove when upstream includes all three.
+    # Workaround: OpenCode 2 needs a compatible adapter and invocation-scoped hints.
+    # Remove when upstream supports both APIs and location-relative workdirs.
     ../../../../patches/caveman-blocks-opencode2.patch
   ];
 

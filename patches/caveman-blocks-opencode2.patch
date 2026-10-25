@@ -1,9 +1,8 @@
 # base: v0.1.0-rc.5
-# upstream: https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
+# upstream: proposed in https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
 # issues: https://github.com/caveman-ai/blocks/issues/18 https://github.com/caveman-ai/blocks/issues/19
-# intent: backport the dual OpenCode API with invocation-scoped hints and active-location workdirs.
-# source: PR17 plus generic fixes and real-engine e2e regressions; no Nix-specific hook behavior.
-# scope: source, hook profile and behavioral e2e only; upstream docs and source-text assertions excluded.
+# intent: support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
+# local fixes: hint identity (#18) and workdir resolution (#19), with behavioral regressions.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
 index b1f1f3e..868f669 100644
 --- a/internal/hook/profiles.toml

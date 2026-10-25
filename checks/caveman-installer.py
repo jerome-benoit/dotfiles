@@ -217,8 +217,7 @@ fs.appendFileSync(process.env.CAVEMAN_TEST_NODE_EVENTS, JSON.stringify({
         self.profile.symlink_to(self.generations[1], target_is_directory=True)
         shutil.rmtree(self.generations[0])
         assert not self.generations[0].exists()
-        # Exercise the real private launcher and native executable, not merely
-        # lexical profile spelling while the original interpreter stays live.
+        # The selected native interpreter must belong to generation B.
         actual = call(
             [self.profile / "lib/caveman/node", "-p", "process.execPath"],
             {**self.env, "PATH": ""}, self.root,
@@ -404,9 +403,8 @@ with tempfile.TemporaryDirectory(prefix="caveman-installer-check-") as temporary
         assert snapshot(fixture.home) == before
 
 
-    # Every native skills-only identity stays a full copy, not an invented MCP
-    # registration. Each case also checks the original upstream default/override
-    # resolver by running the unpatched installer when its source is supplied.
+    # Skills-only installs copy skills without MCP registration.
+    # Compare destination resolution with the unpatched installer when available.
     native_cases = [
         ("continue", {}, ".continue/skills"),
         ("continue", {"CONTINUE_GLOBAL_DIR": "relative-continue"}, "@relative-continue/skills"),
@@ -499,9 +497,7 @@ with tempfile.TemporaryDirectory(prefix="caveman-installer-check-") as temporary
         assert b"symbolic" in failure.stderr, failure.stderr
         assert (snapshot(fixture.home), snapshot(external)) == before
 
-    # Real OMP preparation and the generated extension's actual event output.
-    # The API object drives plugin callbacks; it does not impersonate the host
-    # manager or claim that OMP discovered/loaded this prepared package.
+    # Exercise OMP preparation and callbacks without host discovery or loading.
     fixture = Fixture(root / "omp-preparation", lifetime=True)
     omp_plugin = fixture.home / ".omp/caveman-plugin"
     omp_program = """
@@ -602,9 +598,8 @@ process.stdout.write(JSON.stringify({started, changed, output}));
     assert not (opencode / "plugins/caveman").exists()
     assert not (fixture.home / ".config/opencode").exists()
 
-    # The public installer must persist the bundled JavaScript middleware, not
-    # bare npx or the different native Go shrink command. The upstream launcher
-    # only records argv and runs the genuine packaged MCP server over stdio.
+    # Persist the bundled JavaScript middleware through private Node, not npx or Go.
+    # The upstream launcher records argv and runs the packaged MCP server over stdio.
     fixture = Fixture(root / "opencode-mcp-generation-switch", lifetime=True)
     upstream_server = fixture.root / "upstream-mcp"
     shutil.copy2(native_executable(package / "bin/caveman-mcp"), upstream_server)

@@ -18,9 +18,8 @@ let
     pname = "caveman-installer-source";
     inherit (pins) version;
     src = pins.src;
-    # Workaround: standalone installers persist their generation-specific Node
-    # and automatic Claude payload ownership must follow the ambient host profile.
-    # Remove when upstream supports durable package paths and profile-local ownership.
+    # Workaround: installers persist generation-specific paths and share Claude payloads.
+    # Remove when upstream supports durable paths and profile-local ownership.
     patches = [ ../../../../patches/caveman-nix-installer-paths.patch ];
     dontBuild = true;
     installPhase = ''
@@ -87,11 +86,9 @@ stdenvNoCC.mkDerivation {
         ln -s "$executable" "$out/bin/$name"
       fi
     done
-    # Workaround: upstream resolves git from PATH at run time, and the agent
-    # runs the commands whose output it captures, ps among them, so ps has to
-    # be on the PATH the agent inherits.
-    # Remove when upstream takes those paths from its own configuration.
-    # Runtime paths stay in the closure; serializers use the selected profile.
+    # Workaround: runtime tools resolve git and ps through their inherited PATH.
+    # Remove when upstream accepts explicit dependency paths.
+    # Keep runtime dependencies in the closure and registrations in the profile.
     launcherArgs=(
       --prefix PATH : "$out/bin:${
         lib.makeBinPath (

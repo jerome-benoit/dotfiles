@@ -24,7 +24,7 @@ when it can go:
 - `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — backport Blocks PR #17 and the generic fixes for issues #18/#19, with behavioral regressions.
+- `patches/caveman-blocks-opencode2.patch` — adapt the OpenCode 1/2 proposal from Blocks PR #17, with local fixes for issues #18/#19 and behavioral regressions. The patch's `# upstream:` header identifies the proposal revision; `# issues:` identifies the locally corrected defects.
 
 ## Local Patch Refresh
 

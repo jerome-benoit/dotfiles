@@ -1,5 +1,6 @@
 # base: Caveman v4.0.1 (1f951fb4ad40ba63302c6e7f987147e034d599d9)
-# intent: keep standalone and prepared hook interpreters and JS MCP middleware lexical-profile durable; isolate automatic Claude payload ownership by ambient host profile, retain legacy shared payloads, and prepare owned mutable local plugins with rollback-safe model overrides, path-scoped ancestry checks and user-scoped host lifecycle, without rewriting host caches or skills-only channels.
+# intent: use profile-local interpreters and isolate automatic Claude payload ownership.
+#   Preserve mutable plugin ownership across model overrides, refresh and removal.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
