@@ -18,8 +18,9 @@ let
     pname = "caveman-installer-source";
     inherit (pins) version;
     src = pins.src;
-    # Workaround: standalone installers persist their generation-specific Node.
-    # Remove when upstream supports package-manager-owned registration paths.
+    # Workaround: standalone installers persist their generation-specific Node
+    # and automatic Claude payload ownership must follow the ambient host profile.
+    # Remove when upstream supports durable package paths and profile-local ownership.
     patches = [ ../../../../patches/caveman-nix-installer-paths.patch ];
     dontBuild = true;
     installPhase = ''

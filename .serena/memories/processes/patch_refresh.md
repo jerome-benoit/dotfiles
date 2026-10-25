@@ -87,6 +87,35 @@ choosing the local channel. Reinstall does not re-enable disabled plugins.
 Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
 removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
 
+Automatic Claude installation owns a separate payload and journal for each
+ambient Claude profile. It uses the existing `claudeConfigDir()` resolver,
+normalizes that root with `path.resolve` and hashes the full lexical path with
+SHA256. Payloads live at
+`$CAVEMAN_HOME/claude-profiles/<digest>/claude-plugin` (default
+`CAVEMAN_HOME=~/.caveman`). Uninstall selects the same profile without discovering
+or detaching other profiles. An absent selected-profile journal is a no-op.
+Profile identity is not realpath-resolved; physical payload ancestry checks
+remain mandatory. `--config-dir` changes hook files and settings only, not the
+ambient profile used by `claude plugin` or its automatic payload.
+
+Prepare-only destinations do not acquire this automatic profile identity.
+`--prepare-plugin claude` keeps `$CAVEMAN_HOME/claude-plugin` by default;
+`--plugin-dir` selects the explicit payload for preparation and removal.
+Cursor's default and explicit prepared paths remain unchanged.
+
+Legacy shared payloads and journals are never adopted, migrated or deleted by
+the automatic channel, including with `--force`. A selected-profile marketplace
+that still names another path stops installation and reports actual and expected
+paths. Detach `caveman-nix` through Claude in **every** profile that refers to the
+old payload (`claude plugin marketplace remove caveman-nix --scope user` in each
+profile; remove any other referring scopes through their host as well).
+Only after all host references are detached, remove an unchanged owned payload
+with `caveman-install --prepare-plugin claude --plugin-dir <old-absolute-path>
+--uninstall --plugin-detached`. Reinstall each desired automatic profile.
+Foreign edits and user backups retain the existing ownership protections.
+Automatic uninstall reports existing unscoped payload/journal paths as retained
+state only; this advisory neither infers host references nor fails cleanup.
+
 Prepared Claude statusline suggestions use the profile's private Bash command
 from preparation-owned interpreter metadata. Existing accepted statusline commands
 remain user-owned; reinstall alone does not rewrite their interpreter.
