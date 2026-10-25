@@ -26,8 +26,8 @@ buildGoModule {
     # Workaround: upstream copies os.Executable(), losing the Nix wrapper.
     # Remove when upstream preserves managed hook launchers and their refresh.
     ../../../../patches/caveman-blocks-nix-hooks.patch
-    # Workaround: plugin lacks OpenCode 2 hooks with message-scoped hints
-    # and location-relative workdirs. Remove when upstream handles all three.
+    # Workaround: OpenCode 2 needs a compatible adapter and invocation-scoped hints.
+    # Remove when upstream supports both APIs and location-relative workdirs.
     ../../../../patches/caveman-blocks-opencode2.patch
   ];
 
@@ -48,13 +48,14 @@ buildGoModule {
           python3
         ]
       } \
+      --set CAVEMAN_NIX_MANAGED 1 \
       --set CAVEMAN_BLOCKS_NIX_WRAPPER "$out/bin/caveman-blocks" \
       --set-default DO_NOT_TRACK 1 \
       --set-default CAVEMAN_TELEMETRY 0
   '';
 
   meta = {
-    description = "Caveman Blocks with Nix-managed hook launchers";
+    description = "Caveman Blocks reusable scripts and coding-agent hooks";
     homepage = "https://github.com/caveman-ai/blocks";
     license = lib.licenses.asl20;
     mainProgram = "caveman-blocks";

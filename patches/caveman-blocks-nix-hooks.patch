@@ -1,14 +1,25 @@
 # base: v0.1.0-rc.5
-# intent: keep the Nix wrapper as the installed hook; upstream copies
-#   os.Executable(), which drops the wrapper and its dependency-providing PATH.
+# intent: keep the profile-selected Nix wrapper as the installed hook without copying
+#   os.Executable(), preserving its dependencies across profile generations.
 diff --git a/internal/repo/repo.go b/internal/repo/repo.go
 --- a/internal/repo/repo.go
 +++ b/internal/repo/repo.go
-@@ -278,2 +278,25 @@ func InstallBinary(src, version string) (path string, changed bool, err error) {
+@@ -278,2 +278,36 @@ func InstallBinary(src, version string) (path string, changed bool, err error) {
  	path = BinaryPath()
 +	// Nix owns the executable and its dependency-providing wrapper. Keep the
 +	// stable hook path, but follow the explicitly selected package revision.
-+	if wrapper := os.Getenv("CAVEMAN_BLOCKS_NIX_WRAPPER"); wrapper != "" {
++	wrapper := os.Getenv("CAVEMAN_BLOCKS_NIX_WRAPPER")
++	if os.Getenv("CAVEMAN_NIX_MANAGED") == "1" {
++		profile := filepath.Clean(os.Getenv("CAVEMAN_REGISTRATION_ROOT"))
++		if !filepath.IsAbs(profile) || profile == "/nix/store" || strings.HasPrefix(profile, "/nix/store/") {
++			return "", false, errors.New("Caveman is managed by Nix; invoke through a stable profile or set CAVEMAN_REGISTRATION_ROOT to its absolute path")
++		}
++		wrapper = filepath.Join(profile, "bin", "caveman-blocks")
++	}
++	if wrapper != "" {
++		if filepath.Clean(wrapper) == filepath.Clean(path) {
++			return "", false, errors.New("installed hook cannot be its own wrapper; select the package profile with CAVEMAN_REGISTRATION_ROOT")
++		}
 +		if target, err := os.Readlink(path); err == nil && target == wrapper {
 +			return path, false, nil
 +		}

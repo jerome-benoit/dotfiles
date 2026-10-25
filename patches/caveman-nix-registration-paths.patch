@@ -1,0 +1,283 @@
+# base: @caveman-ai/cli 4.0.1 after caveman-nix-managed-install.patch
+# intent: separate Nix execution-time closure paths from durable agent
+#   registrations using lexical CAVEMAN_REGISTRATION_ROOT profile paths.
+#   Covers recovery/Browse/Cloud/Delegate MCP, native hooks, generated
+#   plugins and Pi recovery without changing non-Nix registrations.
+#   Temporary wrap packs and runtime rewrites retain execution-time paths.
+#   See dotfiles#264.
+diff --git a/dist/index.js b/dist/index.js
+index bda7f83..f4e7c3d 100755
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -3701,6 +3701,7 @@ function recoverPendingAgentNativeRemoval(agent) {
+     process.stderr.write(`${mark("warn")} rolled back interrupted ${agent} agent-native bundle removal before continuing\n`);
+ }
+ function preflightAgentNativeSetup(agent) {
++    registrationPath();
+     recoverPendingAgentNativeRemoval(agent);
+     recoverPendingAgentNativeBundle(agent);
+     const profile = findAgent(agent);
+@@ -6541,7 +6542,7 @@ async function spawnWrapped(bin, cmdArgs, agent, opts, gw, codexSubscriptionOver
+     const delegateAlreadyInstalled = Boolean(!direct && agent && mcpServerInstalled(agent.id, "caveman-delegate"));
+     const ephemeralDelegateMcp = !direct && agent && (agent.id === "claude" || agent.id === "codex")
+         && !opts.minimal && opts.delegate && !delegateAlreadyInstalled
+-        ? resolveDelegateMcpCommand()
++        ? resolveDelegateMcpCommand(false)
+         : null;
+     if (!direct && agent && (agent.id === "claude" || agent.id === "codex") && opts.delegate && !delegateAlreadyInstalled && !ephemeralDelegateMcp) {
+         process.stderr.write("caveman: delegate enabled but caveman-delegate server is unavailable; launching without delegate\n");
+@@ -7691,6 +7692,18 @@ function stableNodePath() {
+     const onPath = which("node");
+     return onPath && !/[\\/]fnm_multishells[\\/]/i.test(onPath) && samePath(onPath, process.execPath) ? onPath : process.execPath;
+ }
++// Nix runtime binaries belong to a generation; registrations belong to a lexical
++// profile prefix. Never resolve that prefix through its current store symlink.
++function registrationPath(...parts) {
++    if (process.env.CAVEMAN_NIX_MANAGED !== "1")
++        return undefined;
++    const input = process.env.CAVEMAN_REGISTRATION_ROOT;
++    const root = input && isAbsolute(input) ? normalize(input) : undefined;
++    if (!root || /^\/nix\/store(?:\/|$)/.test(root)) {
++        throw new Error("Caveman is managed by Nix; persistent agent registration requires CAVEMAN_REGISTRATION_ROOT to name an absolute stable profile prefix outside /nix/store. Run through the profile's bin/caveman or set CAVEMAN_REGISTRATION_ROOT explicitly; do not resolve the profile symlink.");
++    }
++    return join(root, ...parts);
++}
+ export function hookExecutableInvocation(executable, script, platform = process.platform, powershell = platform === "win32") {
+     const invocation = script
+         ? `${quoteHookPath(executable, platform)} ${quoteHookPath(script, platform)}`
+@@ -7700,19 +7713,21 @@ export function hookExecutableInvocation(executable, script, platform = process.
+     // required invocation operator. POSIX hook commands keep their exact shape.
+     return platform === "win32" && powershell ? `& ${invocation}` : invocation;
+ }
+-function nativeHookCommand(agentId) {
++function nativeHookCommand(agentId, registration = true) {
+     const fastHook = join(dirname(fileURLToPath(import.meta.url)), "native-hook-fast.js");
+     const explicitProxy = process.env.CAVEMAN_PROXY_BIN;
+     const localProxy = join(cavemanHome(), "bin", process.platform === "win32" ? "caveman-proxy.exe" : "caveman-proxy");
+     const proxy = explicitProxy || which("caveman-proxy") || (isExecutable(localProxy) ? localProxy : undefined);
+     const bridgeCurrent = proxy ? probeVersionedBinary(proxy, "native_hook_bridge_v1").current : false;
++    const root = registration ? registrationPath() : undefined;
++    const node = root ? join(root, "lib", "caveman", "node") : registration ? stableNodePath() : process.execPath;
+     if (proxy && bridgeCurrent && existsSync(fastHook)) {
+-        return nativeHookInvocation(proxy, fastHook, agentId, true);
++        return nativeHookInvocation(root ? join(root, "bin", "caveman-proxy") : proxy, root ? join(root, "lib", "caveman", "dist", "native-hook-fast.js") : fastHook, agentId, true, process.platform, node);
+     }
+     if (existsSync(fastHook)) {
+-        return nativeHookInvocation(stableNodePath(), fastHook, agentId, false);
++        return nativeHookInvocation(node, root ? join(root, "lib", "caveman", "dist", "native-hook-fast.js") : fastHook, agentId, false);
+     }
+-    return `${cavemanBinForHook()} native-hook ${agentId}`;
++    return `${cavemanBinForHook(undefined, registration)} native-hook ${agentId}`;
+ }
+ function nativeHookEntry(command, agentId) {
+     const hook = { type: "command", command };
+@@ -7841,7 +7856,7 @@ function canonicalManagedHookEntry(entry) {
+ function nativeShrinkEnabled() {
+     return resolveCapabilities({ forStart: true }).values["think.shrink"].value;
+ }
+-function nativeHooksDocument(agentId, includeShrink, base = {}, includeRecall = false) {
++function nativeHooksDocument(agentId, includeShrink, base = {}, includeRecall = false, registration = true) {
+     const root = JSON.parse(JSON.stringify(base));
+     const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks)
+         ? root.hooks
+@@ -7852,7 +7867,7 @@ function nativeHooksDocument(agentId, includeShrink, base = {}, includeRecall =
+             // Codex runs no PostToolUseFailure event; hooks/list drops the entry.
+             ? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"]
+             : ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"];
+-    const command = nativeHookCommand(agentId);
++    const command = nativeHookCommand(agentId, registration);
+     const identity = `native-hook:${agentId}`;
+     for (const event of lifecycle) {
+         // Replace, never accumulate: a caveman native-hook entry for this agent
+@@ -7868,7 +7883,7 @@ function nativeHooksDocument(agentId, includeShrink, base = {}, includeRecall =
+     {
+         const shrinkEvent = agentId === "gemini" ? "BeforeTool" : "PreToolUse";
+         const list = Array.isArray(hooks[shrinkEvent]) ? hooks[shrinkEvent] : [];
+-        const shrinkCommand = `${cavemanBinForHook()} shrink-hook`;
++        const shrinkCommand = `${cavemanBinForHook(undefined, registration)} shrink-hook`;
+         // Same replace-not-accumulate rule as the native hook: a shrink-hook entry
+         // under another caveman path is ours. When the switch is OFF the rule has
+         // to reach OUR path too (#1049): `base` is the host's live file, so a
+@@ -7897,7 +7912,7 @@ function nativeHooksDocument(agentId, includeShrink, base = {}, includeRecall =
+     }
+     if (agentId === "claude" && includeRecall) {
+         const list = Array.isArray(hooks.UserPromptSubmit) ? hooks.UserPromptSubmit : [];
+-        const recallCommand = `${cavemanBinForHook()} mem recall-hook`;
++        const recallCommand = `${cavemanBinForHook(undefined, registration)} mem recall-hook`;
+         if (!list.some((entry) => hookEntryCommand(entry) === recallCommand)) {
+             list.push(nativeHookEntry(recallCommand, agentId));
+         }
+@@ -8088,7 +8103,7 @@ function buildCodexEphemeralHome(gw, subscription, mcpBinary, delegateMcp) {
+     writeFileSync(join(outDir, "config.toml"), `${providerRoot}${stripped ? `\n\n${stripped}` : ""}\n\n${providerTables}${mcp}${delegate}`, { mode: 0o600 });
+     // The hooks the native door writes (codexNativeMutations): no shrink-hook,
+     // and not the installer's always-on voice hook beside ours.
+-    const hooks = nativeHooksDocument("codex", false, withoutInstallerCodexHook(readJsonObject(join(sourceHome, "hooks.json"))));
++    const hooks = nativeHooksDocument("codex", false, withoutInstallerCodexHook(readJsonObject(join(sourceHome, "hooks.json"))), false, false);
+     writeFileSync(join(outDir, "hooks.json"), JSON.stringify(hooks, null, 2) + "\n", { mode: 0o600 });
+     linkCodexReadOnly(sourceHome, outDir, "skills");
+     linkCodexReadOnly(sourceHome, outDir, "AGENTS.md");
+@@ -8114,7 +8129,7 @@ function buildClaudeEphemeralPlugin(mcpBinary, includeShrink, includeRecall, del
+         version: cliVersion(),
+         description: "Ephemeral Caveman local-engine pack",
+     }, null, 2) + "\n", { mode: 0o600 });
+-    writeFileSync(join(dir, "hooks", "hooks.json"), JSON.stringify(nativeHooksDocument("claude", includeShrink, {}, includeRecall), null, 2) + "\n", { mode: 0o600 });
++    writeFileSync(join(dir, "hooks", "hooks.json"), JSON.stringify(nativeHooksDocument("claude", includeShrink, {}, includeRecall, false), null, 2) + "\n", { mode: 0o600 });
+     if (mcpBinary || delegateMcp) {
+         const mcpServers = {};
+         if (mcpBinary)
+@@ -8402,7 +8417,7 @@ function nativeMcpBinaryRequired() {
+         throw new Error("caveman-mcp not found; run `caveman setup --install`");
+     if (!compatible.probe.current)
+         throw new Error(`caveman-mcp ${compatible.probe.version} lacks current mcp_recovery capability; run \`caveman setup --install\``);
+-    return compatible.binary;
++    return registrationPath("bin", "caveman-mcp") ?? compatible.binary;
+ }
+ function nativeProxyBinaryRequired(gw) {
+     if (wrapMode(gw) !== "local")
+@@ -9469,6 +9484,9 @@ function piNativeMutations() {
+     const after = Buffer.concat([
+         Buffer.from("// caveman:native-pi — GENERATED by `caveman enable pi`.\n"),
+         Buffer.from(`process.env.CAVEMAN_PI_HOOK_CMD ??= ${JSON.stringify(JSON.stringify([cmd, ...pre]))};\n`),
++        ...(process.env.CAVEMAN_NIX_MANAGED === "1"
++            ? [Buffer.from(`process.env.CAVEMAN_MCP_BIN ??= ${JSON.stringify(registrationPath("bin", "caveman-mcp"))};\n`)]
++            : []),
+         readFileSync(resolvePiExtension()),
+     ]);
+     return [{
+@@ -10563,6 +10581,8 @@ function enableProfiles(argv) {
+ // progress line per step itself; refusals still throw with their full message.
+ function enableNative(argv, { quiet = false } = {}) {
+     const { detected, profiles } = enableProfiles(argv);
++    if (profiles.some((profile) => profile.id !== "aider"))
++        registrationPath();
+     const gw = gatewayURL();
+     for (const profile of profiles) {
+         const agent = profile.id;
+@@ -11311,6 +11331,8 @@ function disableNativeAgent(target, { quiet = false, allClaudeProfiles = false,
+     return true;
+ }
+ function repairNativeAgent(target, { quiet = false } = {}) {
++    if (target !== "aider")
++        registrationPath();
+     if (!readNativeJournal(target) && !readPendingNativeJournal(target)) {
+         enableNative([target], { quiet });
+         return;
+@@ -11862,6 +11884,7 @@ export default definePluginEntry({
+ `;
+ }
+ function ensureOpenClawShrinkPlugin() {
++    registrationPath();
+     const dir = openClawPluginDir();
+     try {
+         mkdirSync(dir, { recursive: true });
+@@ -13872,6 +13895,9 @@ function nativeMcpRegistered(agent) {
+ // CAVEMAN_MCP_BIN, `caveman-mcp` on PATH or ~/.caveman/bin, else `npx -y
+ // caveman-mcp`. The returned argv is what gets written into each agent's MCP config.
+ function resolveMcpCommand() {
++    const registered = registrationPath("bin", "caveman-mcp");
++    if (registered)
++        return mcpServerLaunch(registered, []);
+     const bin = cavemanBin("caveman-mcp", "CAVEMAN_MCP_BIN");
+     if (bin !== "caveman-mcp" || which(bin))
+         return mcpServerLaunch(bin, []);
+@@ -13896,6 +13922,9 @@ export function mcpServerLaunch(command, args, platform = process.platform, env
+     }
+ }
+ function resolveCloudMcpCommand() {
++    const registered = registrationPath("bin", "caveman");
++    if (registered)
++        return { command: registered, args: ["cloud", "mcp-serve"] };
+     const entry = process.argv[1];
+     if (!entry) {
+         console.error("caveman mcp: cannot resolve CLI entrypoint for caveman-cloud server");
+@@ -13906,13 +13935,21 @@ function resolveCloudMcpCommand() {
+ // resolveDelegateMcpCommand locates the dependency-free caveman-delegate stdio
+ // server (CAVEMAN_DELEGATE_MCP override, else the copy shipped alongside the
+ // CLI). Null when the script is missing — callers must not register a dead entry.
+-function resolveDelegateMcpCommand() {
++function resolveDelegateMcpCommand(registration = true) {
+     const candidates = [
+         process.env.CAVEMAN_DELEGATE_MCP || "",
+         join(dirname(fileURLToPath(import.meta.url)), "caveman-delegate-mcp.mjs"),
+     ].filter(Boolean);
+     const script = candidates.find((c) => existsSync(c));
+-    return script ? { command: stableNodePath(), args: [script] } : null;
++    if (!script)
++        return null;
++    const node = registration ? registrationPath("lib", "caveman", "node") : undefined;
++    return {
++        command: node ?? stableNodePath(),
++        args: [node && script !== process.env.CAVEMAN_DELEGATE_MCP
++                ? registrationPath("lib", "caveman", "dist", "caveman-delegate-mcp.mjs")
++                : script],
++    };
+ }
+ function resolvePiExtension() {
+     const extension = process.env.CAVEMAN_PI_EXTENSION?.trim()
+@@ -13924,7 +13961,7 @@ function resolvePiExtension() {
+ }
+ function buildPiWrapArgs(cmdArgs, env, gw) {
+     const extension = resolvePiExtension();
+-    const { cmd, pre } = cavemanInvocation();
++    const { cmd, pre } = cavemanInvocation(false);
+     env.CAVEMAN_PI_HOOK_CMD = JSON.stringify([cmd, ...pre]);
+     env.CAVE_GATEWAY_URL = gw;
+     // After `caveman enable pi`, Pi already auto-loads the owned copy. A second
+@@ -16210,7 +16247,7 @@ function mcpInstall(target, serverName = "caveman") {
+             console.error("caveman-browse binary not found — run `caveman setup --install` first");
+             process.exit(1);
+         }
+-        mcp = { command: binary, args: [] };
++        mcp = { command: registrationPath("bin", "caveman-browse") ?? binary, args: [] };
+     }
+     else if (serverName === "caveman-delegate") {
+         const resolved = resolveDelegateMcpCommand();
+@@ -16824,7 +16861,10 @@ function shouldShrink(command) {
+ }
+ // cavemanBinForHook is the invocation a Claude hook uses to call back into this
+ // CLI, robust to PATH: a resolved `caveman`/`cave`, else this very script's node.
+-function cavemanBinForHook(powershell = process.platform === "win32") {
++function cavemanBinForHook(powershell = process.platform === "win32", registration = true) {
++    const registered = registration ? registrationPath("bin", "caveman") : undefined;
++    if (registered)
++        return hookExecutableInvocation(registered, undefined, process.platform, powershell);
+     // Never a package runner's cached copy when a lasting one exists.
+     const command = durableCaveman() ?? which("caveman") ?? which("cave");
+     if (!command)
+@@ -16889,7 +16929,7 @@ async function shrinkHook() {
+         process.exit(0);
+     // updatedInput.command executes in host shell (Git Bash on Claude Windows),
+     // not hook's explicit PowerShell shell. Never leak PowerShell `&` into it.
+-    const rewritten = `${cavemanBinForHook(false)} shrink -- ${command.trim()}`;
++    const rewritten = `${cavemanBinForHook(false, false)} shrink -- ${command.trim()}`;
+     // Gemini merges hookSpecificOutput.tool_input (snake_case, no event discriminator);
+     // Claude REPLACES via hookSpecificOutput.updatedInput (camelCase + hookEventName).
+     // Because Claude replaces, updatedInput must carry every field the host sent —
+@@ -18244,7 +18284,10 @@ export function generatedPluginInvocation(onPath, currentScript, platform = proc
+     }
+     return { cmd: stableNodePath(), pre: [currentScript] };
+ }
+-function cavemanInvocation() {
++function cavemanInvocation(registration = true) {
++    const registered = registration ? registrationPath("bin", "caveman") : undefined;
++    if (registered)
++        return { cmd: registered, pre: [] };
+     return generatedPluginInvocation(durableCaveman() ?? which("caveman") ?? which("cave") ?? undefined, process.argv[1] ?? "");
+ }
+ function opencodePluginSource() {
+@@ -18277,6 +18320,7 @@ export const CavemanShrink = async () => ({
+ `;
+ }
+ function installShrinkPluginOpencode() {
++    registrationPath();
+     const path = opencodePluginPath();
+     try {
+         mkdirSync(dirname(path), { recursive: true });
+@@ -18524,6 +18568,7 @@ function disableHermesPluginInConfig() {
+     }
+ }
+ function installShrinkPluginHermes() {
++    registrationPath();
+     try {
+         mkdirSync(hermesPluginDir(), { recursive: true });
+         writeFileSync(hermesPluginManifestPath(), hermesPluginManifestSource());

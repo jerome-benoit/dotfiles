@@ -2,7 +2,7 @@
 
 ## Context
 
-The nine local patches live directly under `patches/`. Their builders declare
+The eleven local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly; source versions and hashes come from
 `home-manager/modules/development/pins/{prime-agent,caveman}.json`.
 The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
@@ -10,7 +10,7 @@ patch bases. Reassess each patch when its own source pin changes.
 
 ## Current Patches
 
-None pending refresh. The tree carries nine patches, each with a `# base:` and
+The tree carries eleven patches, each with a `# base:` and
 `# intent:` header, and a comment at its use site explaining why it exists and
 when it can go:
 
@@ -21,8 +21,10 @@ when it can go:
 - `patches/prime-agent-bundled-docs.patch` — point login guidance to the bundled upstream README.
 - `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
-- `patches/caveman-blocks-nix-hooks.patch` — keep the Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — support OpenCode 2 tool hooks (Blocks PR #17), with message-scoped hints and location-relative workdirs.
+- `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
+- `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
+- `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
+- `patches/caveman-blocks-opencode2.patch` — adapt the OpenCode 1/2 proposal from Blocks PR #17, with local fixes for issues #18/#19 and behavioral regressions. The patch's `# upstream:` header identifies the proposal revision; `# issues:` identifies the locally corrected defects.
 
 ## Local Patch Refresh
 
@@ -30,10 +32,14 @@ when it can go:
    comment. Check every carried change, not only the patch's main purpose.
 2. Resolve the exact source from `pins/default.nix` and the corresponding JSON
    pin. Use that hash-pinned source, not the current contents of a mutable tag.
+   The installer patch records its archive URL and unpacked `fetchzip` hash;
+   update both when changing its base.
 3. Check whether upstream now supplies each fix. Remove only superseded hunks;
    retire the whole patch only when every carried change is covered upstream.
-4. Regenerate remaining hunks against the pinned source, preserving the headers
-   and updating `# base:` when its version changes.
+4. Apply prerequisite patches in the builder's declared order before regenerating
+   remaining hunks. Preserve the headers and update `# base:` when its version or
+   prerequisite changes. The CLI registration patch includes the managed-install
+   guard in its base; neither patch corrects the other.
 5. Verify application without fuzz or offset warnings and inspect the resulting
    code. Exercise affected behavior when code or upstream assumptions change.
 6. Update the use-site explanation, removal condition and inventory as needed.
@@ -42,9 +48,126 @@ when it can go:
 After changing the OpenCode plugin, run
 `caveman-blocks hooks install --harness opencode` to refresh an existing install.
 Updating the Nix package alone does not rewrite user-level agent configuration.
-Generated CLI callbacks also require the current Nix wrapper on PATH. Reinstall
-existing raw-Node callbacks with the relevant hook installer, for example
-`caveman tools hooks install claude`.
+
+### Caveman registrations
+
+Home Manager supplies `home.profileDirectory` to the Caveman package. Standalone,
+XDG and `useUserPackages` installations therefore select their effective profile
+without a second agent-root table. Package-only callers invoke a profile's
+`bin/caveman` or `bin/caveman-install`, or explicitly set
+`CAVEMAN_REGISTRATION_ROOT` to an absolute lexical profile prefix. Do not resolve
+that executable/profile link into the store.
+
+Execution-time companion paths stay in the package closure. Generated
+registrations use the selected profile's public commands and private
+`lib/caveman/node`, `lib/caveman/bash` and `lib/caveman/dist` payloads.
+The source-shaped installer lives at `lib/caveman/source`, with its own
+`package.json`; the CLI's `package.json` stays beside `dist`. This single private
+namespace survives both NixOS's default profile and Home Manager's filtered
+`useUserPackages` outer profile. Neither interpreter becomes a public command.
+Do not restore a `share/caveman` alias: profile filters need the actual `/lib` tree.
+
+Temporary `wrap` packs and runtime shell-command rewrites use the executing
+closure instead; they do not require a persistent registration profile.
+
+`--with-mcp-shrink` registers the shipped JavaScript middleware through private
+profile Node. It is distinct from the native `caveman-shrink` companion; preserve
+the upstream command and arguments when refreshing this serializer.
+
+Agent registration remains manual. Reinstall existing generation-specific
+registrations with their owning command (`caveman enable`, `caveman tools mcp
+install`, `caveman tools hooks install`, or `caveman-install`); do not rewrite
+stored paths or ownership journals. Agent roots, credentials and foreign entries
+remain managed by the upstream serializers.
+
+The standalone installer ships the pinned source-shaped payload. Its Claude
+channel prepares an owned mutable local marketplace and delegates registration
+to Claude. `--prepare-plugin claude` and `--prepare-plugin cursor` expose the same
+explicit mutable layer without changing host caches or writing into the store.
+Existing upstream Claude installations must be removed through their host before
+choosing the local channel. Reinstall does not re-enable disabled plugins.
+Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
+removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
+
+Automatic Claude installation owns a separate payload and journal for each
+ambient Claude profile. It uses the existing `claudeConfigDir()` resolver,
+normalizes that root with `path.resolve` and hashes the full lexical path with
+SHA256. Payloads live at
+`$CAVEMAN_HOME/claude-profiles/<digest>/claude-plugin` (default
+`CAVEMAN_HOME=~/.caveman`). Uninstall selects the same profile without discovering
+or detaching other profiles. An absent selected-profile journal is a no-op.
+Profile identity is not realpath-resolved; physical payload ancestry checks
+remain mandatory. `--config-dir` changes hook files and settings only, not the
+ambient profile used by `claude plugin` or its automatic payload.
+
+Prepare-only destinations do not acquire this automatic profile identity.
+`--prepare-plugin claude` keeps `$CAVEMAN_HOME/claude-plugin` by default;
+`--plugin-dir` selects the explicit payload for preparation and removal.
+Cursor's default and explicit prepared paths remain unchanged.
+
+Legacy shared payloads and journals are never adopted, migrated or deleted by
+the automatic channel, including with `--force`. A selected-profile marketplace
+that still names another path stops installation and reports actual and expected
+paths. Detach `caveman-nix` through Claude in **every** profile that refers to the
+old payload (`claude plugin marketplace remove caveman-nix --scope user` in each
+profile; remove any other referring scopes through their host as well).
+Only after all host references are detached, remove an unchanged owned payload
+with `caveman-install --prepare-plugin claude --plugin-dir <old-absolute-path>
+--uninstall --plugin-detached`. Reinstall each desired automatic profile.
+Foreign edits and user backups retain the existing ownership protections.
+Automatic uninstall reports existing unscoped payload/journal paths as retained
+state only; this advisory neither infers host references nor fails cleanup.
+
+Prepared Claude statusline suggestions use the profile's private Bash command
+from preparation-owned interpreter metadata. Existing accepted statusline commands
+remain user-owned; reinstall alone does not rewrite their interpreter.
+
+Claude's prepared agent files permit the upstream SessionStart model overrides.
+Only exact expected changes to an unchanged owned payload advance its digest.
+Updates preflight write permissions, stage files outside the payload and commit
+the journal last. Synchronous failures restore displaced originals; unsafe rollback
+retains foreign edits and recovery files at the reported path. This is not
+power-loss recovery or concurrent transaction isolation. Cursor remains unchanged.
+
+Prepared plugin destinations require physical directory ancestors. Stable
+executable profile symlinks remain allowed, but mutable payload ancestors may
+not be symlinks, even outside the store. If `HOME` or `CAVEMAN_HOME` is aliased,
+set `CAVEMAN_HOME` to a physical mutable path before installation. Alternatively,
+use `--prepare-plugin` with a physical absolute `--plugin-dir`, then load that
+prepared payload through the host. Never point these mutable paths into the store.
+
+An uninstall without a prepared-plugin journal is a no-op for that channel;
+an existing journal still requires the full physical-ancestor validation.
+
+The package does not activate, repair, download or register integrations on
+installation. Skills-only and delegated-manager channels keep their existing
+upstream destinations and do not acquire an MCP requirement.
+
+The runtime check runs the installer's behavioral Node suite and
+`checks/caveman-profiles.py` / `checks/caveman-installer.py`. The profile check
+requires the package, absolute Git and Node commands, TypeBox, and two real
+`buildEnv` outputs: a package profile filtered to `/bin` and `/lib`, and the same
+filter around a default inner profile. Both profiles register Gemini's Delegate
+server through automatic public-launcher inference, an explicit lexical root,
+and private-Node launcher inference. Each generated argv must initialize and
+list `caveman_delegate` with an empty external `PATH`.
+
+The lifetime cases exercise generated callbacks, protocols and ownership across
+independent same-version generations, with A removed after selecting B. Pi
+recovery uses the real TypeBox dependency, not an SDK substitute. Real host
+sessions and native platform execution remain separate smoke tests.
+
+Run manual generation-copy checks with a disk-backed `TMPDIR` and a memory
+limit when the host's `/tmp` is tmpfs. Large fixture copies stay under inherited
+`TMPDIR`. Each scenario allocates one physically resolved native state leaf
+directly under that temporary parent, falling back to `/tmp` only if needed.
+The allocator bounds `run/native.sock` to 103 filesystem bytes for Darwin/Linux.
+Long-`TMPDIR` smoke runs must retain that invariant without weakening Pi's real
+output-replacement assertion. Stop processes before deleting state or copies;
+a failed stop retains both paths and fails the check. A custom Darwin daemon
+`TMPDIR` that is too long, combined with sandbox denial of `/tmp`, remains
+unverified; no sandbox grants are added. Shell fixtures do not load host startup
+profiles.
 
 ## PR-Derived Patch Refresh
 
