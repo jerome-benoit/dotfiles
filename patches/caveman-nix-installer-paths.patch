@@ -1,5 +1,5 @@
 # base: Caveman v4.0.1 (1f951fb4ad40ba63302c6e7f987147e034d599d9)
-# intent: keep standalone hook interpreters and JS MCP middleware lexical-profile durable; prepare owned mutable local plugins with tracked model overrides, path-scoped ancestry checks and user-scoped host lifecycle, without rewriting host caches or skills-only channels.
+# intent: keep standalone and prepared hook interpreters and JS MCP middleware lexical-profile durable; prepare owned mutable local plugins with rollback-safe model overrides, path-scoped ancestry checks and user-scoped host lifecycle, without rewriting host caches or skills-only channels.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
@@ -361,7 +361,7 @@ diff --git a/installer/install.js b/installer/install.js
 diff --git a/installer/lib/managed-plugins.js b/installer/lib/managed-plugins.js
 --- /dev/null
 +++ b/installer/lib/managed-plugins.js
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,197 @@
 +'use strict';
 +
 +// A local, mutable bridge for hosts that load plugins outside the installer
@@ -412,6 +412,11 @@ diff --git a/installer/lib/managed-plugins.js b/installer/lib/managed-plugins.js
 +      // Claude mutates model frontmatter at SessionStart. Keep that policy
 +      // upstream-owned, but account for its exact writes in our ownership journal.
 +      const hooksDir = path.join(stage, 'src/hooks');
++      const profile = registrationRoot();
++      if (profile) {
++        fs.writeFileSync(path.join(hooksDir, 'caveman-statusline-runtime.json'),
++          JSON.stringify({ bashCommand: hookCommand(path.join(profile, 'share/caveman/bash'), []) }) + '\n');
++      }
 +      const modelHelper = path.join(hooksDir, 'cavecrew-model-overrides.js');
 +      const upstreamModels = require(path.join(repoRoot, 'src/hooks/cavecrew-model-overrides.js'));
 +      for (const { file } of upstreamModels.AGENT_ENV_MAP) fs.chmodSync(path.join(stage, file), 0o600);
@@ -610,7 +615,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
  }
  
  function digestPath(target) {
-@@ -66,6 +96,39 @@
+@@ -66,6 +96,109 @@
    // compare byte-for-byte despite having different temporary basenames.
    updateDigest(hash, target, target);
    return hash.digest('hex');
@@ -643,14 +648,84 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 +    throw new Error(`modified runtime payload retained: ${payload}`);
 +  }
 +  const expected = projected.digest('hex');
-+  for (const [relative, content] of replacements) fs.writeFileSync(destination(payload, relative), content, 'utf8');
-+  if (digestPath(payload) !== expected) throw new Error(`runtime payload changed during update: ${payload}`);
-+  entry.installedDigest = expected;
-+  writeJournal(journalPath, journal);
++  const journalBytes = fs.readFileSync(journalPath);
++  const files = [];
++  // Opening every original before staging preserves normal write permissions.
++  for (const [relative, content] of replacements) {
++    const target = destination(payload, relative);
++    const fd = fs.openSync(target, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
++    try {
++      const stat = fs.fstatSync(fd);
++      const current = fs.lstatSync(target);
++      if (!stat.isFile() || current.isSymbolicLink() || stat.dev !== current.dev || stat.ino !== current.ino) {
++        throw new Error(`runtime update target changed: ${target}`);
++      }
++      files.push({ target, content, stat, original: fs.readFileSync(fd), displaced: false, installed: false });
++    } finally {
++      fs.closeSync(fd);
++    }
++  }
++  // Keep recovery files outside the payload so they cannot alter its digest.
++  const transaction = fs.mkdtempSync(path.join(path.dirname(payload), '.caveman-model-update-'));
++  try {
++    for (const [index, file] of files.entries()) {
++      file.staged = path.join(transaction, `${index}.next`);
++      file.backup = path.join(transaction, `${index}.original`);
++      fs.writeFileSync(file.staged, file.content, { mode: 0o600, flag: 'wx' });
++      fs.chmodSync(file.staged, file.stat.mode & 0o7777);
++      file.stagedStat = fs.lstatSync(file.staged);
++    }
++    for (const file of files) {
++      const current = fs.lstatSync(file.target);
++      if (current.isSymbolicLink() || current.dev !== file.stat.dev || current.ino !== file.stat.ino ||
++          !fs.readFileSync(file.target).equals(file.original)) {
++        throw new Error(`runtime update target changed: ${file.target}`);
++      }
++      fs.renameSync(file.target, file.backup);
++      file.displaced = true;
++      fs.renameSync(file.staged, file.target);
++      file.installed = true;
++    }
++    if (digestPath(payload) !== expected || !fs.readFileSync(journalPath).equals(journalBytes)) {
++      throw new Error(`runtime ownership changed during update: ${payload}`);
++    }
++    entry.installedDigest = expected;
++    writeJournal(journalPath, journal);
++  } catch (error) {
++    const failures = [];
++    for (let index = files.length - 1; index >= 0; index--) {
++      const file = files[index];
++      if (!file.displaced) continue;
++      try {
++        if (file.installed) {
++          const current = fs.lstatSync(file.target);
++          if (!current.isFile() || current.dev !== file.stagedStat.dev || current.ino !== file.stagedStat.ino ||
++              !fs.readFileSync(file.target).equals(Buffer.from(file.content))) {
++            throw new Error(`foreign runtime update retained: ${file.target}`);
++          }
++        } else if (pathExists(file.target)) {
++          throw new Error(`foreign runtime update retained: ${file.target}`);
++        }
++        fs.renameSync(file.backup, file.target);
++        file.displaced = false;
++      } catch (restoreError) {
++        failures.push(restoreError);
++      }
++    }
++    if (!files.some(file => file.displaced)) {
++      try { removePath(transaction); } catch (cleanupError) { failures.push(cleanupError); }
++    }
++    if (failures.length) {
++      throw new AggregateError([error, ...failures], `runtime update failed; recovery retained at ${transaction}`);
++    }
++    throw error;
++  }
++  // Journal rename committed the update; cleanup failure must not roll it back.
++  removePath(transaction);
  }
  
  function copyPath(source, target) {
-@@ -303,13 +366,15 @@
+@@ -303,13 +436,15 @@
    return { journalPath, journal };
  }
  
@@ -667,7 +742,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
      const entry = journal.entries[relative];
      const target = destination(root, relative);
      if (pathExists(target)) {
-@@ -379,6 +444,7 @@
+@@ -379,6 +514,7 @@
  }
  
  module.exports = {
@@ -675,7 +750,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
    copyPath,
    digestPath,
    installOwned,
-@@ -386,4 +452,5 @@
+@@ -386,4 +522,5 @@
    preflightOwnedInstall,
    removeEmptyDirs,
    uninstallOwned,
@@ -731,10 +806,39 @@ diff --git a/src/hooks/cavecrew-model-overrides.js b/src/hooks/cavecrew-model-ov
      } catch (e) {
        // Silent fail — never block session start
      }
+diff --git a/src/hooks/caveman-activate.js b/src/hooks/caveman-activate.js
+--- a/src/hooks/caveman-activate.js
++++ b/src/hooks/caveman-activate.js
+@@ -585,12 +585,24 @@
+   }
+ 
+   if (!hasStatusline && (staleCommand ? !alreadyReported : !fs.existsSync(nudgeMarkerPath))) {
++    let bashCommand = 'bash';
++    if (!isWindows) {
++      try {
++        const runtime = JSON.parse(fs.readFileSync(path.join(__dirname, 'caveman-statusline-runtime.json'), 'utf8'));
++        if (typeof runtime.bashCommand !== 'string' || !runtime.bashCommand.trim()) {
++          throw new Error('invalid statusline runtime');
++        }
++        bashCommand = runtime.bashCommand;
++      } catch (error) {
++        if (error.code !== 'ENOENT') throw error;
++      }
++    }
+     if (staleCommand) safeWriteFlag(stalePath, staleCommand);
+     else safeWriteFlag(nudgeMarkerPath, '1');
+     const scriptPath = stableStatuslinePath(scriptName) || path.join(__dirname, scriptName);
+     const command = isWindows
+       ? `powershell -ExecutionPolicy Bypass -File "${scriptPath}"`
+-      : `bash "${scriptPath}"`;
++      : `${bashCommand} "${scriptPath}"`;
+     const statusLineSnippet =
+       '"statusLine": { "type": "command", "command": ' + JSON.stringify(command) + ' }';
+     output += "\n\n" +
 diff --git a/tests/installer/nix-registration-paths.test.mjs b/tests/installer/nix-registration-paths.test.mjs
 --- /dev/null
 +++ b/tests/installer/nix-registration-paths.test.mjs
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,516 @@
 +// Behavioral fixtures: execute the real generated payloads, never substitute
 +// emitted hook text. External manager control responses are isolated adapters;
 +// they do not stand in for real Claude/Cursor installation or host discovery.
@@ -754,11 +858,11 @@ diff --git a/tests/installer/nix-registration-paths.test.mjs b/tests/installer/n
 +const sq = value => `'${value.replaceAll("'", "'\\''")}'`;
 +const shell = process.env.CAVEMAN_TEST_SHELL || '/bin/sh';
 +
-+function fixture(t) {
++function fixture(t, profileName = 'profile with spaces') {
 +  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'caveman-nix-hooks-'));
 +  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 +  const home = path.join(dir, 'home');
-+  const profile = path.join(dir, 'profile with spaces');
++  const profile = path.join(dir, profileName);
 +  const log = path.join(dir, 'node-generations');
 +  const emptyPath = path.join(dir, 'empty-path');
 +  fs.mkdirSync(home);
@@ -1083,4 +1187,171 @@ diff --git a/tests/installer/nix-registration-paths.test.mjs b/tests/installer/n
 +  assert.throws(() => managed.removePlugin(args), /plugin ancestor must be a real directory/);
 +  assert.deepEqual(fs.readFileSync(journal), before);
 +  assert.equal(fs.existsSync(path.join(physical, 'payload/.claude-plugin/plugin.json')), true);
++});
++
++test('prepared Claude statusline uses private Bash after generation removal', { skip: process.platform === 'win32' }, t => {
++  const f = fixture(t, 'profile \' " $HOME `echo injected` \\');
++  const pluginDir = path.join(f.dir, 'claude-plugin');
++  const preparation = spawnSync(process.execPath, [installer, '--prepare-plugin', 'claude', '--plugin-dir', pluginDir],
++    { env: f.env, cwd: f.dir, encoding: 'utf8', timeout: 15000 });
++  assert.equal(preparation.status, 0, preparation.stderr);
++  const journal = path.join(f.dir, '.caveman-claude-plugin-ownership.json');
++  const before = fs.readFileSync(journal);
++  const command = JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin/plugin.json')))
++    .hooks.SessionStart[0].hooks[0].command;
++  const payload = { session_id: 'private-statusline', source: 'startup', cwd: f.dir };
++  const env = { CLAUDE_PLUGIN_ROOT: pluginDir };
++  f.switchGeneration();
++  const output = f.runHook(command, payload, env);
++  const snippet = output.match(/"statusLine":\s*(\{[^\n]*?\})/);
++  assert.ok(snippet, output);
++  const statusline = JSON.parse(snippet[1]);
++  fs.writeFileSync(path.join(f.dir, 'node-generations'), '');
++  assert.match(f.runHook(statusline.command, payload, env), /CAVEMAN/);
++  assert.deepEqual(fs.readFileSync(journal), before);
++  fs.mkdirSync(f.env.CLAUDE_CONFIG_DIR, { recursive: true });
++  fs.writeFileSync(path.join(f.env.CLAUDE_CONFIG_DIR, 'settings.json'), JSON.stringify({ statusLine: statusline }));
++  assert.doesNotMatch(f.runHook(command, payload, env), /STATUSLINE SETUP NEEDED/);
++});
++
++test('readonly model override batches preserve owned files and lifecycle', {
++  skip: process.platform === 'win32' || process.getuid?.() === 0,
++}, t => {
++  const f = fixture(t);
++  const pluginDir = path.join(f.dir, 'claude-plugin');
++  const args = { host: 'claude', repoRoot, node: f.node, pluginDir };
++  managed.preparePlugin(args);
++  const reviewer = path.join(pluginDir, 'agents/cavecrew-reviewer.md');
++  const builder = path.join(pluginDir, 'agents/cavecrew-builder.md');
++  const journal = path.join(f.dir, '.caveman-claude-plugin-ownership.json');
++  const originals = [reviewer, builder, journal].map(file => fs.readFileSync(file));
++  fs.chmodSync(builder, 0o400);
++  const command = JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin/plugin.json')))
++    .hooks.SessionStart[0].hooks[0].command;
++  f.switchGeneration();
++  f.runHook(command, { session_id: 'readonly-models', source: 'startup', cwd: f.dir }, {
++    CLAUDE_PLUGIN_ROOT: pluginDir,
++    CAVECREW_REVIEWER_MODEL: 'review-transaction-model',
++    CAVECREW_BUILDER_MODEL: 'review-transaction-model',
++  });
++  for (const [index, file] of [reviewer, builder, journal].entries()) {
++    assert.ok(fs.readFileSync(file).equals(originals[index]), `failed override changed ${file}`);
++  }
++  assert.equal(fs.statSync(builder).mode & 0o777, 0o400);
++  managed.preparePlugin(args);
++  managed.removePlugin({ ...args, detached: true });
++  assert.equal(fs.existsSync(pluginDir), false);
++  assert.equal(fs.existsSync(journal), false);
++});
++
++for (const failure of ['second replacement', 'journal commit']) {
++  test(`model update rolls back files and ownership after failed ${failure}`, { skip: process.platform === 'win32' }, t => {
++    const f = fixture(t);
++    const pluginDir = path.join(f.dir, 'claude-plugin');
++    const args = { host: 'claude', repoRoot, node: f.node, pluginDir };
++    fs.mkdirSync(pluginDir);
++    fs.writeFileSync(path.join(pluginDir, 'prior.txt'), 'prior user payload\n', { mode: 0o640 });
++    managed.preparePlugin({ ...args, force: true });
++    const owned = require('../../installer/lib/owned-install.js');
++    const journal = path.join(f.dir, '.caveman-claude-plugin-ownership.json');
++    const backup = path.join(f.dir, '.caveman-claude-plugin-backups',
++      JSON.parse(fs.readFileSync(journal)).entries['claude-plugin'].restoreBackup, 'prior.txt');
++    const reviewer = path.join(pluginDir, 'agents/cavecrew-reviewer.md');
++    const builder = path.join(pluginDir, 'agents/cavecrew-builder.md');
++    fs.chmodSync(builder, 0o640);
++    const files = [reviewer, builder, journal];
++    const originals = files.map(file => fs.readFileSync(file));
++    const modes = files.map(file => fs.statSync(file).mode & 0o777);
++    const update = {
++      root: f.dir, integration: 'claude-plugin', relativePath: 'claude-plugin',
++      updates: new Map([
++        ['agents/cavecrew-reviewer.md', originals[0].toString() + '\nreviewer override\n'],
++        ['agents/cavecrew-builder.md', originals[1].toString() + '\nbuilder override\n'],
++      ]),
++    };
++    const rename = fs.renameSync;
++    let injected = false;
++    fs.renameSync = (from, to) => {
++      const trigger = failure === 'journal commit' ? to === journal :
++        to === builder && path.basename(from).endsWith('.next');
++      if (!injected && trigger) {
++        assert.notDeepEqual(fs.readFileSync(reviewer), originals[0]);
++        injected = true;
++        throw Object.assign(new Error('injected filesystem failure'), { code: 'EIO' });
++      }
++      return rename(from, to);
++    };
++    try {
++      assert.throws(() => owned.updateOwnedFiles(update), /injected filesystem failure/);
++    } finally {
++      fs.renameSync = rename;
++    }
++    assert.ok(injected);
++    assert.deepEqual(files.map(file => fs.readFileSync(file)), originals);
++    assert.deepEqual(files.map(file => fs.statSync(file).mode & 0o777), modes);
++    assert.equal(fs.readFileSync(backup, 'utf8'), 'prior user payload\n');
++    assert.equal(fs.readdirSync(f.dir).some(name => name.startsWith('.caveman-model-update-')), false);
++    owned.updateOwnedFiles(update);
++    assert.match(fs.readFileSync(reviewer, 'utf8'), /reviewer override/);
++    assert.match(fs.readFileSync(builder, 'utf8'), /builder override/);
++    managed.removePlugin({ ...args, detached: true });
++    assert.equal(fs.readFileSync(path.join(pluginDir, 'prior.txt'), 'utf8'), 'prior user payload\n');
++    assert.equal(fs.statSync(path.join(pluginDir, 'prior.txt')).mode & 0o777, 0o640);
++    assert.equal(fs.existsSync(journal), false);
++  });
++}
++
++test('invalid prepared statusline metadata does not consume its setup suggestion', { skip: process.platform === 'win32' }, t => {
++  const f = fixture(t);
++  const pluginDir = path.join(f.dir, 'claude-plugin');
++  const preparation = spawnSync(process.execPath, [installer, '--prepare-plugin', 'claude', '--plugin-dir', pluginDir],
++    { env: f.env, cwd: f.dir, encoding: 'utf8', timeout: 15000 });
++  assert.equal(preparation.status, 0, preparation.stderr);
++  const runtime = path.join(pluginDir, 'src/hooks/caveman-statusline-runtime.json');
++  const original = fs.readFileSync(runtime);
++  const command = JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin/plugin.json')))
++    .hooks.SessionStart[0].hooks[0].command;
++  const payload = { session_id: 'invalid-statusline', source: 'startup', cwd: f.dir };
++  const env = { CLAUDE_PLUGIN_ROOT: pluginDir };
++  f.switchGeneration();
++  fs.writeFileSync(runtime, '{');
++  assert.doesNotMatch(f.runHook(command, payload, env), /STATUSLINE SETUP NEEDED/);
++  fs.writeFileSync(runtime, original);
++  assert.match(f.runHook(command, payload, env), /STATUSLINE SETUP NEEDED/);
++});
++
++test('failed model rollback retains foreign edits and recoverable original bytes', { skip: process.platform === 'win32' }, t => {
++  const f = fixture(t);
++  const pluginDir = path.join(f.dir, 'claude-plugin');
++  managed.preparePlugin({ host: 'claude', repoRoot, node: f.node, pluginDir });
++  const owned = require('../../installer/lib/owned-install.js');
++  const reviewer = path.join(pluginDir, 'agents/cavecrew-reviewer.md');
++  const journal = path.join(f.dir, '.caveman-claude-plugin-ownership.json');
++  const original = fs.readFileSync(reviewer);
++  const originalJournal = fs.readFileSync(journal);
++  const rename = fs.renameSync;
++  let injected = false;
++  fs.renameSync = (from, to) => {
++    if (!injected && to === journal) {
++      injected = true;
++      fs.writeFileSync(reviewer, 'foreign runtime edit\n');
++      throw Object.assign(new Error('injected journal failure'), { code: 'EIO' });
++    }
++    return rename(from, to);
++  };
++  try {
++    assert.throws(() => owned.updateOwnedFiles({
++      root: f.dir, integration: 'claude-plugin', relativePath: 'claude-plugin',
++      updates: new Map([['agents/cavecrew-reviewer.md', original.toString() + '\nrequested model update\n']]),
++    }), /recovery retained/);
++  } finally {
++    fs.renameSync = rename;
++  }
++  assert.ok(injected);
++  assert.equal(fs.readFileSync(reviewer, 'utf8'), 'foreign runtime edit\n');
++  assert.deepEqual(fs.readFileSync(journal), originalJournal);
++  const recovery = fs.readdirSync(f.dir).find(name => name.startsWith('.caveman-model-update-'));
++  assert.ok(recovery);
++  assert.ok(fs.readdirSync(path.join(f.dir, recovery)).some(name =>
++    fs.readFileSync(path.join(f.dir, recovery, name)).equals(original)), 'original model bytes must remain recoverable');
 +});

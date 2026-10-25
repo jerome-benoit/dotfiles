@@ -83,9 +83,16 @@ choosing the local channel. Reinstall does not re-enable disabled plugins.
 Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
 removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
 
+Prepared Claude statusline suggestions use the profile's private Bash command
+from preparation-owned interpreter metadata. Existing accepted statusline commands
+remain user-owned; reinstall alone does not rewrite their interpreter.
+
 Claude's prepared agent files permit the upstream SessionStart model overrides.
-Only exact expected changes to an unchanged owned payload advance its digest;
-foreign edits retain protection. Cursor's model behavior remains unchanged.
+Only exact expected changes to an unchanged owned payload advance its digest.
+Updates preflight write permissions, stage files outside the payload and commit
+the journal last. Synchronous failures restore displaced originals; unsafe rollback
+retains foreign edits and recovery files at the reported path. This is not
+power-loss recovery or concurrent transaction isolation. Cursor remains unchanged.
 
 Prepared plugin destinations require physical directory ancestors. Stable
 executable profile symlinks remain allowed, but mutable payload ancestors may
