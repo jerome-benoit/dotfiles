@@ -38,6 +38,10 @@ def workspace_lock(state):
 def _prepare_workspace(state, revision, remote):
     source = state / "source"
     if not source.exists():
+        if source.is_symlink():
+            raise RuntimeError(
+                f"Workspace link {source} is broken; restore its target or remove the link and retry"
+            )
         source.mkdir(mode=0o700)
     root = source.resolve()
     if not (root / ".git").exists():
@@ -51,7 +55,12 @@ def _prepare_workspace(state, revision, remote):
         if match:
             git(root, "reset", "--quiet", "--mixed", "FETCH_HEAD")
         else:
-            git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", "FETCH_HEAD")
+            try:
+                git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", "FETCH_HEAD")
+            except subprocess.CalledProcessError:
+                raise RuntimeError(
+                    f"Cannot initialise workspace {root}; move it aside and retry"
+                ) from None
         marker = root / ".git" / RUNTIME_REVISION
         if not marker.exists():
             marker.write_bytes(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"]))

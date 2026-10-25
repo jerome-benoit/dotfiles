@@ -191,6 +191,42 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(config.read_text(), expected)
         self.assertEqual((candidate / "code.py").read_text(), "old source\n")
 
+    def test_broken_source_symlink_reports_repair_without_creating_directory(self):
+        self.state.mkdir()
+        source = self.state / "source"
+        missing = self.state / "missing-source"
+        source.symlink_to(missing.name, target_is_directory=True)
+        result = subprocess.run(self.command(self.new), env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertTrue(source.is_symlink())
+        self.assertEqual(os.readlink(source), missing.name)
+        self.assertFalse(missing.exists())
+        self.assertEqual({path.name for path in self.state.iterdir()}, {"source", ".source.lock"})
+        self.assertIn(f"Workspace link {source} is broken", result.stderr)
+        self.assertIn("restore its target or remove the link and retry", result.stderr)
+
+    def test_uninitialised_tree_outside_revision_pattern_reports_repair(self):
+        root = self.prepare(self.old)
+        candidate = root.with_name(f"source-{self.old}-custom")
+        root.rename(candidate)
+        source = self.state / "source"
+        source.symlink_to(candidate.name, target_is_directory=True)
+        config = candidate / "strata-user.json"
+        expected = '{"custom": "preserve"}'
+        config.write_text(expected)
+        shutil.rmtree(candidate / ".git")
+        result = subprocess.run(self.command(self.new), env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertTrue(source.is_symlink())
+        self.assertEqual(os.readlink(source), candidate.name)
+        self.assertEqual((candidate / "code.py").read_text(), "old source\n")
+        self.assertEqual((candidate / "removed.py").read_text(), "obsolete source\n")
+        self.assertEqual(config.read_text(), expected)
+        self.assertIn(f"Cannot initialise workspace {candidate}", result.stderr)
+        self.assertIn("move it aside and retry", result.stderr)
+
     def test_ignored_runtime_collision_is_not_overwritten(self):
         root = self.prepare(self.old)
         cache = root / "build/user-cache"
