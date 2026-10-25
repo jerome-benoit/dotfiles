@@ -61,6 +61,9 @@ registrations use the selected profile's public commands and private
 `share/caveman/node`, `share/caveman/bash` and `share/caveman/dist` payloads.
 Neither interpreter is added as a global profile command.
 
+Temporary `wrap` packs and runtime shell-command rewrites use the executing
+closure instead; they do not require a persistent registration profile.
+
 `--with-mcp-shrink` registers the shipped JavaScript middleware through private
 profile Node. It is distinct from the native `caveman-shrink` companion; preserve
 the upstream command and arguments when refreshing this serializer.
@@ -80,12 +83,19 @@ choosing the local channel. Reinstall does not re-enable disabled plugins.
 Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
 removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
 
+Claude's prepared agent files permit the upstream SessionStart model overrides.
+Only exact expected changes to an unchanged owned payload advance its digest;
+foreign edits retain protection. Cursor's model behavior remains unchanged.
+
 Prepared plugin destinations require physical directory ancestors. Stable
 executable profile symlinks remain allowed, but mutable payload ancestors may
 not be symlinks, even outside the store. If `HOME` or `CAVEMAN_HOME` is aliased,
 set `CAVEMAN_HOME` to a physical mutable path before installation. Alternatively,
 use `--prepare-plugin` with a physical absolute `--plugin-dir`, then load that
 prepared payload through the host. Never point these mutable paths into the store.
+
+An uninstall without a prepared-plugin journal is a no-op for that channel;
+an existing journal still requires the full physical-ancestor validation.
 
 The package does not activate, repair, download or register integrations on
 installation. Skills-only and delegated-manager channels keep their existing
@@ -97,6 +107,10 @@ callbacks, protocols and ownership across independent same-version generations,
 with A removed after selecting B. Pi recovery uses the real TypeBox dependency,
 not an SDK substitute. Real host sessions and native platform execution remain
 separate smoke tests.
+
+Run manual generation-copy checks with a disk-backed `TMPDIR` and a memory
+limit when the host's `/tmp` is tmpfs. Profile fixtures release each case's copies
+after stopping its processes. Shell fixtures do not load host startup profiles.
 
 ## PR-Derived Patch Refresh
 

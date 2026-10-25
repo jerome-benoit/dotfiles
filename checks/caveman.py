@@ -187,6 +187,29 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
         "caveman", "tools", "retrieve", callback_handle, environment=callback_env,
     ).stdout == original_log
 
+    # Runtime rewrites are not persistent registrations. They must work from
+    # a store launcher without a profile, retaining the executing wrapper's tools.
+    for registration_root in (None, str(profile_path)):
+        runtime_env = {**callback_env, "CAVEMAN_NATIVE_PROFILE": "full-safe"}
+        runtime_env.pop("CAVEMAN_REGISTRATION_ROOT", None)
+        if registration_root is not None:
+            runtime_env["CAVEMAN_REGISTRATION_ROOT"] = registration_root
+        response = subprocess.run(
+            [str(package / "bin/caveman"), "shrink-hook"],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}).encode(),
+            env=runtime_env, cwd=repo, capture_output=True, check=True, timeout=30,
+        )
+        runtime_command = json.loads(response.stdout)["hookSpecificOutput"]["updatedInput"]["command"]
+        result = subprocess.run(
+            shlex.split(runtime_command), env=runtime_env, cwd=repo,
+            capture_output=True, check=True, timeout=30,
+        )
+        report = json.loads(result.stderr)
+        assert result.stdout != original_log
+        assert run(
+            "caveman", "tools", "retrieve", report["recovery_handle"], environment=runtime_env,
+        ).stdout == original_log
+
     # Execute the command actually registered for the harness. A copied native
     # executable loses Git and writes its events under a different repository id.
     foreign_hook = {"matcher": "Read", "hooks": [{"type": "command", "command": "echo preserve"}]}

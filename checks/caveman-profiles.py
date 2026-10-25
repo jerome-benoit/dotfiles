@@ -271,7 +271,6 @@ class Fixture:
     def assert_rewritten(self, rewritten):
         assert rewritten != self.command, rewritten
         argv = shlex.split(rewritten)
-        assert argv[0] == str(self.profile / "bin/caveman"), argv
         assert "shrink" in argv, argv
         result = execute(argv, {**self.env, "PATH": ""}, cwd=self.repo)
         report = json.loads(result.stderr)
@@ -731,8 +730,11 @@ def main():
             try:
                 case(fixture)
             finally:
-                fixture.cli("stop")
-            print(f"profile behavioral coverage: {name}")
+                try:
+                    fixture.cli("stop")
+                finally:
+                    shutil.rmtree(fixture.root)
+            print(f"profile behavioral coverage: {name}", flush=True)
     print("Limits: synthetic same-version copied generations; no Nix activation/GC or real host sessions.")
     print("Limits: Claude/OpenClaw delegated MCP installers and genuine OpenClaw SDK execution need host E2E.")
     print(f"Platform exercised: {sys.platform}; other native platforms need their own check execution.")

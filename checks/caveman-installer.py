@@ -907,6 +907,23 @@ process.exitCode = result.status === null ? 1 : result.status;
         assert failure.returncode != 0 and b"real directory" in failure.stderr, failure.stderr
         assert parent.is_symlink() and snapshot(foreign) == before
 
+    # Skills-only installations need no prepared-plugin ancestry or host.
+    # Existing payload/journal safeguards are covered separately above.
+    for aliased in ("HOME", "CAVEMAN_HOME"):
+        fixture = Fixture(root / f"skills-only-aliased-{aliased}")
+        alias = fixture.root / "home-alias"
+        alias.symlink_to(fixture.home, target_is_directory=True)
+        if aliased == "HOME":
+            fixture.env.update(HOME=str(alias), USERPROFILE=str(alias))
+        fixture.env["CAVEMAN_HOME"] = str(alias / ".caveman")
+        foreign = fixture.home / "foreign.txt"
+        foreign.write_bytes(b"unrelated user content\x00\xff")
+        fixture.install("--only", "continue")
+        assert (fixture.home / ".continue/skills/caveman/SKILL.md").is_file()
+        fixture.install("--uninstall")
+        assert not (fixture.home / ".continue/skills/caveman").exists()
+        assert foreign.read_bytes() == b"unrelated user content\x00\xff"
+
     # Real filesystem refusal, not a fake permission error. Root bypasses POSIX
     # mode checks, so report that missing prerequisite rather than claim coverage.
     if os.geteuid() != 0:
