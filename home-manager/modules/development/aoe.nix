@@ -99,7 +99,7 @@ in
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run mkdir -p "${configDir}"
         if [[ ! -f "${configFile}" ]]; then
-          run cat > "${configFile}" << 'EOF'
+          run ${lib.getExe pkgs.bash} -c 'cat > "$1"' -- "${configFile}" << 'EOF'
         ${aoeConfig}
         EOF
         fi

@@ -2,7 +2,7 @@
 
 ## Context
 
-The eleven local patches live directly under `patches/`. Their builders declare
+Local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly; source versions and hashes come from
 `home-manager/modules/development/pins/{prime-agent,caveman}.json`.
 The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
@@ -10,9 +10,8 @@ patch bases. Reassess each patch when its own source pin changes.
 
 ## Current Patches
 
-The tree carries eleven patches, each with a `# base:` and
-`# intent:` header, and a comment at its use site explaining why it exists and
-when it can go:
+Each patch has `# base:` and `# intent:` headers, plus a comment at its use site
+explaining why it exists and when it can go:
 
 - `patches/prime-agent-nix-self-update.patch` — refuse Nix-managed self-update and fix `PI_OFFLINE` parsing.
 - `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when process ground truth is unavailable.
@@ -24,12 +23,14 @@ when it can go:
 - `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — adapt the OpenCode 1/2 proposal from Blocks PR #17, with local fixes for issues #18/#19 and behavioral regressions. The patch's `# upstream:` header identifies the proposal revision; `# issues:` identifies the locally corrected defects.
+- `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
 
 ## Local Patch Refresh
 
 1. Read the patch's `# base:` / `# intent:` headers and its builder's use-site
    comment. Check every carried change, not only the patch's main purpose.
+   For composite patches, preserve proposal provenance in `# upstream:` and
+   identify separately tracked local defects in `# issues:`.
 2. Resolve the exact source from `pins/default.nix` and the corresponding JSON
    pin. Use that hash-pinned source, not the current contents of a mutable tag.
    The installer patch records its archive URL and unpacked `fetchzip` hash;
@@ -45,11 +46,20 @@ when it can go:
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
 
+### OpenCode adapter
+
 After changing the OpenCode plugin, run
 `caveman-blocks hooks install --harness opencode` to refresh an existing install.
 Updating the Nix package alone does not rewrite user-level agent configuration.
 
+Both OpenCode APIs resolve shell workdirs against the active project. Pending
+hints use session/call identity in V1 and session/message/call identity in V2;
+recomputing an invocation clears its previous hint. Keep both API paths covered
+in the installed-plugin check and the patch's e2e driver.
+
 ### Caveman registrations
+
+#### Profile paths and runtime dependencies
 
 Home Manager supplies `home.profileDirectory` to the Caveman package. Standalone,
 XDG and `useUserPackages` installations therefore select their effective profile
@@ -74,6 +84,12 @@ closure instead; they do not require a persistent registration profile.
 profile Node. It is distinct from the native `caveman-shrink` companion; preserve
 the upstream command and arguments when refreshing this serializer.
 
+#### Installation and registration
+
+The package does not activate, repair, download or register integrations on
+installation. Skills-only and delegated-manager channels keep their existing
+upstream destinations and do not acquire an MCP requirement.
+
 Agent registration remains manual. Reinstall existing generation-specific
 registrations with their owning command (`caveman enable`, `caveman tools mcp
 install`, `caveman tools hooks install`, or `caveman-install`); do not rewrite
@@ -88,6 +104,8 @@ Existing upstream Claude installations must be removed through their host before
 choosing the local channel. Reinstall does not re-enable disabled plugins.
 Uninstall retains changed payloads and foreign-scope registrations; Cursor payload
 removal requires host detachment and the explicit `--plugin-detached` acknowledgment.
+
+#### Automatic Claude profile ownership
 
 Automatic Claude installation owns a separate payload and journal for each
 ambient Claude profile. It uses the existing `claudeConfigDir()` resolver,
@@ -105,6 +123,8 @@ Prepare-only destinations do not acquire this automatic profile identity.
 `--plugin-dir` selects the explicit payload for preparation and removal.
 Cursor's default and explicit prepared paths remain unchanged.
 
+#### Legacy Claude migration
+
 Legacy shared payloads and journals are never adopted, migrated or deleted by
 the automatic channel, including with `--force`. A selected-profile marketplace
 that still names another path stops installation and reports actual and expected
@@ -118,6 +138,8 @@ Foreign edits and user backups retain the existing ownership protections.
 Automatic uninstall reports existing unscoped payload/journal paths as retained
 state only; this advisory neither infers host references nor fails cleanup.
 
+#### Prepared hooks and model overrides
+
 Prepared Claude statusline suggestions use the profile's private Bash command
 from preparation-owned interpreter metadata. Existing accepted statusline commands
 remain user-owned; reinstall alone does not rewrite their interpreter.
@@ -129,6 +151,8 @@ the journal last. Synchronous failures restore displaced originals; unsafe rollb
 retains foreign edits and recovery files at the reported path. This is not
 power-loss recovery or concurrent transaction isolation. Cursor remains unchanged.
 
+#### Mutable payload constraints
+
 Prepared plugin destinations require physical directory ancestors. Stable
 executable profile symlinks remain allowed, but mutable payload ancestors may
 not be symlinks, even outside the store. If `HOME` or `CAVEMAN_HOME` is aliased,
@@ -139,9 +163,7 @@ prepared payload through the host. Never point these mutable paths into the stor
 An uninstall without a prepared-plugin journal is a no-op for that channel;
 an existing journal still requires the full physical-ancestor validation.
 
-The package does not activate, repair, download or register integrations on
-installation. Skills-only and delegated-manager channels keep their existing
-upstream destinations and do not acquire an MCP requirement.
+#### Runtime verification
 
 The runtime check runs the installer's behavioral Node suite and
 `checks/caveman-profiles.py` / `checks/caveman-installer.py`. The profile check
@@ -190,14 +212,18 @@ gh pr view <PR_NUMBER> --repo <OWNER>/<REPO> --json state,mergeCommit,headRefOid
 If `state: "MERGED"`, verify merge is included in locked rev:
 
 ```bash
-# "ahead" or "identical" → merge included → DELETE patch
-# "behind" or "diverged" → locked rev predates merge → keep patch until lock update
+# "ahead" or "identical" → merge included; inspect coverage of each carried change
+# "behind" or "diverged" → ancestry does not establish inclusion
 gh api repos/<OWNER>/<REPO>/compare/<mergeCommitSha>...$LOCKED_REV --jq '.status'
 ```
 
-- If merge included → DELETE patch, commit `chore: remove merged <project> PR #<N> patch`
-- If `state: "CLOSED"` without merge → decide: re-open as new PR, carry patch indefinitely, or drop feature
-- If `state: "OPEN"` → refresh (continue below)
+- If the merge is included, remove only changes covered by the pinned source.
+  Keep local fixes not supplied upstream; retire the patch only when all carried
+  changes are covered. For complete removal, use
+  `chore: remove merged <project> PR #<N> patch`.
+- If `state: "CLOSED"` without merge, decide whether to propose the change again,
+  keep it locally or drop it.
+- If `state: "OPEN"` or changes remain after a merge, continue below.
 
 ### 2. Download fresh PR diff
 
@@ -205,12 +231,16 @@ gh api repos/<OWNER>/<REPO>/compare/<mergeCommitSha>...$LOCKED_REV --jq '.status
 gh pr diff <PR_NUMBER> --repo <OWNER>/<REPO> > /tmp/fresh.patch
 ```
 
-### 3. Filter: strip hunks irrelevant to build
+### 3. Filter by build and runtime use
 
-The patch applies during `patchPhase` on the full `$src` fetched by nix. Keep hunks for files **relevant to the build output**. Strip docs, changelogs, lock files, and CI configs — even though they exist in `$src` — because they add conflict surface without affecting builds.
+The patch applies during `patchPhase` on the full fetched source. Keep hunks
+needed by the builder, installed runtime or relevant checks. Judge each file by
+its actual consumers, not its directory or extension.
 
-**What to KEEP**: source, test, scripts, config files that affect compilation/bundling
-**What to STRIP**: docs/, CHANGELOG.md, flake.lock, flake.nix, .github/, README.md, metadata-only files
+- Keep source, scripts, tests and configuration used by the selected package.
+- Keep documentation, manifests, lock files or Nix expressions when the builder
+  consumes them or the installed runtime requires their changes.
+- Strip unrelated prose, changelog entries, CI changes and unused metadata.
 
 ```bash
 # Note: filterdiff uses fnmatch(3) — '*' matches across '/' (unlike shell globs).
@@ -229,7 +259,8 @@ if [ ! -s /tmp/filtered.patch ]; then
 fi
 ```
 
-If `filterdiff` unavailable: manually delete diff sections for build-irrelevant files.
+If `filterdiff` is unavailable, remove only sections unrelated to the selected
+build, runtime and checks.
 
 ### 4. Compare & replace
 
@@ -238,7 +269,9 @@ diff patches/<name>.patch /tmp/filtered.patch
 ```
 
 - If identical → no change needed
-- If different → replace the patch body, preserving its `# base:` / `# intent:` headers.
+- If different, regenerate the required changes against the pinned source after
+  its prerequisite patches. Preserve local fixes absent from the PR diff and
+  retain the provenance headers; update the base when it changes.
 
 ### 5. Verify patch applies
 
@@ -292,9 +325,13 @@ git log --oneline -1  # must show the commit just made
 
 ## Key Rules
 
-- NEVER include doc/changelog/lock/CI hunks — they cause needless offset drift without affecting builds
-- ALWAYS verify against the LOCKED rev, not upstream HEAD
-- `gh pr diff` gives diff against the PR's TARGET branch HEAD — if our locked rev lags behind, line numbers diverge and patches fail. When this happens: update the lock first (`nix flake update <input>`), re-download the diff, then retry.
+- Keep only hunks required by the selected build, installed runtime or checks.
+- Verify against the selected pinned source, not upstream HEAD.
+- A fresh PR diff may target a different base. Regenerate against the existing
+  pinned source and its prerequisites, or update the relevant pin when the
+  dependency change is intended. For flake inputs, that can mean
+  `nix flake update <input>`; for JSON-pinned sources, update their source pin.
+  Verify the resulting patch against the chosen base in either case.
 - Treat fuzz/offset warnings as errors — a patch drifting today breaks tomorrow
 - ALWAYS `git status` after commit to confirm it landed (truncated output can hide failures)
 - Commit message format: `chore: refresh <project> PR #<N> patch`

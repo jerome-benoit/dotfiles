@@ -292,7 +292,7 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     run(node, "--input-type=module", "-", str(plugin), str(repo), cwd=root, data=r"""
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
-const { default: plugin } = await import(pathToFileURL(process.argv[2]));
+const { CavemanBlocks, default: plugin } = await import(pathToFileURL(process.argv[2]));
 const hooks = new Map();
 const directory = process.argv[3];
 assert.notEqual(process.cwd(), directory);
@@ -308,6 +308,29 @@ const after = (id, result, sessionID = `fixture-${id}`, messageID = `msg_${id}`)
   tool: "shell", sessionID, messageID, id, status: "completed", result,
 });
 const hint = "Blocks: json-peek covers this. Next time: caveman-blocks run json-peek --path <path>";
+const legacy = await CavemanBlocks({ directory });
+const beforeV1 = (callID, command, sessionID, workdir) => legacy["tool.execute.before"]({
+  tool: "bash", sessionID, callID,
+}, { args: { command, workdir } });
+const afterV1 = async (callID, sessionID) => {
+  const output = { output: "legacy output", metadata: { exit: 7 } };
+  await legacy["tool.execute.after"]({ tool: "bash", sessionID, callID }, output);
+  assert.deepEqual(output.metadata, { exit: 7 });
+  return output.output;
+};
+await beforeV1("shared", command, "legacy-a");
+await beforeV1("shared", "printf ok", "legacy-b");
+assert.equal(await afterV1("shared", "legacy-b"), "legacy output");
+assert.equal(await afterV1("shared", "legacy-a"), `legacy output\n\n${hint}`);
+assert.equal(await afterV1("shared", "legacy-a"), "legacy output");
+await beforeV1("shared", command, "legacy-a");
+await beforeV1("shared", command, "legacy-b");
+await beforeV1("shared", "printf ok", "legacy-a");
+assert.equal(await afterV1("shared", "legacy-a"), "legacy output");
+assert.equal(await afterV1("shared", "legacy-b"), `legacy output\n\n${hint}`);
+await beforeV1("invalid", command, "legacy-invalid");
+await beforeV1("invalid", command, "legacy-invalid", { invalid: true });
+assert.equal(await afterV1("invalid", "legacy-invalid"), "legacy output");
 await before("matched", command);
 await before("plain", "printf ok");
 const output = { output: "stderr\n", exit: 7, truncated: false, status: "completed" };
@@ -383,8 +406,11 @@ for (const [workdir, matches] of [
     : result.content, `workdir=${workdir}`);
   assert.strictEqual(event.result.output, output);
   assert.deepEqual(event.result.metadata, result.metadata);
+  await beforeV1("cwd", command, sessionID, workdir);
+  assert.equal(await afterV1("cwd", sessionID),
+    matches ? `legacy output\n\n${hint}` : "legacy output", `v1 workdir=${workdir}`);
 }
-console.log("OpenCode 2: content, metadata, session/message isolation and location workdirs passed");
+console.log("OpenCode 1/2: output, metadata, invocation isolation and location workdirs passed");
 """.encode())
     run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo)
 

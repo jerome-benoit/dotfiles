@@ -18,6 +18,10 @@
       pkgs
       ;
   };
+  development = import ./development.nix {
+    inherit home-manager pkgs;
+    inputs = self.inputs;
+  };
   email = import ./email.nix {
     inherit home-manager pkgs sops-nix;
   };
