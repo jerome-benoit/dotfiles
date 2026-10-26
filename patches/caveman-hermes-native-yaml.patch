@@ -5,7 +5,7 @@
 #   Upstream: https://github.com/JuliusBrussee/caveman/issues/1405
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -10031,7 +10031,10 @@
+@@ -10052,7 +10052,10 @@
      const lines = yamlLines(source);
      let model = topLevelSection(lines, "model");
      if (!model) {
@@ -17,7 +17,7 @@
          model = topLevelSection(lines, "model");
      }
      const routeIndexes = [];
-@@ -10069,7 +10072,15 @@
+@@ -10090,7 +10093,15 @@
          }
          if (enabled >= 0) {
              if (!hermesNamedPluginEnabled(source, HERMES_NATIVE_PLUGIN_NAME)) {
