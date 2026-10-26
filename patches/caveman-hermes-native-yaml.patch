@@ -2,7 +2,7 @@
 # intent: keep the Hermes native wiring valid YAML. A new model section is inserted
 #   after the document start markers instead of above %YAML, and the plugin list
 #   entry takes the indentation of its siblings instead of a fixed four spaces.
-#   Remove when upstream does both.
+#   Upstream: https://github.com/JuliusBrussee/caveman/issues/1405
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -10031,7 +10031,10 @@
