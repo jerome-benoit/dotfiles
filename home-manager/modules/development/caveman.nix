@@ -44,6 +44,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = optionalPackages.packages;
+    home.sessionVariables.CAVEMAN_MODE = lib.mkDefault "compress";
     warnings = optionalPackages.warnings;
   };
 }
