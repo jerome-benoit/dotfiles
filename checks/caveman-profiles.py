@@ -494,16 +494,21 @@ def hermes_semantic_ownership(f):
     # false negative in the global recovery status after Hermes rewrites YAML.
     config = f.paths("hermes")
     journal_path = f.cave / "integrations/hermes.json"
-    numeric_plugins = ["3d-tools", "1password", "1.2.3", "1e3-tools",
-                       "0x10-plugin", "2026-10-27-plugin"]
+    plain_plugins = ["3d-tools", "1password", "1.2.3", "1e3-tools",
+                     "0x10-plugin", "2026-10-27-plugin", "-helper", "?helper",
+                     ":helper", "-1-helper", "-0x10-plugin", "team:helper", "team#helper"]
+    foreign_servers = {
+        name: {"command": "/foreign/mcp", "args": [name]}
+        for name in ("foreign", "team/github", "my server", "équipe/工具", "team:github", "team#github")
+    }
     original = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
                   "default": "claude-sonnet-4-5", "foreign": {"keep": ["café", 7]}},
-        "plugins": {"enabled": ["existing", "café", *numeric_plugins], "foreign": {"keep": True}},
-        "mcp_servers": {"foreign": {"command": "/foreign/mcp", "args": ["keep"]}},
+        "plugins": {"enabled": ["existing", "café", *plain_plugins], "foreign": {"keep": True}},
+        "mcp_servers": foreign_servers,
         "_config_version": 52,
     }
-    put(config, yaml.safe_dump(original, sort_keys=False))
+    put(config, yaml.safe_dump(original, sort_keys=False, allow_unicode=True))
     # Use the fixture's nonlocal route: YAML ownership does not depend on an
     # opportunistically started proxy. MCP retrieval still executes below.
     f.cli("enable", "hermes")
@@ -513,7 +518,7 @@ def hermes_semantic_ownership(f):
     document["plugins"]["enabled"].append("later-plugin")
     document["plugins"]["later_field"] = {"keep": "later plugin data"}
     document["mcp_servers"]["later"] = {"url": "https://foreign.example.invalid/mcp"}
-    normalized = yaml.safe_dump(document)
+    normalized = yaml.safe_dump(document, allow_unicode=True)
     # YAML quoting is not JSON quoting: Hermes/PyYAML may emit all three forms.
     normalized = normalized.replace("provider: custom", r'provider: "\x63\u0075\U00000073tom"')
     put(config, normalized)
@@ -557,7 +562,7 @@ def hermes_semantic_ownership(f):
         ("duplicate root", normalized + "model:\n  provider: custom\n"),
         ("duplicate MCP", normalized.replace("\nmcp_servers:\n", "\nmcp_servers:\n  caveman-native:\n    command: /foreign/mcp\n")),
         ("flow plugin list", normalized.replace(
-            "  enabled:\n" + "".join("  " + line for line in yaml.safe_dump(document["plugins"]["enabled"]).splitlines(keepends=True)),
+            "  enabled:\n" + "".join("  " + line for line in yaml.safe_dump(document["plugins"]["enabled"], allow_unicode=True).splitlines(keepends=True)),
             "  enabled: " + json.dumps(document["plugins"]["enabled"], ensure_ascii=False) + "\n")),
         ("plain comment continuation", normalized.replace(
             "  provider: " + r'"\x63\u0075\U00000073tom"',
@@ -566,14 +571,21 @@ def hermes_semantic_ownership(f):
             "  provider: " + r'"\x63\u0075\U00000073tom"',
             '  provider: "custom" # end\n    foreign')),
     ))
-    # Reject complete typed scalars, not foreign names with numeric prefixes.
+    # Reject typed scalars without rejecting ordinary names that share a prefix.
     typed_scalars = ("+1_000", "0b10", "0x10", "012", "1:20", "1.0e+3",
-                     ".5", "1:20.5", "2026-10-27", "2026-10-27T12:34:56Z", "true", "null")
+                     ".5", "1:20.5", "2026-10-27", "2026-10-27T12:34:56Z", "true", "null",
+                     "-1", "-0b10", "-0x10", "-1:20", "-.inf", "-.Inf", "-.INF")
     for scalar in typed_scalars:
         assert not isinstance(yaml.safe_load(scalar), str), scalar
-    # YAML 1.2 resolves these as numbers even though PyYAML resolves strings.
-    for scalar in (*typed_scalars, "1e3", ".5e3", "0o10", "09"):
+    # Reject YAML 1.2 numbers and separated indicators too.
+    for scalar in (*typed_scalars, "1e3", ".5e3", "0o10", "09", "-1e3", "-.5", "-.5e3", "-0o10",
+                   "-", "?", ":", "- value", "? key", ": value"):
         edits.append(("typed plugin " + scalar, normalized.replace("- existing\n", "- " + scalar + "\n")))
+    for key in ('"team/github"', "true", "012", "-1", "team # comment", "<<"):
+        edits.append(("unsafe MCP key " + key, normalized.replace(
+            "\nmcp_servers:\n", "\nmcp_servers:\n  " + key + ":\n    command: /foreign/mcp\n")))
+    edits.append(("alias MCP key", "alias_key: &server_name team/alias\n" + normalized.replace(
+        "\nmcp_servers:\n", "\nmcp_servers:\n  *server_name:\n    command: /foreign/mcp\n")))
     integration_files = [Path(item["file"]) for item in load(journal_path)["operations"]]
     for label, edited in edits:
         assert edited != normalized, label
@@ -604,8 +616,8 @@ def hermes_semantic_ownership(f):
     wrapped = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
                   "default": "claude-sonnet-4-5"},
-        "plugins": {"enabled": ["existing", *numeric_plugins], "foreign": {"keep": True}},
-        "mcp_servers": {"foreign": {"command": "/foreign/mcp", "args": ["keep"]}},
+        "plugins": {"enabled": ["existing", *plain_plugins], "foreign": {"keep": True}},
+        "mcp_servers": foreign_servers,
     }
     for previous in ({}, {"model": {"provider": "auto", "base_url": None}}, commented_null,
                      {"model": {"provider": "anthropic", "base_url": "null"}},
@@ -615,15 +627,17 @@ def hermes_semantic_ownership(f):
         "plugins": {"enabled": ["caveman_native", "existing"]},
         "mcp_servers": {"caveman-native": {"command": "/foreign/mcp", "enabled": True}},
     }):
-        seed = yaml.safe_dump(previous, indent=4) if previous else ""
+        seed = yaml.safe_dump(previous, indent=4, allow_unicode=True) if previous else ""
         if previous is commented_null:
             seed = seed.replace("base_url: null", "base_url: # user endpoint unset")
         if previous is wrapped:
             seed = seed.replace("provider: anthropic", 'provider: "anthro\\\n        pic"')
             seed = seed.replace("base_url: https://api.anthropic.com",
                                 'base_url: "https://api.\\\n        anthropic.com"')
-            for name in numeric_plugins:
+            for name in plain_plugins:
                 seed = seed.replace("- " + name + "\n", "- " + json.dumps(name) + "\n")
+            for name in foreign_servers:
+                seed = seed.replace("    " + name + ":", "    " + json.dumps(name) + ":")
         put(config, seed)
         f.cli("enable", "hermes")
         active = yaml.safe_load(config.read_text())
@@ -631,9 +645,9 @@ def hermes_semantic_ownership(f):
         active["plugins"]["enabled"].append("later-plugin")
         active["plugins"]["foreign"] = {"keep": True}
         active["mcp_servers"]["foreign"] = {"command": "/foreign/later"}
-        normalized = yaml.safe_dump(active, indent=4)
+        normalized = yaml.safe_dump(active, indent=4, allow_unicode=True)
         if previous is wrapped:
-            assert all("- " + name + "\n" in normalized for name in numeric_plugins)
+            assert all("- " + name + "\n" in normalized for name in plain_plugins)
         # Quoted roots and owned child keys are accepted YAML, not new sections.
         for key in ("model", "plugins", "mcp_servers", "provider", "base_url",
                     "enabled", "caveman-native"):
@@ -676,6 +690,89 @@ def hermes_semantic_ownership(f):
             del expected["mcp_servers"]["caveman-native"]
         assert yaml.safe_load(config.read_text()) == expected, config.read_text()
         assert "# preserve foreign model note" in config.read_text()
+
+
+def hermes_foreign_markers(f):
+    config = f.paths("hermes")
+    journal_path = f.cave / "integrations/hermes.json"
+    payload = f.home / ".hermes/plugins/caveman_native/__init__.py"
+    markers = [
+        "# >>> caveman:native-hermes-routing", "# <<< caveman:native-hermes-routing",
+        "# >>> caveman:native-hermes-plugin", "# <<< caveman:native-hermes-plugin",
+        "# >>> caveman:native-hermes-mcp", "# <<< caveman:native-hermes-mcp",
+    ]
+
+    def body(width, lines):
+        return "".join(" " * width + line + "\n" for line in lines)
+
+    content = ["before", *markers, "after"]
+    quoted = json.dumps('before \\\\ "quote"')[:-1]
+    fragments = (
+        ("literal", "custom_notes: |\n" + body(2, content)),
+        ("folded", "custom_notes: >-\n" + body(2, content)),
+        ("marker-first", "custom_notes: |2-\n" + body(2, markers)),
+        ("next-line-header", "custom_notes:\n  |2-\n" + body(2, content)),
+        ("property-line", "custom_notes:\n  &notes\n  |2-\n" + body(2, content)),
+        ("sequence", "custom_notes:\n  - |2\n" + body(4, content)),
+        ("compact-mapping", "custom_notes:\n  - text: >2-\n" + body(6, content)),
+        ("single-quoted", "custom_notes: 'before ''quote''\n" + body(2, markers) + "  after'\n"),
+        ("double-quoted", "custom_notes: " + quoted + "\n" + body(2, markers) + '  after"\n'),
+        ("tagged", "custom_notes: !<tag:yaml.org,2002:str> " + quoted + "\n"
+         + body(2, markers) + '  after"\n'),
+        ("flow-quoted", "custom_notes: {\n  text: " + quoted + "\n"
+         + body(2, markers) + '  after"\n  }\n'),
+        ("flow-adjacent", 'custom_notes: {"text":' + quoted + "\n"
+         + body(2, markers) + '  after"}\n'),
+        ("quoted-key", "custom_notes:\n  ? 'before\n" + body(4, markers) + "    after'\n  : keep\n"),
+        ("block-key", "custom_notes:\n  ? |2\n" + body(4, markers) + "  : keep\n"),
+        ("deferred-sequence", "custom_notes:\n  -\n    |2\n" + body(4, markers)),
+    )
+    original = {
+        "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
+        "plugins": {"enabled": ["existing"]},
+    }
+    seed = yaml.safe_dump(original, sort_keys=False)
+    for label, fragment in fragments:
+        fragment += "plain_note: don't [start]\n"
+        expected = yaml.safe_load(seed + fragment)
+        put(config, seed)
+        f.cli("enable", "hermes")
+        put(config, config.read_text() + "\n" + fragment)
+        active = yaml.safe_load(config.read_text())
+        healthy = json.loads(f.cli("doctor", "hermes").stdout)
+        assert healthy["state"] == "installed", (label, healthy)
+        assert next(item["owned"] for item in healthy["files"] if item["file"] == str(config))
+        payload.unlink()
+        f.cli("doctor", "hermes", "--fix")
+        assert payload.is_file(), label
+        assert yaml.safe_load(config.read_text()) == active, label
+        assert fragment in config.read_text(), label
+        repaired, journal = config.read_bytes(), journal_path.read_bytes()
+        f.cli("doctor", "hermes", "--fix")
+        assert config.read_bytes() == repaired and journal_path.read_bytes() == journal, label
+        f.cli("disable", "hermes")
+        assert yaml.safe_load(config.read_text()) == expected, label
+        assert fragment in config.read_text(), label
+        assert not payload.exists() and not journal_path.exists(), label
+        # Re-enable exercises producer preflight without an existing journal.
+        f.cli("enable", "hermes")
+        f.cli("disable", "hermes")
+        assert yaml.safe_load(config.read_text()) == expected, label
+    for text in (
+        "custom_notes: don't [start]\n" + markers[0] + "\n",
+        "custom_notes: [\n  " + markers[-1] + '\n  "keep"\n  ]\n',
+        "custom_notes:\n  - plain\n    'quote\n  " + markers[0] + "\n",
+    ):
+        put(config, seed + text)
+        before = config.read_bytes()
+        snapshots = {p: p.read_bytes() for p in (f.cave / "integrations").rglob("*") if p.is_file()}
+        result = f.cli("enable", "hermes", check=False)
+        assert result.returncode != 0, (text, result.stdout, result.stderr)
+        assert config.read_bytes() == before
+        assert not payload.exists() and not journal_path.exists()
+        assert {p: p.read_bytes() for p in (f.cave / "integrations").rglob("*") if p.is_file()} == snapshots
+
+
 
 
 def native_integrations(f):
@@ -1053,6 +1150,7 @@ def main():
             ("ownership", ownership_controls),
             ("hermes-yaml", hermes_yaml),
             ("hermes-semantic", hermes_semantic_ownership),
+            ("hermes-markers", hermes_foreign_markers),
             ("native-registration", native_registration_commands),
         ):
             state = short_native_state()

@@ -84,6 +84,16 @@ Recognize complete finite numeric and timestamp scalars, not numeric prefixes
 in plugin names. Cover both plain-name enable and quoted-to-plain normalization
 through actual repair and disable; retain fail-before-write checks for typed scalars.
 
+Accept unambiguous plain YAML keys and plugin names, including slashes, spaces,
+Unicode and `-`, `?`, `:` prefixes without separation. Decode quoted and plain
+keys consistently; reject typed keys, duplicate keys, aliases and merge keys
+before writes.
+
+Remove only standalone integration-marker comments, identified before line
+splices. Marker-looking content in literal, folded and quoted scalars, including
+flow values and foreign keys, is user data. Share this lexical classifier with
+fresh-enable refusal; genuine unjournaled marker comments must still block enable.
+
 The native enable and repair producer must use the same semantic YAML spans as
 ownership and restoration. Follow existing mapping and sequence indentation,
 including quoted keys, rather than inserting fixed-width children. Capture scalar
