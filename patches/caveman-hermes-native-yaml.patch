@@ -1,36 +1,62 @@
 # base: @caveman-ai/cli 4.0.1
 # intent: keep the Hermes native wiring valid YAML. A new model section is inserted
-#   after the document start markers instead of above %YAML, and the plugin list
-#   entry takes the indentation of its siblings instead of a fixed four spaces.
-#   Upstream: https://github.com/JuliusBrussee/caveman/issues/1405
+#   after the document start markers instead of above %YAML, and sequence items take
+#   the indentation of their siblings in both writers of ~/.hermes/config.yaml.
+#   Mirrors the shape of JuliusBrussee/caveman#1395 so this patch can be dropped when
+#   that fix ships; upstream issue: https://github.com/JuliusBrussee/caveman/issues/1405
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -10052,7 +10052,10 @@
+@@ -10064,7 +10064,7 @@
      const lines = yamlLines(source);
      let model = topLevelSection(lines, "model");
      if (!model) {
 -        lines.unshift("model:");
-+        let insertAt = 0;
-+        while (insertAt < lines.length && /^(?:%YAML\b|---|\.\.\.)/.test(lines[insertAt]))
-+            insertAt += 1;
-+        lines.splice(insertAt, 0, "model:");
++        lines.splice(yamlBodyStart(lines), 0, "model:");
          model = topLevelSection(lines, "model");
      }
      const routeIndexes = [];
-@@ -10090,7 +10093,15 @@
+@@ -10102,7 +10102,8 @@
          }
          if (enabled >= 0) {
              if (!hermesNamedPluginEnabled(source, HERMES_NATIVE_PLUGIN_NAME)) {
 -                const block = [`    ${HERMES_NATIVE_PLUGIN_BEGIN}`, `    - ${HERMES_NATIVE_PLUGIN_NAME}`, `    ${HERMES_NATIVE_PLUGIN_END}`];
-+                let indent = "  ";
-+                for (let i = enabled + 1; i < plugins.end; i++) {
-+                    const sibling = lines[i].match(/^(\s*)-\s/);
-+                    if (sibling) {
-+                        indent = sibling[1];
-+                        break;
-+                    }
-+                }
-+                const block = [`${indent}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${indent}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${indent}${HERMES_NATIVE_PLUGIN_END}`];
++                const pad = yamlListItemIndent(lines, enabled, plugins.end) ?? "    ";
++                const block = [`${pad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${pad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${pad}${HERMES_NATIVE_PLUGIN_END}`];
                  lines.splice(enabled + 1, 0, ...block);
                  pluginBlock = block.join("\n");
              }
+@@ -14062,6 +14063,24 @@
+         lines.pop();
+     return lines;
+ }
++// A document may start with %YAML directives and a --- marker; a new top-level
++// section belongs after them, never above.
++function yamlBodyStart(lines) {
++    let index = 0;
++    while (index < lines.length && /^(?:%|---|\.\.\.)/.test(lines[index]))
++        index += 1;
++    return index;
++}
++// Sequence items take the indentation of their siblings, so an inserted entry
++// cannot land one level deeper than the list it joins.
++function yamlListItemIndent(lines, start, end) {
++    for (let i = start + 1; i < end; i++) {
++        const item = lines[i].match(/^(\s*)-\s/);
++        if (item)
++            return item[1];
++    }
++    return undefined;
++}
+ function yamlText(lines) {
+     return lines.length ? `${lines.join("\n")}\n` : "";
+ }
+@@ -18532,7 +18551,8 @@
+             return false;
+         }
+         if (enabledLine >= 0) {
+-            lines.splice(enabledLine + 1, 0, `    ${HERMES_PLUGIN_ENABLE_BEGIN}`, `    - ${HERMES_PLUGIN_NAME}`, `    ${HERMES_PLUGIN_ENABLE_END}`);
++            const pad = yamlListItemIndent(lines, enabledLine, plugins.end) ?? "    ";
++            lines.splice(enabledLine + 1, 0, `${pad}${HERMES_PLUGIN_ENABLE_BEGIN}`, `${pad}- ${HERMES_PLUGIN_NAME}`, `${pad}${HERMES_PLUGIN_ENABLE_END}`);
+         }
+         else {
+             lines.splice(plugins.start + 1, 0, `  ${HERMES_PLUGIN_ENABLE_BEGIN}`, "  enabled:", `    - ${HERMES_PLUGIN_NAME}`, `  ${HERMES_PLUGIN_ENABLE_END}`);
