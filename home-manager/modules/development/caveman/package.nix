@@ -6,18 +6,26 @@
   fetchzip,
   nodejs_22,
   makeWrapper,
+  pnpm_10,
+  pnpmConfigHook,
+  fetchPnpmDeps,
   git,
   bash,
   callPackage,
+  src,
   registrationProfile ? null,
 }:
 let
   pins = (import ../pins { inherit lib fetchurl fetchzip; }).caveman;
-  runtime = callPackage ./runtime.nix { inherit pins; };
+  upstreamCli = lib.importJSON "${src}/packages/cli/package.json";
+  date = src.lastModifiedDate or "19700101000000";
+  formattedDate = "${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}";
+  version = "${upstreamCli.version}-unstable-${formattedDate}+${src.shortRev}";
+  pnpmWorkspaces = [ "@caveman-ai/cli" ];
+  runtime = callPackage ./runtime.nix { inherit pins src; };
   installerSource = stdenvNoCC.mkDerivation {
     pname = "caveman-installer-source";
-    inherit (pins) version;
-    src = pins.src;
+    inherit version src;
     # Workaround: installers persist generation-specific paths and share Claude payloads.
     # Remove when upstream supports durable paths and profile-local ownership.
     patches = [ ../../../../patches/caveman-nix-installer-paths.patch ];
@@ -58,12 +66,24 @@ let
 in
 stdenvNoCC.mkDerivation {
   pname = "caveman";
-  inherit (pins) version;
-  src = pins.cli;
+  inherit version src;
 
-  nativeBuildInputs = [ makeWrapper ];
+  nativeBuildInputs = [
+    makeWrapper
+    nodejs_22
+    pnpm_10
+    pnpmConfigHook
+  ];
   strictDeps = true;
-  dontBuild = true;
+  inherit pnpmWorkspaces;
+  pnpmDeps = fetchPnpmDeps {
+    pname = "caveman";
+    inherit src;
+    pnpm = pnpm_10;
+    inherit pnpmWorkspaces;
+    fetcherVersion = 5;
+    hash = pins.pnpmDepsHash;
+  };
 
   # Workaround: upstream has no package-manager-owned installation mode.
   # Remove when it can disable all executable installation and self-update paths.
@@ -78,11 +98,21 @@ stdenvNoCC.mkDerivation {
     ../../../../patches/caveman-hermes-native-yaml.patch
   ];
 
+  buildPhase = ''
+    runHook preBuild
+    # The CLI generates its binary catalog from this release, not its npm version.
+    test "$(cat packages/cli/BINARY_RELEASE)" = "bin-v${pins.runtimeVersion}"
+    read -r blocksRelease _ < packages/cli/BLOCKS_RELEASE
+    test "$blocksRelease" = "v${pins.blocks.version}"
+    pnpm --dir packages/cli run build
+    runHook postBuild
+  '';
+
   installPhase = ''
     runHook preInstall
     mkdir -p "$out/lib/caveman" "$out/bin" "$out/share/doc/caveman"
-    cp -r dist package.json "$out/lib/caveman/"
-    cp LICENSE NOTICE README.md "$out/share/doc/caveman/"
+    cp -r packages/cli/dist packages/cli/package.json "$out/lib/caveman/"
+    cp packages/cli/{LICENSE,NOTICE,README.md} "$out/share/doc/caveman/"
     ln -s ${installerSource} "$out/lib/caveman/source"
     for executable in ${runtime}/bin/*; do
       name="$(basename "$executable")"
@@ -137,6 +167,7 @@ stdenvNoCC.mkDerivation {
 
   passthru = {
     inherit runtime installerSource registrationProfile;
+    inherit (src) rev;
   };
 
   meta = {
@@ -144,7 +175,7 @@ stdenvNoCC.mkDerivation {
     homepage = "https://github.com/JuliusBrussee/caveman";
     license = lib.licenses.asl20;
     mainProgram = "caveman";
-    sourceProvenance = [ lib.sourceTypes.binaryBytecode ];
+    sourceProvenance = [ lib.sourceTypes.fromSource ];
     platforms = [
       "aarch64-darwin"
       "aarch64-linux"

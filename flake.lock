@@ -40,6 +40,23 @@
         "type": "github"
       }
     },
+    "caveman": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792915057,
+        "narHash": "sha256-fuSsPP7GMuAZ5Ab2paS41RAo5k/objd503ElcMeMgsk=",
+        "owner": "JuliusBrussee",
+        "repo": "caveman",
+        "rev": "9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "JuliusBrussee",
+        "ref": "main",
+        "repo": "caveman",
+        "type": "github"
+      }
+    },
     "colibri": {
       "inputs": {
         "flake-utils": [
@@ -430,6 +447,7 @@
       "inputs": {
         "agent-of-empires": "agent-of-empires",
         "agtx": "agtx",
+        "caveman": "caveman",
         "colibri": "colibri",
         "flake-parts": "flake-parts",
         "flake-utils": "flake-utils",

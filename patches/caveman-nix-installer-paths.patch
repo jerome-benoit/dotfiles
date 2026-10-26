@@ -1,7 +1,8 @@
-# base: https://github.com/JuliusBrussee/caveman/archive/refs/tags/v4.0.1.tar.gz
-# base-hash: sha256-2xZHdWkWJrPAJ8++qW0Xmb3eORZ41e+GsZjIphqTtlI= (fetchzip unpacked source)
-# intent: use profile-local interpreters and isolate automatic Claude payload ownership.
-#   Preserve mutable plugin ownership across model overrides, refresh and removal.
+# base: https://github.com/JuliusBrussee/caveman/archive/9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4.tar.gz
+# base-hash: sha256-fuSsPP7GMuAZ5Ab2paS41RAo5k/objd503ElcMeMgsk= (fetchzip unpacked source)
+# intent: use profile-local interpreters and isolate mutable Claude payload ownership.
+#   Preserve upstream atomic model writes for ordinary callers; prepared plugins
+#   collect writes into the ownership-journal transaction.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
@@ -10,7 +11,7 @@ diff --git a/installer/install.js b/installer/install.js
  const PLATFORM_PATHS = require('./lib/platform-paths');
  const { parseCommandArgs } = require('./lib/command-args');
 +const MANAGED_PLUGINS = require('./lib/managed-plugins');
- 
+
  const REPO = 'JuliusBrussee/caveman';
  // Mirrors the `engines.node` floor in package.json. Hardcoded rather than read
 @@ -91,7 +92,7 @@
@@ -72,7 +73,7 @@ diff --git a/installer/install.js b/installer/install.js
 @@ -531,6 +558,13 @@
    return process.execPath;
  }
- 
+
 +function mcpShrinkCommand(upstream) {
 +  const root = MANAGED_PLUGINS.registrationRoot();
 +  return root
@@ -84,7 +85,7 @@ diff --git a/installer/install.js b/installer/install.js
  // When the file had them, keep the commented original once and say where.
  function writeSettingsKeepingComments(settingsPath, settings, meta, warn) {
 @@ -555,10 +589,10 @@
- 
+
  // `plugin list` also names a turned-off plugin, which runs no hooks. Only
  // `--json` saying it is on at user scope counts; a claude without it says no.
 -function claudeCavemanEnabled() {
@@ -95,11 +96,11 @@ diff --git a/installer/install.js b/installer/install.js
 +    return spawnOk(r) && JSON.parse(r.stdout).some((p) => p && p.id === pluginId && p.scope === 'user' && p.enabled === true);
    } catch (_) { return false; }
  }
- 
+
 @@ -567,31 +601,53 @@
    results.detected++;
    say('→ Claude Code detected');
- 
+
 -  // Plugin install (idempotent unless --force)
 +  // Nix uses an owned, mutable local marketplace. The external host still owns
 +  // registration and plugin lifecycle; its cached or foreign payloads are never
@@ -169,7 +170,7 @@ diff --git a/installer/install.js b/installer/install.js
 +      }
      }
    }
- 
+
 @@ -658,7 +714,7 @@
          // check and `plugin install` leaves a turned-off plugin off, so ask.
          // A dry run installed nothing: a plugin not there yet is one the real
@@ -253,7 +254,7 @@ diff --git a/installer/install.js b/installer/install.js
 @@ -2264,15 +2327,39 @@
      // Don't rmdir hooksDir — other plugins may use it.
    }
- 
+
 +  // Only an unchanged journal-owned local payload can be removed. Host
 +  // deregistration precedes deletion; failures or edits retain payload/journal.
 +  try {
@@ -290,7 +291,7 @@ diff --git a/installer/install.js b/installer/install.js
 -      note('  claude plugin not installed — skipping');
 +      note('  upstream claude plugin not installed or outside the Nix managed channel — skipping');
      }
- 
+
      // caveman-shrink MCP — only run if `claude mcp` subcommand exists. Output
 @@ -2694,6 +2781,18 @@
                          plugin did not install, because the plugin already
@@ -314,7 +315,7 @@ diff --git a/installer/install.js b/installer/install.js
 @@ -2715,6 +2814,20 @@
    --no-color            Disable ANSI colors.
    -h, --help            Show this help.
- 
+
 +ENVIRONMENT
 +  CAVEMAN_REGISTRATION_ROOT
 +                        Absolute lexical stable profile prefix. Persisted hooks
@@ -355,13 +356,13 @@ diff --git a/installer/install.js b/installer/install.js
 +    ctx.note('  Do not also enable the upstream marketplace plugin or standalone hooks: duplicate hooks inject twice.');
 +    return 0;
 +  }
- 
+
    if (opts.uninstall) return uninstall(ctx);
- 
+
 @@ -2835,5 +2967,10 @@
    return 0;
  }
- 
+
 -main().then(code => process.exit(code || 0))
 -      .catch(err => { process.stderr.write((err && err.stack || String(err)) + '\n'); process.exit(1); });
 +// Expose the owning serializers for offline artifact fixtures. Requiring this
@@ -590,7 +591,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 @@ -45,19 +45,49 @@
    return target;
  }
- 
+
 -function updateDigest(hash, root, target) {
 +function assertMutableParent(pluginDir) {
 +  if (!path.isAbsolute(pluginDir) || path.dirname(pluginDir) === pluginDir) {
@@ -638,7 +639,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 +    updates.delete(relative);
 +  }
  }
- 
+
  function digestPath(target) {
 @@ -66,6 +96,109 @@
    // compare byte-for-byte despite having different temporary basenames.
@@ -748,12 +749,12 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 +  // Journal rename committed the update; cleanup failure must not roll it back.
 +  removePath(transaction);
  }
- 
+
  function copyPath(source, target) {
 @@ -303,13 +436,15 @@
    return { journalPath, journal };
  }
- 
+
 -function uninstallOwned({ root, integration, dryRun = false, note = () => {}, warn = () => {}, unregister }) {
 +function uninstallOwned({ root, integration, dryRun = false, note = () => {}, warn = () => {}, unregister, relativePaths }) {
    const { journalPath, backupRoot } = journalPaths(root, integration);
@@ -769,7 +770,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
      if (pathExists(target)) {
 @@ -379,6 +514,7 @@
  }
- 
+
  module.exports = {
 +  assertMutableParent,
    copyPath,
@@ -784,9 +785,9 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 diff --git a/installer/lib/settings.js b/installer/lib/settings.js
 --- a/installer/lib/settings.js
 +++ b/installer/lib/settings.js
-@@ -125,12 +125,14 @@
+@@ -153,12 +153,14 @@
  }
- 
+
  // ── writeSettings ──────────────────────────────────────────────────────────
 -// Atomic write: temp file + rename. mode 0600 (settings often contains tokens).
 +// Atomic write: temp file + rename. New files use 0600; existing permissions stay.
@@ -800,7 +801,7 @@ diff --git a/installer/lib/settings.js b/installer/lib/settings.js
    const dir = path.dirname(p);
    fs.mkdirSync(dir, { recursive: true });
    const tmp = path.join(dir, `.${path.basename(p)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
-@@ -138,6 +140,9 @@
+@@ -166,6 +168,9 @@
    try { if (fs.readFileSync(p).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) bom = '\ufeff'; } catch (_) {}
    try {
      fs.writeFileSync(tmp, bom + JSON.stringify(obj, null, 2) + '\n', { mode: 0o600 });
@@ -813,30 +814,34 @@ diff --git a/installer/lib/settings.js b/installer/lib/settings.js
 diff --git a/src/hooks/cavecrew-model-overrides.js b/src/hooks/cavecrew-model-overrides.js
 --- a/src/hooks/cavecrew-model-overrides.js
 +++ b/src/hooks/cavecrew-model-overrides.js
-@@ -107,7 +107,7 @@
- 
+@@ -109,7 +109,7 @@
+
  // Apply all env-var overrides to agent files under `pluginRoot`.
  // `env` defaults to process.env; pass an object in tests.
 -function applyOverrides(pluginRoot, env) {
-+function applyOverrides(pluginRoot, env, writeFile = fs.writeFileSync) {
++function applyOverrides(pluginRoot, env, writeFile) {
    const envArg = env || process.env;
    if (insideGitWorkTree(pluginRoot)) return;
    for (const { envVar, file } of AGENT_ENV_MAP) {
-@@ -129,7 +129,7 @@
-     if (patched === content) continue;
- 
-     try {
--      fs.writeFileSync(agentPath, patched, 'utf8');
-+      writeFile(agentPath, patched, 'utf8');
-     } catch (e) {
-       // Silent fail — never block session start
-     }
+@@ -137,6 +137,12 @@
+       // Refuse symlinks — writing through a symlink could redirect the write
+       // to an arbitrary path outside the plugin directory.
+       if (fs.lstatSync(agentPath).isSymbolicLink()) continue;
++      // Prepared plugins collect changes for the ownership-journal transaction.
++      // Ordinary callers keep the upstream atomic write and mode preservation.
++      if (writeFile) {
++        writeFile(agentPath, patched, 'utf8');
++        continue;
++      }
+
+       // Atomic write: stage to a sibling temp file, then rename into place.
+       // Preserves the original file's mode so permission bits are not lost.
 diff --git a/src/hooks/caveman-activate.js b/src/hooks/caveman-activate.js
 --- a/src/hooks/caveman-activate.js
 +++ b/src/hooks/caveman-activate.js
 @@ -585,12 +585,24 @@
    }
- 
+
    if (!hasStatusline && (staleCommand ? !alreadyReported : !fs.existsSync(nudgeMarkerPath))) {
 +    let bashCommand = 'bash';
 +    if (!isWindows) {

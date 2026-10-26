@@ -8,7 +8,7 @@ CAVEMAN_PIN_REL=$PIN_DIR_REL/caveman.json
 FIX_WORKFLOW_REL=.github/workflows/fix-nix-hashes.yml
 CHECK_WORKFLOW_REL=.github/workflows/check.yml
 
-PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(caveman|omp|prime-agent)\.json$/'
+PIN_MANAGER_PATTERN='/^home-manager/modules/development/pins/(omp|prime-agent)\.json$/'
 PIN_MANAGER_MATCH='"renovate"\s*:\s*"datasource=(?<datasource>\S+)\s+depName=(?<depName>\S+)(\s+versioning=(?<versioning>\S+))?"[^{]*\n\s*"version"\s*:\s*"(?<currentValue>[^"]+)"'
 VERSIONING_TEMPLATE='{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}'
 HASH_PATTERN='^sha256-[A-Za-z0-9+/=]+$'
@@ -69,22 +69,16 @@ validate_pin_files() {
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
-    and (keys == ["blocks", "cli", "licenses", "renovate", "runtime", "src", "version"])
-    and (.renovate == "datasource=github-releases depName=JuliusBrussee/caveman")
-    and (.version | type == "string" and length > 0)
+    and (keys == ["blocks", "licenses", "pnpmDepsHash", "runtime"])
+    and (.pnpmDepsHash | test($hash))
     and (.blocks | keys == ["src", "vendorHash", "version"])
     and (.blocks.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"))
     and (.blocks.src | keys == ["hash", "urlTemplate"])
     and (.blocks.src.urlTemplate == "https://github.com/caveman-ai/blocks/archive/refs/tags/v{version}.tar.gz")
     and (.blocks.src.hash | test($hash))
     and (.blocks.vendorHash | test($hash))
-    and (.cli | keys == ["hash", "urlTemplate"])
-    and (.cli.hash | test($hash))
-    and (.cli.urlTemplate == "https://registry.npmjs.org/@caveman-ai/cli/-/cli-{version}.tgz")
-    and (.src | keys == ["hash", "urlTemplate"])
-    and (.src.hash | test($hash))
-    and (.src.urlTemplate == "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v{version}.tar.gz")
-    and (.runtime | keys == ["hashes", "urlTemplate"])
+    and (.runtime | keys == ["hashes", "urlTemplate", "version"])
+    and (.runtime.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"))
     and (.runtime.urlTemplate == "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}_{platform}")
     and (.runtime.hashes | keys == ["darwin_arm64", "linux_amd64", "linux_arm64"])
     and ([.runtime.hashes[] | keys == [
@@ -147,22 +141,18 @@ validate_effective_contract() {
     ' "$effective" >/dev/null || fail "Prime Agent Python values do not consume pin key $key"
   done < <(jq -r '.python | keys[]' "$prime")
 
-  version=$(jq -r .version "$caveman")
-  jq -e --slurpfile pin "$caveman" '
-    .caveman.version == $pin[0].version
-    and (.caveman | keys == ["blocks", "cli", "licenses", "runtime", "src", "version"])
+  jq -e --slurpfile pin "$caveman" --slurpfile lock "$root/flake.lock" '
+    ($lock[0] | .nodes[.nodes[.root].inputs.caveman]) as $input
+    | $input.flake == false
+    and $input.original == {type: "github", owner: "JuliusBrussee", repo: "caveman", ref: "main"}
+    and .caveman.src == {rev: $input.locked.rev, narHash: $input.locked.narHash}
+    and .caveman.pnpmDepsHash == $pin[0].pnpmDepsHash
+    and .caveman.runtimeVersion == $pin[0].runtime.version
+    and (.caveman | keys == ["blocks", "licenses", "pnpmDepsHash", "runtime", "runtimeVersion", "src"])
     and (.caveman.licenses | keys) == ($pin[0].licenses.hashes | keys)
     and (.caveman.runtime | keys) == ($pin[0].runtime.hashes | keys)
-  ' "$effective" >/dev/null || fail "Caveman effective version or source keys differ from its pin"
-  for key in cli src; do
-    template=$(jq -r --arg key "$key" '.[$key].urlTemplate' "$caveman")
-    expected=$(render_url "$template" "$version")
-    actual=$(jq -r --arg key "$key" '.caveman[$key].url' "$effective")
-    [ "$actual" = "$expected" ] || fail "Caveman effective $key URL does not consume its pin"
-    jq -e --arg key "$key" --slurpfile pin "$caveman" \
-      '.caveman[$key].hash == $pin[0][$key].hash' "$effective" >/dev/null \
-      || fail "Caveman effective $key hash does not consume its pin"
-  done
+  ' "$effective" >/dev/null || fail "Caveman effective values differ from its pin or locked input"
+  version=$(jq -r .runtime.version "$caveman")
   expected=$(render_url "$(jq -r .blocks.src.urlTemplate "$caveman")" "$(jq -r .blocks.version "$caveman")")
   actual=$(jq -r .caveman.blocks.src.url "$effective")
   [ "$actual" = "$expected" ] || fail "Blocks effective source URL does not consume its pin"
@@ -224,7 +214,7 @@ validate_workflows() {
   validate_action_ref "$fix_checkout" actions/checkout
   validate_action_ref "$fix_nix" nixbuild/nix-quick-install-action
 
-  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PRIME_PIN_REL" "$CAVEMAN_PIN_REL" | LC_ALL=C sort)
+  expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PRIME_PIN_REL" flake.lock | LC_ALL=C sort)
   actual=$(sorted_workflow_paths "$fix" '.on.pull_request.paths[]')
   [ "$actual" = "$expected_paths" ] || fail "fix workflow paths do not match dependency inputs"
   [ "$(yq -r '.on.pull_request.branches[]' "$fix")" = main ] \
@@ -324,7 +314,6 @@ validate_renovate() {
   mkdir -p "$tmp/$PIN_DIR_REL"
   cp "$root/$OMP_PIN_REL" "$tmp/$OMP_PIN_REL"
   cp "$root/$PRIME_PIN_REL" "$tmp/$PRIME_PIN_REL"
-  cp "$root/$CAVEMAN_PIN_REL" "$tmp/$CAVEMAN_PIN_REL"
   cp "$config" "$tmp/renovate.json"
   logs=$tmp/renovate.log
   (
@@ -333,8 +322,7 @@ validate_renovate() {
   )
   jq -s -e \
     --arg ompVersion "$(jq -r .version "$root/$OMP_PIN_REL")" \
-    --arg primeVersion "$(jq -r .version "$root/$PRIME_PIN_REL")" \
-    --arg cavemanVersion "$(jq -r .version "$root/$CAVEMAN_PIN_REL")" '
+    --arg primeVersion "$(jq -r .version "$root/$PRIME_PIN_REL")" '
       [
         .[]
         | select(.msg == "Extracted dependencies")
@@ -351,13 +339,6 @@ validate_renovate() {
       ]
       | sort_by(.packageFile)
       == [
-        {
-          packageFile: "home-manager/modules/development/pins/caveman.json",
-          datasource: "github-releases",
-          depName: "JuliusBrussee/caveman",
-          currentValue: $cavemanVersion,
-          versioning: "semver"
-        },
         {
           packageFile: "home-manager/modules/development/pins/omp.json",
           datasource: "github-releases",
@@ -410,6 +391,11 @@ path_changed_since() {
   [ "$status" -eq 1 ] || fail "cannot compare $path between $commit and HEAD"
 }
 
+caveman_locked_source() {
+  jq -cS '.nodes[.root].inputs.caveman as $input
+    | if $input == null then null else .nodes[$input].locked end'
+}
+
 update_omp() {
   local pin=$1 version template key url hash
   version=$(jq -r .version "$pin")
@@ -423,21 +409,16 @@ update_omp() {
 }
 
 update_caveman() {
-  local pin=$1 version template key url hash platform name fetched source blocks_version blocks_hash
-  version=$(jq -r .version "$pin")
-  for key in cli src; do
-    template=$(jq -r --arg key "$key" '.[$key].urlTemplate' "$pin")
-    url=$(render_url "$template" "$version")
-    if [ "$key" = src ]; then
-      fetched=$(nix store prefetch-file --unpack --json "$url")
-      hash=$(jq -r .hash <<< "$fetched")
-      source=$(jq -er .storePath <<< "$fetched")
-    else
-      hash=$(nix store prefetch-file --json "$url" | jq -r .hash)
-    fi
-    [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman $key hash: $hash"
-    set_json "$pin" --arg key "$key" --arg hash "$hash" '.[$key].hash = $hash'
-  done
+  local root=$1 pin=$2 version template url hash platform name source blocks_version blocks_hash
+  source=$(NIX_HASH_FIX_ROOT="$root" nix eval --impure --raw --no-update-lock-file --expr '
+    (builtins.getFlake ("git+file://" + builtins.getEnv "NIX_HASH_FIX_ROOT")).inputs.caveman.outPath
+  ')
+  hash=$(caveman_pnpm_hash "$root")
+  set_json "$pin" --arg hash "$hash" '.pnpmDepsHash = $hash'
+  version=$(jq -Rser '
+    capture("^bin-v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)\\n?$").version
+  ' "$source/packages/cli/BINARY_RELEASE") || fail "invalid upstream binary release"
+  set_json "$pin" --arg version "$version" '.runtime.version = $version'
   blocks_version=$(jq -Rser '
     capture("^v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?) [0-9a-f]{64}\\n?$").version
   ' "$source/packages/cli/BLOCKS_RELEASE") || fail "invalid upstream Blocks release"
@@ -464,6 +445,38 @@ update_caveman() {
     [[ $hash =~ $HASH_PATTERN ]] || fail "invalid Caveman license hash for $name: $hash"
     set_json "$pin" --arg name "$name" --arg hash "$hash" '.licenses.hashes[$name] = $hash'
   done < <(jq -r '.licenses.hashes | keys[]' "$pin")
+}
+
+caveman_pnpm_hash() {
+  local root=$1 log hash
+  log=$(mktemp)
+  if NIX_HASH_FIX_ROOT="$root" \
+    nix build --impure --no-link --expr '
+      let
+        flake = builtins.getFlake ("git+file://" + builtins.getEnv "NIX_HASH_FIX_ROOT");
+        pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+      in pkgs.fetchPnpmDeps {
+        pname = "caveman";
+        src = flake.inputs.caveman;
+        pnpm = pkgs.pnpm_10;
+        pnpmWorkspaces = [ "@caveman-ai/cli" ];
+        fetcherVersion = 5;
+        hash = pkgs.lib.fakeHash;
+      }
+    ' > /dev/null 2> "$log"; then
+    rm -f "$log"
+    fail "Caveman pnpm fake-hash probe unexpectedly succeeded"
+  fi
+  if ! hash=$(jq -Rser '
+    [match("hash mismatch in fixed-output derivation \u0027[^\u0027\\n]*/[^/\u0027\\n]+-caveman-pnpm-deps\\.drv\u0027:\\s+specified:\\s+sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\\s+got:\\s+(sha256-[A-Za-z0-9+/]{43}=)"; "g") | .captures[0].string]
+    | if length == 1 then .[0] else error("expected exactly one Caveman pnpm mismatch") end
+  ' "$log"); then
+    cat "$log" >&2
+    rm -f "$log"
+    fail "cannot determine Caveman pnpm hash"
+  fi
+  rm -f "$log"
+  printf '%s\n' "$hash"
 }
 
 blocks_vendor_hash() {
@@ -640,7 +653,9 @@ update_contract() {
   if path_changed_since "$merge_base" "$PRIME_PIN_REL"; then
     prime_changed=true
   fi
-  if path_changed_since "$merge_base" "$CAVEMAN_PIN_REL"; then
+  if path_changed_since "$merge_base" flake.lock && \
+    [ "$(git show "$merge_base:flake.lock" | caveman_locked_source)" != \
+      "$(git show HEAD:flake.lock | caveman_locked_source)" ]; then
     caveman_changed=true
   fi
   if ! $omp_changed && ! $prime_changed && ! $caveman_changed; then
@@ -654,7 +669,7 @@ update_contract() {
   cp "$CAVEMAN_PIN_REL" "$work/caveman.json"
   $omp_changed && update_omp "$work/omp.json"
   $prime_changed && update_prime_agent "$root" "$work/prime-agent.json"
-  $caveman_changed && update_caveman "$work/caveman.json"
+  $caveman_changed && update_caveman "$root" "$work/caveman.json"
   validate_pin_files "$work/omp.json" "$work/prime-agent.json" "$work/caveman.json"
 
   $omp_changed && cp "$work/omp.json" "$OMP_PIN_REL"

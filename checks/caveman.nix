@@ -28,7 +28,7 @@ let
 in
 pkgs.runCommand "check-caveman-runtime"
   {
-    nativeBuildInputs = [ pkgs.python3 ];
+    nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyyaml ])) ];
     __darwinAllowLocalNetworking = true;
   }
   ''

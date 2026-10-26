@@ -3,10 +3,12 @@
 ## Context
 
 Local patches live directly under `patches/`. Their builders declare
-the `patches` lists directly; source versions and hashes come from
-`home-manager/modules/development/pins/{prime-agent,caveman}.json`.
-The three flake inputs `hermes-agent`, `opencode` and `strata` do not set these
-patch bases. Reassess each patch when its own source pin changes.
+the `patches` lists directly. Prime Agent source pins come from
+`home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
+installer patches follow the `caveman` input in `flake.lock`; its separate
+Blocks source and companion assets use `pins/caveman.json`.
+The `hermes-agent`, `opencode` and `strata` inputs do not set these patch bases.
+Reassess each patch when its own source changes.
 
 ## Current Patches
 
@@ -24,7 +26,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
-- `patches/caveman-hermes-native-yaml.patch` — keep the Hermes native wiring valid YAML: insert a new `model:` section after the document start markers, and indent the plugin list entry like its siblings.
+- `patches/caveman-hermes-native-yaml.patch` — carry the YAML fixes from upstream PR #1395 for both Hermes writers until the pinned source includes them.
 
 ## Local Patch Refresh
 
@@ -46,6 +48,31 @@ explaining why it exists and when it can go:
    code. Exercise affected behavior when code or upstream assumptions change.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
+
+### Caveman source pin
+
+The Caveman CLI and installer use the `github:JuliusBrussee/caveman/main`
+source input. Upstream has no flake, so `flake = false` supplies its source
+to the local derivation, like other source-built packages in this repository.
+`flake.lock` records the revision; do not duplicate it in the JSON asset pin.
+
+After updating the input, `scripts/fix-nix-hashes.sh update <base-ref>` refreshes
+the filtered CLI pnpm dependency hash, then reads `packages/cli/BINARY_RELEASE`
+and `BLOCKS_RELEASE` from the locked source. Runtime assets and license notices
+follow the binary release; Blocks keeps its own source and vendor hash.
+Do not infer either companion version from the CLI's `package.json`.
+
+CLI patches target TypeScript before the offline pnpm build. The installer patch
+targets the same source tree separately, without shipping build dependencies.
+When refreshing, preserve upstream changes underneath local adapters: ordinary
+model overrides keep upstream's atomic writer; prepared plugins collect writes
+into their ownership-journal transaction. Preserve the host-shell renderer when
+porting execution-time callbacks instead of restoring an older hook formatter.
+
+Apply every patch in its declared order without offsets or fuzz. Drop only hunks
+whose behavior the selected source now supplies. Run the installed-runtime check,
+including both Hermes writers with a real YAML parser, and the CI updater contract.
+
 
 ### OpenCode adapter
 

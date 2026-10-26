@@ -8,6 +8,7 @@
   chromium,
   google-chrome,
   pins,
+  src,
 }:
 
 let
@@ -29,7 +30,7 @@ let
 in
 stdenvNoCC.mkDerivation {
   pname = "caveman-runtime";
-  inherit (pins) version;
+  version = pins.runtimeVersion;
 
   dontUnpack = true;
   dontStrip = true;
@@ -45,7 +46,7 @@ stdenvNoCC.mkDerivation {
     )}
     ln -s ${blocks}/bin/caveman-blocks "$out/bin/caveman-blocks"
     for name in LICENSE LICENSE-MIT LICENSING.md NOTICE; do
-      install -m644 "${pins.src}/$name" "$out/share/licenses/caveman-runtime/$name"
+      install -m644 "${src}/$name" "$out/share/licenses/caveman-runtime/$name"
     done
     ${lib.concatStringsSep "\n" (
       lib.mapAttrsToList (name: license: ''
