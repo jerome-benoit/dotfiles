@@ -89,6 +89,12 @@ in the installed-plugin check and the patch's e2e driver.
 
 ### Caveman registrations
 
+The enabled Home Manager module defaults `home.sessionVariables.CAVEMAN_MODE`
+to `compress` with `lib.mkDefault`. This sets the proxy mode in user sessions,
+not a service: activation does not start or restart a proxy. Existing processes
+keep their environment and mode. Override the session variable declaratively or
+use `CAVEMAN_MODE=record caveman start` for an explicit pass-through launch.
+
 #### Profile paths and runtime dependencies
 
 Home Manager supplies `home.profileDirectory` to the Caveman package. Standalone,
