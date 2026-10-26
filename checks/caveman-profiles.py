@@ -10,6 +10,7 @@ not a running Claude/Codex/Gemini/Hermes/OpenCode/Pi application. No host SDK is
 fabricated. Host-delegated installers and OpenClaw's SDK need separate host E2E.
 """
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -618,6 +619,73 @@ await events.get("session_shutdown")?.({}, ctx);
         f.cli("stop", env=local)
 
 
+def native_registration_commands(f):
+    # A lexical profile may contain spaces and /nix/store/ without being in it.
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        f.env["CAVE_GATEWAY_URL"] = f"http://127.0.0.1:{reservation.getsockname()[1]}"
+    profile_command = str(f.profile / "bin/caveman-mcp")
+    store_command = str(PACKAGE / "bin/caveman-mcp")
+    assert store_command.startswith("/nix/store/") and Path(store_command).is_file()
+    for agent, kind in (
+        ("opencode", "opencode-config"), ("claude", "claude-mcp"),
+        ("gemini", "gemini-settings"), ("codex", "codex-config"),
+        ("hermes", "hermes-config"),
+    ):
+        config = f.paths(agent)
+        historical = None
+        if agent in ("claude", "gemini", "opencode"):
+            historical = {"command": [store_command] if agent == "opencode" else store_command}
+            if agent == "opencode":
+                historical.update(type="local", enabled=True)
+            section = "mcp" if agent == "opencode" else "mcpServers"
+            put(config, json.dumps({section: {"caveman": historical}}))
+        f.cli("enable", agent)
+        report = json.loads(f.cli("doctor", agent, "--fix").stdout)
+        assert report["state"] == "installed", (agent, report)
+        server = "caveman-native" if agent == "hermes" else "caveman"
+        assert f.registration(agent, server)[0] == profile_command
+        journal_path = f.cave / "integrations" / f"{agent}.json"
+        journal = load(journal_path)
+        operation = next(item for item in journal["operations"] if item["kind"] == kind)
+        owned = operation["owned"]
+        if historical is not None:
+            assert owned["previous_mcp"] == historical
+        # Keep file, ownership payload and digest concordant: only path identity
+        # distinguishes this old registration from the healthy profile above.
+        if agent in ("codex", "hermes"):
+            field = "tables_block" if agent == "codex" else "mcp_block"
+            block = owned[field]
+            quoted = json.dumps(profile_command)
+            assert quoted in block, (agent, block)
+            replacement = block.replace(quoted, json.dumps(store_command))
+            text = config.read_text()
+            assert block in text, (agent, block)
+            put(config, text.replace(block, replacement))
+            owned[field] = replacement
+        else:
+            document = load(config)
+            section = "mcp" if agent == "opencode" else "mcpServers"
+            command = [store_command] if agent == "opencode" else store_command
+            document[section]["caveman"]["command"] = command
+            owned["installed_mcp"]["command"] = command
+            put(config, json.dumps(document))
+        operation["after_sha256"] = "sha256:" + hashlib.sha256(config.read_bytes()).hexdigest()
+        put(journal_path, json.dumps(journal))
+        result = f.cli("doctor", agent, check=False)
+        assert result.returncode == 1, (agent, result)
+        report = json.loads(result.stdout)
+        entry = next(item for item in report["files"] if item["file"] == str(config))
+        assert report["state"] == "degraded" and entry["exact"] and not entry["owned"], (agent, report)
+        assert f.registration(agent, server)[0] == store_command
+        report = json.loads(f.cli("doctor", agent, "--fix").stdout)
+        assert report["state"] == "installed", (agent, report)
+        assert f.registration(agent, server)[0] == profile_command
+        if historical is not None:
+            repaired = next(item for item in load(journal_path)["operations"] if item["kind"] == kind)
+            assert repaired["owned"]["previous_mcp"] == historical
+
+
 def ownership_controls(f):
     # Kilo/Qwen use transactional ownership and must retain permissions,
     # credentials, remote endpoints and foreign registrations through all verbs.
@@ -801,10 +869,13 @@ def main():
             ("shrink", shrink_callbacks), ("native", native_integrations),
             ("ownership", ownership_controls),
             ("hermes-yaml", hermes_yaml),
+            ("native-registration", native_registration_commands),
         ):
             state = short_native_state()
             fixture = None
             case_root = root / name
+            if name == "native-registration":
+                case_root /= "registration space /nix/store/fixture"
             try:
                 fixture = Fixture(case_root, cave=state)
                 case(fixture)

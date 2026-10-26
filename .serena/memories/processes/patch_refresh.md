@@ -34,10 +34,12 @@ explaining why it exists and when it can go:
    comment. Check every carried change, not only the patch's main purpose.
    For composite patches, preserve proposal provenance in `# upstream:` and
    identify separately tracked local defects in `# issues:`.
-2. Resolve the exact source from `pins/default.nix` and the corresponding JSON
-   pin. Use that hash-pinned source, not the current contents of a mutable tag.
+2. Resolve the exact source from the builder's declaration. Caveman CLI and
+   installer use `inputs.caveman`, locked in `flake.lock`; JSON-pinned sources
+   use `pins/default.nix` and the corresponding JSON pin. Use that locked or
+   hash-pinned source, not the current contents of a mutable branch or tag.
    The installer patch records its archive URL and unpacked `fetchzip` hash;
-   update both when changing its base.
+   keep both aligned with the locked source when changing its base.
 3. Check whether upstream now supplies each fix. Remove only superseded hunks;
    retire the whole patch only when every carried change is covered upstream.
 4. Apply prerequisite patches in the builder's declared order before regenerating

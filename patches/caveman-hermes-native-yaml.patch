@@ -5,7 +5,7 @@
 #   indentation. Carry only these upstream fixes until the pinned main includes them.
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -10266,7 +10266,7 @@
+@@ -10272,7 +10272,7 @@
    const lines = yamlLines(source);
    let model = topLevelSection(lines, "model");
    if (!model) {
@@ -14,7 +14,7 @@
      model = topLevelSection(lines, "model")!;
    }
    const routeIndexes: number[] = [];
-@@ -10307,7 +10307,8 @@
+@@ -10313,7 +10313,8 @@
      }
      if (enabled >= 0) {
        if (!hermesNamedPluginEnabled(source, HERMES_NATIVE_PLUGIN_NAME)) {
@@ -24,7 +24,7 @@
          lines.splice(enabled + 1, 0, ...block);
          pluginBlock = block.join("\n");
        }
-@@ -14119,6 +14120,34 @@
+@@ -14125,6 +14126,34 @@
    return { text: yamlText(kept), removed };
  }
 
@@ -59,7 +59,7 @@
  function topLevelSection(lines: string[], key: string): { start: number; end: number } | undefined {
    const start = lines.findIndex((line) => new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line));
    if (start < 0) return undefined;
-@@ -18499,7 +18528,8 @@
+@@ -18505,7 +18534,8 @@
        return false;
      }
      if (enabledLine >= 0) {
