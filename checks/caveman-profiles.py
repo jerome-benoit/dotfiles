@@ -494,10 +494,12 @@ def hermes_semantic_ownership(f):
     # false negative in the global recovery status after Hermes rewrites YAML.
     config = f.paths("hermes")
     journal_path = f.cave / "integrations/hermes.json"
+    numeric_plugins = ["3d-tools", "1password", "1.2.3", "1e3-tools",
+                       "0x10-plugin", "2026-10-27-plugin"]
     original = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
                   "default": "claude-sonnet-4-5", "foreign": {"keep": ["café", 7]}},
-        "plugins": {"enabled": ["existing", "café"], "foreign": {"keep": True}},
+        "plugins": {"enabled": ["existing", "café", *numeric_plugins], "foreign": {"keep": True}},
         "mcp_servers": {"foreign": {"command": "/foreign/mcp", "args": ["keep"]}},
         "_config_version": 52,
     }
@@ -556,7 +558,7 @@ def hermes_semantic_ownership(f):
         ("duplicate MCP", normalized.replace("\nmcp_servers:\n", "\nmcp_servers:\n  caveman-native:\n    command: /foreign/mcp\n")),
         ("flow plugin list", normalized.replace(
             "  enabled:\n" + "".join("  " + line for line in yaml.safe_dump(document["plugins"]["enabled"]).splitlines(keepends=True)),
-            "  enabled: [caveman_native, existing, café, later-plugin]\n")),
+            "  enabled: " + json.dumps(document["plugins"]["enabled"], ensure_ascii=False) + "\n")),
         ("plain comment continuation", normalized.replace(
             "  provider: " + r'"\x63\u0075\U00000073tom"',
             "  provider: custom # end\n    foreign")),
@@ -564,6 +566,14 @@ def hermes_semantic_ownership(f):
             "  provider: " + r'"\x63\u0075\U00000073tom"',
             '  provider: "custom" # end\n    foreign')),
     ))
+    # Reject complete typed scalars, not foreign names with numeric prefixes.
+    typed_scalars = ("+1_000", "0b10", "0x10", "012", "1:20", "1.0e+3",
+                     ".5", "1:20.5", "2026-10-27", "2026-10-27T12:34:56Z", "true", "null")
+    for scalar in typed_scalars:
+        assert not isinstance(yaml.safe_load(scalar), str), scalar
+    # YAML 1.2 resolves these as numbers even though PyYAML resolves strings.
+    for scalar in (*typed_scalars, "1e3", ".5e3", "0o10", "09"):
+        edits.append(("typed plugin " + scalar, normalized.replace("- existing\n", "- " + scalar + "\n")))
     integration_files = [Path(item["file"]) for item in load(journal_path)["operations"]]
     for label, edited in edits:
         assert edited != normalized, label
@@ -594,7 +604,7 @@ def hermes_semantic_ownership(f):
     wrapped = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
                   "default": "claude-sonnet-4-5"},
-        "plugins": {"enabled": ["existing"], "foreign": {"keep": True}},
+        "plugins": {"enabled": ["existing", *numeric_plugins], "foreign": {"keep": True}},
         "mcp_servers": {"foreign": {"command": "/foreign/mcp", "args": ["keep"]}},
     }
     for previous in ({}, {"model": {"provider": "auto", "base_url": None}}, commented_null,
@@ -612,6 +622,8 @@ def hermes_semantic_ownership(f):
             seed = seed.replace("provider: anthropic", 'provider: "anthro\\\n        pic"')
             seed = seed.replace("base_url: https://api.anthropic.com",
                                 'base_url: "https://api.\\\n        anthropic.com"')
+            for name in numeric_plugins:
+                seed = seed.replace("- " + name + "\n", "- " + json.dumps(name) + "\n")
         put(config, seed)
         f.cli("enable", "hermes")
         active = yaml.safe_load(config.read_text())
@@ -620,6 +632,8 @@ def hermes_semantic_ownership(f):
         active["plugins"]["foreign"] = {"keep": True}
         active["mcp_servers"]["foreign"] = {"command": "/foreign/later"}
         normalized = yaml.safe_dump(active, indent=4)
+        if previous is wrapped:
+            assert all("- " + name + "\n" in normalized for name in numeric_plugins)
         # Quoted roots and owned child keys are accepted YAML, not new sections.
         for key in ("model", "plugins", "mcp_servers", "provider", "base_url",
                     "enabled", "caveman-native"):
@@ -628,6 +642,10 @@ def hermes_semantic_ownership(f):
         normalized = normalized.replace('"model":\n', '"model":\n    # preserve foreign model note\n')
         put(config, normalized)
         payload = f.home / ".hermes/plugins/caveman_native/__init__.py"
+        if previous is wrapped:
+            healthy = json.loads(f.cli("doctor", "hermes").stdout)
+            assert healthy["state"] == "installed", healthy
+            assert healthy["components"]["routing"] and healthy["components"]["mcp_recovery"], healthy
         payload.unlink()
         degraded = json.loads(f.cli("doctor", "hermes", check=False).stdout)
         assert degraded["state"] == "degraded", degraded

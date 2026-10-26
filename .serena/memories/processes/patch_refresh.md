@@ -80,6 +80,10 @@ quoting, key order, indentation and wrapped scalar paths. Preserve foreign
 siblings and original nullable endpoints on disable. Reject changed owned
 values and ambiguous YAML before any restoration write.
 
+Recognize complete finite numeric and timestamp scalars, not numeric prefixes
+in plugin names. Cover both plain-name enable and quoted-to-plain normalization
+through actual repair and disable; retain fail-before-write checks for typed scalars.
+
 The native enable and repair producer must use the same semantic YAML spans as
 ownership and restoration. Follow existing mapping and sequence indentation,
 including quoted keys, rather than inserting fixed-width children. Capture scalar
