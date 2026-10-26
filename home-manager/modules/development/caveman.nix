@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 let
@@ -14,6 +15,7 @@ let
   cavemanPackage =
     if supported then
       pkgs.callPackage ./caveman/package.nix {
+        src = inputs.caveman;
         registrationProfile = config.home.profileDirectory;
       }
     else
@@ -31,7 +33,10 @@ in
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = cavemanPackage;
       defaultText = lib.literalExpression ''
-        pkgs.callPackage ./caveman/package.nix { registrationProfile = config.home.profileDirectory; }
+        pkgs.callPackage ./caveman/package.nix {
+          src = inputs.caveman;
+          registrationProfile = config.home.profileDirectory;
+        }
       '';
       description = "Caveman CLI and companion executables (null on unsupported systems)";
     };

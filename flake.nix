@@ -34,6 +34,10 @@
       url = "github:fynnfluegge/agtx";
       flake = false;
     };
+    caveman = {
+      url = "github:JuliusBrussee/caveman/main";
+      flake = false;
+    };
     openspec = {
       url = "github:Fission-AI/OpenSpec";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -199,7 +203,9 @@
             "x86_64-linux"
           ]
           (arch: {
-            caveman = (mkPkgs arch).callPackage ./home-manager/modules/development/caveman/package.nix { };
+            caveman = (mkPkgs arch).callPackage ./home-manager/modules/development/caveman/package.nix {
+              src = inputs.caveman;
+            };
           });
 
       formatter = forAllSystems (

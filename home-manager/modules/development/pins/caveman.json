@@ -1,6 +1,5 @@
 {
-  "renovate": "datasource=github-releases depName=JuliusBrussee/caveman",
-  "version": "4.0.1",
+  "pnpmDepsHash": "sha256-Avm9hdbN+D+WhV8DWJ0WFjLeS8GxYRcBIbzeWJpB1Wo=",
   "blocks": {
     "version": "0.1.0-rc.5",
     "src": {
@@ -9,40 +8,33 @@
     },
     "vendorHash": "sha256-Jyx3bqWyK1Vthzfb5/rvenknlurQry4henFZHqjkGks="
   },
-  "cli": {
-    "urlTemplate": "https://registry.npmjs.org/@caveman-ai/cli/-/cli-{version}.tgz",
-    "hash": "sha256-eM2gHSCOtndHvMfAY4aSUqLTFsd4b+UE4/aVlA5ZNm8="
-  },
-  "src": {
-    "urlTemplate": "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v{version}.tar.gz",
-    "hash": "sha256-2xZHdWkWJrPAJ8++qW0Xmb3eORZ41e+GsZjIphqTtlI="
-  },
   "runtime": {
+    "version": "4.0.2",
     "urlTemplate": "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}_{platform}",
     "hashes": {
       "darwin_arm64": {
-        "caveman-browse": "sha256-O2AfYoM9Dooz+DCYXmbwnRB9atBW7TmJ/ZKvbBgAgEE=",
-        "caveman-engine": "sha256-8dGcidmlkvJPuv4pjv/oBshelxL/vcfIf9DM+hjP+l8=",
-        "caveman-mcp": "sha256-WNgJuYnRK1UpQm4ykuzkNuzuQWHRI6qq02xNv5NmhXc=",
-        "caveman-proxy": "sha256-768W0nVpl5kc96fWnBKjtpLuqN8uto3rNAJRM3cALk8=",
-        "caveman-shrink": "sha256-ph5/7sDri5QfTpLSBogUT2MeJ6FwwNpLic/e9rVdCOU=",
-        "cavemem": "sha256-i3cHZVcZjrYMG9pEpA6OCUW9TfubK79Hr4m2Ep1AwOc="
+        "caveman-browse": "sha256-daH0lPVu9zyYJURVc12k37qmbCd2efyaKd41uRFuMxs=",
+        "caveman-engine": "sha256-jZYajPx70UPq+QW4rnrjnPYN/wUgT40BdLX0GtnGUxk=",
+        "caveman-mcp": "sha256-1U8PL3PeNQCbLnAl0Py502k5iUDKb8wF00ve42vEHIQ=",
+        "caveman-proxy": "sha256-H/m5Q4tJb+4LuZLB3mvZRJIeuaa6XevVLFr8pzKhxik=",
+        "caveman-shrink": "sha256-7w30KrfOKtA+RA49VPtyXb6gjkG6bp9FH/vINp0HwI0=",
+        "cavemem": "sha256-w3XRX/KyFmQS+3Odz3kI+Nc7X3vI4bRL9b4LBN+bv9k="
       },
       "linux_amd64": {
-        "caveman-browse": "sha256-OS2WMNXu6W5Vx2Orz6lzpX3nI7cTzdQ1LtYBpubQjAY=",
-        "caveman-engine": "sha256-Sb/ojuQL4Sh5nFbnTTimTviYdZmI4k5XKZvcfaAULtc=",
-        "caveman-mcp": "sha256-KfmBbFyXxonEQFK7meACIXjzdUIMNGRIQFQ+6/jI964=",
-        "caveman-proxy": "sha256-ix3A6buol6uox0ma/7djmY6apYKR3EuqbOqBi/GDnVk=",
-        "caveman-shrink": "sha256-KtRSxjgfFc9AEOb+WUdTtrnoLOLRBEPp7u9UdgvoSS4=",
-        "cavemem": "sha256-lVbSnsqooPgA6exe8yRaArKA67RPBlLhPSjVfZxKG7Y="
+        "caveman-browse": "sha256-Zvy9YFAwuQIeOLz+1qTUqRJvR/omwU3WKdK8kFL3l04=",
+        "caveman-engine": "sha256-C0UORnMkYakxu4bHjgyOobCNUl+iz1qkWS2cIY7cRqQ=",
+        "caveman-mcp": "sha256-SZuEt80Zqipx6k9D39l9c0jE/Fz2ipfKFooA8c59QFQ=",
+        "caveman-proxy": "sha256-pw85OAbvjvGkspNT8Vh2nqtreXs7hg/IXIFSjyv8TwQ=",
+        "caveman-shrink": "sha256-0qqhToMFQaUh3pDHcCna9TN3cKAgA1VQ23O2vKzwNrg=",
+        "cavemem": "sha256-95bNwB0otwDiaSO6KrjGCIyeIAFeS1CByLgLBZu/+V0="
       },
       "linux_arm64": {
-        "caveman-browse": "sha256-XrkG46edK3Q9iU52uIE0dka1Iuv0vNiHdqwVnLRowic=",
-        "caveman-engine": "sha256-hf53MD8UC8W+8D0Npycp2NU94FYmJ8OyY6mnmDVNkCo=",
-        "caveman-mcp": "sha256-kTmIXqri8vekEInilcvsHrEhjw7BCOq/NcR7zwFgxeQ=",
-        "caveman-proxy": "sha256-/BSjxKZApsuIu3GuUbg8QO4IBW8TCjASuDUs7Vvv9Pg=",
-        "caveman-shrink": "sha256-mYbbaD0WFgV/AFQE4MwY1pWO6EmBO75o3fod4zo4qC4=",
-        "cavemem": "sha256-TAhlxZINsXeO0AqS90is5sRbVsBqEg2bozIO8pO0BKE="
+        "caveman-browse": "sha256-b9FSvLl2QPirb8jwpMavt2UUOrCfp/7KJTzbXfMq1ZU=",
+        "caveman-engine": "sha256-awkV+MLYOBf+WvzhTIo8+flZ37ErLMxTlHu/GsR8N7Q=",
+        "caveman-mcp": "sha256-UOAGk/xxMZQ5tSY1/Opobshikepvl4B1Aob5nqh0MZE=",
+        "caveman-proxy": "sha256-vW9q5d5v391MwGfcTsFkH5+DmzX0uMi6NXGwYlXnXr0=",
+        "caveman-shrink": "sha256-/ZLpxZIpu5Gii8k+XH2FmcPiTB63aLDay8wy6UlTvdc=",
+        "cavemem": "sha256-wcHpQmNlCr23RzUkwOo4K1ejdZNOarGlYDuEVxQjqxg="
       }
     }
   },

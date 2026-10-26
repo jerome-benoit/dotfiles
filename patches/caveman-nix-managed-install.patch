@@ -1,29 +1,37 @@
-# base: @caveman-ai/cli 4.0.1
-# intent: refuse every executable installation and self-update path, so the
-#   pinned Nix package stays the single source of truth. The guards cover
-#   setupInstall (and thus update, which calls it), the durable npm CLI install,
-#   and the module binary download.
-diff --git a/dist/index.js b/dist/index.js
---- a/dist/index.js
-+++ b/dist/index.js
-@@ -3191,2 +3191,5 @@
- async function setupInstall(json, options = {}) {
-+    if (process.env.CAVEMAN_NIX_MANAGED === "1") {
-+        throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
-+    }
-     const lock = join(ensureCavemanHome(), ".install.lock");
-@@ -4161,2 +4164,5 @@
- async function installDurableCli() {
-+    if (process.env.CAVEMAN_NIX_MANAGED === "1") {
-+        throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
-+    }
-     const npm = which("npm");
-diff --git a/dist/modules/index-file.js b/dist/modules/index-file.js
---- a/dist/modules/index-file.js
-+++ b/dist/modules/index-file.js
-@@ -98,2 +98,5 @@
- export async function ensureModuleBinaries(ids, downloading) {
-+    if (process.env.CAVEMAN_NIX_MANAGED === "1") {
-+        throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
-+    }
-     const platform = setupPlatform();
+# base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4
+# intent: refuse executable installation and self-update in the package-managed CLI,
+#   durable npm installer and module downloader; Nix owns those executables.
+--- a/packages/cli/src/index.ts
++++ b/packages/cli/src/index.ts
+@@ -3214,6 +3214,9 @@
+ // `explicit`: `setup --install` and `update`, which restart an outdated
+ // runtime even while agents use it.
+ async function setupInstall(json: boolean, options: { continuing?: boolean; explicit?: boolean } = {}) {
++  if (process.env.CAVEMAN_NIX_MANAGED === "1") {
++    throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++  }
+   const lock = join(ensureCavemanHome(), ".install.lock");
+   const deadline = Date.now() + BINARY_INSTALL_WAIT_MS;
+   for (let told = false; ; await sleep(250)) {
+@@ -4137,6 +4140,9 @@
+ // version. Returns the command hints should name. Throws when neither works:
+ // nothing is wired then.
+ async function installDurableCli(): Promise<string> {
++  if (process.env.CAVEMAN_NIX_MANAGED === "1") {
++    throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++  }
+   const npm = which("npm");
+   if (!npm) throw new Error("npm not found: install the CLI yourself (npm install -g @caveman-ai/cli), then run caveman setup");
+   // npm's stderr, or an `npm error` line of ours when npm could not be
+--- a/packages/cli/src/modules/index-file.ts
++++ b/packages/cli/src/modules/index-file.ts
+@@ -127,6 +127,9 @@
+ // a module with no build for this platform is skipped and named in
+ // `problems`, so the others still install.
+ export async function ensureModuleBinaries(ids: ModuleId[], downloading?: (name: string) => void): Promise<{ lock: ModuleLock; problems: string[] }> {
++  if (process.env.CAVEMAN_NIX_MANAGED === "1") {
++    throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++  }
+   const platform = setupPlatform();
+   const index = await loadModuleIndex();
+   const timeout = setupTimeoutSeconds();

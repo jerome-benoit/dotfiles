@@ -10,6 +10,7 @@ not a running Claude/Codex/Gemini/Hermes/OpenCode/Pi application. No host SDK is
 fabricated. Host-delegated installers and OpenClaw's SDK need separate host E2E.
 """
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import yaml
 
 
 PACKAGE = Path(sys.argv[1]).absolute()
@@ -467,11 +469,30 @@ console.log(JSON.stringify(output));
         os.chdir(previous_cwd)
         os.environ.clear()
         os.environ.update(old)
-    # Repository evidence changes asynchronously; preserve stable Core without
-    # freezing prompt wording or the evidence indexer's warm-up state.
-    core = contexts["claude"].split("\n[[caveman-session-v1", 1)[0]
-    assert response["context"].startswith(core), response
+    contexts["hermes"] = response["context"]
     return contexts
+
+
+def hermes_yaml(f):
+    # Both real writers must preserve Hermes' directive and existing list shape.
+    config = f.paths("hermes")
+    for native in (False, True):
+        for width in (2, 4):
+            put(config, "# user header\n\n%YAML 1.1\n---\nplugins:\n  enabled:\n"
+                + " " * width + "- existing\n_config_version: 52\n")
+            arguments = ("enable", "hermes") if native else ("tools", "hooks", "install", "hermes")
+            plugin = "caveman_native" if native else "caveman_shrink"
+            for _ in range(2):
+                f.cli(*arguments)
+                document = yaml.safe_load(config.read_text())
+                assert document["plugins"]["enabled"] == [plugin, "existing"], document
+                assert document["_config_version"] == 52, document
+                if native:
+                    assert document["model"]["base_url"] == f.env["CAVE_GATEWAY_URL"] + "/w/hermes/v1"
+            if native:
+                f.cli("disable", "hermes")
+            else:
+                f.cli("tools", "hooks", "uninstall", "hermes")
 
 
 def native_integrations(f):
@@ -483,11 +504,12 @@ def native_integrations(f):
     for agent in NATIVE:
         f.cli("enable", agent)
     journals = {agent: f.cave / "integrations" / f"{agent}.json" for agent in NATIVE}
-    before = native_contexts(f)
+    # Exercise callbacks across generations; session stamps and repository
+    # evidence can change between calls without changing the installation.
+    native_contexts(f)
     f.switch(f.b)
     f.unavailable_a()
-    after = native_contexts(f)
-    assert after == before, {agent: (before[agent], after[agent]) for agent in before if before[agent] != after[agent]}
+    native_contexts(f)
     f.cli("stop")
     pi_extension(f)
     opencode = f.home / ".config/opencode/plugins/caveman-native.js"
@@ -501,7 +523,7 @@ def native_integrations(f):
     opencode.unlink()
     f.cli("doctor", "opencode", "--fix")
     assert opencode.exists()
-    assert native_contexts(f)["opencode"] == before["opencode"]
+    native_contexts(f)
     owned_bytes = opencode.read_bytes()
     config = f.home / ".config/opencode/opencode.json"
     config_before = config.read_bytes()
@@ -595,6 +617,73 @@ await events.get("session_shutdown")?.({}, ctx);
         assert f.cli("tools", "retrieve", handle).stdout == output.read_bytes()
     finally:
         f.cli("stop", env=local)
+
+
+def native_registration_commands(f):
+    # A lexical profile may contain spaces and /nix/store/ without being in it.
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        f.env["CAVE_GATEWAY_URL"] = f"http://127.0.0.1:{reservation.getsockname()[1]}"
+    profile_command = str(f.profile / "bin/caveman-mcp")
+    store_command = str(PACKAGE / "bin/caveman-mcp")
+    assert store_command.startswith("/nix/store/") and Path(store_command).is_file()
+    for agent, kind in (
+        ("opencode", "opencode-config"), ("claude", "claude-mcp"),
+        ("gemini", "gemini-settings"), ("codex", "codex-config"),
+        ("hermes", "hermes-config"),
+    ):
+        config = f.paths(agent)
+        historical = None
+        if agent in ("claude", "gemini", "opencode"):
+            historical = {"command": [store_command] if agent == "opencode" else store_command}
+            if agent == "opencode":
+                historical.update(type="local", enabled=True)
+            section = "mcp" if agent == "opencode" else "mcpServers"
+            put(config, json.dumps({section: {"caveman": historical}}))
+        f.cli("enable", agent)
+        report = json.loads(f.cli("doctor", agent, "--fix").stdout)
+        assert report["state"] == "installed", (agent, report)
+        server = "caveman-native" if agent == "hermes" else "caveman"
+        assert f.registration(agent, server)[0] == profile_command
+        journal_path = f.cave / "integrations" / f"{agent}.json"
+        journal = load(journal_path)
+        operation = next(item for item in journal["operations"] if item["kind"] == kind)
+        owned = operation["owned"]
+        if historical is not None:
+            assert owned["previous_mcp"] == historical
+        # Keep file, ownership payload and digest concordant: only path identity
+        # distinguishes this old registration from the healthy profile above.
+        if agent in ("codex", "hermes"):
+            field = "tables_block" if agent == "codex" else "mcp_block"
+            block = owned[field]
+            quoted = json.dumps(profile_command)
+            assert quoted in block, (agent, block)
+            replacement = block.replace(quoted, json.dumps(store_command))
+            text = config.read_text()
+            assert block in text, (agent, block)
+            put(config, text.replace(block, replacement))
+            owned[field] = replacement
+        else:
+            document = load(config)
+            section = "mcp" if agent == "opencode" else "mcpServers"
+            command = [store_command] if agent == "opencode" else store_command
+            document[section]["caveman"]["command"] = command
+            owned["installed_mcp"]["command"] = command
+            put(config, json.dumps(document))
+        operation["after_sha256"] = "sha256:" + hashlib.sha256(config.read_bytes()).hexdigest()
+        put(journal_path, json.dumps(journal))
+        result = f.cli("doctor", agent, check=False)
+        assert result.returncode == 1, (agent, result)
+        report = json.loads(result.stdout)
+        entry = next(item for item in report["files"] if item["file"] == str(config))
+        assert report["state"] == "degraded" and entry["exact"] and not entry["owned"], (agent, report)
+        assert f.registration(agent, server)[0] == store_command
+        report = json.loads(f.cli("doctor", agent, "--fix").stdout)
+        assert report["state"] == "installed", (agent, report)
+        assert f.registration(agent, server)[0] == profile_command
+        if historical is not None:
+            repaired = next(item for item in load(journal_path)["operations"] if item["kind"] == kind)
+            assert repaired["owned"]["previous_mcp"] == historical
 
 
 def ownership_controls(f):
@@ -779,10 +868,14 @@ def main():
             ("mcp", mcp_lifetime), ("delegate", custom_delegate),
             ("shrink", shrink_callbacks), ("native", native_integrations),
             ("ownership", ownership_controls),
+            ("hermes-yaml", hermes_yaml),
+            ("native-registration", native_registration_commands),
         ):
             state = short_native_state()
             fixture = None
             case_root = root / name
+            if name == "native-registration":
+                case_root /= "registration space /nix/store/fixture"
             try:
                 fixture = Fixture(case_root, cave=state)
                 case(fixture)

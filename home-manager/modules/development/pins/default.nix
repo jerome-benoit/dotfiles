@@ -30,7 +30,8 @@ assert
   primeAgentData.rlmExtraPackages == lib.sort builtins.lessThan primeAgentData.rlmExtraPackages;
 {
   caveman = {
-    inherit (cavemanData) version;
+    inherit (cavemanData) pnpmDepsHash;
+    runtimeVersion = cavemanData.runtime.version;
     blocks = {
       inherit (cavemanData.blocks) version vendorHash;
       src = fetchzip {
@@ -38,19 +39,11 @@ assert
         hash = cavemanData.blocks.src.hash;
       };
     };
-    cli = fetchurl {
-      url = renderVersion cavemanData.cli.urlTemplate cavemanData.version;
-      hash = cavemanData.cli.hash;
-    };
-    src = fetchzip {
-      url = renderVersion cavemanData.src.urlTemplate cavemanData.version;
-      hash = cavemanData.src.hash;
-    };
     licenses = lib.mapAttrs (
       name: hash:
       fetchurl {
         url =
-          builtins.replaceStrings [ "{version}" "{name}" ] [ cavemanData.version name ]
+          builtins.replaceStrings [ "{version}" "{name}" ] [ cavemanData.runtime.version name ]
             cavemanData.licenses.urlTemplate;
         inherit hash;
       }
@@ -61,7 +54,9 @@ assert
         name: hash:
         fetchurl {
           url =
-            builtins.replaceStrings [ "{version}" "{name}" "{platform}" ] [ cavemanData.version name platform ]
+            builtins.replaceStrings
+              [ "{version}" "{name}" "{platform}" ]
+              [ cavemanData.runtime.version name platform ]
               cavemanData.runtime.urlTemplate;
           inherit hash;
         }

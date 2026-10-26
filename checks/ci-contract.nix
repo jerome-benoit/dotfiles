@@ -16,7 +16,10 @@ let
   primeAgentRuntimeRoot = "${primeAgentSource}/prime-agent-runtime";
   primeAgentRuntimeProject = lib.importTOML "${primeAgentRuntimeRoot}/pyproject.toml";
   primeAgentRuntimeLock = lib.importTOML "${primeAgentRuntimeRoot}/uv.lock";
-  cavemanSource = pkgs.fetchzip sources.caveman.src;
+  cavemanSource = self.inputs.caveman;
+  binaryRelease = builtins.match "bin-v([^\n]+)\n?" (
+    builtins.readFile "${cavemanSource}/packages/cli/BINARY_RELEASE"
+  );
   blocksRelease = builtins.match "v([^ ]+) [0-9a-f]+\n?" (
     builtins.readFile "${cavemanSource}/packages/cli/BLOCKS_RELEASE"
   );
@@ -166,13 +169,15 @@ let
   effectiveContract = {
     caveman = {
       inherit (sources.caveman)
-        version
         blocks
-        cli
-        src
+        pnpmDepsHash
+        runtimeVersion
         runtime
         licenses
         ;
+      src = {
+        inherit (cavemanSource) rev narHash;
+      };
     };
     omp = {
       inherit (sources.omp) version sources;
@@ -232,9 +237,18 @@ let
       toHashFormat = "sri";
     }
   ) sources.caveman.licenses;
-  updateTestCavemanSource = pkgs.writeTextDir "packages/cli/BLOCKS_RELEASE" (
-    "v9.8.7 " + lib.concatStrings (lib.replicate 64 "a") + "\n"
-  );
+  updateTestCavemanSource = pkgs.linkFarm "caveman-source-fixture" [
+    {
+      name = "packages/cli/BLOCKS_RELEASE";
+      path = pkgs.writeText "BLOCKS_RELEASE" (
+        "v9.8.7 " + lib.concatStrings (lib.replicate 64 "a") + "\n"
+      );
+    }
+    {
+      name = "packages/cli/BINARY_RELEASE";
+      path = pkgs.writeText "BINARY_RELEASE" "bin-v9.9.9\n";
+    }
+  ];
   updateTestNix = pkgs.writeShellScriptBin "nix" ''
     invocation=" $* "
     storePath=""
@@ -247,10 +261,6 @@ let
           ;;
         "${sources.primeAgent.bundledCatalogs.url}")
           hash=sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM=
-          ;;
-        "https://github.com/JuliusBrussee/caveman/archive/refs/tags/v9.9.9.tar.gz")
-          hash=sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS=
-          storePath=${updateTestCavemanSource}
           ;;
         "https://github.com/caveman-ai/blocks/archive/refs/tags/v9.8.7.tar.gz")
           if [ -n "''${MOCK_BLOCKS_SOURCE_MISSING:-}" ]; then
@@ -275,9 +285,6 @@ let
           ;;
         "https://github.com/can1357/oh-my-pi/releases/download/v9.9.9/omp-linux-x64")
           hash=sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=
-          ;;
-        "https://registry.npmjs.org/@caveman-ai/cli/-/cli-9.9.9.tgz")
-          hash=sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN=
           ;;
         ${lib.concatStringsSep "\n" (
           lib.mapAttrsToList (
@@ -313,6 +320,20 @@ let
       esac
     elif [ "$#" -eq 5 ] && [ "$1" = build ] && [ "$2" = --impure ] \
       && [ "$3" = --no-link ] && [ "$4" = --expr ]; then
+      if [[ "$5" == *"src = flake.inputs.caveman;"* ]]; then
+        if [ "$NIX_HASH_FIX_ROOT" != "$MOCK_FLAKE_ROOT" ]; then
+          echo "unexpected Caveman flake root" >&2
+          exit 1
+        fi
+        name=caveman-pnpm-deps
+        if [ -n "''${MOCK_PNPM_VENDOR_WRONG_MISMATCH:-}" ]; then
+          name=unrelated-pnpm-deps
+        fi
+        printf "error: hash mismatch in fixed-output derivation '/nix/store/00000000000000000000000000000000-%s.drv':\n" "$name" >&2
+        printf '         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n' >&2
+        printf '            got:    sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN=\n' >&2
+        exit 1
+      fi
       if [ -n "''${NIX_HASH_FIX_BLOCKS_URL:-}" ]; then
         if [ "$NIX_HASH_FIX_BLOCKS_URL" != "https://github.com/caveman-ai/blocks/archive/refs/tags/v9.8.7.tar.gz" ] \
           || [ "$NIX_HASH_FIX_BLOCKS_SOURCE_HASH" != sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= ]; then
@@ -348,6 +369,22 @@ let
                 got:    sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
     EOF
       exit 1
+    elif [ "$#" -eq 6 ] && [ "$1" = eval ] && [ "$2" = --impure ] \
+      && [ "$3" = --raw ] && [ "$4" = --no-update-lock-file ] && [ "$5" = --expr ]; then
+      if [ "$NIX_HASH_FIX_ROOT" != "$MOCK_FLAKE_ROOT" ] \
+        || [[ "$6" != *".inputs.caveman.outPath"* ]]; then
+        echo "unexpected locked Caveman source lookup" >&2
+        exit 1
+      fi
+      jq -e '.nodes[.nodes[.root].inputs.caveman].locked.rev
+        == "1111111111111111111111111111111111111111"' "$MOCK_FLAKE_ROOT/flake.lock" >/dev/null \
+        || exit 1
+      if [ -n "''${MOCK_CAVEMAN_SOURCE_MISSING:-}" ]; then
+        echo "missing locked Caveman source" >&2
+        exit 1
+      fi
+      printf '%s\n' ${updateTestCavemanSource}
+      exit
     elif [ "$#" -eq 5 ] && [ "$1" = eval ] && [ "$2" = --impure ] && [ "$3" = --json ] && [ "$4" = --expr ]; then
       exec ${pkgs.nix}/bin/nix --extra-experimental-features nix-command "$@"
     elif [ "$#" -eq 7 ] && [ "$1" = hash ] && [ "$2" = convert ] \
@@ -425,6 +462,7 @@ assert
 assert builtins.attrNames rlmPackages == sources.primeAgent.rlmExtraPackages;
 assert builtins.all consumerContractValid consumerSystems;
 assert blocksRelease != null && sources.caveman.blocks.version == builtins.head blocksRelease;
+assert binaryRelease != null && sources.caveman.runtimeVersion == builtins.head binaryRelease;
 pkgs.runCommandLocal "check-ci-contract"
   {
     nativeBuildInputs = [
@@ -449,8 +487,11 @@ pkgs.runCommandLocal "check-ci-contract"
     chmod -R u+w "$fixture"
     rm -rf "$fixture/.git"
     cd "$fixture"
-    jq '.root as $root | .nodes["fixture-root"] = .nodes[$root] | del(.nodes[$root]) | .root = "fixture-root"' \
-      flake.lock > "$TMPDIR/flake.lock"
+    jq '.root as $root | .nodes["fixture-root"] = .nodes[$root] | del(.nodes[$root])
+      | .root = "fixture-root"
+      | .nodes[.root].inputs.caveman as $input
+      | .nodes["fixture-caveman"] = .nodes[$input] | del(.nodes[$input])
+      | .nodes[.root].inputs.caveman = "fixture-caveman"' flake.lock > "$TMPDIR/flake.lock"
     mv "$TMPDIR/flake.lock" flake.lock
     git init --quiet --initial-branch=renovate/ci-contract
     git config user.name "ci-contract"
@@ -609,12 +650,33 @@ pkgs.runCommandLocal "check-ci-contract"
     assert_remote_unchanged "$remoteBefore"
 
     cp "$primePin" "$TMPDIR/updated-prime.json"
+    unrelatedBase=$(git rev-parse HEAD)
+    jq '.nodes[.nodes[.root].inputs.nixpkgs].locked.rev
+      = "2222222222222222222222222222222222222222"' flake.lock > "$TMPDIR/flake.lock"
+    mv "$TMPDIR/flake.lock" flake.lock
+    git add flake.lock
+    git commit --quiet -m "renovate: update unrelated flake input"
+    before=$(git rev-parse HEAD)
+    remoteBefore=$(remote_head)
+    bash ${self}/scripts/fix-nix-hashes.sh update "$unrelatedBase"
+    test "$(git rev-parse HEAD)" = "$before"
+    cmp "$TMPDIR/updated-omp.json" "$ompPin"
+    cmp "$TMPDIR/updated-prime.json" "$primePin"
+    cmp "$TMPDIR/branch-caveman.json" "$cavemanPin"
+    assert_tracked_clean
+    assert_remote_unchanged "$remoteBefore"
     cavemanBase=$(git rev-parse HEAD)
-    jq '.version = "9.9.9"' "$cavemanPin" > "$TMPDIR/pin.json"
-    mv "$TMPDIR/pin.json" "$cavemanPin"
-    git add "$cavemanPin"
-    git commit --quiet -m "renovate: bump Caveman"
+    jq '.nodes[.nodes[.root].inputs.caveman].locked.rev
+      = "1111111111111111111111111111111111111111"' flake.lock > "$TMPDIR/flake.lock"
+    mv "$TMPDIR/flake.lock" flake.lock
+    jq '.hashes["linux-x64"] = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="' \
+      "$ompPin" > "$TMPDIR/pin.json"
+    mv "$TMPDIR/pin.json" "$ompPin"
+    git add flake.lock "$ompPin"
+    git commit --quiet -m "renovate: update Caveman flake input and OMP"
+    cp "$ompPin" "$TMPDIR/pending-omp.json"
     cp "$cavemanPin" "$TMPDIR/pending-caveman.json"
+    cp flake.lock "$TMPDIR/pending-flake.lock"
     before=$(git rev-parse HEAD)
     remoteBefore=$(remote_head)
     if MOCK_CAVEMAN_MISSING=1 bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
@@ -625,6 +687,9 @@ pkgs.runCommandLocal "check-ci-contract"
     grep -Fq "missing Caveman release asset" "$TMPDIR/caveman-error.log"
     test "$(git rev-parse HEAD)" = "$before"
     cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
+    cmp "$TMPDIR/pending-omp.json" "$ompPin"
+    cmp "$TMPDIR/updated-prime.json" "$primePin"
+    cmp "$TMPDIR/pending-flake.lock" flake.lock
     assert_tracked_clean
     assert_remote_unchanged "$remoteBefore"
     if MOCK_CAVEMAN_LICENSE_MISSING=1 bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
@@ -635,16 +700,29 @@ pkgs.runCommandLocal "check-ci-contract"
     grep -Fq "missing Caveman license asset" "$TMPDIR/caveman-license-error.log"
     test "$(git rev-parse HEAD)" = "$before"
     cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
+    cmp "$TMPDIR/pending-omp.json" "$ompPin"
+    cmp "$TMPDIR/updated-prime.json" "$primePin"
+    cmp "$TMPDIR/pending-flake.lock" flake.lock
     assert_tracked_clean
     assert_remote_unchanged "$remoteBefore"
-    for failure in MOCK_BLOCKS_SOURCE_MISSING MOCK_BLOCKS_VENDOR_WRONG_MISMATCH; do
+    for failure in MOCK_CAVEMAN_SOURCE_MISSING MOCK_BLOCKS_SOURCE_MISSING MOCK_BLOCKS_VENDOR_WRONG_MISMATCH MOCK_PNPM_VENDOR_WRONG_MISMATCH; do
       if env "$failure=1" bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
         > "$TMPDIR/blocks-error.log" 2>&1; then
-        echo "update accepted invalid Blocks source or vendor evidence" >&2
+        echo "update accepted invalid locked source or vendor evidence" >&2
         exit 1
       fi
+      case "$failure" in
+        MOCK_CAVEMAN_SOURCE_MISSING) expected="missing locked Caveman source" ;;
+        MOCK_BLOCKS_SOURCE_MISSING) expected="missing Blocks source" ;;
+        MOCK_BLOCKS_VENDOR_WRONG_MISMATCH) expected="cannot determine Blocks vendor hash" ;;
+        MOCK_PNPM_VENDOR_WRONG_MISMATCH) expected="cannot determine Caveman pnpm hash" ;;
+      esac
+      grep -Fq "$expected" "$TMPDIR/blocks-error.log"
       test "$(git rev-parse HEAD)" = "$before"
       cmp "$TMPDIR/pending-caveman.json" "$cavemanPin"
+      cmp "$TMPDIR/pending-flake.lock" flake.lock
+      cmp "$TMPDIR/pending-omp.json" "$ompPin"
+      cmp "$TMPDIR/updated-prime.json" "$primePin"
       assert_tracked_clean
       assert_remote_unchanged "$remoteBefore"
     done
@@ -656,15 +734,16 @@ pkgs.runCommandLocal "check-ci-contract"
     cmp "$TMPDIR/updated-prime.json" "$primePin"
     jq -e --argjson runtime ${lib.escapeShellArg (builtins.toJSON updateTestCavemanRuntime)} \
       --argjson licenses ${lib.escapeShellArg (builtins.toJSON updateTestCavemanLicenses)} '
-      .version == "9.9.9"
-      and .cli.hash == "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN="
-      and .src.hash == "sha256-SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS="
+      keys == ["blocks", "licenses", "pnpmDepsHash", "runtime"]
+      and .runtime.version == "9.9.9"
+      and .pnpmDepsHash == "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN="
       and .blocks.version == "9.8.7"
       and .blocks.src.hash == "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
       and .blocks.vendorHash == "sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG="
       and .runtime.hashes == $runtime
       and .licenses.hashes == $licenses
     ' "$cavemanPin" >/dev/null
+    cmp "$TMPDIR/pending-flake.lock" flake.lock
     assert_tracked_clean
     base=$(git rev-parse HEAD)
     jq '.version = "9.9.10"' "$primePin" > "$TMPDIR/prime-agent.json"
