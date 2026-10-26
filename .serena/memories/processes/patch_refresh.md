@@ -24,6 +24,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
+- `patches/caveman-hermes-native-yaml.patch` — keep the Hermes native wiring valid YAML: insert a new `model:` section after the document start markers, and indent the plugin list entry like its siblings.
 
 ## Local Patch Refresh
 
