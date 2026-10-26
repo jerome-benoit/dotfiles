@@ -26,7 +26,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
-- `patches/caveman-hermes-native-yaml.patch` — carry the YAML fixes from upstream PR #1395 for both Hermes writers until the pinned source includes them.
+- `patches/caveman-hermes-native-yaml.patch` — carry upstream PR #1395's writer fixes, recognize normalized Hermes ownership semantically, and restore only owned values.
 
 ## Local Patch Refresh
 
@@ -75,6 +75,10 @@ Apply every patch in its declared order without offsets or fuzz. Drop only hunks
 whose behavior the selected source now supplies. Run the installed-runtime check,
 including both Hermes writers with a real YAML parser, and the CI updater contract.
 
+Ownership checks must survive Hermes/PyYAML normalization: removed comments,
+quoting, key order, indentation and wrapped scalar paths. Preserve foreign
+siblings and original nullable endpoints on disable. Reject changed owned
+values and ambiguous YAML before any restoration write.
 
 ### OpenCode adapter
 
@@ -103,6 +107,12 @@ without a second agent-root table. Package-only callers invoke a profile's
 `bin/caveman` or `bin/caveman-install`, or explicitly set
 `CAVEMAN_REGISTRATION_ROOT` to an absolute lexical profile prefix. Do not resolve
 that executable/profile link into the store.
+
+After package installation, activation migrates existing user-owned Blocks
+hook symlinks from recognized store paths to the selected profile. This also
+repairs collected targets. It neither installs absent hooks nor rewrites agent
+configuration. Foreign files/links and symlinked or foreign-owned parents are
+left untouched; dry-run performs no mutation.
 
 Execution-time companion paths stay in the package closure. Generated
 registrations use the selected profile's public commands and private

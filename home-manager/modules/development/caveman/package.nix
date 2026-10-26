@@ -92,9 +92,8 @@ stdenvNoCC.mkDerivation {
     # Workaround: generated agent registrations retain runtime closure paths.
     # Remove when upstream separates execution from durable registration paths.
     ../../../../patches/caveman-nix-registration-paths.patch
-    # Workaround: native Hermes wiring writes invalid YAML.
-    # Remove when the CLI inserts a new section after the document start and
-    # matches the siblings' list indentation.
+    # Workaround: Hermes YAML writers and ownership checks depend on formatting.
+    # Remove when upstream handles document/list layout and normalized owned values.
     ../../../../patches/caveman-hermes-native-yaml.patch
   ];
 

@@ -247,13 +247,7 @@ class Fixture:
         if agent == "codex":
             entry = tomllib.loads(path.read_text())["mcp_servers"][server]
         elif agent == "hermes":
-            # Read the emitted scalar/JSON-inline YAML subset without depending
-            # on PyYAML. Fail on a changed shape rather than guessing a command.
-            text = path.read_text()
-            match = re.search(r"(?m)^  " + re.escape(server) + r":\s*\n((?:    [^\n]*\n)+)", text)
-            assert match, text
-            fields = dict(re.findall(r"(?m)^    (command|args): (.+)$", match[1]))
-            entry = {key: json.loads(value) for key, value in fields.items()}
+            entry = yaml.safe_load(path.read_text())["mcp_servers"][server]
         else:
             document = load(path)
             section = "mcp" if agent in ("opencode", "kilo") else "mcpServers"
@@ -493,6 +487,134 @@ def hermes_yaml(f):
                 f.cli("disable", "hermes")
             else:
                 f.cli("tools", "hooks", "uninstall", "hermes")
+
+
+def hermes_semantic_ownership(f):
+    # Only Hermes is enabled here: another host's registration would conceal a
+    # false negative in the global recovery status after Hermes rewrites YAML.
+    config = f.paths("hermes")
+    journal_path = f.cave / "integrations/hermes.json"
+    original = {
+        "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
+                  "default": "claude-sonnet-4-5", "foreign": {"keep": ["café", 7]}},
+        "plugins": {"enabled": ["existing", "café"], "foreign": {"keep": True}},
+        "mcp_servers": {"foreign": {"command": "/foreign/mcp", "args": ["keep"]}},
+        "_config_version": 52,
+    }
+    put(config, yaml.safe_dump(original, sort_keys=False))
+    # Use the fixture's nonlocal route: YAML ownership does not depend on an
+    # opportunistically started proxy. MCP retrieval still executes below.
+    f.cli("enable", "hermes")
+    journal_before = journal_path.read_bytes()
+    document = yaml.safe_load(config.read_text())
+    document["model"]["later_field"] = {"keep": "later model data"}
+    document["plugins"]["enabled"].append("later-plugin")
+    document["plugins"]["later_field"] = {"keep": "later plugin data"}
+    document["mcp_servers"]["later"] = {"url": "https://foreign.example.invalid/mcp"}
+    normalized = yaml.safe_dump(document)
+    # YAML quoting is not JSON quoting: Hermes/PyYAML may emit all three forms.
+    normalized = normalized.replace("provider: custom", r'provider: "\x63\u0075\U00000073tom"')
+    put(config, normalized)
+    for arguments in (("doctor", "hermes"), ("doctor", "hermes", "--fix")):
+        report = json.loads(f.cli(*arguments).stdout)
+        assert report["state"] == "installed", report
+        assert report["components"]["routing"] and report["components"]["mcp_recovery"], report
+        owned_config = next(item for item in report["files"] if item["file"] == str(config))
+        assert owned_config["owned"] and not owned_config["exact"], report
+        assert config.read_text() == normalized
+        assert journal_path.read_bytes() == journal_before
+    assert not (f.cave / "mcp/hermes.json").exists()
+    status = json.loads(f.cli("status", "--json").stdout)
+    assert not any(item["id"] == "mcp-missing" for item in status["off_states"]), status
+    f.mcp(f.registration("hermes", "caveman-native"), "caveman", recover=True)
+    # Real edits and ambiguous shapes must fail before any config, generated
+    # plugin, backup, or restoration journal is written.
+    edits = []
+    for label, key, value in (
+        ("provider", "provider", "user-provider"),
+        ("route", "base_url", "https://changed.example.invalid/v1"),
+    ):
+        changed = json.loads(json.dumps(document))
+        changed["model"][key] = value
+        edits.append((label, yaml.safe_dump(changed)))
+    for label, key, value in (
+        ("MCP command", "command", "/user/changed-command"),
+        ("MCP enabled", "enabled", False),
+        ("MCP extra field", "args", ["--user-added"]),
+    ):
+        changed = json.loads(json.dumps(document))
+        changed["mcp_servers"]["caveman-native"][key] = value
+        edits.append((label, yaml.safe_dump(changed)))
+    changed = json.loads(json.dumps(document))
+    changed["plugins"]["enabled"].remove("caveman_native")
+    edits.append(("removed plugin", yaml.safe_dump(changed)))
+    changed["plugins"]["enabled"].extend(["caveman_native", "caveman_native"])
+    edits.append(("duplicate plugin", yaml.safe_dump(changed)))
+    edits.extend((
+        ("duplicate route", normalized.replace("\nmodel:\n", "\nmodel:\n  provider: custom\n")),
+        ("duplicate root", normalized + "model:\n  provider: custom\n"),
+        ("duplicate MCP", normalized.replace("\nmcp_servers:\n", "\nmcp_servers:\n  caveman-native:\n    command: /foreign/mcp\n")),
+        ("flow plugin list", normalized.replace(
+            "  enabled:\n" + "".join("  " + line for line in yaml.safe_dump(document["plugins"]["enabled"]).splitlines(keepends=True)),
+            "  enabled: [caveman_native, existing, café, later-plugin]\n")),
+        ("plain comment continuation", normalized.replace(
+            "  provider: " + r'"\x63\u0075\U00000073tom"',
+            "  provider: custom # end\n    foreign")),
+        ("quoted comment continuation", normalized.replace(
+            "  provider: " + r'"\x63\u0075\U00000073tom"',
+            '  provider: "custom" # end\n    foreign')),
+    ))
+    integration_files = [Path(item["file"]) for item in load(journal_path)["operations"]]
+    for label, edited in edits:
+        assert edited != normalized, label
+        put(config, edited)
+        snapshot = {path: path.read_bytes() for path in [
+            *integration_files,
+            *(path for path in (f.cave / "integrations").rglob("*") if path.is_file()),
+        ]}
+        report = json.loads(f.cli("doctor", "hermes", check=False).stdout)
+        assert report["state"] == "degraded", (label, report)
+        for arguments in (("doctor", "hermes", "--fix"), ("disable", "hermes")):
+            result = f.cli(*arguments, check=False)
+            assert result.returncode != 0, (label, arguments, result.stdout, result.stderr)
+            assert all(path.read_bytes() == content for path, content in snapshot.items()), (label, arguments)
+    put(config, normalized)
+    f.cli("disable", "hermes")
+    expected = json.loads(json.dumps(document))
+    expected["model"]["provider"] = original["model"]["provider"]
+    expected["model"]["base_url"] = original["model"]["base_url"]
+    expected["plugins"]["enabled"].remove("caveman_native")
+    del expected["mcp_servers"]["caveman-native"]
+    assert yaml.safe_load(config.read_text()) == expected, config.read_text()
+    assert not journal_path.exists()
+    assert not (f.home / ".hermes/plugins/caveman_native/__init__.py").exists()
+    # Sections created by enable may acquire foreign children before disable.
+    # Removing the old whole-section marker span would destroy those children.
+    for previous in ({}, {"model": {"provider": "anthropic", "base_url": None}}, {"model": original["model"]}, {
+        "model": original["model"],
+        "plugins": {"enabled": ["caveman_native", "existing"]},
+        "mcp_servers": {"caveman-native": {"command": "/foreign/mcp", "enabled": True}},
+    }):
+        put(config, yaml.safe_dump(previous) if previous else "")
+        f.cli("enable", "hermes")
+        active = yaml.safe_load(config.read_text())
+        active["model"]["later_field"] = "keep model field"
+        active["plugins"]["enabled"].append("later-plugin")
+        active["plugins"]["foreign"] = {"keep": True}
+        active["mcp_servers"]["foreign"] = {"command": "/foreign/later"}
+        put(config, yaml.safe_dump(active, indent=4))
+        f.cli("disable", "hermes")
+        expected = json.loads(json.dumps(active))
+        for key in ("provider", "base_url"):
+            if key in previous.get("model", {}):
+                expected["model"][key] = previous["model"][key]
+            else:
+                del expected["model"][key]
+        if "caveman_native" not in previous.get("plugins", {}).get("enabled", []):
+            expected["plugins"]["enabled"].remove("caveman_native")
+        if "caveman-native" not in previous.get("mcp_servers", {}):
+            del expected["mcp_servers"]["caveman-native"]
+        assert yaml.safe_load(config.read_text()) == expected, config.read_text()
 
 
 def native_integrations(f):
@@ -869,6 +991,7 @@ def main():
             ("shrink", shrink_callbacks), ("native", native_integrations),
             ("ownership", ownership_controls),
             ("hermes-yaml", hermes_yaml),
+            ("hermes-semantic", hermes_semantic_ownership),
             ("native-registration", native_registration_commands),
         ):
             state = short_native_state()
