@@ -80,6 +80,21 @@ quoting, key order, indentation and wrapped scalar paths. Preserve foreign
 siblings and original nullable endpoints on disable. Reject changed owned
 values and ambiguous YAML before any restoration write.
 
+The native enable and repair producer must use the same semantic YAML spans as
+ownership and restoration. Follow existing mapping and sequence indentation,
+including quoted keys, rather than inserting fixed-width children. Capture scalar
+continuations with their fields and restore their relative indentation. Keep
+unquoted null endpoints distinct from quoted `"null"` and `"~"` strings.
+Exercise an actual repair after deleting a generated payload; a healthy
+`doctor --fix` no-op does not cover the writer. Confirm parsing, foreign siblings,
+regenerated payload, repeated repair, and restoration of original route values.
+
+The Blocks profile migration must unset `CDPATH` inside its subshell before any
+directory walk. Relative `cd` must enter the owned directory just checked, never
+an alternate owned tree found through `CDPATH`. Preserve the caller's environment
+and dry-run behavior. Test the real Home Manager activation with two owned trees
+and the evaluated `home.profileDirectory`, not an assumed `.nix-profile` path.
+
 ### OpenCode adapter
 
 After changing the OpenCode plugin, run

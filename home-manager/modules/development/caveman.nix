@@ -61,6 +61,7 @@ in
         in
         lib.hm.dag.entryAfter [ "installPackages" ] ''
           (
+            unset CDPATH
             # Reject missing, foreign-owned or symlinked parents without creating
             # anything. Walk relative to each checked directory, not through HOME.
             for directory in ${lib.escapeShellArg config.home.homeDirectory} .local share caveman-blocks bin; do

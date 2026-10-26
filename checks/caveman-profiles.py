@@ -590,19 +590,61 @@ def hermes_semantic_ownership(f):
     assert not (f.home / ".hermes/plugins/caveman_native/__init__.py").exists()
     # Sections created by enable may acquire foreign children before disable.
     # Removing the old whole-section marker span would destroy those children.
-    for previous in ({}, {"model": {"provider": "anthropic", "base_url": None}}, {"model": original["model"]}, {
+    commented_null = {"model": {"provider": "auto", "base_url": None}}
+    wrapped = {
+        "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
+                  "default": "claude-sonnet-4-5"},
+        "plugins": {"enabled": ["existing"], "foreign": {"keep": True}},
+        "mcp_servers": {"foreign": {"command": "/foreign/mcp", "args": ["keep"]}},
+    }
+    for previous in ({}, {"model": {"provider": "auto", "base_url": None}}, commented_null,
+                     {"model": {"provider": "anthropic", "base_url": "null"}},
+                     {"model": {"provider": "anthropic", "base_url": "~"}},
+                     {"model": original["model"]}, wrapped, {
         "model": original["model"],
         "plugins": {"enabled": ["caveman_native", "existing"]},
         "mcp_servers": {"caveman-native": {"command": "/foreign/mcp", "enabled": True}},
     }):
-        put(config, yaml.safe_dump(previous) if previous else "")
+        seed = yaml.safe_dump(previous, indent=4) if previous else ""
+        if previous is commented_null:
+            seed = seed.replace("base_url: null", "base_url: # user endpoint unset")
+        if previous is wrapped:
+            seed = seed.replace("provider: anthropic", 'provider: "anthro\\\n        pic"')
+            seed = seed.replace("base_url: https://api.anthropic.com",
+                                'base_url: "https://api.\\\n        anthropic.com"')
+        put(config, seed)
         f.cli("enable", "hermes")
         active = yaml.safe_load(config.read_text())
         active["model"]["later_field"] = "keep model field"
         active["plugins"]["enabled"].append("later-plugin")
         active["plugins"]["foreign"] = {"keep": True}
         active["mcp_servers"]["foreign"] = {"command": "/foreign/later"}
-        put(config, yaml.safe_dump(active, indent=4))
+        normalized = yaml.safe_dump(active, indent=4)
+        # Quoted roots and owned child keys are accepted YAML, not new sections.
+        for key in ("model", "plugins", "mcp_servers", "provider", "base_url",
+                    "enabled", "caveman-native"):
+            normalized = re.sub(r"(?m)^(\s*)" + re.escape(key) + ":",
+                                lambda match: match[1] + '"' + key + '":', normalized)
+        normalized = normalized.replace('"model":\n', '"model":\n    # preserve foreign model note\n')
+        put(config, normalized)
+        payload = f.home / ".hermes/plugins/caveman_native/__init__.py"
+        payload.unlink()
+        degraded = json.loads(f.cli("doctor", "hermes", check=False).stdout)
+        assert degraded["state"] == "degraded", degraded
+        f.cli("doctor", "hermes", "--fix")
+        assert payload.is_file()
+        assert "# preserve foreign model note" in config.read_text()
+        repaired = yaml.safe_load(config.read_text())
+        assert repaired == active, (repaired, active)
+        assert repaired["model"]["base_url"] == f.env["CAVE_GATEWAY_URL"] + "/w/hermes/v1"
+        healthy = json.loads(f.cli("doctor", "hermes").stdout)
+        assert healthy["state"] == "installed", healthy
+        assert healthy["components"]["routing"] and healthy["components"]["mcp_recovery"], healthy
+        repaired_bytes = config.read_bytes()
+        repaired_journal = journal_path.read_bytes()
+        f.cli("doctor", "hermes", "--fix")
+        assert config.read_bytes() == repaired_bytes
+        assert journal_path.read_bytes() == repaired_journal
         f.cli("disable", "hermes")
         expected = json.loads(json.dumps(active))
         for key in ("provider", "base_url"):
@@ -615,6 +657,7 @@ def hermes_semantic_ownership(f):
         if "caveman-native" not in previous.get("mcp_servers", {}):
             del expected["mcp_servers"]["caveman-native"]
         assert yaml.safe_load(config.read_text()) == expected, config.read_text()
+        assert "# preserve foreign model note" in config.read_text()
 
 
 def native_integrations(f):
