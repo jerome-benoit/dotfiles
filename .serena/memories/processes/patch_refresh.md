@@ -84,6 +84,9 @@ indentation, quoted keys, wrapped scalar values and plugin names, foreign
 values and original nullable routes. Remove owned plugin items completely,
 including their continuation lines.
 
+YAML separation uses ASCII space and tab. Preserve other Unicode whitespace
+in scalar values, keys and continuations.
+
 Tabs inside block or closed quoted scalars are data. Reject tabs used for
 structural indentation, including foreign descendants.
 
@@ -111,6 +114,7 @@ Use the evaluated `home.profileDirectory`. Unset `CDPATH` inside the migration
 subshell before walking checked directories. Preserve the caller's environment
 and dry-run behavior. Exercise the evaluated Home Manager activation with
 intended and alternate owned trees; only the intended hook may change.
+Quote profile paths and complete diagnostic messages as shell arguments.
 
 ### OpenCode adapter
 

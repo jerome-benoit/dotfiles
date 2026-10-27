@@ -37,19 +37,24 @@
  // Hermes provider ids that carry their OWN OAuth credential and the ChatGPT
  // Responses transport. Rewriting one to the generic `custom` provider drops
  // both: the installed resolver then picks chat_completions with
-@@ -10274,78 +10253,457 @@
+@@ -10274,78 +10253,462 @@
    return appendUrlPath(gw, keptProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(keptProvider) ? "/chatgpt" : "/w/hermes/v1");
  }
 
 +type HermesYamlEntry = { start: number; end: number; indent: number; value: string };
 +
++// YAML separation uses ASCII space and tab; other whitespace belongs to scalars.
++function hermesYamlTrim(value: string): string {
++  return value.replace(/^[ \t]+|[ \t]+$/g, "");
++}
++
 +// Read only the block YAML shapes emitted by our writers and Hermes' normalizer.
 +// Keep source spans for surgical restoration, not a lossy whole-file serializer.
 +// Unsupported flow values, aliases, merge keys and duplicate keys fail closed.
 +function hermesYamlScalar(value: string): string | boolean | null {
-+  const raw = value.trim();
++  const raw = hermesYamlTrim(value);
 +  if (raw.startsWith('"')) {
-+    const match = raw.match(/^("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/);
++    const match = raw.match(/^("(?:[^"\\]|\\.)*")[ \t]*(?:#.*)?$/);
 +    if (match) {
 +      const escapes: Record<string, string> = {
 +        "0": "\\u0000", a: "\\u0007", v: "\\u000b", e: "\\u001b",
@@ -63,17 +68,17 @@
 +      }));
 +    }
 +  } else if (raw.startsWith("'")) {
-+    const match = raw.match(/^'((?:[^']|'')*)'\s*(?:#.*)?$/);
++    const match = raw.match(/^'((?:[^']|'')*)'[ \t]*(?:#.*)?$/);
 +    if (match) return match[1]!.replace(/''/g, "'");
 +  } else {
 +    if (raw.startsWith("#")) return null;
-+    const plain = configValue(raw)!;
++    const plain = hermesYamlTrim(raw.replace(/[ \t]+#.*$/, ""));
 +    if (!plain || /^(?:null|~)$/i.test(plain)) return null;
 +    if (/^(?:true|True|TRUE)$/.test(plain)) return true;
 +    if (/^(?:false|False|FALSE)$/.test(plain)) return false;
 +    // Match complete numbers and timestamps, not numeric prefixes in plugin names.
 +    if (plain && !/^[,[\]{}#&*!|>'"%@`]/.test(plain) && !/^[-?:](?:[ \t]|$)/.test(plain)
-+      && !/^-\.inf$/i.test(plain) && !/:\s/.test(plain)
++      && !/^-\.inf$/i.test(plain) && !/:[ \t]/.test(plain)
 +      && !/^(?:null|~|yes|no|on|off)$/i.test(plain)
 +      && !/^[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?|0b[01_]+|0o[0-7_]+|0x[0-9a-fA-F_]+)$/.test(plain)
 +      && !/^[-+]?(?:[1-9][0-9_]*(?::[0-5]?[0-9])+|[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*)$/.test(plain)
@@ -83,12 +88,12 @@
 +}
 +
 +function hermesYamlContent(line: string): boolean {
-+  return !/^\s*(?:#.*)?$/.test(line);
++  return !/^[ \t]*(?:#.*)?$/.test(line);
 +}
 +
 +function hermesYamlMapping(line: string): { indent: number; key: string; value: string } | undefined {
 +  const match = line.match(/^( *)("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^"' \t].*?)[ \t]*:(?:[ \t]+(.*)|$)$/);
-+  return match ? { indent: match[1]!.length, key: match[2]!.trimEnd(), value: match[3] ?? "" } : undefined;
++  return match ? { indent: match[1]!.length, key: match[2]!, value: match[3] ?? "" } : undefined;
 +}
 +
 +// Distinguish integration comments and scalar data from YAML structure.
@@ -111,20 +116,20 @@
 +    const line = lines[index]!;
 +    const width = line.match(/^ */)![0].length;
 +    if (block) {
-+      if (!line.trim()) continue;
++      if (!hermesYamlTrim(line)) continue;
 +      if (block.indent === undefined && width > block.owner) block.indent = width;
 +      if (block.indent !== undefined && width >= block.indent) {
-+        if (/^\s*\t/.test(line)) (scalarTabs ??= new Set<number>()).add(index);
++        if (/^ *\t/.test(line)) (scalarTabs ??= new Set<number>()).add(index);
 +        continue;
 +      }
 +      block = undefined;
 +    }
-+    if (quote && /^\s*\t/.test(line)) (quotedTabs ??= []).push(index);
-+    if (!quote && markers.has(line.trim())) {
++    if (quote && /^ *\t/.test(line)) (quotedTabs ??= []).push(index);
++    if (!quote && markers.has(hermesYamlTrim(line))) {
 +      comments.add(index);
 +      continue;
 +    }
-+    if (!line.trim() || (!quote && line.trimStart().startsWith("#"))) continue;
++    if (!hermesYamlTrim(line) || (!quote && /^[ \t]*#/.test(line))) continue;
 +    let text = line.slice(width);
 +    if (!quote && !flowDepth) {
 +      if (plainOwner !== undefined) {
@@ -211,7 +216,7 @@
 +}
 +
 +function hermesYamlMap(lines: string[], parent?: HermesYamlEntry): Map<string, HermesYamlEntry> {
-+  if (parent && !/^\s*(?:#.*)?$/.test(parent.value)) throw new Error("Hermes YAML mapping is not a plain block");
++  if (parent && !/^[ \t]*(?:#.*)?$/.test(parent.value)) throw new Error("Hermes YAML mapping is not a plain block");
 +  const start = parent ? parent.start + 1 : yamlBodyStart(lines);
 +  const end = parent?.end ?? lines.length;
 +  const entries = new Map<string, HermesYamlEntry>();
@@ -221,7 +226,7 @@
 +  for (let i = start; i < end; i++) {
 +    const line = lines[i]!;
 +    if (!hermesYamlContent(line)) continue;
-+    if (/^\s*\t/.test(line)) {
++    if (/^ *\t/.test(line)) {
 +      scalarTabs ??= hermesYamlLayout(lines).scalarTabs;
 +      if (!scalarTabs?.has(i)) throw new Error("Hermes YAML uses ambiguous indentation");
 +    }
@@ -232,7 +237,7 @@
 +    }
 +    if (width > indent) continue;
 +    // PyYAML emits indentless sequences beneath a mapping key.
-+    if (width === indent && /^ *- /.test(line) && previous && /^\s*(?:#.*)?$/.test(previous.value)) continue;
++    if (width === indent && /^ *- /.test(line) && previous && /^[ \t]*(?:#.*)?$/.test(previous.value)) continue;
 +    const mapping = hermesYamlMapping(line);
 +    if (width !== indent || !mapping) throw new Error("Hermes YAML mapping has an unsupported or ambiguous shape");
 +    if (!/^["']/.test(mapping.key) && (/(?:^|[ \t])#/.test(mapping.key) || mapping.key === "<<")) {
@@ -254,17 +259,17 @@
 +  let value = entry.value;
 +  for (let i = entry.start + 1; i < end; i++) {
 +    const line = lines[i]!;
-+    const quoted = /^["']/.test(value.trimStart());
-+    const closedQuote = /^(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')\s*(?:#.*)?$/.test(value.trim());
-+    if (closedQuote || (!quoted && /(?:^|\s)#/.test(value))) {
++    const quoted = /^[ \t]*["']/.test(value);
++    const closedQuote = /^(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')[ \t]*(?:#.*)?$/.test(hermesYamlTrim(value));
++    if (closedQuote || (!quoted && /(?:^|[ \t])#/.test(value))) {
 +      throw new Error("Hermes YAML scalar continues after its end");
 +    }
 +    if (!hermesYamlContent(line) || !line.startsWith(" ".repeat(entry.indent + 1))) {
 +      throw new Error("Hermes YAML scalar continuation is ambiguous");
 +    }
 +    // PyYAML folds long plain/quoted paths; an escaped quoted line break adds no space.
-+    const escapedBreak = value.trimStart().startsWith('"') && (value.match(/\\+$/)?.[0].length ?? 0) % 2 === 1;
-+    value = escapedBreak ? value.slice(0, -1) + line.trim() : value + " " + line.trim();
++    const escapedBreak = /^[ \t]*"/.test(value) && (value.match(/\\+$/)?.[0].length ?? 0) % 2 === 1;
++    value = escapedBreak ? value.slice(0, -1) + hermesYamlTrim(line) : value + " " + hermesYamlTrim(line);
 +  }
 +  return hermesYamlScalar(value);
 +}
@@ -296,7 +301,7 @@
 +}
 +
 +function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
-+  if (!/^\s*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
++  if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
 +  const items: (HermesYamlEntry & { name: string })[] = [];
 +  for (let i = enabled.start + 1; i < enabled.end; i++) {
 +    if (!hermesYamlContent(lines[i]!)) continue;
@@ -536,7 +541,7 @@
 +    const width = entries.values().next().value?.indent ?? 2;
 +    const serverPad = " ".repeat(width);
 +    const firstServer = entries.values().next().value;
-+    const childWidth = firstServer && /^\s*(?:#.*)?$/.test(firstServer.value)
++    const childWidth = firstServer && /^[ \t]*(?:#.*)?$/.test(firstServer.value)
 +      ? hermesYamlMap(lines, firstServer).values().next().value?.indent ?? width * 2
 +      : width * 2;
 +    const childPad = " ".repeat(childWidth);
@@ -551,7 +556,7 @@
    return {
      text: yamlText(lines),
      owned: {
-@@ -10366,8 +10724,15 @@
+@@ -10366,8 +10729,15 @@
    const configBefore = fileBytes(configPath);
    const native = hermesNativeConfig(configBefore?.toString("utf8") ?? "", gw, mcpBinary);
    // A custom provider is the user's own endpoint; a named one is the vendor's.
@@ -569,7 +574,7 @@
    const pluginDir = hermesNativePluginDir();
    const manifestPath = join(pluginDir, "plugin.yaml");
    const initPath = join(pluginDir, "__init__.py");
-@@ -11082,21 +11447,7 @@
+@@ -11082,21 +11452,7 @@
      throw new Error(`${operation.file} changed after enable; refusing destructive disable`);
    }
    if (operation.kind === "hermes-config") {
@@ -592,7 +597,7 @@
    }
    const rootBlock = operation.owned?.root_block;
    const tablesBlock = operation.owned?.tables_block;
-@@ -11487,10 +11838,8 @@
+@@ -11487,10 +11843,8 @@
            const tables = typeof operation.owned?.tables_block === "string" ? codexNativeTables(lines, operation.owned.tables_block) : new Map();
            owned = CODEX_NATIVE_TABLES.every((table) => tables.get(table) === true) && codexNativeRouted(lines) && text.indexOf("\uFEFF", 1) === -1;
          } else if (operation.kind === "hermes-config") {
@@ -605,7 +610,7 @@
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -11640,7 +11989,7 @@
+@@ -11640,7 +11994,7 @@
    if (own?.routed) warnings.push(ownEndpointRoutedMessage(agent, own));
    const fileText = checks.map((check) => fileBytes(check.file)?.toString("utf8") ?? "").join("\n");
    const components: NativeComponents = {
@@ -614,7 +619,7 @@
      // A plugin the host cannot load runs no hooks, whatever its bytes hash to.
      lifecycle_hooks: agent !== "aider" && ownedHealthy && opencodePluginApiCurrent && hooksTrusted,
      core: coreActive,
-@@ -13966,7 +14315,9 @@
+@@ -13966,7 +14320,9 @@
      try {
        if (agent === "codex") return typeof operation.owned?.tables_block === "string" && codexNativeTables(codexTomlLines(current.toString("utf8")), operation.owned.tables_block).get("mcp_servers.caveman") === true;
        // A null block: the user's own caveman-native entry was already there.
@@ -625,7 +630,7 @@
        if (agent === "pi") return current.toString("utf8").includes("caveman:native-pi");
        const servers = objectValue(parseJsonFileObject(operation.file, current).mcpServers);
        return operation.owned?.installed_mcp !== undefined && canonicalize(servers.caveman) === canonicalize(operation.owned.installed_mcp);
-@@ -14132,6 +14483,34 @@
+@@ -14132,6 +14488,34 @@
      kept.push(line);
    }
    return { text: yamlText(kept), removed };
@@ -638,8 +643,8 @@
 +// skipped too, so a header comment keeps describing the file.
 +function yamlBodyStart(lines: string[]): number {
 +  let i = 0;
-+  while (i < lines.length && (/^\s*(?:#.*)?$/.test(lines[i]!) || /^%/.test(lines[i]!))) i++;
-+  if (i < lines.length && /^---(?:\s|$)/.test(lines[i]!)) i++;
++  while (i < lines.length && (/^[ \t]*(?:#.*)?$/.test(lines[i]!) || /^%/.test(lines[i]!))) i++;
++  if (i < lines.length && /^---(?:[ \t]|$)/.test(lines[i]!)) i++;
 +  return i;
 +}
 +
@@ -651,8 +656,8 @@
 +function yamlListItemIndent(lines: string[], keyAt: number, end: number): number | null {
 +  for (let i = keyAt + 1; i < end; i++) {
 +    const line = lines[i]!;
-+    if (/^\s*(?:#.*)?$/.test(line)) continue;
-+    const item = line.match(/^(\s+)- /);
++    if (/^[ \t]*(?:#.*)?$/.test(line)) continue;
++    const item = line.match(/^( +)- /);
 +    if (item) return item[1]!.length;
 +    return null;
 +  }
@@ -660,7 +665,7 @@
  }
 
  function topLevelSection(lines: string[], key: string): { start: number; end: number } | undefined {
-@@ -18514,7 +18893,8 @@
+@@ -18514,7 +18898,8 @@
        return false;
      }
      if (enabledLine >= 0) {

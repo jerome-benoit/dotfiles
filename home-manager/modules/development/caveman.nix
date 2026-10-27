@@ -76,7 +76,7 @@ in
             # A collected legacy store path is still recognizable. Replace it only
             # when the selected profile already supplies an executable replacement.
             [[ -x ${lib.escapeShellArg profileBinary} ]] || exit 0
-            verboseEcho "caveman: migrating existing Blocks hook to ${profileBinary}"
+            verboseEcho ${lib.escapeShellArg "caveman: migrating existing Blocks hook to ${profileBinary}"}
             run ${replaceHook} ${lib.escapeShellArg profileBinary} "$previousTarget"
           )
         ''

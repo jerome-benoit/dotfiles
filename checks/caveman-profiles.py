@@ -496,14 +496,17 @@ def hermes_semantic_ownership(f):
     journal_path = f.cave / "integrations/hermes.json"
     plain_plugins = ["3d-tools", "1password", "1.2.3", "1e3-tools",
                      "0x10-plugin", "2026-10-27-plugin", "-helper", "?helper",
-                     ":helper", "-1-helper", "-0x10-plugin", "team:helper", "team#helper"]
+                     ":helper", "-1-helper", "-0x10-plugin", "team:helper", "team#helper",
+                     "caveman_native\u00a0", "foreign\u2003#plugin", "foreign:\u00a0plugin"]
     foreign_servers = {
         name: {"command": "/foreign/mcp", "args": [name]}
-        for name in ("foreign", "team/github", "my server", "équipe/工具", "team:github", "team#github")
+        for name in ("foreign", "team/github", "my server", "équipe/工具", "team:github", "team#github",
+                     "caveman-native\u00a0", "foreign\u2003")
     }
     original = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
-                  "default": "claude-sonnet-4-5", "foreign": {"keep": ["café", 7]}},
+                  "default": "claude-sonnet-4-5", "foreign": {"keep": ["café", 7]},
+                  "provider\u00a0": "keep NBSP key", "provider\u2003": "keep EM SPACE key"},
         "plugins": {"enabled": ["existing", "café", *plain_plugins], "foreign": {"keep": True}},
         "mcp_servers": foreign_servers,
         "_config_version": 52,
@@ -520,6 +523,7 @@ def hermes_semantic_ownership(f):
     normalized = yaml.safe_dump(document, allow_unicode=True)
     # YAML quoting is not JSON quoting: Hermes/PyYAML may emit all three forms.
     normalized = normalized.replace("provider: custom", r'provider: "\x63\u0075\U00000073tom"')
+    normalized = re.sub(r"(?m)^( +base_url:.*)$", r"\1  # route note", normalized)
     put(config, normalized)
     for arguments in (("doctor", "hermes"), ("doctor", "hermes", "--fix")):
         report = json.loads(f.cli(*arguments).stdout)
@@ -543,6 +547,32 @@ def hermes_semantic_ownership(f):
         changed = json.loads(json.dumps(document))
         changed["model"][key] = value
         edits.append((label, yaml.safe_dump(changed)))
+    # Unicode whitespace is scalar data, including at folded boundaries.
+    for keys in (("model", "base_url"), ("mcp_servers", "caveman-native", "command")):
+        scalar = yaml.compose(normalized)
+        for key in keys:
+            scalar = next(value for name, value in scalar.value if name.value == key)
+        for whitespace in ("\u00a0", "\u2003"):
+            replacements = [
+                (scalar.value + whitespace, scalar.value + whitespace),
+                (scalar.value + whitespace + "#tenant", scalar.value + whitespace + "#tenant"),
+                (whitespace + scalar.value, whitespace + scalar.value),
+                (json.dumps(scalar.value)[:-1] + "\\\n"
+                 + " " * (scalar.start_mark.column + 2) + whitespace + '"', scalar.value + whitespace),
+            ]
+            prefix, separator, suffix = scalar.value.partition(" ")
+            if separator:
+                replacements.append((
+                    prefix + "\n" + " " * (scalar.start_mark.column + 2) + whitespace + suffix,
+                    prefix + " " + whitespace + suffix,
+                ))
+            for replacement, expected_value in replacements:
+                edited = normalized[:scalar.start_mark.index] + replacement + normalized[scalar.end_mark.index:]
+                decoded = yaml.safe_load(edited)
+                for key in keys:
+                    decoded = decoded[key]
+                assert decoded == expected_value, (keys, replacement, decoded)
+                edits.append(("Unicode scalar " + ".".join(keys) + " " + repr(replacement), edited))
     for label, key, value in (
         ("MCP command", "command", "/user/changed-command"),
         ("MCP enabled", "enabled", False),
