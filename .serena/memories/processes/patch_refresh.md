@@ -84,6 +84,9 @@ indentation, quoted keys, wrapped scalar values and plugin names, foreign
 values and original nullable routes. Remove owned plugin items completely,
 including their continuation lines.
 
+Tabs inside block or closed quoted scalars are data. Reject tabs used for
+structural indentation, including foreign descendants.
+
 Accept supported plain string keys and plugin names, including spaces, Unicode
 and `-`, `?`, `:` prefixes without separation. Match complete finite numeric and
 timestamp scalars, not name prefixes. Reject duplicate keys, aliases, merge keys

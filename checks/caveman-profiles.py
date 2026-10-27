@@ -576,6 +576,15 @@ def hermes_semantic_ownership(f):
         ("quoted comment continuation", normalized.replace(
             "  provider: " + r'"\x63\u0075\U00000073tom"',
             '  provider: "custom" # end\n    foreign')),
+        ("tabbed first model key", normalized.replace("\n  base_url:", "\n  \tbase_url:")),
+        ("tabbed owned item", normalized.replace("- caveman_native\n", "\t- caveman_native\n")),
+        ("tabbed plain route", normalized.replace(
+            "  provider: " + r'"\x63\u0075\U00000073tom"', "  provider:\n    \tcustom")),
+        ("tabbed foreign structure", normalized.replace(
+            "\nmodel:\n", "\nmodel:\n  notes: keep\n   \tprovider: anthropic\n")),
+        ("insufficient block indentation", normalized + "custom_notes: |2\n \tkeep tab\n"),
+        ("tab after block", normalized + "custom_notes: |\n  keep\n \tbad\n"),
+        ("unclosed tabbed quote", normalized + 'custom_notes: "open\n  \tdata\n'),
     ))
     # Reject typed scalars without rejecting ordinary names that share a prefix.
     typed_scalars = ("+1_000", "0b10", "0x10", "012", "1:20", "1.0e+3",
@@ -606,6 +615,9 @@ def hermes_semantic_ownership(f):
             result = f.cli(*arguments, check=False)
             assert result.returncode != 0, (label, arguments, result.stdout, result.stderr)
             assert all(path.read_bytes() == content for path, content in snapshot.items()), (label, arguments)
+            assert {path for path in (f.cave / "integrations").rglob("*") if path.is_file()} == {
+                path for path in snapshot if path.is_relative_to(f.cave / "integrations")
+            }, (label, arguments)
     put(config, normalized)
     f.cli("disable", "hermes")
     expected = json.loads(json.dumps(document))
@@ -795,6 +807,8 @@ def hermes_foreign_markers(f):
     quoted = json.dumps('before \\\\ "quote"')[:-1]
     fragments = (
         ("literal", "custom_notes: |\n" + body(2, content)),
+        ("tabbed-literal", "custom_notes: |\n  \tkeep tab\n"),
+        ("tabbed-quote", 'custom_notes: "before\n  \tkeep tab"\n'),
         ("folded", "custom_notes: >-\n" + body(2, content)),
         ("marker-first", "custom_notes: |2-\n" + body(2, markers)),
         ("next-line-header", "custom_notes:\n  |2-\n" + body(2, content)),
@@ -825,21 +839,32 @@ def hermes_foreign_markers(f):
         "plugins": {"enabled": ["existing"]},
     }
     seed = yaml.safe_dump(original, sort_keys=False)
-    for label, fragment in fragments:
-        fragment += "plain_note: don't [start]\n"
-        expected = yaml.safe_load(seed + fragment)
+    cases = [(label, fragment, False) for label, fragment in fragments]
+    cases.append(("tabbed-model", "  notes: |2\n    \tkeep tab\n", True))
+    for label, fragment, in_model in cases:
+        if not in_model:
+            fragment += "plain_note: don't [start]\n"
+
+        def add_foreign(text):
+            return text.replace("model:\n", "model:\n" + fragment, 1) if in_model else text + "\n" + fragment
+
+        expected = yaml.safe_load(add_foreign(seed))
         put(config, seed)
         f.cli("enable", "hermes")
-        put(config, config.read_text() + "\n" + fragment)
+        put(config, add_foreign(config.read_text()))
         active = yaml.safe_load(config.read_text())
         healthy = json.loads(f.cli("doctor", "hermes").stdout)
         assert healthy["state"] == "installed", (label, healthy)
         assert next(item["owned"] for item in healthy["files"] if item["file"] == str(config))
         payload.unlink()
+        degraded = json.loads(f.cli("doctor", "hermes", check=False).stdout)
+        assert degraded["state"] == "degraded", (label, degraded)
         f.cli("doctor", "hermes", "--fix")
         assert payload.is_file(), label
         assert yaml.safe_load(config.read_text()) == active, label
         assert fragment in config.read_text(), label
+        healthy = json.loads(f.cli("doctor", "hermes").stdout)
+        assert healthy["state"] == "installed", (label, healthy)
         repaired, journal = config.read_bytes(), journal_path.read_bytes()
         f.cli("doctor", "hermes", "--fix")
         assert config.read_bytes() == repaired and journal_path.read_bytes() == journal, label
@@ -853,12 +878,14 @@ def hermes_foreign_markers(f):
         assert yaml.safe_load(config.read_text()) == expected, label
         assert fragment in config.read_text(), label
     for text in (
-        "custom_notes: don't [start]\n" + markers[0] + "\n",
-        "custom_notes: [\n  " + markers[-1] + '\n  "keep"\n  ]\n',
-        "custom_notes:\n  - plain\n    'quote\n  " + markers[0] + "\n",
-        "custom_notes:\n  plain\n  'quote\n" + markers[0] + "\n",
+        seed + "custom_notes: don't [start]\n" + markers[0] + "\n",
+        seed + "custom_notes: [\n  " + markers[-1] + '\n  "keep"\n  ]\n',
+        seed + "custom_notes:\n  - plain\n    'quote\n  " + markers[0] + "\n",
+        seed + "custom_notes:\n  plain\n  'quote\n" + markers[0] + "\n",
+        "model:\n  \tprovider: anthropic\n  base_url: https://api.anthropic.com\n",
+        seed + 'custom_notes: "open\n  \tdata\n',
     ):
-        put(config, seed + text)
+        put(config, text)
         before = config.read_bytes()
         snapshots = {p: p.read_bytes() for p in (f.cave / "integrations").rglob("*") if p.is_file()}
         result = f.cli("enable", "hermes", check=False)
