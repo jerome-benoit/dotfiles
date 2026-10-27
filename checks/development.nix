@@ -17,6 +17,7 @@ let
         ../home-manager/modules/development/aoe.nix
         ../home-manager/modules/development/herdr.nix
         ../home-manager/modules/development/opencode.nix
+        ../home-manager/modules/development/caveman.nix
         {
           home = {
             username = "development-check";
@@ -59,6 +60,32 @@ let
     builtins.toJSON {
       inherit fixtureHome;
       runHelper = "${home-manager}/lib/bash/home-manager.sh";
+      caveman =
+        map
+          (
+            suffix:
+            let
+              config =
+                (configure {
+                  home.homeDirectory = lib.mkForce "${fixtureHome}/caveman/${suffix}";
+                  modules.development.caveman = {
+                    enable = true;
+                    package = pkgs.hello;
+                  };
+                }).config;
+            in
+            {
+              homeDirectory = config.home.homeDirectory;
+              profileDirectory = config.home.profileDirectory;
+              script = config.home.activation.cavemanBlocksProfile.data;
+            }
+          )
+          [
+            "plain"
+            "$missing"
+            "quote ' path"
+            "$(touch caveman-shell-expanded)"
+          ];
       aoe = {
         script = seeded.home.activation.aoeConfig.data;
         directory =
@@ -90,6 +117,7 @@ pkgs.runCommand "check-development-integrations"
   ''
     python3 - ${scripts} <<'PY'
     import json
+    import os
     from pathlib import Path
     import shlex
     import stat
@@ -150,6 +178,67 @@ pkgs.runCommand "check-development-integrations"
                 assert target.read_bytes() == before, (name, initial)
                 assert stat.S_IMODE(target.stat().st_mode) == 0o600
                 print(f"{name}: {initial}: dry-run, seed and user edits preserved")
+
+        # Relocate only the safe prefix; retain Nix's quoting of literal paths.
+        for fixture in metadata["caveman"]:
+            home = Path(fixture["homeDirectory"].replace(metadata["fixtureHome"], str(root)))
+            profile = Path(fixture["profileDirectory"].replace(metadata["fixtureHome"], str(root)))
+            redirect = root / "redirect" / home.name
+            home.mkdir(parents=True)
+            redirect.mkdir(parents=True)
+            relative = Path(".local/share/caveman-blocks/bin/caveman-blocks")
+            legacy = "${builtins.storeDir}/00000000000000000000000000000000-caveman-blocks-0.1.0/bin/caveman-blocks"
+            hooks = [home / relative, redirect / relative]
+            for hook in hooks:
+                hook.parent.mkdir(parents=True)
+                hook.symlink_to(legacy)
+            original_inodes = [(hook.lstat().st_dev, hook.lstat().st_ino) for hook in hooks]
+            binary = profile / "bin/caveman-blocks"
+            binary.parent.mkdir(parents=True)
+            binary.write_text("#!${lib.getExe pkgs.bash}\nexit 0\n")
+            binary.chmod(0o755)
+            binary_inode = (binary.stat().st_dev, binary.stat().st_ino)
+            script = (
+                "source " + shlex.quote(metadata["runHelper"]) + "\n"
+                + fixture["script"].replace(metadata["fixtureHome"], str(root))
+                + '\n[[ "$CDPATH" == "$EXPECTED_CDPATH" ]]\n'
+            )
+            environment = {
+                "HOME": str(home),
+                "PATH": "${lib.makeBinPath [ pkgs.coreutils ]}",
+                "NO_COLOR": "1",
+                "VERBOSE": "1",
+                "CDPATH": str(redirect) + ":.",
+                "EXPECTED_CDPATH": str(redirect) + ":.",
+            }
+            def migrate(dry=False):
+                pending = os.readlink(hooks[0]) == legacy
+                result = subprocess.run(
+                    ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
+                    env={**environment, **({"DRY_RUN": "1"} if dry else {})},
+                    cwd=root, capture_output=True, text=True, timeout=10,
+                )
+                assert result.returncode == 0, (home.name, dry, result.stdout, result.stderr)
+                if pending:
+                    assert f"caveman: migrating existing Blocks hook to {binary}" in result.stdout
+                assert not (hooks[0].parent / "caveman-shell-expanded").exists()
+                assert (binary.stat().st_dev, binary.stat().st_ino) == binary_inode
+
+            migrate(dry=True)
+            assert [os.readlink(hook) for hook in hooks] == [legacy, legacy]
+            assert [(hook.lstat().st_dev, hook.lstat().st_ino) for hook in hooks] == original_inodes
+            migrate()
+            assert os.readlink(hooks[0]) == str(binary)
+            assert os.readlink(hooks[1]) == legacy
+            assert (hooks[1].lstat().st_dev, hooks[1].lstat().st_ino) == original_inodes[1]
+            migrated_inode = (hooks[0].lstat().st_dev, hooks[0].lstat().st_ino)
+            migrate(dry=True)
+            migrate()
+            assert os.readlink(hooks[0]) == str(binary)
+            assert (hooks[0].lstat().st_dev, hooks[0].lstat().st_ino) == migrated_inode
+            assert os.readlink(hooks[1]) == legacy
+            assert (hooks[1].lstat().st_dev, hooks[1].lstat().st_ino) == original_inodes[1]
+            print(f"caveman: {home.name}: literal profile, CDPATH isolated; dry-run and repeat preserve outside hook")
     PY
     touch "$out"
   ''

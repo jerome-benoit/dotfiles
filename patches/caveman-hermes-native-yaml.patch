@@ -1,33 +1,668 @@
 # base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4 after caveman-nix-registration-paths.patch
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1395
 # issues: https://github.com/JuliusBrussee/caveman/issues/1405
+#   https://github.com/JuliusBrussee/caveman/issues/1410
 # intent: keep both Hermes writers valid with YAML directives and sibling list
-#   indentation. Carry only these upstream fixes until the pinned main includes them.
+#   indentation. Recognize Hermes-normalized native YAML by owned field values,
+#   not comments or quote spelling. Restore only owned routing fields, plugin
+#   membership and MCP entry; preserve foreign siblings and journal recovery data.
+#   Reject duplicate keys, unsupported shapes and changed owned values before writes.
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -10272,7 +10272,7 @@
-   const lines = yamlLines(source);
-   let model = topLevelSection(lines, "model");
-   if (!model) {
--    lines.unshift("model:");
-+    lines.splice(yamlBodyStart(lines), 0, "model:");
-     model = topLevelSection(lines, "model")!;
-   }
-   const routeIndexes: number[] = [];
-@@ -10313,7 +10313,8 @@
-     }
-     if (enabled >= 0) {
-       if (!hermesNamedPluginEnabled(source, HERMES_NATIVE_PLUGIN_NAME)) {
--        const block = [`    ${HERMES_NATIVE_PLUGIN_BEGIN}`, `    - ${HERMES_NATIVE_PLUGIN_NAME}`, `    ${HERMES_NATIVE_PLUGIN_END}`];
-+        const pad = " ".repeat(yamlListItemIndent(lines, enabled, plugins.end) ?? 4);
-+        const block = [`${pad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${pad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${pad}${HERMES_NATIVE_PLUGIN_END}`];
-         lines.splice(enabled + 1, 0, ...block);
-         pluginBlock = block.join("\n");
-       }
-@@ -14125,6 +14126,34 @@
-   return { text: yamlText(kept), removed };
+@@ -10239,27 +10239,6 @@
+ `;
  }
 
+-function insertHermesNativeListEntry(
+-  lines: string[],
+-  sectionName: string,
+-  childName: string,
+-  begin: string,
+-  end: string,
+-  blockLines: string[],
+-): string | null {
+-  const section = topLevelSection(lines, sectionName);
+-  if (section) {
+-    if (sectionHasChildKey(lines, section, childName)) return null;
+-    lines.splice(section.start + 1, 0, ...blockLines);
+-    return blockLines.join("\n");
+-  }
+-  if (lines.length > 0 && lines[lines.length - 1]!.trim()) lines.push("");
+-  const body = blockLines.filter((line) => !line.includes(begin) && !line.includes(end));
+-  const whole = [begin, `${sectionName}:`, ...body, end];
+-  lines.push(...whole);
+-  return whole.join("\n");
+-}
+-
+ // Hermes provider ids that carry their OWN OAuth credential and the ChatGPT
+ // Responses transport. Rewriting one to the generic `custom` provider drops
+ // both: the installed resolver then picks chat_completions with
+@@ -10274,78 +10253,489 @@
+   return appendUrlPath(gw, keptProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(keptProvider) ? "/chatgpt" : "/w/hermes/v1");
+ }
+
++type HermesYamlEntry = { start: number; end: number; indent: number; value: string };
++
++// YAML separation uses ASCII space and tab; other whitespace belongs to scalars.
++function hermesYamlTrim(value: string): string {
++  return value.replace(/^[ \t]+|[ \t]+$/g, "");
++}
++
++// Read only the block YAML shapes emitted by our writers and Hermes' normalizer.
++// Keep source spans for surgical restoration, not a lossy whole-file serializer.
++// Unsupported flow values, aliases, merge keys and duplicate keys fail closed.
++function hermesYamlScalar(value: string): string | boolean | null {
++  const raw = hermesYamlTrim(value);
++  if (raw.startsWith('"')) {
++    const match = raw.match(/^("(?:[^"\\]|\\.)*")[ \t]*(?:#.*)?$/);
++    if (match) {
++      const escapes: Record<string, string> = {
++        "0": "\\u0000", a: "\\u0007", v: "\\u000b", e: "\\u001b",
++        N: "\\u0085", _: "\\u00a0", L: "\\u2028", P: "\\u2029", " ": " ", "\t": "\\t",
++      };
++      return JSON.parse(match[1]!.replace(/\\(x[0-9a-fA-F]{2}|U[0-9a-fA-F]{8}|.)|\t/g, (full, escape: string | undefined) => {
++        if (escape === undefined) return "\\t";
++        if (/^(?:x[0-9a-fA-F]{2}|U[0-9a-fA-F]{8})$/.test(escape)) {
++          return JSON.stringify(String.fromCodePoint(parseInt(escape.slice(1), 16))).slice(1, -1);
++        }
++        return escapes[escape] ?? full;
++      }));
++    }
++  } else if (raw.startsWith("'")) {
++    const match = raw.match(/^'((?:[^']|'')*)'[ \t]*(?:#.*)?$/);
++    if (match) return match[1]!.replace(/''/g, "'");
++  } else {
++    if (raw.startsWith("#")) return null;
++    const plain = hermesYamlTrim(raw.replace(/[ \t]+#.*$/, ""));
++    if (!plain || /^(?:null|~)$/i.test(plain)) return null;
++    if (/^(?:true|True|TRUE)$/.test(plain)) return true;
++    if (/^(?:false|False|FALSE)$/.test(plain)) return false;
++    // Match complete numbers and timestamps, not numeric prefixes in plugin names.
++    if (plain && !/^[,[\]{}#&*!|>'"%@`]/.test(plain) && !/^[-?:](?:[ \t]|$)/.test(plain)
++      && !/^-\.inf$/i.test(plain) && !/:[ \t]/.test(plain)
++      && !/^(?:null|~|yes|no|on|off)$/i.test(plain)
++      && !/^[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?|0b[01_]+|0o[0-7_]+|0x[0-9a-fA-F_]+)$/.test(plain)
++      && !/^[-+]?(?:[1-9][0-9_]*(?::[0-5]?[0-9])+|[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*)$/.test(plain)
++      && !/^[0-9]{4}-(?:[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$/.test(plain)) return plain;
++  }
++  throw new Error("Hermes YAML scalar is ambiguous; refusing unsafe native merge");
++}
++
++function hermesYamlContent(line: string): boolean {
++  return !/^[ \t]*(?:#.*)?$/.test(line);
++}
++
++function hermesYamlLineContent(lines: string[], index: number, quotedHashLines: Set<number> | undefined): boolean {
++  return hermesYamlContent(lines[index]!) || quotedHashLines?.has(index) === true;
++}
++
++function hermesYamlMapping(line: string): { indent: number; key: string; value: string } | undefined {
++  const match = line.match(/^( *)("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^"' \t].*?)[ \t]*:(?:[ \t]+(.*)|$)$/);
++  return match ? { indent: match[1]!.length, key: match[2]!, value: match[3] ?? "" } : undefined;
++}
++
++// Distinguish integration comments and scalar data from YAML structure.
++function hermesYamlLayout(lines: string[], start = 0, end = lines.length) {
++  const markers = new Set([
++    HERMES_NATIVE_ROUTE_BEGIN, HERMES_NATIVE_ROUTE_END, HERMES_NATIVE_PLUGIN_BEGIN,
++    HERMES_NATIVE_PLUGIN_END, HERMES_NATIVE_MCP_BEGIN, HERMES_NATIVE_MCP_END,
++  ]);
++  const comments = new Set<number>();
++  let scalarTabs: Set<number> | undefined;
++  let quotedHashLines: Set<number> | undefined;
++  let quotedTabs: number[] | undefined;
++  let block: { owner: number; indent: number | undefined } | undefined;
++  let pendingOwner: number | undefined;
++  let plainOwner: number | undefined;
++  let quote: "'" | '"' | undefined;
++  let flowDepth = 0;
++  let tokenStart = true;
++  let quotedToken = false;
++  for (let index = start; index < end; index++) {
++    const line = lines[index]!;
++    const width = line.match(/^ */)![0].length;
++    if (block) {
++      if (!hermesYamlTrim(line)) continue;
++      if (block.indent === undefined && width > block.owner) block.indent = width;
++      if (block.indent !== undefined && width >= block.indent) {
++        if (/^ *\t/.test(line)) (scalarTabs ??= new Set<number>()).add(index);
++        continue;
++      }
++      block = undefined;
++    }
++    if (quote && /^ *\t/.test(line)) (quotedTabs ??= []).push(index);
++    if (quote && /^[ \t]*#/.test(line)) (quotedHashLines ??= new Set<number>()).add(index);
++    if (!quote && markers.has(hermesYamlTrim(line))) {
++      comments.add(index);
++      continue;
++    }
++    if (!hermesYamlTrim(line) || (!quote && /^[ \t]*#/.test(line))) continue;
++    let text = line.slice(width);
++    if (!quote && !flowDepth) {
++      if (plainOwner !== undefined) {
++        if (width > plainOwner) continue;
++        plainOwner = undefined;
++      }
++      if (pendingOwner !== undefined && width <= pendingOwner) pendingOwner = undefined;
++      let owner = width;
++      let sequenceOwner: number | undefined;
++      for (let item; (item = text.match(/^-(?:[ \t]+|$)/));) {
++        sequenceOwner = owner;
++        owner += item[0].length;
++        text = text.slice(item[0].length);
++      }
++      const indicator = text.match(/^[?:](?:[ \t]+|$)/);
++      if (indicator) text = text.slice(indicator[0].length);
++      const mapping = hermesYamlMapping(text);
++      if (mapping) text = mapping.value;
++      else if (!indicator) owner = sequenceOwner ?? pendingOwner ?? width;
++      // Scalar properties can precede a header or occupy their own line.
++      for (let property; (property = text.match(/^(?:!<[^>]*>|![^ \t]+|&[^ \t]+)[ \t]*/));) {
++        text = text.slice(property[0].length);
++      }
++      const header = text.match(/^[|>](?:([1-9])[+-]?|[+-]([1-9])?)?[ \t]*(?:#.*)?$/);
++      if (header) {
++        const explicit = header[1] ?? header[2];
++        block = { owner, indent: explicit ? owner + Number(explicit) : undefined };
++        pendingOwner = undefined;
++        continue;
++      }
++      if (!text || text.startsWith("#")) {
++        pendingOwner = owner;
++        continue;
++      }
++      tokenStart = true;
++      quotedToken = false;
++      if ((mapping || indicator || sequenceOwner !== undefined || pendingOwner !== undefined) && !/^["'[{]/.test(text)) plainOwner = owner;
++      pendingOwner = undefined;
++    }
++    for (let i = 0; i < text.length; i++) {
++      const char = text[i]!;
++      if (quote) {
++        if (quote === '"' && char === "\\") { i++; continue; }
++        if (char === quote) {
++          if (quote === "'" && text[i + 1] === "'") { i++; continue; }
++          quote = undefined;
++          if (quotedTabs) {
++            scalarTabs ??= new Set<number>();
++            for (const lineIndex of quotedTabs) scalarTabs.add(lineIndex);
++            quotedTabs = undefined;
++          }
++          tokenStart = false;
++          quotedToken = true;
++        }
++        continue;
++      }
++      if (char === "#" && (i === 0 || /[ \t]/.test(text[i - 1]!))) break;
++      if (/[ \t]/.test(char)) continue;
++      if (tokenStart && (char === '"' || char === "'")) {
++        quote = char;
++        quotedToken = false;
++      } else if (tokenStart && (char === "[" || char === "{")) {
++        flowDepth++;
++        quotedToken = false;
++      } else if (flowDepth && (char === "]" || char === "}")) {
++        flowDepth--;
++        tokenStart = false;
++        quotedToken = false;
++      } else if ((flowDepth && (char === "," || (char === ":" && quotedToken)))
++        || (char === ":" && /[ \t,[\]{}]|^$/.test(text[i + 1] ?? ""))
++        || (tokenStart && /[-?]/.test(char) && /[ \t]/.test(text[i + 1] ?? ""))) {
++        tokenStart = true;
++        quotedToken = false;
++      } else if (tokenStart && (char === "!" || char === "&")) {
++        const property = text.slice(i).match(/^(?:!<[^>]*>|[!&][^ \t,[\]{}]+)/);
++        if (property) i += property[0].length - 1;
++      } else {
++        tokenStart = false;
++        quotedToken = false;
++      }
++    }
++  }
++  return { markerComments: comments, scalarTabs, quotedHashLines };
++}
++
++function hermesYamlMap(lines: string[], parent?: HermesYamlEntry): Map<string, HermesYamlEntry> {
++  if (parent && !/^[ \t]*(?:#.*)?$/.test(parent.value)) throw new Error("Hermes YAML mapping is not a plain block");
++  const start = parent ? parent.start + 1 : yamlBodyStart(lines);
++  const end = parent?.end ?? lines.length;
++  const entries = new Map<string, HermesYamlEntry>();
++  let indent = parent ? -1 : 0;
++  let previous: HermesYamlEntry | undefined;
++  let scalarTabs: Set<number> | undefined;
++  for (let i = start; i < end; i++) {
++    const line = lines[i]!;
++    if (!hermesYamlContent(line)) continue;
++    if (/^ *\t/.test(line)) {
++      scalarTabs ??= hermesYamlLayout(lines).scalarTabs;
++      if (!scalarTabs?.has(i)) throw new Error("Hermes YAML uses ambiguous indentation");
++    }
++    const width = line.match(/^ */)![0].length;
++    if (indent < 0) {
++      if (width <= parent!.indent) throw new Error("Hermes YAML child mapping has ambiguous indentation");
++      indent = width;
++    }
++    if (width > indent) continue;
++    // PyYAML emits indentless sequences beneath a mapping key.
++    if (width === indent && /^ *- /.test(line) && previous && /^[ \t]*(?:#.*)?$/.test(previous.value)) continue;
++    const mapping = hermesYamlMapping(line);
++    if (width !== indent || !mapping) throw new Error("Hermes YAML mapping has an unsupported or ambiguous shape");
++    if (!/^["']/.test(mapping.key) && (/(?:^|[ \t])#/.test(mapping.key) || mapping.key === "<<")) {
++      throw new Error("Hermes YAML mapping key is ambiguous");
++    }
++    const key = hermesYamlScalar(mapping.key);
++    if (typeof key !== "string" || entries.has(key)) throw new Error("Hermes YAML mapping has duplicated keys");
++    if (previous) previous.end = i;
++    previous = { start: i, end, indent, value: mapping.value };
++    entries.set(key, previous);
++  }
++  return entries;
++}
++
++function hermesYamlLeaf(lines: string[], entry: HermesYamlEntry | undefined): string | boolean | null {
++  if (!entry) throw new Error("Hermes YAML owned field is missing");
++  let end = entry.end;
++  let quotedHashLines: Set<number> | undefined;
++  if (/^[ \t]*["']/.test(entry.value)) {
++    for (let i = entry.start + 1; i < end; i++) {
++      if (/^[ \t]*#/.test(lines[i]!)) {
++        quotedHashLines = hermesYamlLayout(lines, entry.start, end).quotedHashLines;
++        break;
++      }
++    }
++  }
++  while (end > entry.start + 1 && !hermesYamlLineContent(lines, end - 1, quotedHashLines)) end--;
++  let value = entry.value;
++  for (let i = entry.start + 1; i < end; i++) {
++    const line = lines[i]!;
++    const quoted = /^[ \t]*["']/.test(value);
++    const closedQuote = /^(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')[ \t]*(?:#.*)?$/.test(hermesYamlTrim(value));
++    if (closedQuote || (!quoted && /(?:^|[ \t])#/.test(value))) {
++      throw new Error("Hermes YAML scalar continues after its end");
++    }
++    if (!hermesYamlLineContent(lines, i, quotedHashLines) || !line.startsWith(" ".repeat(entry.indent + 1))) {
++      throw new Error("Hermes YAML scalar continuation is ambiguous");
++    }
++    // Fold physical separation before decoding escapes; escaped whitespace is data.
++    const doubleQuoted = /^[ \t]*"/.test(value);
++    let contentEnd = value.length;
++    while (contentEnd > 0 && /[ \t]/.test(value[contentEnd - 1]!)) contentEnd--;
++    let escapeStart = contentEnd;
++    while (doubleQuoted && escapeStart > 0 && value[escapeStart - 1] === "\\") escapeStart--;
++    const escaped = (contentEnd - escapeStart) % 2 === 1;
++    const escapedBreak = escaped && contentEnd === value.length;
++    if (escapedBreak) contentEnd--;
++    else if (escaped) contentEnd++; // Preserve the first escaped space or tab.
++    value = value.slice(0, contentEnd) + (escapedBreak ? "" : " ") + line.replace(/^[ \t]+/, "");
++  }
++  return hermesYamlScalar(value);
++}
++
++function hermesYamlRequired(entries: Map<string, HermesYamlEntry>, key: string): HermesYamlEntry {
++  const entry = entries.get(key);
++  if (!entry) throw new Error(`Hermes YAML ${key} is missing`);
++  return entry;
++}
++
++function hermesNativeMcpEntry(lines: string[], owned: Record<string, unknown>): HermesYamlEntry | undefined {
++  const root = hermesYamlMap(lines);
++  const servers = root.get("mcp_servers");
++  const server = servers ? hermesYamlMap(lines, servers).get("caveman-native") : undefined;
++  if (owned.mcp_block === null) return server; // Pre-existing, never ours to remove.
++  if (typeof owned.mcp_block !== "string") throw new Error("Hermes integration journal lacks owned MCP block");
++  if (!server) throw new Error("Hermes YAML caveman-native is missing");
++  const block = owned.mcp_block;
++  const expectedLines = yamlLines(/^mcp_servers:/m.test(block) ? block : `mcp_servers:\n${block}`);
++  const expectedRoot = hermesYamlMap(expectedLines);
++  const expectedServers = hermesYamlMap(expectedLines, hermesYamlRequired(expectedRoot, "mcp_servers"));
++  const expected = hermesYamlMap(expectedLines, hermesYamlRequired(expectedServers, "caveman-native"));
++  const actual = hermesYamlMap(lines, server);
++  if (actual.size !== expected.size || [...expected].some(([key, value]) =>
++    hermesYamlLeaf(lines, actual.get(key)) !== hermesYamlLeaf(expectedLines, value))) {
++    throw new Error("Hermes MCP block changed after enable; refusing destructive disable");
++  }
++  return server;
++}
++
++function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
++  if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
++  const items: (HermesYamlEntry & { name: string })[] = [];
++  for (let i = enabled.start + 1; i < enabled.end; i++) {
++    if (!hermesYamlContent(lines[i]!)) continue;
++    const item = lines[i]!.match(/^( *)- (.*)$/);
++    if (!item || item[1]!.length < enabled.indent || (items.length && item[1]!.length !== items[0]!.indent)) {
++      throw new Error("Hermes plugins.enabled has an ambiguous shape");
++    }
++    const indent = item[1]!.length;
++    let end = i + 1;
++    while (end < enabled.end) {
++      const line = lines[end]!;
++      if (hermesYamlContent(line) && line.match(/^ */)![0].length <= indent) break;
++      end++;
++    }
++    const entry = { start: i, end, indent, value: item[2]!, name: "" };
++    const name = hermesYamlLeaf(lines, entry);
++    if (typeof name !== "string") throw new Error("Hermes plugin name is not a string");
++    if (name === HERMES_NATIVE_PLUGIN_NAME && items.some((entry) => entry.name === name)) {
++      throw new Error("Hermes native plugin is duplicated");
++    }
++    entry.name = name;
++    items.push(entry);
++    i = end - 1;
++  }
++  return items;
++}
++
++function hermesNativeOwned(text: string, owned: Record<string, unknown>) {
++  const lines = yamlLines(text);
++  const root = hermesYamlMap(lines);
++  const modelEntry = hermesYamlRequired(root, "model");
++  const model = hermesYamlMap(lines, modelEntry);
++  const provider = hermesYamlRequired(model, "provider");
++  const route = hermesYamlRequired(model, "base_url");
++  if (typeof owned.route_block !== "string") throw new Error("Hermes integration journal lacks owned routing block");
++  const expectedLines = yamlLines(`model:\n${owned.route_block}`);
++  const expected = hermesYamlMap(expectedLines, hermesYamlRequired(hermesYamlMap(expectedLines), "model"));
++  if (hermesYamlLeaf(lines, provider) !== hermesYamlLeaf(expectedLines, expected.get("provider"))
++    || hermesYamlLeaf(lines, route) !== hermesYamlLeaf(expectedLines, expected.get("base_url"))) {
++    throw new Error("Hermes routing block changed after enable; refusing destructive disable");
++  }
++  const plugins = root.get("plugins");
++  const enabled = plugins ? hermesYamlMap(lines, plugins).get("enabled") : undefined;
++  const plugin = enabled
++    ? hermesNativePluginItems(lines, enabled).find((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)
++    : undefined;
++  if (owned.plugin_block !== null && (!plugin || typeof owned.plugin_block !== "string")) {
++    throw new Error("Hermes plugin block changed after enable; refusing destructive disable");
++  }
++  const mcp = hermesNativeMcpEntry(lines, owned);
++  return { lines, provider, route, plugin, mcp };
++}
++
++function hermesNativeRestoreText(text: string, owned: Record<string, unknown>, before: Buffer | null): string {
++  const state = hermesNativeOwned(text, owned);
++  const { lines, provider, route, plugin, mcp } = state;
++  if (!Array.isArray(owned.previous_route_lines) || owned.previous_route_lines.some((line) => typeof line !== "string")) {
++    throw new Error("Hermes integration journal lacks previous routing fields");
++  }
++  const previous = owned.previous_route_lines as string[];
++  // Validate recovery data without rewriting the journal or accepting extra fields.
++  const recoveryLines = ["model:", ...previous];
++  const recovery = hermesYamlMap(recoveryLines, hermesYamlRequired(hermesYamlMap(recoveryLines), "model"));
++  if ([...recovery.keys()].some((key) => key !== "provider" && key !== "base_url")) {
++    throw new Error("Hermes integration journal has ambiguous previous routing fields");
++  }
++  for (const entry of recovery.values()) hermesYamlLeaf(recoveryLines, entry);
++  const layout = hermesYamlLayout(lines);
++  const remove = layout.markerComments;
++  for (const entry of [provider, route]) {
++    for (let i = entry.start; i < entry.end; i++) if (hermesYamlLineContent(lines, i, layout.quotedHashLines)) remove.add(i);
++  }
++  if (owned.plugin_block !== null && plugin) {
++    for (let i = plugin.start; i < plugin.end; i++) if (hermesYamlLineContent(lines, i, layout.quotedHashLines)) remove.add(i);
++  }
++  if (owned.mcp_block !== null && mcp) {
++    for (let i = mcp.start; i < mcp.end; i++) if (hermesYamlLineContent(lines, i, layout.quotedHashLines)) remove.add(i);
++  }
++  const insertAt = Math.min(provider.start, route.start);
++  const previousIndent = previous.length ? Math.min(...[...recovery.values()].map((entry) => entry.indent)) : 0;
++  const restored = lines.flatMap((line, index) => [
++    ...(index === insertAt ? previous.map((value) => " ".repeat(provider.indent) + value.slice(previousIndent)) : []),
++    ...(remove.has(index) ? [] : [line]),
++  ]);
++  // Remove empty containers only when enable created them. Never remove later siblings.
++  const beforeLines = yamlLines(before?.toString("utf8") ?? "");
++  const beforeRoot = hermesYamlMap(beforeLines);
++  const beforePlugins = beforeRoot.get("plugins");
++  const hadEnabled = beforePlugins && hermesYamlMap(beforeLines, beforePlugins).has("enabled");
++  let restoredRoot = hermesYamlMap(restored);
++  const plugins = restoredRoot.get("plugins");
++  if (owned.plugin_block !== null && plugins && !hadEnabled) {
++    const entry = hermesYamlMap(restored, plugins).get("enabled");
++    if (entry && !restored.slice(entry.start + 1, entry.end).some(hermesYamlContent)) restored.splice(entry.start, 1);
++  }
++  for (const key of ["model", "plugins", "mcp_servers"]) {
++    restoredRoot = hermesYamlMap(restored);
++    const entry = restoredRoot.get(key);
++    if (!beforeRoot.has(key) && entry && !restored.slice(entry.start + 1, entry.end).some(hermesYamlContent)) {
++      restored.splice(entry.start, 1);
++    }
++  }
++  return yamlText(restored);
++}
++
+ function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { text: string; owned: Record<string, unknown> } {
+-  for (const marker of [HERMES_NATIVE_ROUTE_BEGIN, HERMES_NATIVE_ROUTE_END, HERMES_NATIVE_PLUGIN_BEGIN, HERMES_NATIVE_PLUGIN_END, HERMES_NATIVE_MCP_BEGIN, HERMES_NATIVE_MCP_END]) {
+-    if (source.includes(marker)) throw new Error("existing Hermes Caveman native block is unjournaled; run `caveman doctor hermes`");
+-  }
+   const lines = yamlLines(source);
+-  let model = topLevelSection(lines, "model");
++  let layout = hermesYamlLayout(lines);
++  if (layout.markerComments.size) {
++    throw new Error("existing Hermes Caveman native block is unjournaled; run `caveman doctor hermes`");
++  }
++  let root = hermesYamlMap(lines);
++  let model = root.get("model");
+   if (!model) {
+-    lines.unshift("model:");
+-    model = topLevelSection(lines, "model")!;
+-  }
+-  const routeIndexes: number[] = [];
++    lines.splice(yamlBodyStart(lines), 0, "model:");
++    model = hermesYamlRequired(hermesYamlMap(lines), "model");
++    layout = hermesYamlLayout(lines);
++  }
++  const fields = hermesYamlMap(lines, model);
++  const indent = fields.values().next().value?.indent ?? 2;
++  const pad = " ".repeat(indent);
++  const routeEntries = [...fields].filter(([key]) => key === "provider" || key === "base_url").map(([, entry]) => entry);
+   const previousRouteLines: string[] = [];
+-  for (let i = model.start + 1; i < model.end; i++) {
+-    if (/^  (provider|base_url):/.test(lines[i]!)) {
+-      routeIndexes.push(i);
+-      previousRouteLines.push(lines[i]!);
+-    }
+-  }
+-  if (new Set(routeIndexes.map((index) => lines[index]!.match(/^  ([^:]+):/)?.[1])).size !== routeIndexes.length) {
+-    throw new Error("Hermes model provider/base_url keys are duplicated; refusing ambiguous install");
+-  }
+-  const insertAt = routeIndexes[0] ?? model.start + 1;
+-  for (const index of [...routeIndexes].sort((a, b) => b - a)) lines.splice(index, 1);
++  const remove = new Set<number>();
++  for (const entry of routeEntries) {
++    const value = hermesYamlLeaf(lines, entry);
++    if (value !== null && typeof value !== "string") throw new Error("Hermes routing field is not a string or null");
++    for (let i = entry.start; i < entry.end; i++) {
++      if (hermesYamlLineContent(lines, i, layout.quotedHashLines)) {
++        previousRouteLines.push(lines[i]!);
++        remove.add(i);
++      }
++    }
++  }
++  const insertAt = routeEntries[0]?.start ?? model.start + 1;
++  const previousProvider = fields.has("provider") ? hermesYamlLeaf(lines, fields.get("provider")) : null;
++  for (const index of [...remove].sort((a, b) => b - a)) lines.splice(index, 1);
+   // A named OAuth provider selects a credential and a transport that the
+   // generic custom route cannot carry, so keep it and route to the handler
+   // that speaks it. `api_mode` is not a route key, so it already survives.
+-  const providerLine = previousRouteLines.find((line) => /^  provider:/.test(line));
+-  const previousProvider = providerLine ? configValue(providerLine.slice(providerLine.indexOf(":") + 1)) : undefined;
+-  const keptProvider = previousProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(previousProvider) ? previousProvider : null;
++  const keptProvider = typeof previousProvider === "string" && HERMES_CHATGPT_OAUTH_PROVIDERS.has(previousProvider) ? previousProvider : null;
+   const route = hermesGatewayBase(gw, keptProvider);
+   const routeBlock = [
+-    `  ${HERMES_NATIVE_ROUTE_BEGIN}`,
+-    keptProvider ? `  provider: ${keptProvider}` : '  provider: "custom"',
+-    `  base_url: ${yamlQuote(route)}`,
+-    `  ${HERMES_NATIVE_ROUTE_END}`,
++    `${pad}${HERMES_NATIVE_ROUTE_BEGIN}`,
++    keptProvider ? `${pad}provider: ${keptProvider}` : `${pad}provider: "custom"`,
++    `${pad}base_url: ${yamlQuote(route)}`,
++    `${pad}${HERMES_NATIVE_ROUTE_END}`,
+   ];
+   lines.splice(insertAt, 0, ...routeBlock);
+
+   let pluginBlock: string | null = null;
+-  const plugins = topLevelSection(lines, "plugins");
+-  if (plugins) {
+-    let enabled = -1;
+-    for (let i = plugins.start + 1; i < plugins.end; i++) {
+-      if (/^  enabled:\s*\[/.test(lines[i]!)) throw new Error("Hermes plugins.enabled uses inline YAML; refusing unsafe native merge");
+-      if (/^  enabled:\s*(?:#.*)?$/.test(lines[i]!)) { enabled = i; break; }
+-    }
+-    if (enabled >= 0) {
+-      if (!hermesNamedPluginEnabled(source, HERMES_NATIVE_PLUGIN_NAME)) {
+-        const block = [`    ${HERMES_NATIVE_PLUGIN_BEGIN}`, `    - ${HERMES_NATIVE_PLUGIN_NAME}`, `    ${HERMES_NATIVE_PLUGIN_END}`];
+-        lines.splice(enabled + 1, 0, ...block);
+-        pluginBlock = block.join("\n");
+-      }
+-    } else {
+-      const block = [`  ${HERMES_NATIVE_PLUGIN_BEGIN}`, "  enabled:", `    - ${HERMES_NATIVE_PLUGIN_NAME}`, `  ${HERMES_NATIVE_PLUGIN_END}`];
+-      lines.splice(plugins.start + 1, 0, ...block);
+-      pluginBlock = block.join("\n");
+-    }
+-  } else {
+-    if (lines.length > 0 && lines[lines.length - 1]!.trim()) lines.push("");
+-    const block = [HERMES_NATIVE_PLUGIN_BEGIN, "plugins:", "  enabled:", `    - ${HERMES_NATIVE_PLUGIN_NAME}`, HERMES_NATIVE_PLUGIN_END];
+-    lines.push(...block);
++  root = hermesYamlMap(lines);
++  let plugins = root.get("plugins");
++  if (!plugins) {
++    lines.push("plugins:");
++    plugins = hermesYamlRequired(hermesYamlMap(lines), "plugins");
++  }
++  let pluginFields = hermesYamlMap(lines, plugins);
++  let enabled = pluginFields.get("enabled");
++  if (!enabled) {
++    const width = pluginFields.values().next().value?.indent ?? 2;
++    lines.splice(plugins.start + 1, 0, `${" ".repeat(width)}enabled:`);
++    plugins = hermesYamlRequired(hermesYamlMap(lines), "plugins");
++    pluginFields = hermesYamlMap(lines, plugins);
++    enabled = hermesYamlRequired(pluginFields, "enabled");
++  }
++  const items = hermesNativePluginItems(lines, enabled);
++  if (!items.some((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)) {
++    const itemPad = " ".repeat(items[0]?.indent ?? enabled.indent + 2);
++    const block = [`${itemPad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${itemPad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${itemPad}${HERMES_NATIVE_PLUGIN_END}`];
++    lines.splice(enabled.start + 1, 0, ...block);
+     pluginBlock = block.join("\n");
+   }
+
+-  const mcpBlockLines = [
+-    `  ${HERMES_NATIVE_MCP_BEGIN}`,
+-    "  caveman-native:",
+-    `    command: ${yamlQuote(mcpBinary)}`,
+-    "    enabled: true",
+-    `  ${HERMES_NATIVE_MCP_END}`,
+-  ];
+-  const mcpBlock = insertHermesNativeListEntry(lines, "mcp_servers", "caveman-native", HERMES_NATIVE_MCP_BEGIN, HERMES_NATIVE_MCP_END, mcpBlockLines);
++  root = hermesYamlMap(lines);
++  let servers = root.get("mcp_servers");
++  if (!servers) {
++    lines.push("mcp_servers:");
++    servers = hermesYamlRequired(hermesYamlMap(lines), "mcp_servers");
++  }
++  const entries = hermesYamlMap(lines, servers);
++  let mcpBlock: string | null = null;
++  if (!entries.has("caveman-native")) {
++    const width = entries.values().next().value?.indent ?? 2;
++    const serverPad = " ".repeat(width);
++    const firstServer = entries.values().next().value;
++    const childWidth = firstServer && /^[ \t]*(?:#.*)?$/.test(firstServer.value)
++      ? hermesYamlMap(lines, firstServer).values().next().value?.indent ?? width * 2
++      : width * 2;
++    const childPad = " ".repeat(childWidth);
++    const block = [
++      `${serverPad}${HERMES_NATIVE_MCP_BEGIN}`, `${serverPad}caveman-native:`,
++      `${childPad}command: ${yamlQuote(mcpBinary)}`, `${childPad}enabled: true`,
++      `${serverPad}${HERMES_NATIVE_MCP_END}`,
++    ];
++    lines.splice(servers.start + 1, 0, ...block);
++    mcpBlock = block.join("\n");
++  }
+   return {
+     text: yamlText(lines),
+     owned: {
+@@ -10366,8 +10756,15 @@
+   const configBefore = fileBytes(configPath);
+   const native = hermesNativeConfig(configBefore?.toString("utf8") ?? "", gw, mcpBinary);
+   // A custom provider is the user's own endpoint; a named one is the vendor's.
+-  const previous = Object.fromEntries((native.owned.previous_route_lines as string[]).map((line) => [line.match(/^  ([^:]+):/)![1]!, configValue(line.slice(line.indexOf(":") + 1))]));
+-  if (!previous.provider || previous.provider === "custom" || previous.provider === "auto") refuseOwnEndpoint("hermes", "model.base_url", previous.base_url, configPath);
++  const previousLines = ["model:", ...native.owned.previous_route_lines as string[]];
++  const previousFields = hermesYamlMap(previousLines, hermesYamlRequired(hermesYamlMap(previousLines), "model"));
++  const previous = Object.fromEntries([...previousFields].map(([key, entry]) => [key, hermesYamlLeaf(previousLines, entry)]));
++  if (!previous.provider || previous.provider === "custom" || previous.provider === "auto") {
++    if (previous.base_url !== null && previous.base_url !== undefined && typeof previous.base_url !== "string") {
++      throw new Error("Hermes model.base_url is not a string or null");
++    }
++    refuseOwnEndpoint("hermes", "model.base_url", previous.base_url ?? undefined, configPath);
++  }
+   const pluginDir = hermesNativePluginDir();
+   const manifestPath = join(pluginDir, "plugin.yaml");
+   const initPath = join(pluginDir, "__init__.py");
+@@ -11082,21 +11479,7 @@
+     throw new Error(`${operation.file} changed after enable; refusing destructive disable`);
+   }
+   if (operation.kind === "hermes-config") {
+-    let text = current.toString("utf8");
+-    const routeBlock = operation.owned?.route_block;
+-    const previousRouteLines = operation.owned?.previous_route_lines;
+-    if (typeof routeBlock !== "string" || !Array.isArray(previousRouteLines)) {
+-      throw new Error("Hermes integration journal lacks owned routing block");
+-    }
+-    if (!text.includes(routeBlock)) throw new Error("Hermes routing block changed after enable; refusing destructive disable");
+-    text = text.replace(routeBlock, previousRouteLines.filter((line): line is string => typeof line === "string").join("\n"));
+-    for (const key of ["plugin_block", "mcp_block"] as const) {
+-      const block = operation.owned?.[key];
+-      if (block === null || block === undefined) continue;
+-      if (typeof block !== "string" || !text.includes(block)) throw new Error(`Hermes ${key.replace("_block", "")} block changed after enable; refusing destructive disable`);
+-      text = text.replace(block, "");
+-    }
+-    return Buffer.from(text);
++    return Buffer.from(hermesNativeRestoreText(current.toString("utf8"), operation.owned ?? {}, before));
+   }
+   const rootBlock = operation.owned?.root_block;
+   const tablesBlock = operation.owned?.tables_block;
+@@ -11487,10 +11870,8 @@
+           const tables = typeof operation.owned?.tables_block === "string" ? codexNativeTables(lines, operation.owned.tables_block) : new Map();
+           owned = CODEX_NATIVE_TABLES.every((table) => tables.get(table) === true) && codexNativeRouted(lines) && text.indexOf("\uFEFF", 1) === -1;
+         } else if (operation.kind === "hermes-config") {
+-          const text = current.toString("utf8");
+-          owned = typeof operation.owned?.route_block === "string" && text.includes(operation.owned.route_block)
+-            && (operation.owned.plugin_block === null || (typeof operation.owned.plugin_block === "string" && text.includes(operation.owned.plugin_block)))
+-            && (operation.owned.mcp_block === null || (typeof operation.owned.mcp_block === "string" && text.includes(operation.owned.mcp_block)));
++          const state = hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
++          owned = state.plugin !== undefined && state.mcp !== undefined;
+         } else if (operation.kind === "gemini-settings") {
+           const root = parseJsonFileObject(operation.file, current);
+           const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
+@@ -11640,7 +12021,7 @@
+   if (own?.routed) warnings.push(ownEndpointRoutedMessage(agent, own));
+   const fileText = checks.map((check) => fileBytes(check.file)?.toString("utf8") ?? "").join("\n");
+   const components: NativeComponents = {
+-    routing: routeHealthy && proxyHealthy && (agent === "claude" ? fileText.includes("ANTHROPIC_BASE_URL") : agent === "codex" ? fileText.includes("model_providers.caveman") : agent === "hermes" ? fileText.includes(HERMES_NATIVE_ROUTE_BEGIN) : agent === "gemini" ? fileText.includes(GEMINI_NATIVE_ENV_BEGIN) : agent === "opencode" ? fileText.includes("caveman:native-opencode") : agent === "pi" ? fileText.includes("caveman:native-pi") : fileText.includes(AIDER_NATIVE_ROUTE_BEGIN)),
++    routing: routeHealthy && proxyHealthy && (agent === "claude" ? fileText.includes("ANTHROPIC_BASE_URL") : agent === "codex" ? fileText.includes("model_providers.caveman") : agent === "hermes" ? true : agent === "gemini" ? fileText.includes(GEMINI_NATIVE_ENV_BEGIN) : agent === "opencode" ? fileText.includes("caveman:native-opencode") : agent === "pi" ? fileText.includes("caveman:native-pi") : fileText.includes(AIDER_NATIVE_ROUTE_BEGIN)),
+     // A plugin the host cannot load runs no hooks, whatever its bytes hash to.
+     lifecycle_hooks: agent !== "aider" && ownedHealthy && opencodePluginApiCurrent && hooksTrusted,
+     core: coreActive,
+@@ -13966,7 +14347,9 @@
+     try {
+       if (agent === "codex") return typeof operation.owned?.tables_block === "string" && codexNativeTables(codexTomlLines(current.toString("utf8")), operation.owned.tables_block).get("mcp_servers.caveman") === true;
+       // A null block: the user's own caveman-native entry was already there.
+-      if (agent === "hermes") return operation.owned?.mcp_block === null || (typeof operation.owned?.mcp_block === "string" && current.toString("utf8").includes(operation.owned.mcp_block));
++      if (agent === "hermes") {
++        return hermesNativeMcpEntry(yamlLines(current.toString("utf8")), operation.owned ?? {}) !== undefined;
++      }
+       if (agent === "pi") return current.toString("utf8").includes("caveman:native-pi");
+       const servers = objectValue(parseJsonFileObject(operation.file, current).mcpServers);
+       return operation.owned?.installed_mcp !== undefined && canonicalize(servers.caveman) === canonicalize(operation.owned.installed_mcp);
+@@ -14132,6 +14515,34 @@
+     kept.push(line);
+   }
+   return { text: yamlText(kept), removed };
++}
++
 +// A YAML stream may open with `%`-directives and a `---` marker, which is what
 +// Hermes itself writes. Content must go AFTER them: a directive that follows
 +// content opens a second document, and `yaml.safe_load` then fails with
@@ -35,8 +670,8 @@
 +// skipped too, so a header comment keeps describing the file.
 +function yamlBodyStart(lines: string[]): number {
 +  let i = 0;
-+  while (i < lines.length && (/^\s*(?:#.*)?$/.test(lines[i]!) || /^%/.test(lines[i]!))) i++;
-+  if (i < lines.length && /^---(?:\s|$)/.test(lines[i]!)) i++;
++  while (i < lines.length && (/^[ \t]*(?:#.*)?$/.test(lines[i]!) || /^%/.test(lines[i]!))) i++;
++  if (i < lines.length && /^---(?:[ \t]|$)/.test(lines[i]!)) i++;
 +  return i;
 +}
 +
@@ -48,18 +683,16 @@
 +function yamlListItemIndent(lines: string[], keyAt: number, end: number): number | null {
 +  for (let i = keyAt + 1; i < end; i++) {
 +    const line = lines[i]!;
-+    if (/^\s*(?:#.*)?$/.test(line)) continue;
-+    const item = line.match(/^(\s+)- /);
++    if (/^[ \t]*(?:#.*)?$/.test(line)) continue;
++    const item = line.match(/^( +)- /);
 +    if (item) return item[1]!.length;
 +    return null;
 +  }
 +  return null;
-+}
-+
+ }
+
  function topLevelSection(lines: string[], key: string): { start: number; end: number } | undefined {
-   const start = lines.findIndex((line) => new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line));
-   if (start < 0) return undefined;
-@@ -18505,7 +18534,8 @@
+@@ -18514,7 +18925,8 @@
        return false;
      }
      if (enabledLine >= 0) {

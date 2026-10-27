@@ -26,7 +26,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
-- `patches/caveman-hermes-native-yaml.patch` — carry the YAML fixes from upstream PR #1395 for both Hermes writers until the pinned source includes them.
+- `patches/caveman-hermes-native-yaml.patch` — carry upstream PR #1395's writer fixes, recognize normalized Hermes ownership semantically, and restore only owned values.
 
 ## Local Patch Refresh
 
@@ -75,6 +75,50 @@ Apply every patch in its declared order without offsets or fuzz. Drop only hunks
 whose behavior the selected source now supplies. Run the installed-runtime check,
 including both Hermes writers with a real YAML parser, and the CI updater contract.
 
+### Caveman native integrations
+
+#### Hermes YAML
+
+Enable, repair and disable share YAML spans and scalar decoding. Preserve
+indentation, quoted keys, wrapped scalar values and plugin names, foreign
+values and original nullable routes. Remove owned plugin items completely,
+including their continuation lines.
+Treat `#` lines inside quoted scalars as data; preserve standalone comments.
+
+YAML separation uses ASCII space and tab. Preserve other Unicode whitespace
+in scalar values, keys and continuations.
+Fold physical line separation before decoding escapes. Preserve escaped
+spaces and tabs; an escaped line break adds no space.
+
+Decode quoted scalar content with YAML's literal and escaped tab rules.
+Preserve tab content in block scalars. Reject tabs used for structural
+indentation, including foreign descendants.
+
+Accept supported plain string keys and plugin names, including spaces, Unicode
+and `-`, `?`, `:` prefixes without separation. Match complete finite numeric and
+timestamp scalars, not name prefixes. Reject duplicate keys, aliases, merge keys
+and unsupported containers before writes.
+
+Remove only standalone integration-marker comments. Preserve marker-looking
+scalar content, including deferred plain scalars, quoted flow values and keys.
+Fresh enable rejects unjournaled marker comments.
+
+A null `plugin_block` or `mcp_block` marks a pre-existing foreign entry.
+Restoration tolerates its removal; integration health requires its presence.
+Repair owns recreated entries. Disable preserves prior user deletions.
+
+Exercise normalization, payload-removal repair, repeated repair and disable
+through the installed CLI. Verify original routes, foreign values, regenerated
+payloads, ownership and MCP recovery. Retain write-free refusal coverage for
+owned drift and unsupported input.
+
+#### Blocks migration
+
+Use the evaluated `home.profileDirectory`. Unset `CDPATH` inside the migration
+subshell before walking checked directories. Preserve the caller's environment
+and dry-run behavior. Exercise the evaluated Home Manager activation with
+intended and alternate owned trees; only the intended hook may change.
+Quote profile paths and complete diagnostic messages as shell arguments.
 
 ### OpenCode adapter
 
@@ -103,6 +147,12 @@ without a second agent-root table. Package-only callers invoke a profile's
 `bin/caveman` or `bin/caveman-install`, or explicitly set
 `CAVEMAN_REGISTRATION_ROOT` to an absolute lexical profile prefix. Do not resolve
 that executable/profile link into the store.
+
+After package installation, activation migrates existing user-owned Blocks
+hook symlinks from recognized store paths to the selected profile. This also
+repairs collected targets. It neither installs absent hooks nor rewrites agent
+configuration. Foreign files/links and symlinked or foreign-owned parents are
+left untouched; dry-run performs no mutation.
 
 Execution-time companion paths stay in the package closure. Generated
 registrations use the selected profile's public commands and private
