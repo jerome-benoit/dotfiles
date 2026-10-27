@@ -86,9 +86,12 @@ including their continuation lines.
 
 YAML separation uses ASCII space and tab. Preserve other Unicode whitespace
 in scalar values, keys and continuations.
+Fold physical line separation before decoding escapes. Preserve escaped
+spaces and tabs; an escaped line break adds no space.
 
-Tabs inside block or closed quoted scalars are data. Reject tabs used for
-structural indentation, including foreign descendants.
+Decode quoted scalar content with YAML's literal and escaped tab rules.
+Preserve tab content in block scalars. Reject tabs used for structural
+indentation, including foreign descendants.
 
 Accept supported plain string keys and plugin names, including spaces, Unicode
 and `-`, `?`, `:` prefixes without separation. Match complete finite numeric and

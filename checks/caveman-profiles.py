@@ -137,7 +137,7 @@ class Fixture:
         self.home = root / "home"
         self.home.mkdir(parents=True)
         self.cave = cave
-        self.profile = root / "profile space ' quote"
+        self.profile = root / "profile  space ' quote"
         self.hosts = root / "host-probes"
         self.hosts.mkdir()
         # These are actual version probes, not host emulators. No MCP command is
@@ -524,6 +524,15 @@ def hermes_semantic_ownership(f):
     # YAML quoting is not JSON quoting: Hermes/PyYAML may emit all three forms.
     normalized = normalized.replace("provider: custom", r'provider: "\x63\u0075\U00000073tom"')
     normalized = re.sub(r"(?m)^( +base_url:.*)$", r"\1  # route note", normalized)
+    command = yaml.compose(normalized)
+    for key in ("mcp_servers", "caveman-native", "command"):
+        command = next(value for name, value in command.value if name.value == key)
+    # Two literal spaces require an escaped space plus folding. Keep the
+    # escaped space on an intermediate line until its boundary is processed.
+    folded = json.dumps(command.value).replace(
+        "profile  space", "profi\\\n      le\\  \n      space \n      ", 1)
+    normalized = normalized[:command.start_mark.index] + folded + normalized[command.end_mark.index:]
+    assert yaml.safe_load(normalized) == document
     put(config, normalized)
     for arguments in (("doctor", "hermes"), ("doctor", "hermes", "--fix")):
         report = json.loads(f.cli(*arguments).stdout)
@@ -552,6 +561,15 @@ def hermes_semantic_ownership(f):
         scalar = yaml.compose(normalized)
         for key in keys:
             scalar = next(value for name, value in scalar.value if name.value == key)
+        if keys[-1] == "command":
+            for quote in ("", "'", '"'):
+                encoded = (json.dumps(scalar.value) if quote == '"' else
+                           "'" + scalar.value.replace("'", "''") + "'" if quote else scalar.value)
+                folded = encoded.replace("profile  space", "profile \n      space", 1)
+                edited = normalized[:scalar.start_mark.index] + folded + normalized[scalar.end_mark.index:]
+                assert yaml.safe_load(edited)["mcp_servers"]["caveman-native"]["command"] == scalar.value.replace(
+                    "profile  space", "profile space", 1)
+                edits.append(("changed folded MCP command " + repr(quote), edited))
         for whitespace in ("\u00a0", "\u2003"):
             replacements = [
                 (scalar.value + whitespace, scalar.value + whitespace),
@@ -744,17 +762,25 @@ def hermes_plugin_scalars(f):
     journal_path = f.cave / "integrations/hermes.json"
     payload = f.home / ".hermes/plugins/caveman_native/__init__.py"
     foreign = "true " + "foreign plugin " * 8 + "tail"
+    tab_plugin = "foreign\tplugin"
     original = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
-        "plugins": {"enabled": [foreign, "sibling"]},
+        "plugins": {"enabled": [foreign, "sibling", tab_plugin]},
     }
 
     def replace_item(text, name, value):
-        old = "- " + name + "\n"
-        start = text.index(old)
-        return text[:start] + "- " + value + "\n" + text[start + len(old):]
+        node = yaml.compose(text)
+        for key in ("plugins", "enabled"):
+            node = next(value for name, value in node.value if name.value == key)
+        item = next(item for item in node.value if item.value == name)
+        return text[:item.start_mark.index] + value + text[item.end_mark.index:]
 
-    for quote, width in (("", 2), ("'", 4), ('"', 4)):
+    for quote, width, tab_scalar in (
+        ("", 2, json.dumps(tab_plugin)),
+        ("'", 4, "'" + tab_plugin + "'"),
+        ('"', 4, '"' + tab_plugin + '"'),
+        ('"', 2, '"foreign\\\tplugin"'),
+    ):
         pad = " " * width
         first, rest = foreign.split(" ", 1)
         foreign_scalar = quote + first + "\n" + pad + "  " + rest + quote
@@ -762,13 +788,15 @@ def hermes_plugin_scalars(f):
         note = pad + "# preserve plugin note\n"
         seed = yaml.safe_dump(original, indent=width, width=10_000)
         seed = replace_item(seed, foreign, foreign_scalar)
+        seed = replace_item(seed, tab_plugin, tab_scalar)
         assert yaml.safe_load(seed) == original
         put(config, seed)
         f.cli("enable", "hermes")
         active = yaml.safe_load(config.read_text())
-        assert active["plugins"]["enabled"] == ["caveman_native", foreign, "sibling"]
+        assert active["plugins"]["enabled"] == ["caveman_native", foreign, "sibling", tab_plugin]
         normalized = yaml.safe_dump(active, indent=width, width=10_000)
         normalized = replace_item(normalized, foreign, foreign_scalar)
+        normalized = replace_item(normalized, tab_plugin, tab_scalar)
         normalized = replace_item(normalized, "caveman_native", owned_scalar + "\n" + note.rstrip("\n"))
         assert yaml.safe_load(normalized) == active
         put(config, normalized)
