@@ -75,47 +75,38 @@ Apply every patch in its declared order without offsets or fuzz. Drop only hunks
 whose behavior the selected source now supplies. Run the installed-runtime check,
 including both Hermes writers with a real YAML parser, and the CI updater contract.
 
-Ownership checks must survive Hermes/PyYAML normalization: removed comments,
-quoting, key order, indentation and wrapped scalar paths. Preserve foreign
-siblings and original nullable endpoints on disable. Reject changed owned
-values and ambiguous YAML before any restoration write.
+### Caveman native integrations
 
-Recognize complete finite numeric and timestamp scalars, not numeric prefixes
-in plugin names. Cover both plain-name enable and quoted-to-plain normalization
-through actual repair and disable; retain fail-before-write checks for typed scalars.
+#### Hermes YAML
 
-Accept unambiguous plain YAML keys and plugin names, including slashes, spaces,
-Unicode and `-`, `?`, `:` prefixes without separation. Decode quoted and plain
-keys consistently; reject typed keys, duplicate keys, aliases and merge keys
-before writes.
+Enable, repair and disable share YAML spans and scalar decoding. Preserve
+indentation, quoted keys, scalar continuations, foreign values and original
+nullable routes.
 
-Remove only standalone integration-marker comments, identified before line
-splices. Marker-looking content in literal, folded and quoted scalars, including
-flow values and foreign keys, is user data. Share this lexical classifier with
-fresh-enable refusal; genuine unjournaled marker comments must still block enable.
-Keep deferred plain-scalar ownership through its continuations; quotes and
-brackets there are data, not new scalar or collection tokens.
+Accept supported plain string keys and plugin names, including spaces, Unicode
+and `-`, `?`, `:` prefixes without separation. Match complete finite numeric and
+timestamp scalars, not name prefixes. Reject duplicate keys, aliases, merge keys
+and unsupported containers before writes.
 
-A null plugin/MCP ownership block denotes pre-existing foreign state. Removing
-its entry or block container must not prevent restoring owned routing. Status
-still reports missing integration as degraded. Repair recreates missing entries
-with new ownership; later disable must preserve the earlier deletion. Unsupported
-present containers remain refused before writes.
+Remove only standalone integration-marker comments. Preserve marker-looking
+scalar content, including deferred plain scalars, quoted flow values and keys.
+Fresh enable rejects unjournaled marker comments.
 
-The native enable and repair producer must use the same semantic YAML spans as
-ownership and restoration. Follow existing mapping and sequence indentation,
-including quoted keys, rather than inserting fixed-width children. Capture scalar
-continuations with their fields and restore their relative indentation. Keep
-unquoted null endpoints distinct from quoted `"null"` and `"~"` strings.
-Exercise an actual repair after deleting a generated payload; a healthy
-`doctor --fix` no-op does not cover the writer. Confirm parsing, foreign siblings,
-regenerated payload, repeated repair, and restoration of original route values.
+A null `plugin_block` or `mcp_block` marks a pre-existing foreign entry.
+Restoration tolerates its removal; integration health requires its presence.
+Repair owns recreated entries. Disable preserves prior user deletions.
 
-The Blocks profile migration must unset `CDPATH` inside its subshell before any
-directory walk. Relative `cd` must enter the owned directory just checked, never
-an alternate owned tree found through `CDPATH`. Preserve the caller's environment
-and dry-run behavior. Test the real Home Manager activation with two owned trees
-and the evaluated `home.profileDirectory`, not an assumed `.nix-profile` path.
+Exercise normalization, payload-removal repair, repeated repair and disable
+through the installed CLI. Verify original routes, foreign values, regenerated
+payloads, ownership and MCP recovery. Retain write-free refusal coverage for
+owned drift and unsupported input.
+
+#### Blocks migration
+
+Use the evaluated `home.profileDirectory`. Unset `CDPATH` inside the migration
+subshell before walking checked directories. Preserve the caller's environment
+and dry-run behavior. Exercise the evaluated Home Manager activation with
+intended and alternate owned trees; only the intended hook may change.
 
 ### OpenCode adapter
 

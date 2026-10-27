@@ -509,8 +509,7 @@ def hermes_semantic_ownership(f):
         "_config_version": 52,
     }
     put(config, yaml.safe_dump(original, sort_keys=False, allow_unicode=True))
-    # Use the fixture's nonlocal route: YAML ownership does not depend on an
-    # opportunistically started proxy. MCP retrieval still executes below.
+    # Nonlocal routing isolates YAML ownership from proxy startup.
     f.cli("enable", "hermes")
     journal_before = journal_path.read_bytes()
     document = yaml.safe_load(config.read_text())
@@ -617,8 +616,7 @@ def hermes_semantic_ownership(f):
     assert yaml.safe_load(config.read_text()) == expected, config.read_text()
     assert not journal_path.exists()
     assert not (f.home / ".hermes/plugins/caveman_native/__init__.py").exists()
-    # Sections created by enable may acquire foreign children before disable.
-    # Removing the old whole-section marker span would destroy those children.
+    # Foreign children in generated sections must survive disable.
     commented_null = {"model": {"provider": "auto", "base_url": None}}
     wrapped = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
@@ -864,7 +862,6 @@ def hermes_foreign_removal(f):
             result = f.cli(*arguments, check=False)
             assert result.returncode != 0, (section, arguments, result.stdout, result.stderr)
             assert all(path.read_bytes() == content for path, content in snapshot.items())
-        # Restore only this scenario's edit before removing its integration.
         document[section] = original[section]
         put(config, yaml.safe_dump(document, sort_keys=False))
         f.cli("disable", "hermes")
