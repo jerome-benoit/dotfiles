@@ -5,6 +5,12 @@
   home-manager,
   sops-nix,
 }:
+let
+  development = import ./development.nix {
+    inherit home-manager pkgs;
+    inputs = self.inputs;
+  };
+in
 {
   caveman = import ./caveman.nix {
     inherit pkgs;
@@ -18,10 +24,8 @@
       pkgs
       ;
   };
-  development = import ./development.nix {
-    inherit home-manager pkgs;
-    inputs = self.inputs;
-  };
+  inherit development;
+  opencode-desktop = development.tests.opencode-desktop;
   email = import ./email.nix {
     inherit home-manager pkgs sops-nix;
   };

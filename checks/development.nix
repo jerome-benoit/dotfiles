@@ -94,6 +94,7 @@ let
       }
       // settings;
     }).config;
+  opencodePackages = (desktop { }).modules.development.opencode;
   overridden = desktop { desktopPackage = pkgs.hello; };
   optedOut = desktop { desktopPackage = null; };
   disabled = desktop { enableDesktop = false; };
@@ -158,6 +159,48 @@ pkgs.runCommand "check-development-integrations"
       pkgs.nodejs_22
       pkgs.python3
     ];
+    passthru.tests.opencode-desktop =
+      let
+        cli = opencodePackages.opencodePackage;
+        package = opencodePackages.desktopPackage;
+        resources =
+          if pkgs.stdenv.hostPlatform.isDarwin then
+            "${package}/Applications/OpenCode.app/Contents/Resources"
+          else
+            "${package}/opt/opencode-desktop/resources";
+      in
+      pkgs.runCommand "check-opencode-desktop-bundle" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+        export HOME="$TMPDIR/home"
+        export XDG_CONFIG_HOME="$HOME/.config"
+        export XDG_DATA_HOME="$HOME/.local/share"
+        export XDG_STATE_HOME="$HOME/.local/state"
+        export XDG_CACHE_HOME="$HOME/.cache"
+        mkdir -p "$HOME"
+        python3 - ${lib.getExe cli} ${resources}/opencode-cli ${lib.escapeShellArg cli.version} <<'PY'
+        from pathlib import Path
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+
+        selected, bundled, expected = sys.argv[1:]
+        manifest = Path(bundled).with_name("opencode-cli.version")
+        assert manifest.read_text().strip() == expected, manifest.read_text()
+
+        def version(executable):
+            return subprocess.check_output([executable, "--version"], text=True, timeout=30).strip()
+
+        selected_version = version(selected)
+        assert expected in selected_version, selected_version
+        assert version(bundled) == selected_version, "Desktop bundled a different CLI version"
+        with tempfile.TemporaryDirectory() as directory:
+            staged = Path(directory) / "opencode"
+            shutil.copy2(bundled, staged)
+            assert version(staged) == selected_version, "Desktop's staged CLI cannot run independently"
+        print("opencode: bundled CLI, version manifest and copied runtime agree")
+        PY
+        touch "$out"
+      '';
   }
   ''
     node --experimental-strip-types --input-type=module - ${scripts} <<'JS'

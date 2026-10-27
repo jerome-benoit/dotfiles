@@ -49,6 +49,17 @@ let
               'return `''${version}-''${arch}`.replace(/[^a-zA-Z0-9._-]/g, "-")' \
               'return `''${version}-''${arch}-${builtins.baseNameOf (toString cfg.opencodePackage)}`.replace(/[^a-zA-Z0-9._-]/g, "-")'
         '';
+
+        # Workaround: upstream stages the CLI outside the directory its Desktop build reads.
+        # Remove when upstream's Nix staging matches packages/cli/dist.
+        buildPhase =
+          let
+            staging = ''export OPENCODE_CLI_DIST="$TMPDIR/desktop-cli"'';
+          in
+          assert lib.assertMsg (lib.hasInfix staging previousAttrs.buildPhase)
+            "OpenCode Desktop CLI staging changed; refresh the Nix workaround";
+          lib.replaceStrings [ staging ] [ ''export OPENCODE_CLI_DIST="$PWD/../cli/dist"'' ]
+            previousAttrs.buildPhase;
       })
     else
       null;
