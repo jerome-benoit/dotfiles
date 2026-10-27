@@ -555,6 +555,13 @@ def hermes_semantic_ownership(f):
     changed = json.loads(json.dumps(document))
     changed["plugins"]["enabled"].remove("caveman_native")
     edits.append(("removed plugin", yaml.safe_dump(changed)))
+    for path in (("plugins",), ("plugins", "enabled"), ("mcp_servers",), ("mcp_servers", "caveman-native")):
+        missing = json.loads(json.dumps(document))
+        parent = missing
+        for key in path[:-1]:
+            parent = parent[key]
+        del parent[path[-1]]
+        edits.append(("missing owned " + ".".join(path), yaml.safe_dump(missing)))
     changed["plugins"]["enabled"].extend(["caveman_native", "caveman_native"])
     edits.append(("duplicate plugin", yaml.safe_dump(changed)))
     edits.extend((
@@ -726,6 +733,13 @@ def hermes_foreign_markers(f):
         ("quoted-key", "custom_notes:\n  ? 'before\n" + body(4, markers) + "    after'\n  : keep\n"),
         ("block-key", "custom_notes:\n  ? |2\n" + body(4, markers) + "  : keep\n"),
         ("deferred-sequence", "custom_notes:\n  -\n    |2\n" + body(4, markers)),
+        ("deferred-plain", "custom_notes:\n  plain\n  [bracket\nforeign_block: |\n" + body(2, content)),
+        ("property-deferred-plain", "custom_notes:\n  &notes !!str\n  plain\n  [bracket\nforeign_block: |\n"
+         + body(2, content)),
+        ("sequence-deferred-plain", "custom_notes:\n  -\n    plain\n    [bracket\nforeign_block: |\n"
+         + body(2, content)),
+        ("mapping-deferred-plain", "custom_notes:\n  - text:\n      plain\n      [bracket\nforeign_block: |\n"
+         + body(2, content)),
     )
     original = {
         "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
@@ -758,10 +772,12 @@ def hermes_foreign_markers(f):
         f.cli("enable", "hermes")
         f.cli("disable", "hermes")
         assert yaml.safe_load(config.read_text()) == expected, label
+        assert fragment in config.read_text(), label
     for text in (
         "custom_notes: don't [start]\n" + markers[0] + "\n",
         "custom_notes: [\n  " + markers[-1] + '\n  "keep"\n  ]\n',
         "custom_notes:\n  - plain\n    'quote\n  " + markers[0] + "\n",
+        "custom_notes:\n  plain\n  'quote\n" + markers[0] + "\n",
     ):
         put(config, seed + text)
         before = config.read_bytes()
@@ -773,6 +789,85 @@ def hermes_foreign_markers(f):
         assert {p: p.read_bytes() for p in (f.cave / "integrations").rglob("*") if p.is_file()} == snapshots
 
 
+def hermes_foreign_removal(f):
+    config = f.paths("hermes")
+    journal_path = f.cave / "integrations/hermes.json"
+    original = {
+        "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com",
+                  "foreign": {"keep": "model data"}},
+        "plugins": {"enabled": ["caveman_native", "existing"], "foreign": {"keep": True}},
+        "mcp_servers": {"caveman-native": {"command": "/foreign/mcp", "enabled": True},
+                        "foreign": {"command": "/foreign/other"}},
+    }
+    for case in ("plugin", "enabled", "plugins", "mcp", "servers", "both", "empty-blocks"):
+        for repair in (False, True):
+            put(config, yaml.safe_dump(original, sort_keys=False))
+            f.cli("enable", "hermes")
+            operation = next(item for item in load(journal_path)["operations"] if item["kind"] == "hermes-config")
+            assert operation["owned"]["plugin_block"] is None and operation["owned"]["mcp_block"] is None
+            document = yaml.safe_load(config.read_text())
+            if case in ("plugin", "both"):
+                document["plugins"]["enabled"].remove("caveman_native")
+            elif case == "enabled":
+                del document["plugins"]["enabled"]
+            elif case == "plugins":
+                del document["plugins"]
+            if case in ("mcp", "both"):
+                del document["mcp_servers"]["caveman-native"]
+            elif case == "servers":
+                del document["mcp_servers"]
+            if case == "empty-blocks":
+                del document["plugins"], document["mcp_servers"]
+            text = yaml.safe_dump(document, sort_keys=False)
+            if case == "empty-blocks":
+                text += "plugins: # user left empty\nmcp_servers: # user left empty\n"
+            put(config, text)
+            expected = yaml.safe_load(text)
+            expected["model"].update(original["model"])
+            snapshot, journal = config.read_bytes(), journal_path.read_bytes()
+            result = f.cli("doctor", "hermes", check=False)
+            report = json.loads(result.stdout)
+            assert result.returncode == 1 and report["state"] == "degraded", (case, report)
+            assert not report["components"]["lifecycle_hooks"] and not report["components"]["mcp_recovery"], report
+            assert config.read_bytes() == snapshot and journal_path.read_bytes() == journal
+            status = json.loads(f.cli("status", "--json").stdout)
+            missing_mcp = any(item["id"] == "mcp-missing" for item in status["off_states"])
+            assert missing_mcp == (case in ("mcp", "servers", "both", "empty-blocks")), (case, status)
+            if repair:
+                f.cli("doctor", "hermes", "--fix")
+                report = json.loads(f.cli("doctor", "hermes").stdout)
+                assert report["state"] == "installed", (case, report)
+                operation = next(item for item in load(journal_path)["operations"] if item["kind"] == "hermes-config")
+                for key, recreated in (
+                    ("plugin_block", case in ("plugin", "enabled", "plugins", "both", "empty-blocks")),
+                    ("mcp_block", case in ("mcp", "servers", "both", "empty-blocks")),
+                ):
+                    assert (isinstance(operation["owned"][key], str) if recreated else operation["owned"][key] is None), (case, key)
+                repaired, repaired_journal = config.read_bytes(), journal_path.read_bytes()
+                f.cli("doctor", "hermes", "--fix")
+                assert config.read_bytes() == repaired and journal_path.read_bytes() == repaired_journal, case
+            generated = [Path(item["file"]) for item in load(journal_path)["operations"]
+                         if item["kind"] in ("hermes-plugin-manifest", "hermes-plugin-init")]
+            f.cli("disable", "hermes")
+            assert yaml.safe_load(config.read_text()) == expected, (case, repair, config.read_text())
+            assert not journal_path.exists() and all(not path.exists() for path in generated), case
+    # Missing foreign entries differ from unsupported present containers.
+    for section, value in (("plugins", "{enabled: [caveman_native]}"), ("mcp_servers", "{}")):
+        put(config, yaml.safe_dump(original, sort_keys=False))
+        f.cli("enable", "hermes")
+        document = yaml.safe_load(config.read_text())
+        del document[section]
+        put(config, yaml.safe_dump(document, sort_keys=False) + section + ": " + value + "\n")
+        paths = [journal_path, *(Path(item["file"]) for item in load(journal_path)["operations"])]
+        snapshot = {path: path.read_bytes() for path in paths}
+        for arguments in (("doctor", "hermes", "--fix"), ("disable", "hermes")):
+            result = f.cli(*arguments, check=False)
+            assert result.returncode != 0, (section, arguments, result.stdout, result.stderr)
+            assert all(path.read_bytes() == content for path, content in snapshot.items())
+        # Restore only this scenario's edit before removing its integration.
+        document[section] = original[section]
+        put(config, yaml.safe_dump(document, sort_keys=False))
+        f.cli("disable", "hermes")
 
 
 def native_integrations(f):
@@ -1151,6 +1246,7 @@ def main():
             ("hermes-yaml", hermes_yaml),
             ("hermes-semantic", hermes_semantic_ownership),
             ("hermes-markers", hermes_foreign_markers),
+            ("hermes-foreign-removal", hermes_foreign_removal),
             ("native-registration", native_registration_commands),
         ):
             state = short_native_state()

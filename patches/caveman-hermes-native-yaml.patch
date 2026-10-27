@@ -37,7 +37,7 @@
  // Hermes provider ids that carry their OWN OAuth credential and the ChatGPT
  // Responses transport. Rewriting one to the generic `custom` provider drops
  // both: the installed resolver then picks chat_completions with
-@@ -10274,78 +10253,427 @@
+@@ -10274,78 +10253,430 @@
    return appendUrlPath(gw, keptProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(keptProvider) ? "/chatgpt" : "/w/hermes/v1");
  }
 
@@ -153,10 +153,10 @@
 +        pendingOwner = owner;
 +        continue;
 +      }
-+      pendingOwner = undefined;
 +      tokenStart = true;
 +      quotedToken = false;
-+      if ((mapping || indicator || sequenceOwner !== undefined) && !/^["'[{]/.test(text)) plainOwner = owner;
++      if ((mapping || indicator || sequenceOwner !== undefined || pendingOwner !== undefined) && !/^["'[{]/.test(text)) plainOwner = owner;
++      pendingOwner = undefined;
 +    }
 +    for (let i = 0; i < text.length; i++) {
 +      const char = text[i]!;
@@ -260,12 +260,13 @@
 +  return entry;
 +}
 +
-+function hermesNativeMcpEntry(lines: string[], owned: Record<string, unknown>): HermesYamlEntry {
++function hermesNativeMcpEntry(lines: string[], owned: Record<string, unknown>): HermesYamlEntry | undefined {
 +  const root = hermesYamlMap(lines);
-+  const servers = hermesYamlMap(lines, hermesYamlRequired(root, "mcp_servers"));
-+  const server = hermesYamlRequired(servers, "caveman-native");
++  const servers = root.get("mcp_servers");
++  const server = servers ? hermesYamlMap(lines, servers).get("caveman-native") : undefined;
 +  if (owned.mcp_block === null) return server; // Pre-existing, never ours to remove.
 +  if (typeof owned.mcp_block !== "string") throw new Error("Hermes integration journal lacks owned MCP block");
++  if (!server) throw new Error("Hermes YAML caveman-native is missing");
 +  const block = owned.mcp_block;
 +  const expectedLines = yamlLines(/^mcp_servers:/m.test(block) ? block : `mcp_servers:\n${block}`);
 +  const expectedRoot = hermesYamlMap(expectedLines);
@@ -312,19 +313,21 @@
 +    || hermesYamlLeaf(lines, route) !== hermesYamlLeaf(expectedLines, expected.get("base_url"))) {
 +    throw new Error("Hermes routing block changed after enable; refusing destructive disable");
 +  }
-+  const plugins = hermesYamlMap(lines, hermesYamlRequired(root, "plugins"));
-+  const enabled = hermesYamlRequired(plugins, "enabled");
-+  const pluginIndex = hermesNativePluginItems(lines, enabled).find((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)?.index ?? -1;
-+  if (pluginIndex < 0 || (owned.plugin_block !== null && typeof owned.plugin_block !== "string")) {
++  const plugins = root.get("plugins");
++  const enabled = plugins ? hermesYamlMap(lines, plugins).get("enabled") : undefined;
++  const pluginIndex = enabled
++    ? hermesNativePluginItems(lines, enabled).find((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)?.index ?? -1
++    : -1;
++  if (owned.plugin_block !== null && (pluginIndex < 0 || typeof owned.plugin_block !== "string")) {
 +    throw new Error("Hermes plugin block changed after enable; refusing destructive disable");
 +  }
 +  const mcp = hermesNativeMcpEntry(lines, owned);
-+  return { lines, root, modelEntry, provider, route, enabled, pluginIndex, mcp };
++  return { lines, provider, route, pluginIndex, mcp };
 +}
 +
 +function hermesNativeRestoreText(text: string, owned: Record<string, unknown>, before: Buffer | null): string {
 +  const state = hermesNativeOwned(text, owned);
-+  const { lines, provider, route, enabled, pluginIndex, mcp } = state;
++  const { lines, provider, route, pluginIndex, mcp } = state;
 +  if (!Array.isArray(owned.previous_route_lines) || owned.previous_route_lines.some((line) => typeof line !== "string")) {
 +    throw new Error("Hermes integration journal lacks previous routing fields");
 +  }
@@ -341,7 +344,7 @@
 +    for (let i = entry.start; i < entry.end; i++) if (hermesYamlContent(lines[i]!)) remove.add(i);
 +  }
 +  if (owned.plugin_block !== null) remove.add(pluginIndex);
-+  if (owned.mcp_block !== null) {
++  if (owned.mcp_block !== null && mcp) {
 +    for (let i = mcp.start; i < mcp.end; i++) if (hermesYamlContent(lines[i]!)) remove.add(i);
 +  }
 +  const insertAt = Math.min(provider.start, route.start);
@@ -521,7 +524,7 @@
    return {
      text: yamlText(lines),
      owned: {
-@@ -10366,8 +10694,15 @@
+@@ -10366,8 +10697,15 @@
    const configBefore = fileBytes(configPath);
    const native = hermesNativeConfig(configBefore?.toString("utf8") ?? "", gw, mcpBinary);
    // A custom provider is the user's own endpoint; a named one is the vendor's.
@@ -539,7 +542,7 @@
    const pluginDir = hermesNativePluginDir();
    const manifestPath = join(pluginDir, "plugin.yaml");
    const initPath = join(pluginDir, "__init__.py");
-@@ -11082,21 +11417,7 @@
+@@ -11082,21 +11420,7 @@
      throw new Error(`${operation.file} changed after enable; refusing destructive disable`);
    }
    if (operation.kind === "hermes-config") {
@@ -562,7 +565,7 @@
    }
    const rootBlock = operation.owned?.root_block;
    const tablesBlock = operation.owned?.tables_block;
-@@ -11487,10 +11808,8 @@
+@@ -11487,10 +11811,8 @@
            const tables = typeof operation.owned?.tables_block === "string" ? codexNativeTables(lines, operation.owned.tables_block) : new Map();
            owned = CODEX_NATIVE_TABLES.every((table) => tables.get(table) === true) && codexNativeRouted(lines) && text.indexOf("\uFEFF", 1) === -1;
          } else if (operation.kind === "hermes-config") {
@@ -570,12 +573,12 @@
 -          owned = typeof operation.owned?.route_block === "string" && text.includes(operation.owned.route_block)
 -            && (operation.owned.plugin_block === null || (typeof operation.owned.plugin_block === "string" && text.includes(operation.owned.plugin_block)))
 -            && (operation.owned.mcp_block === null || (typeof operation.owned.mcp_block === "string" && text.includes(operation.owned.mcp_block)));
-+          hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
-+          owned = true;
++          const state = hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
++          owned = state.pluginIndex >= 0 && state.mcp !== undefined;
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -11640,7 +11959,7 @@
+@@ -11640,7 +11962,7 @@
    if (own?.routed) warnings.push(ownEndpointRoutedMessage(agent, own));
    const fileText = checks.map((check) => fileBytes(check.file)?.toString("utf8") ?? "").join("\n");
    const components: NativeComponents = {
@@ -584,19 +587,18 @@
      // A plugin the host cannot load runs no hooks, whatever its bytes hash to.
      lifecycle_hooks: agent !== "aider" && ownedHealthy && opencodePluginApiCurrent && hooksTrusted,
      core: coreActive,
-@@ -13966,7 +14285,10 @@
+@@ -13966,7 +14288,9 @@
      try {
        if (agent === "codex") return typeof operation.owned?.tables_block === "string" && codexNativeTables(codexTomlLines(current.toString("utf8")), operation.owned.tables_block).get("mcp_servers.caveman") === true;
        // A null block: the user's own caveman-native entry was already there.
 -      if (agent === "hermes") return operation.owned?.mcp_block === null || (typeof operation.owned?.mcp_block === "string" && current.toString("utf8").includes(operation.owned.mcp_block));
 +      if (agent === "hermes") {
-+        hermesNativeMcpEntry(yamlLines(current.toString("utf8")), operation.owned ?? {});
-+        return true;
++        return hermesNativeMcpEntry(yamlLines(current.toString("utf8")), operation.owned ?? {}) !== undefined;
 +      }
        if (agent === "pi") return current.toString("utf8").includes("caveman:native-pi");
        const servers = objectValue(parseJsonFileObject(operation.file, current).mcpServers);
        return operation.owned?.installed_mcp !== undefined && canonicalize(servers.caveman) === canonicalize(operation.owned.installed_mcp);
-@@ -14132,6 +14454,34 @@
+@@ -14132,6 +14456,34 @@
      kept.push(line);
    }
    return { text: yamlText(kept), removed };
@@ -631,7 +633,7 @@
  }
 
  function topLevelSection(lines: string[], key: string): { start: number; end: number } | undefined {
-@@ -18514,7 +18864,8 @@
+@@ -18514,7 +18866,8 @@
        return false;
      }
      if (enabledLine >= 0) {

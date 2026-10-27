@@ -93,6 +93,14 @@ Remove only standalone integration-marker comments, identified before line
 splices. Marker-looking content in literal, folded and quoted scalars, including
 flow values and foreign keys, is user data. Share this lexical classifier with
 fresh-enable refusal; genuine unjournaled marker comments must still block enable.
+Keep deferred plain-scalar ownership through its continuations; quotes and
+brackets there are data, not new scalar or collection tokens.
+
+A null plugin/MCP ownership block denotes pre-existing foreign state. Removing
+its entry or block container must not prevent restoring owned routing. Status
+still reports missing integration as degraded. Repair recreates missing entries
+with new ownership; later disable must preserve the earlier deletion. Unsupported
+present containers remain refused before writes.
 
 The native enable and repair producer must use the same semantic YAML spans as
 ownership and restoration. Follow existing mapping and sequence indentation,
