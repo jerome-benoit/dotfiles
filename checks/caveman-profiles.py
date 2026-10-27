@@ -697,6 +697,87 @@ def hermes_semantic_ownership(f):
         assert "# preserve foreign model note" in config.read_text()
 
 
+def hermes_plugin_scalars(f):
+    config = f.paths("hermes")
+    journal_path = f.cave / "integrations/hermes.json"
+    payload = f.home / ".hermes/plugins/caveman_native/__init__.py"
+    foreign = "true " + "foreign plugin " * 8 + "tail"
+    original = {
+        "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
+        "plugins": {"enabled": [foreign, "sibling"]},
+    }
+
+    def replace_item(text, name, value):
+        old = "- " + name + "\n"
+        start = text.index(old)
+        return text[:start] + "- " + value + "\n" + text[start + len(old):]
+
+    for quote, width in (("", 2), ("'", 4), ('"', 4)):
+        pad = " " * width
+        first, rest = foreign.split(" ", 1)
+        foreign_scalar = quote + first + "\n" + pad + "  " + rest + quote
+        owned_scalar = '"caveman_\\\n' + pad + '  native"'
+        note = pad + "# preserve plugin note\n"
+        seed = yaml.safe_dump(original, indent=width, width=10_000)
+        seed = replace_item(seed, foreign, foreign_scalar)
+        assert yaml.safe_load(seed) == original
+        put(config, seed)
+        f.cli("enable", "hermes")
+        active = yaml.safe_load(config.read_text())
+        assert active["plugins"]["enabled"] == ["caveman_native", foreign, "sibling"]
+        normalized = yaml.safe_dump(active, indent=width, width=10_000)
+        normalized = replace_item(normalized, foreign, foreign_scalar)
+        normalized = replace_item(normalized, "caveman_native", owned_scalar + "\n" + note.rstrip("\n"))
+        assert yaml.safe_load(normalized) == active
+        put(config, normalized)
+        healthy = json.loads(f.cli("doctor", "hermes").stdout)
+        assert healthy["state"] == "installed", healthy
+        owned = next(item for item in healthy["files"] if item["file"] == str(config))
+        assert owned["owned"] and not owned["exact"], healthy
+        journal_before = journal_path.read_bytes()
+        f.cli("doctor", "hermes", "--fix")
+        assert config.read_text() == normalized and journal_path.read_bytes() == journal_before
+
+        generated = [Path(item["file"]) for item in load(journal_path)["operations"]]
+        for edited in (
+            normalized.replace(owned_scalar, owned_scalar.replace("native", "changed")),
+            normalized.replace("enabled:\n", "enabled:\n" + pad + "- caveman_native\n"),
+        ):
+            put(config, edited)
+            snapshot = {path: path.read_bytes() for path in (
+                config, *generated, *(f.cave / "integrations").rglob("*")
+            ) if path.is_file()}
+            report = json.loads(f.cli("doctor", "hermes", check=False).stdout)
+            assert report["state"] == "degraded", report
+            for arguments in (("doctor", "hermes", "--fix"), ("disable", "hermes")):
+                result = f.cli(*arguments, check=False)
+                assert result.returncode != 0, (arguments, result.stdout, result.stderr)
+                assert all(path.read_bytes() == content for path, content in snapshot.items())
+                assert {path for path in (f.cave / "integrations").rglob("*") if path.is_file()} == {
+                    path for path in snapshot if path.is_relative_to(f.cave / "integrations")
+                }
+        put(config, normalized)
+        payload.unlink()
+        degraded = json.loads(f.cli("doctor", "hermes", check=False).stdout)
+        assert degraded["state"] == "degraded", degraded
+        f.cli("doctor", "hermes", "--fix")
+        assert payload.is_file()
+        assert yaml.safe_load(config.read_text()) == active
+        assert note in config.read_text()
+        repaired_bytes = config.read_bytes()
+        repaired_journal = journal_path.read_bytes()
+        f.cli("doctor", "hermes", "--fix")
+        assert config.read_bytes() == repaired_bytes
+        assert journal_path.read_bytes() == repaired_journal
+        continued = replace_item(config.read_text(), "caveman_native", owned_scalar)
+        assert yaml.safe_load(continued) == active
+        put(config, continued)
+        f.cli("disable", "hermes")
+        assert yaml.safe_load(config.read_text()) == original, config.read_text()
+        assert note in config.read_text()
+        assert not payload.exists() and not journal_path.exists()
+
+
 def hermes_foreign_markers(f):
     config = f.paths("hermes")
     journal_path = f.cave / "integrations/hermes.json"
@@ -1242,6 +1323,7 @@ def main():
             ("ownership", ownership_controls),
             ("hermes-yaml", hermes_yaml),
             ("hermes-semantic", hermes_semantic_ownership),
+            ("hermes-plugin-scalars", hermes_plugin_scalars),
             ("hermes-markers", hermes_foreign_markers),
             ("hermes-foreign-removal", hermes_foreign_removal),
             ("native-registration", native_registration_commands),

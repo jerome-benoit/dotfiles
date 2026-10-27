@@ -80,8 +80,9 @@ including both Hermes writers with a real YAML parser, and the CI updater contra
 #### Hermes YAML
 
 Enable, repair and disable share YAML spans and scalar decoding. Preserve
-indentation, quoted keys, scalar continuations, foreign values and original
-nullable routes.
+indentation, quoted keys, wrapped scalar values and plugin names, foreign
+values and original nullable routes. Remove owned plugin items completely,
+including their continuation lines.
 
 Accept supported plain string keys and plugin names, including spaces, Unicode
 and `-`, `?`, `:` prefixes without separation. Match complete finite numeric and
