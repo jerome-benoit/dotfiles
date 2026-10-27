@@ -761,12 +761,8 @@ def hermes_plugin_scalars(f):
     config = f.paths("hermes")
     journal_path = f.cave / "integrations/hermes.json"
     payload = f.home / ".hermes/plugins/caveman_native/__init__.py"
-    foreign = "true " + "foreign plugin " * 8 + "tail"
+    wrapped = ("true", "foreign plugin " * 8 + "tail")
     tab_plugin = "foreign\tplugin"
-    original = {
-        "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
-        "plugins": {"enabled": [foreign, "sibling", tab_plugin]},
-    }
 
     def replace_item(text, name, value):
         node = yaml.compose(text)
@@ -775,27 +771,45 @@ def hermes_plugin_scalars(f):
         item = next(item for item in node.value if item.value == name)
         return text[:item.start_mark.index] + value + text[item.end_mark.index:]
 
-    for quote, width, tab_scalar in (
-        ("", 2, json.dumps(tab_plugin)),
-        ("'", 4, "'" + tab_plugin + "'"),
-        ('"', 4, '"' + tab_plugin + '"'),
-        ('"', 2, '"foreign\\\tplugin"'),
+    for quote, width, tab_scalar, parts in (
+        ("", 2, json.dumps(tab_plugin), wrapped),
+        ("'", 4, "'" + tab_plugin + "'", wrapped),
+        ('"', 4, '"' + tab_plugin + '"', wrapped),
+        ('"', 2, '"foreign\\\tplugin"', wrapped),
+        ("'", 2, json.dumps(tab_plugin), ("foreign", "#plugin")),
+        ('"', 2, json.dumps(tab_plugin), ("foreign", "#plugin")),
+        ("'", 4, json.dumps(tab_plugin), ("foreign", "#plugin", "tail")),
+        ('"', 4, json.dumps(tab_plugin), ("foreign", "#plugin", "tail")),
+        (None, 2, json.dumps(tab_plugin), ("foreign-" + "x" * 90, "#plugin")),
     ):
         pad = " " * width
-        first, rest = foreign.split(" ", 1)
-        foreign_scalar = quote + first + "\n" + pad + "  " + rest + quote
+        foreign = " ".join(parts)
+        original = {
+            "model": {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
+            "plugins": {"enabled": [foreign, "sibling", tab_plugin]},
+        }
+        foreign_scalar = None if quote is None else quote + ("\n" + pad + "  ").join(parts) + quote
         owned_scalar = '"caveman_\\\n' + pad + '  native"'
         note = pad + "# preserve plugin note\n"
-        seed = yaml.safe_dump(original, indent=width, width=10_000)
-        seed = replace_item(seed, foreign, foreign_scalar)
+        dump_width = 80 if quote is None else 10_000
+        if quote is None:
+            original["model"]["base_url"] += "/#fragment"
+        seed = yaml.safe_dump(original, indent=width, width=dump_width)
+        if foreign_scalar is not None:
+            seed = replace_item(seed, foreign, foreign_scalar + "\n" + pad + "# preserve foreign plugin note")
+        else:
+            assert re.search(r"(?m)^ +#plugin'", seed), seed
+            seed = seed.replace("base_url: https://api.anthropic.com/#fragment",
+                                'base_url: "https://api.anthropic.com/\\\n' + pad + '  #fragment"')
         seed = replace_item(seed, tab_plugin, tab_scalar)
         assert yaml.safe_load(seed) == original
         put(config, seed)
         f.cli("enable", "hermes")
         active = yaml.safe_load(config.read_text())
         assert active["plugins"]["enabled"] == ["caveman_native", foreign, "sibling", tab_plugin]
-        normalized = yaml.safe_dump(active, indent=width, width=10_000)
-        normalized = replace_item(normalized, foreign, foreign_scalar)
+        normalized = yaml.safe_dump(active, indent=width, width=dump_width)
+        if foreign_scalar is not None:
+            normalized = replace_item(normalized, foreign, foreign_scalar + "\n" + pad + "# preserve foreign plugin note")
         normalized = replace_item(normalized, tab_plugin, tab_scalar)
         normalized = replace_item(normalized, "caveman_native", owned_scalar + "\n" + note.rstrip("\n"))
         assert yaml.safe_load(normalized) == active
@@ -811,6 +825,8 @@ def hermes_plugin_scalars(f):
         generated = [Path(item["file"]) for item in load(journal_path)["operations"]]
         for edited in (
             normalized.replace(owned_scalar, owned_scalar.replace("native", "changed")),
+            normalized.replace(owned_scalar, '"caveman_\\\n\n' + pad + '  native"'),
+            normalized.replace(owned_scalar, '"caveman_\\\n' + pad + 'native"'),
             normalized.replace("enabled:\n", "enabled:\n" + pad + "- caveman_native\n"),
         ):
             put(config, edited)
@@ -834,6 +850,8 @@ def hermes_plugin_scalars(f):
         assert payload.is_file()
         assert yaml.safe_load(config.read_text()) == active
         assert note in config.read_text()
+        if foreign_scalar is not None:
+            assert pad + "# preserve foreign plugin note" in config.read_text()
         repaired_bytes = config.read_bytes()
         repaired_journal = journal_path.read_bytes()
         f.cli("doctor", "hermes", "--fix")
@@ -845,6 +863,8 @@ def hermes_plugin_scalars(f):
         f.cli("disable", "hermes")
         assert yaml.safe_load(config.read_text()) == original, config.read_text()
         assert note in config.read_text()
+        if foreign_scalar is not None:
+            assert pad + "# preserve foreign plugin note" in config.read_text()
         assert not payload.exists() and not journal_path.exists()
 
 

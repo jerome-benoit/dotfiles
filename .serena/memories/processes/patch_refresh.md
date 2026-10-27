@@ -83,6 +83,7 @@ Enable, repair and disable share YAML spans and scalar decoding. Preserve
 indentation, quoted keys, wrapped scalar values and plugin names, foreign
 values and original nullable routes. Remove owned plugin items completely,
 including their continuation lines.
+Treat `#` lines inside quoted scalars as data; preserve standalone comments.
 
 YAML separation uses ASCII space and tab. Preserve other Unicode whitespace
 in scalar values, keys and continuations.
