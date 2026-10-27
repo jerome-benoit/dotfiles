@@ -44,10 +44,10 @@ let
         # Workaround: Desktop caches CLI binaries by version, ignoring Nix overrides.
         # Remove when upstream keys staged binaries by source identity.
         postPatch = (previousAttrs.postPatch or "") + ''
-          substituteInPlace packages/desktop/src/main/service/desktop-cli.ts \
+          substituteInPlace packages/desktop/src/main/service/cli-version.ts \
             --replace-fail \
-              'const stage = `''${version}-''${process.arch}`.replace(/[^a-zA-Z0-9._-]/g, "-")' \
-              'const stage = `''${version}-''${process.arch}-${builtins.baseNameOf (toString cfg.opencodePackage)}`.replace(/[^a-zA-Z0-9._-]/g, "-")'
+              'return `''${version}-''${arch}`.replace(/[^a-zA-Z0-9._-]/g, "-")' \
+              'return `''${version}-''${arch}-${builtins.baseNameOf (toString cfg.opencodePackage)}`.replace(/[^a-zA-Z0-9._-]/g, "-")'
         '';
       })
     else

@@ -6,11 +6,13 @@
 let
   lib = pkgs.lib;
   fixtureHome = "/home/development-check";
-  configure =
-    settings:
+  configureWith =
+    selectedInputs: settings:
     home-manager.lib.homeManagerConfiguration {
       inherit pkgs;
-      extraSpecialArgs = { inherit inputs; };
+      extraSpecialArgs = {
+        inputs = selectedInputs;
+      };
       modules = [
         ../home-manager/modules/core/lib.nix
         ../home-manager/modules/themes/default.nix
@@ -28,6 +30,45 @@ let
         settings
       ];
     };
+  configure = configureWith inputs;
+  opencodeStages =
+    map
+      (
+        name:
+        let
+          cli = pkgs.writeShellScriptBin "opencode" ''
+            # ${name}
+            exit 0
+          '';
+          selectedInputs = inputs // {
+            opencode.packages.${pkgs.stdenv.hostPlatform.system} = {
+              default = cli;
+              opencode-desktop = lib.makeOverridable (_: pkgs.hello) { };
+            };
+          };
+          config =
+            (configureWith selectedInputs {
+              modules.development.opencode = {
+                enable = true;
+                enableDesktop = true;
+              };
+            }).config;
+          package = config.modules.development.opencode;
+          source = pkgs.runCommand "opencode-stages-${name}" { } ''
+            target=packages/desktop/src/main/service/cli-version.ts
+            mkdir -p "$(dirname "$target")" "$out"
+            cp ${inputs.opencode}/packages/desktop/src/main/service/cli-version.ts "$target"
+            chmod u+w "$target"
+            ${package.desktopPackage.postPatch}
+            cp "$target" "$out/cli-version.ts"
+          '';
+        in
+        "${source}/cli-version.ts"
+      )
+      [
+        "first"
+        "second"
+      ];
   seeded =
     (configure {
       modules.development = {
@@ -59,6 +100,7 @@ let
   scripts = pkgs.writeText "development-activation-fixtures.json" (
     builtins.toJSON {
       inherit fixtureHome;
+      inherit opencodeStages;
       runHelper = "${home-manager}/lib/bash/home-manager.sh";
       caveman =
         map
@@ -112,9 +154,34 @@ assert optedOut.modules.development.opencode.desktopPackage == null;
 assert map toString optedOut.home.packages == map toString disabled.home.packages;
 pkgs.runCommand "check-development-integrations"
   {
-    nativeBuildInputs = [ pkgs.python3 ];
+    nativeBuildInputs = [
+      pkgs.nodejs_22
+      pkgs.python3
+    ];
   }
   ''
+    node --experimental-strip-types --input-type=module - ${scripts} <<'JS'
+    import assert from "node:assert/strict";
+    import { readFileSync } from "node:fs";
+    import { pathToFileURL } from "node:url";
+
+    const fixtures = JSON.parse(readFileSync(process.argv[2], "utf8"));
+    const [first, second] = await Promise.all(
+      fixtures.opencodeStages.map((file) => import(pathToFileURL(file))),
+    );
+    for (const arch of ["x64", "arm64"]) {
+      const current = first.stageName("2.0.32", arch);
+      const rebuilt = second.stageName("2.0.32", arch);
+      const adopted = first.stageName("2.0.31", arch);
+      assert.notEqual(current, rebuilt, "a rebuilt CLI must not reuse the previous executable");
+      const kept = first.keptStages("2.0.32", "2.0.31", arch);
+      assert.ok(kept.includes(current), "cleanup must retain the bundled executable");
+      assert.ok(kept.includes(adopted), "cleanup must retain the adopted version in this package namespace");
+      assert.ok(!kept.includes(rebuilt), "cleanup must not retain a different package's obsolete stage");
+    }
+    assert.notEqual(first.stageName("2.0.32", "x64"), first.stageName("2.0.32", "arm64"));
+    console.log("opencode: rebuilt CLI isolation, architecture isolation and stage retention passed");
+    JS
     python3 - ${scripts} <<'PY'
     import json
     import os
