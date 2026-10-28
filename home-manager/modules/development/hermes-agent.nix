@@ -103,6 +103,20 @@ in
       defaultText = lib.literalExpression "hermesAgentPackage.hermesDesktop";
       description = "Hermes Agent desktop package";
     };
+
+    plugins = lib.mkOption {
+      type = lib.types.addCheck (lib.types.attrsOf lib.types.path) (
+        plugins:
+        lib.all (
+          name:
+          builtins.match "[A-Za-z0-9][A-Za-z0-9._-]*" name != null
+          && name != "model-providers"
+          && !(lib.hasPrefix "nix-managed-" name)
+        ) (builtins.attrNames plugins)
+      );
+      default = { };
+      description = "Plugin source directories keyed by canonical name; each contains plugin.yaml and __init__.py";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -152,6 +166,12 @@ in
     };
 
     home = {
+      # Workaround: upstream extraPlugins uses names its migration checks do not recognize.
+      # Remove when upstream installs plugins under their canonical names.
+      file = lib.mapAttrs' (
+        name: source: lib.nameValuePair "${configDir}/plugins/${name}" { inherit source; }
+      ) cfg.plugins;
+
       # Workaround: upstream may copy environmentFiles before sops-nix refreshes them.
       # Remove when migrated to environmentFiles and upstream waits for secrets on Linux and Darwin.
       activation.hermesAgentEnvironment =

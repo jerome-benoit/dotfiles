@@ -2,6 +2,7 @@
   lib,
   config,
   pkgs,
+  inputs,
   profile,
   username,
   ...
@@ -75,6 +76,7 @@ in
           enableDesktop
           enableGateway
           ;
+        plugins.github-copilot = "${inputs.hermes-labs-plugins}/github-copilot";
       };
       lazygit.enable = profileModules.development.lazygit;
       omp.enable = bunSupported && profileModules.development.omp;
