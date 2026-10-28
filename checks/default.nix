@@ -30,6 +30,10 @@ in
     inherit home-manager pkgs sops-nix;
   };
   gpu = import ./gpu.nix { inherit pkgs nixpkgs home-manager; };
+  hermes-agent = import ./hermes-agent.nix {
+    inherit pkgs home-manager;
+    inputs = self.inputs;
+  };
   secrets = import ./secrets.nix { inherit pkgs; };
   strata = import ./strata.nix {
     inherit pkgs;

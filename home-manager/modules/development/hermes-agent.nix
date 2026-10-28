@@ -13,6 +13,13 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
   configDir = serviceCfg.hermesHome;
+  homePath = /. + config.home.homeDirectory;
+  pluginHomePath = /. + configDir;
+  pluginHomeIsValid =
+    lib.hasPrefix "/" configDir
+    && configDir == toString pluginHomePath
+    && config.home.homeDirectory == toString homePath
+    && lib.path.hasPrefix homePath pluginHomePath;
 
   hermesModuleCommon = import "${inputs.hermes-agent}/nix/moduleCommon.nix" {
     inherit lib;
@@ -115,7 +122,11 @@ in
         ) (builtins.attrNames plugins)
       );
       default = { };
-      description = "Plugin source directories keyed by canonical name; each contains plugin.yaml and __init__.py";
+      description = ''
+        Plugin source directories keyed by canonical name; each contains plugin.yaml and __init__.py.
+        Non-empty plugins require normalized absolute home.homeDirectory and
+        services.hermes-agent.hermesHome paths, with hermesHome equal to or below homeDirectory.
+      '';
     };
   };
 
@@ -127,6 +138,14 @@ in
           Hermes Agent environment variables are managed by the sops-nix
           hermes-env secret; leave services.hermes-agent.environment and
           services.hermes-agent.environmentFiles empty.
+        '';
+      }
+      {
+        assertion = cfg.plugins == { } || pluginHomeIsValid;
+        message = ''
+          Hermes Agent declarative plugins require normalized absolute home.homeDirectory and
+          services.hermes-agent.hermesHome paths, with hermesHome equal to or below homeDirectory.
+          External Hermes homes are supported only when modules.development.hermesAgent.plugins is empty.
         '';
       }
     ];
