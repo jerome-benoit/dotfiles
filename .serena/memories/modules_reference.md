@@ -214,6 +214,15 @@ Git TUI with dynamic theme colors from `themes.current`:
 - Auto-fetch, auto-refresh enabled
 - **Requires**: git module enabled
 
+### hermes-agent.nix
+
+Hermes Agent configuration:
+
+- `plugins`: source directories linked under their canonical names by Home Manager.
+- Non-empty `plugins` requires normalized absolute `home.homeDirectory` and
+  `services.hermes-agent.hermesHome` paths; `hermesHome` must equal or descend from HOME.
+- Set `plugins = lib.mkForce { };` when using a Hermes home outside HOME.
+
 ### opencode.nix
 
 OpenCode AI assistant:

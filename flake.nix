@@ -81,6 +81,10 @@
         pyproject-build-systems.follows = "pyproject-build-systems";
       };
     };
+    hermes-labs-plugins = {
+      url = "github:NousResearch/hermes-labs-plugins";
+      flake = false;
+    };
     pyproject-nix = {
       url = "github:pyproject-nix/pyproject.nix";
       inputs.nixpkgs.follows = "nixpkgs";
