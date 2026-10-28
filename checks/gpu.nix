@@ -2,6 +2,7 @@
   pkgs,
   nixpkgs,
   home-manager,
+  inputs,
 }:
 let
   lib = pkgs.lib;
@@ -172,7 +173,7 @@ let
         fetchurl = _: throw "NixOS must not fetch a non-NixOS NVIDIA driver";
       };
       actualHome = builtins.scopedImport { builtins = shadow; } ../home-manager/home.nix {
-        inherit lib;
+        inherit lib inputs;
         pkgs = linuxPkgs;
         config = { };
         profile = "desktop";

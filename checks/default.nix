@@ -29,7 +29,10 @@ in
   email = import ./email.nix {
     inherit home-manager pkgs sops-nix;
   };
-  gpu = import ./gpu.nix { inherit pkgs nixpkgs home-manager; };
+  gpu = import ./gpu.nix {
+    inherit pkgs nixpkgs home-manager;
+    inputs = self.inputs;
+  };
   hermes-agent = import ./hermes-agent.nix {
     inherit pkgs home-manager;
     inputs = self.inputs;
