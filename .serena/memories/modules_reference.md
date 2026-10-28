@@ -221,7 +221,7 @@ Hermes Agent configuration:
 - `plugins`: source directories linked under their canonical names by Home Manager.
 - Non-empty `plugins` requires normalized absolute `home.homeDirectory` and
   `services.hermes-agent.hermesHome` paths; `hermesHome` must equal or descend from HOME.
-- Set `plugins = { };` when using a Hermes home outside HOME.
+- Set `plugins = lib.mkForce { };` when using a Hermes home outside HOME.
 
 ### opencode.nix
 
