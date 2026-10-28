@@ -8,8 +8,25 @@
 let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
+  pins =
+    (import ./pins {
+      inherit lib;
+      inherit (pkgs) fetchurl fetchzip;
+    }).opencode;
 
-  baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
+  # Workaround: upstream's dependency hashes lag behind its source updates.
+  # Remove when upstream publishes the current hashes for all supported platforms.
+  baseOpencodePackage =
+    let
+      package = inputs.opencode.packages.${system}.default or null;
+      nodeModules = package.node_modules or null;
+    in
+    if nodeModules == null then
+      package
+    else
+      package.override {
+        node_modules = nodeModules.override { hash = pins.nodeModules.${system}; };
+      };
 
   mkOpencodePackage =
     package:
