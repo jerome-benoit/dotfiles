@@ -239,8 +239,7 @@ OpenCode AI assistant:
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
 - Upstream CI maintains `nix/hashes.json` for the three supported platforms; the local hash fixer does not maintain OpenCode dependency hashes
-- Temporary `pins/opencode.json` supplies the three native dependency hashes from [upstream PR #59827](https://github.com/anomalyco/opencode/pull/59827) to the default CLI and generated Desktop.
-- Remove this override once those hashes reach the pinned upstream source.
+- Temporary `pins/opencode.json` supplies the three native dependency hashes from [upstream PR #60187](https://github.com/anomalyco/opencode/pull/60187) to the default CLI and generated Desktop.
 - Warnings if packages unavailable for system
 
 ### bun.nix
