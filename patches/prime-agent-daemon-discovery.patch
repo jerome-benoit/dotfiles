@@ -1,10 +1,10 @@
-# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
+# prerequisites: prime-agent-nix-self-update.patch, prime-agent-darwin-tests.patch
 # intent: remove mission-local exclusions while retaining state-root ownership.
 diff --git a/crates/pa-cli/README.md b/crates/pa-cli/README.md
-index 9734f3e..ff4c242 100644
 --- a/crates/pa-cli/README.md
 +++ b/crates/pa-cli/README.md
-@@ -91,8 +91,7 @@ The discovery commands (`status`, `doctor [--fix]`, `shutdown [--force]`, TS
+@@ -91,8 +91,7 @@
  listening unix sockets owned by product processes, a socket-dir sweep, probing/classifying
  each discovered daemon, and the reap/shutdown planners and executors. Containment is part of
  the contract: every scan, probe, and stop is scoped to an explicit `DaemonStateRoot`
@@ -15,10 +15,9 @@ index 9734f3e..ff4c242 100644
  
  ## Update flow (staged activation)
 diff --git a/crates/pa-cli/src/daemon_discovery/kill.rs b/crates/pa-cli/src/daemon_discovery/kill.rs
-index 24912f7..80d246d 100644
 --- a/crates/pa-cli/src/daemon_discovery/kill.rs
 +++ b/crates/pa-cli/src/daemon_discovery/kill.rs
-@@ -49,12 +49,8 @@ pub(super) fn is_alive(pid: u32) -> bool {
+@@ -49,12 +49,8 @@
      is_process_alive(pid).unwrap_or(false)
  }
  
@@ -32,7 +31,7 @@ index 24912f7..80d246d 100644
      match std::fs::remove_file(socket_path) {
          Ok(()) => true,
          Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
-@@ -119,10 +115,9 @@ pub(super) fn stop_tracked_process(pid: u32, expected_start_id: Option<&str>) ->
+@@ -119,10 +115,9 @@
  /// The `--force` residual sweep: kill whatever product listeners remain in
  /// the invocation's state root until the set quiets down or proves stuck;
  /// report the survivors as failures. The sweep re-scans with the same root,
@@ -46,7 +45,7 @@ index 24912f7..80d246d 100644
  pub(super) fn terminate_verified_residuals(
      root: &DaemonStateRoot,
      stopped: &mut Vec<(String, String)>,
-@@ -265,27 +260,6 @@ mod tests {
+@@ -265,27 +260,6 @@
          assert!(failed.is_empty());
      }
  
@@ -74,7 +73,7 @@ index 24912f7..80d246d 100644
      fn spawn_term_ignoring_shell() -> std::process::Child {
          // A shell that swallows SIGTERM: the force-kill must escalate to SIGKILL
          // (the grandchild `sleep 1` exits on its own shortly after, no strays).
-@@ -357,14 +331,4 @@ mod tests {
+@@ -357,14 +331,4 @@
          assert!(terminate_verified_listener(&listener));
          let _ = reaper.join();
      }
@@ -88,9 +87,9 @@ index 24912f7..80d246d 100644
 -            "/tmp/discovery-no-such-socket.sock"
 -        )));
 -    }
- }
+-}
++}
 diff --git a/crates/pa-cli/src/daemon_discovery/mod.rs b/crates/pa-cli/src/daemon_discovery/mod.rs
-index 3736f10..08f6410 100644
 --- a/crates/pa-cli/src/daemon_discovery/mod.rs
 +++ b/crates/pa-cli/src/daemon_discovery/mod.rs
 @@ -1,8 +1,7 @@
@@ -103,7 +102,7 @@ index 3736f10..08f6410 100644
  
  use std::collections::BTreeSet;
  use std::path::{Path, PathBuf};
-@@ -43,28 +42,6 @@ pub(crate) struct DaemonStateRoot {
+@@ -43,28 +42,6 @@
      pub default_socket_path: PathBuf,
  }
  
@@ -132,7 +131,7 @@ index 3736f10..08f6410 100644
  #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
  #[serde(rename_all = "kebab-case")]
  pub(crate) enum DaemonStatus {
-@@ -132,13 +109,9 @@ pub(crate) fn current_state_root() -> DaemonStateRoot {
+@@ -132,13 +109,9 @@
  /// in the product-default socket dir (a pinned root has none), or anywhere
  /// inside the agent dir (TS ownership registry not ported).
  fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
@@ -147,7 +146,7 @@ index 3736f10..08f6410 100644
          let _ = (root, socket_path);
          true
      }
-@@ -213,8 +186,7 @@ pub(crate) fn is_daemon_process_listening(
+@@ -213,8 +186,7 @@
  
  /// Socket files in the root's socket dir: live daemons and orphaned files
  /// alike. A pinned root has no socket dir (`None`), so it sweeps nothing
@@ -157,7 +156,7 @@ index 3736f10..08f6410 100644
  #[cfg(unix)]
  fn scan_socket_dir(socket_dir: Option<&Path>) -> Vec<PathBuf> {
      let Some(socket_dir) = socket_dir else {
-@@ -226,7 +198,7 @@ fn scan_socket_dir(socket_dir: Option<&Path>) -> Vec<PathBuf> {
+@@ -226,7 +198,7 @@
      let mut sockets = Vec::new();
      for entry in entries.flatten() {
          let path = entry.path();
@@ -166,7 +165,7 @@ index 3736f10..08f6410 100644
              sockets.push(path);
          }
      }
-@@ -326,11 +298,6 @@ pub(crate) struct ProbeResult {
+@@ -326,11 +298,6 @@
  /// Probe one socket: connect (300ms), read the hello (1500ms), and ask for the
  /// session count over `list` (30s when greeted, else 1500ms).
  pub(crate) fn probe_daemon(socket_path: &Path) -> ProbeResult {
@@ -178,7 +177,7 @@ index 3736f10..08f6410 100644
      let Ok(mut client) = DaemonClient::connect_probe(socket_path) else {
          return ProbeResult::default();
      };
-@@ -623,56 +590,23 @@ mod tests {
+@@ -623,56 +590,23 @@
          assert!(!state_root_matches(&root, Path::new("/pins/daemon.sock")));
      }
  
@@ -246,10 +245,9 @@ index 3736f10..08f6410 100644
  
      #[cfg(unix)]
 diff --git a/crates/pa-cli/src/daemon_discovery/scan.rs b/crates/pa-cli/src/daemon_discovery/scan.rs
-index ba743d4..fe61bed 100644
 --- a/crates/pa-cli/src/daemon_discovery/scan.rs
 +++ b/crates/pa-cli/src/daemon_discovery/scan.rs
-@@ -342,8 +342,7 @@ fn enrich_uptimes(mut daemons: Vec<DiscoveredDaemonProcess>) -> Vec<DiscoveredDa
+@@ -342,8 +342,7 @@
  /// Every listening product daemon the OS reports inside the given state root:
  /// `ss -lxp` on Linux, `lsof` on macOS. The root filter runs here — before
  /// the uptime enrichment and before any caller sees a result — so a daemon

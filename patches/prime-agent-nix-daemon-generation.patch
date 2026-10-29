@@ -1,10 +1,10 @@
-# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
+# prerequisites: prime-agent-nix-self-update.patch, prime-agent-darwin-tests.patch, prime-agent-daemon-discovery.patch
 # intent: verify Nix executable identity on probes, session handshakes and reconnects.
 diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/interactive_mode/daemon.rs
-index 04c0a83..8efb68a 100644
 --- a/crates/pa-cli/src/interactive_mode/daemon.rs
 +++ b/crates/pa-cli/src/interactive_mode/daemon.rs
-@@ -27,12 +27,19 @@ enum DaemonProbe {
+@@ -27,12 +27,19 @@
      Stale(Box<pa_tui::daemon_client::DaemonClient>),
  }
  
@@ -28,7 +28,7 @@ index 04c0a83..8efb68a 100644
      let hello = client.hello();
      let current = hello.get("protocol").and_then(|p| p.get("version"))
          == Some(&serde_json::json!(
-@@ -40,10 +47,10 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
+@@ -40,10 +47,10 @@
          ))
          && hello.get("schemaId") == Some(&serde_json::json!(pa_types::daemon::DAEMON_SCHEMA_ID));
      if current {
@@ -42,7 +42,7 @@ index 04c0a83..8efb68a 100644
      }
  }
  
-@@ -52,11 +59,11 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
+@@ -52,11 +59,11 @@
  /// shut down, a busy one refuses replacement).
  ///
  /// # Errors
@@ -57,7 +57,7 @@ index 04c0a83..8efb68a 100644
          DaemonProbe::Current => return Ok(()),
          DaemonProbe::Stale(client) => shutdown_stale_daemon(*client, socket_path).await?,
          DaemonProbe::Absent => {}
-@@ -69,14 +76,14 @@ pub async fn ensure_daemon_running(socket_path: &Path, spawn_cwd: &Path) -> Resu
+@@ -69,14 +76,14 @@
  /// product path uses this process's own binary).
  ///
  /// # Errors
@@ -75,7 +75,7 @@ index 04c0a83..8efb68a 100644
          DaemonProbe::Current => return Ok(()),
          DaemonProbe::Stale(client) => {
              // A stale daemon appeared between the caller's check and here:
-@@ -88,7 +95,7 @@ pub async fn ensure_daemon_running_with(
+@@ -88,7 +95,7 @@
      spawn_supervisor_detached(socket_path, spawn_cwd, exe)?;
      let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
      loop {
@@ -84,7 +84,7 @@ index 04c0a83..8efb68a 100644
              DaemonProbe::Current => return Ok(()),
              DaemonProbe::Stale(client) => {
                  // A concurrent launcher won the socket with a build whose protocol matches at
-@@ -110,7 +117,7 @@ pub async fn ensure_daemon_running_with(
+@@ -110,7 +117,7 @@
  /// Shut a stale daemon down when no session is busy; a busy one refuses
  /// replacement.
  async fn shutdown_stale_daemon(
@@ -93,7 +93,7 @@ index 04c0a83..8efb68a 100644
      socket_path: &Path,
  ) -> Result<()> {
      let sessions = client
-@@ -131,23 +138,21 @@ async fn shutdown_stale_daemon(
+@@ -131,23 +138,21 @@
                      .any(|row| row.get("isSessionActive") == Some(&serde_json::json!(true)))
              })
      });
@@ -127,10 +127,9 @@ index 04c0a83..8efb68a 100644
      Ok(())
  }
 diff --git a/crates/pa-cli/src/update_flow/coordinator.rs b/crates/pa-cli/src/update_flow/coordinator.rs
-index dbeb00f..086e386 100644
 --- a/crates/pa-cli/src/update_flow/coordinator.rs
 +++ b/crates/pa-cli/src/update_flow/coordinator.rs
-@@ -109,10 +109,11 @@ async fn drive(
+@@ -109,10 +109,11 @@
      let budget = &options.budget;
      // `Preparing`: connect the old supervisor. An unreachable daemon means a
      // daemon-less update: the successor boots without a roster.
@@ -147,10 +146,9 @@ index dbeb00f..086e386 100644
      let mut roster_path: Option<PathBuf> = None;
      if let Some(client) = &daemon {
 diff --git a/crates/pa-cli/src/update_flow/legacy_restart.rs b/crates/pa-cli/src/update_flow/legacy_restart.rs
-index 9bafb42..6e0feae 100644
 --- a/crates/pa-cli/src/update_flow/legacy_restart.rs
 +++ b/crates/pa-cli/src/update_flow/legacy_restart.rs
-@@ -111,7 +111,7 @@ async fn restart(
+@@ -111,7 +111,7 @@
      let source_path = agent_dir
          .join("daemon-update-restarts")
          .join(format!("{socket_key}.json"));
@@ -159,7 +157,7 @@ index 9bafb42..6e0feae 100644
      let (client, _events) = match connection {
          Ok(connection) => connection,
          Err(error) => {
-@@ -252,7 +252,7 @@ async fn restart(
+@@ -252,7 +252,7 @@
      // A lost prepare reply can also close the connection. Reconnect before
      // shutdown and verify we still address the recorded predecessor.
      drop(client);
@@ -168,7 +166,7 @@ index 9bafb42..6e0feae 100644
      anyhow::ensure!(
          identity_from_hello(client.hello()) == predecessor,
          "predecessor changed before shutdown"
-@@ -402,7 +402,8 @@ async fn boot_roster(
+@@ -402,7 +402,8 @@
          successor.pid == spawned_pid,
          "a different daemon won the socket during migration"
      );
@@ -179,10 +177,9 @@ index 9bafb42..6e0feae 100644
      replacement.close();
      validate_successor(&replacement_hello, spawned_pid, crate::config::version())?;
 diff --git a/crates/pa-cli/src/update_flow/phases.rs b/crates/pa-cli/src/update_flow/phases.rs
-index d8b5cb6..279f228 100644
 --- a/crates/pa-cli/src/update_flow/phases.rs
 +++ b/crates/pa-cli/src/update_flow/phases.rs
-@@ -120,7 +120,7 @@ pub(super) async fn restore_report(
+@@ -120,7 +120,7 @@
          tokio::time::Instant::now() + Duration::from_millis(budget.restore_overall_ms.max(1));
      loop {
          if let Ok((client, _events)) =
@@ -192,10 +189,9 @@ index d8b5cb6..279f228 100644
              let response = client
                  .request_ok(pa_types::daemon::DaemonCommand::UpdateRestoreStatus {
 diff --git a/crates/pa-cli/src/update_flow/successor.rs b/crates/pa-cli/src/update_flow/successor.rs
-index a8abf2e..8ec31d3 100644
 --- a/crates/pa-cli/src/update_flow/successor.rs
 +++ b/crates/pa-cli/src/update_flow/successor.rs
-@@ -75,7 +75,7 @@ pub async fn wait_for_hello(socket_path: &Path, budget_ms: u64) -> Option<Update
+@@ -75,7 +75,7 @@
      let deadline = Instant::now() + Duration::from_millis(budget_ms.max(1));
      loop {
          if let Ok((client, _events)) =
@@ -205,10 +201,9 @@ index a8abf2e..8ec31d3 100644
              let identity = identity_from_hello(client.hello());
              client.close();
 diff --git a/crates/pa-daemon/src/acp/daemon.rs b/crates/pa-daemon/src/acp/daemon.rs
-index f64bc45..5e5c26d 100644
 --- a/crates/pa-daemon/src/acp/daemon.rs
 +++ b/crates/pa-daemon/src/acp/daemon.rs
-@@ -98,7 +98,7 @@ impl DaemonLink {
+@@ -98,7 +98,7 @@
          // The reader only classifies frames; the consumer loop below owns
          // the ordering, so a turn's chunks always precede its boundary
          // frames.
@@ -217,7 +212,7 @@ index f64bc45..5e5c26d 100644
              let mut reader = BufReader::new(reader_half);
              let mut line = String::new();
              let mut hello_tx = Some(hello_tx);
-@@ -141,8 +141,20 @@ impl DaemonLink {
+@@ -141,8 +141,20 @@
  
          let hello = tokio::time::timeout(std::time::Duration::from_secs(3), hello_rx)
              .await
@@ -241,10 +236,9 @@ index f64bc45..5e5c26d 100644
              .get("protocol")
              .cloned()
 diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_client.rs
-index 4e28e40..2027342 100644
 --- a/crates/pa-tui/src/daemon_client.rs
 +++ b/crates/pa-tui/src/daemon_client.rs
-@@ -319,6 +319,7 @@ pub struct DaemonClient {
+@@ -319,6 +319,7 @@
      direct: std::sync::Arc<crate::direct_transport::DirectState>,
      /// The supervisor reader's death watch (see `reader_dead`).
      reader_dead_rx: tokio::sync::watch::Receiver<bool>,
@@ -252,14 +246,13 @@ index 4e28e40..2027342 100644
  }
  
  impl DaemonClient {
-@@ -328,9 +329,26 @@ impl DaemonClient {
+@@ -328,8 +329,25 @@
      ///
      /// # Errors
      ///
--    /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
 +    /// Returns `Err` on a connect or hello failure, timeout, unknown protocol, or Nix generation mismatch.
-     pub async fn connect(
-         socket_path: &Path,
++    pub async fn connect(
++        socket_path: &Path,
 +    ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
 +        let (mut client, events) = Self::connect_unverified(socket_path).await?;
 +        if let Err(error) =
@@ -274,13 +267,13 @@ index 4e28e40..2027342 100644
 +    /// Connect for explicit daemon inspection or update control without session admission.
 +    ///
 +    /// # Errors
-+    /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
+     /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
+-    pub async fn connect(
 +    pub async fn connect_unverified(
-+        socket_path: &Path,
+         socket_path: &Path,
      ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
          let connect = tokio::time::timeout(
-             Duration::from_millis(CONNECT_TIMEOUT_MS),
-@@ -470,6 +488,7 @@ impl DaemonClient {
+@@ -470,6 +488,7 @@
                      retained_event_tx,
                  )),
                  reader_dead_rx,
@@ -288,7 +281,7 @@ index 4e28e40..2027342 100644
              },
              event_rx,
          ))
-@@ -500,6 +519,9 @@ impl DaemonClient {
+@@ -500,6 +519,9 @@
          for attempt in 1..=CONNECT_ATTEMPTS {
              match DaemonClient::connect(socket_path).await {
                  Ok(pair) => return Ok(pair),
@@ -298,7 +291,7 @@ index 4e28e40..2027342 100644
                  Err(error) => {
                      if attempt == CONNECT_ATTEMPTS {
                          return Err(error);
-@@ -852,6 +874,9 @@ impl DaemonClient {
+@@ -852,6 +874,9 @@
      pub fn hard_close(&mut self) {
          self.direct.take_event_sender();
          self.drop_direct();
@@ -309,10 +302,9 @@ index 4e28e40..2027342 100644
          let writer = std::mem::replace(&mut self.writer, replacement);
          let _ = writer.send(String::new());
 diff --git a/crates/pa-tui/src/interactive/run.rs b/crates/pa-tui/src/interactive/run.rs
-index 2a80daa..f0e19e2 100644
 --- a/crates/pa-tui/src/interactive/run.rs
 +++ b/crates/pa-tui/src/interactive/run.rs
-@@ -798,6 +798,7 @@ async fn run_interactive_surface(
+@@ -802,6 +802,7 @@
      // Whether the Ctrl+C exit hint painted a frame that the expiry must clear.
      let mut hint_painted = false;
      let mut running = true;
@@ -320,7 +312,7 @@ index 2a80daa..f0e19e2 100644
      let mut wait_idle_deadline: Option<Instant> = None;
      // The headless `SubmitAndSettle` barrier's target and deadline.
      let mut settle_target: Option<(u64, Instant)> = None;
-@@ -1781,6 +1782,18 @@ async fn run_interactive_surface(
+@@ -1791,6 +1792,18 @@
                              }
                          }
                      }
@@ -339,7 +331,7 @@ index 2a80daa..f0e19e2 100644
                      Ok(Err(_)) => {
                          if let Some(state) = reconnect.take() {
                              reconnect = Some(state.next_attempt());
-@@ -2129,6 +2142,9 @@ async fn run_interactive_surface(
+@@ -2139,6 +2152,9 @@
      if outcome.return_to_agents_view || outcome.selection_request.is_some() {
          exit_guard.cancel();
      }
@@ -351,7 +343,6 @@ index 2a80daa..f0e19e2 100644
  
 diff --git a/crates/pa-types/src/daemon/generation.rs b/crates/pa-types/src/daemon/generation.rs
 new file mode 100644
-index 0000000..d43417e
 --- /dev/null
 +++ b/crates/pa-types/src/daemon/generation.rs
 @@ -0,0 +1,115 @@
@@ -471,10 +462,9 @@ index 0000000..d43417e
 +    }
 +}
 diff --git a/crates/pa-types/src/daemon/mod.rs b/crates/pa-types/src/daemon/mod.rs
-index 117c23f..f2b446d 100644
 --- a/crates/pa-types/src/daemon/mod.rs
 +++ b/crates/pa-types/src/daemon/mod.rs
-@@ -96,6 +96,7 @@ pub struct DaemonEventMeta {
+@@ -96,6 +96,7 @@
  pub mod agent_roster;
  mod command;
  pub mod framing;
@@ -482,7 +472,7 @@ index 117c23f..f2b446d 100644
  pub mod herdr_env;
  pub mod launch_env;
  mod outbound;
-@@ -108,6 +109,7 @@ pub use command::{
+@@ -108,6 +109,7 @@
      DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,
      TranscriptPage,
  };

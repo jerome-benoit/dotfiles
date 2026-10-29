@@ -1,4 +1,4 @@
-# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
 # intent: point provider login guidance at the bundled, version-matched upstream README.
 diff --git a/crates/pa-cli/src/list_models.rs b/crates/pa-cli/src/list_models.rs
 --- a/crates/pa-cli/src/list_models.rs
@@ -25,7 +25,9 @@ diff --git a/crates/pa-cli/src/list_models.rs b/crates/pa-cli/src/list_models.rs
 diff --git a/crates/pa-daemon/src/agent_engine/turn/model.rs b/crates/pa-daemon/src/agent_engine/turn/model.rs
 --- a/crates/pa-daemon/src/agent_engine/turn/model.rs
 +++ b/crates/pa-daemon/src/agent_engine/turn/model.rs
-@@ -65,10 +65,10 @@
+@@ -63,12 +63,12 @@
+                         preflight_model.provider
+                     )
                  } else {
 -                    let docs = pa_core::packages::docs_path();
 +                    let mut readme = pa_core::packages::docs_path();

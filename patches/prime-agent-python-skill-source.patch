@@ -1,7 +1,6 @@
-# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
 # intent: bind Nix kernel skill imports to the selected source without installing dependencies.
 diff --git a/crates/pa-core/src/kernel/bootstrap/mod.rs b/crates/pa-core/src/kernel/bootstrap/mod.rs
-index 29a714b..1eb53e9 100644
 --- a/crates/pa-core/src/kernel/bootstrap/mod.rs
 +++ b/crates/pa-core/src/kernel/bootstrap/mod.rs
 @@ -196,7 +196,10 @@ async fn ensure_kernel_python_uncached(
@@ -17,7 +16,6 @@ index 29a714b..1eb53e9 100644
                      missing_python_skill_import_labels(&python_str, &options.python_skills);
                  if !missing_skills.is_empty() {
 diff --git a/crates/pa-core/src/kernel/bootstrap/runtime_code.rs b/crates/pa-core/src/kernel/bootstrap/runtime_code.rs
-index 83b0f66..541152f 100644
 --- a/crates/pa-core/src/kernel/bootstrap/runtime_code.rs
 +++ b/crates/pa-core/src/kernel/bootstrap/runtime_code.rs
 @@ -30,6 +30,51 @@ pub fn parse_unavailable_python_skills(stdout: &str) -> Option<UnavailablePython
@@ -104,45 +102,3 @@ index 83b0f66..541152f 100644
      print(
          "{PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER}"
          + _prime_agent_json.dumps(_PRIME_AGENT_SKILL_IMPORT_ERRORS)
-@@ -196,41 +248,6 @@ if _PRIME_AGENT_SKILL_IMPORT_ERRORS:
- #[cfg(test)]
- mod tests {
-     use super::*;
--    use std::path::PathBuf;
--
--    #[test]
--    fn bootstrap_code_without_skills_binds_rlm() {
--        let code = build_rlm_bootstrap_code(&[], false);
--        assert!(code.contains("import rlm as _prime_agent_rlm_module"));
--        assert!(!code.contains("_PrimeAgentUnavailableSkill"));
--    }
--
--    #[test]
--    fn bootstrap_turns_the_bounded_bash_default_on_only_with_notices() {
--        let daemonless = build_rlm_bootstrap_code(&[], false);
--        let noticed = build_rlm_bootstrap_code(&[], true);
--        assert!(
--            noticed.contains("_set_completion_notices_wired(True)"),
--            "the wired bootstrap must enable the bounded bash default: {noticed}"
--        );
--        assert!(
--            !daemonless.contains("_set_completion_notices_wired"),
--            "the daemonless bootstrap must not emit the toggle: {daemonless}"
--        );
--    }
--
--    #[test]
--    fn bootstrap_code_imports_skills() {
--        let skills = vec![KernelPythonSkill {
--            name: "edit".into(),
--            import_name: "edit".into(),
--            package_path: PathBuf::from("/pkg/edit"),
--            pyproject_path: PathBuf::from("/pkg/edit/pyproject.toml"),
--        }];
--        let code = build_rlm_bootstrap_code(&skills, false);
--        assert!(code.contains(r#"for _prime_agent_skill_name in ["edit"]"#));
--        assert!(code.contains("_PrimeAgentUnavailableSkill"));
--    }
- 
-     /// The TS #2381 parser table: marker+JSON, noise-prefixed marker, no marker, non-JSON payload
-     /// all land where the host-side report decides notice vs silence.
