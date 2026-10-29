@@ -4,6 +4,7 @@
     "config:recommended",
     "abandonments:recommended",
     ":configMigration",
+    "helpers:pinGitHubActionDigests",
     "group:allNonMajor",
     "schedule:daily"
   ],

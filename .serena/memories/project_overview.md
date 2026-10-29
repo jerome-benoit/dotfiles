@@ -10,7 +10,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 - **Home Manager** - User environment management for Nix
 - **SOPS** - Encrypted secrets management (GPG-based, via sops-nix home-manager module)
 - **Language**: Nix expression language
-- **Renovate** - Automated dependency updates
+- **Renovate** - Automated dependency updates; GitHub Actions pinned by digest, daily Nix lock maintenance, custom Nix and JSON pin extractors (`renovate.json`)
 
 ## Flake Inputs
 
