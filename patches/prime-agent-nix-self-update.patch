@@ -1,12 +1,11 @@
-# base: v0.10.1 (8aac8692456c00c01d4e53e60e6d3347a3506559)
+# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
 # intent: refuse imperative self-update for Nix-managed builds (PRIME_AGENT_NIX_MANAGED);
 #   CLI entries return exit 75; TUI/core entries report the same refusal before side effects.
 #   Keep --check read-only and parse PI_OFFLINE through pa_models::offline::is_catalog_offline().
 diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
-index 7c820e9..0894793 100644
 --- a/crates/pa-cli/src/client_update.rs
 +++ b/crates/pa-cli/src/client_update.rs
-@@ -14,6 +14,9 @@ pub struct ClientUpdate;
+@@ -14,6 +14,9 @@
  impl pa_tui::update_command::UpdateCommands for ClientUpdate {
      fn run_update(&self) -> pa_tui::update_command::UpdateRunFuture {
          Box::pin(async {
@@ -17,10 +16,9 @@ index 7c820e9..0894793 100644
                  .ok()
                  .as_deref()
 diff --git a/crates/pa-cli/src/installer_update.rs b/crates/pa-cli/src/installer_update.rs
-index 0ecbbdd..2a462fa 100644
 --- a/crates/pa-cli/src/installer_update.rs
 +++ b/crates/pa-cli/src/installer_update.rs
-@@ -16,7 +16,7 @@ use pa_core::update::release::{artifact_for_platform, LatestRelease};
+@@ -16,7 +16,7 @@
  use pa_core::update::version::UpdateChannel;
  
  /// TS self-update's no-install exit code: the package manager owns this update.
@@ -29,7 +27,7 @@ index 0ecbbdd..2a462fa 100644
  
  #[derive(Debug, Clone, Default, PartialEq, Eq)]
  pub struct UpdateOptions {
-@@ -84,7 +84,13 @@ pub fn requested_installer_channel(flag: Option<UpdateChannel>) -> &'static str
+@@ -84,7 +84,13 @@
  /// Run the update command: the funnel (the installer script owns the
  /// whole move) or the `--check` report. Returns the process exit code.
  pub fn run(options: &UpdateOptions) -> i32 {
@@ -44,7 +42,7 @@ index 0ecbbdd..2a462fa 100644
      let homebrew_kind = if options.check {
          None
      } else {
-@@ -180,6 +186,10 @@ pub fn run(options: &UpdateOptions) -> i32 {
+@@ -180,6 +186,10 @@
  /// against the prefix the running binary was installed under. Returns the
  /// process exit code.
  pub fn run_local(prefix: &std::path::Path, archive: Option<&std::path::Path>) -> i32 {
@@ -55,7 +53,7 @@ index 0ecbbdd..2a462fa 100644
      let archive = match archive.map(std::path::absolute).transpose() {
          Ok(archive) => archive,
          Err(error) => {
-@@ -290,10 +300,10 @@ async fn run_check(flag: Option<UpdateChannel>) -> i32 {
+@@ -290,10 +300,10 @@
      0
  }
  
@@ -70,7 +68,7 @@ index 0ecbbdd..2a462fa 100644
  fn check_verdict(
      latest: &LatestRelease,
      running: &str,
-@@ -307,6 +317,9 @@ fn check_verdict(
+@@ -307,6 +317,9 @@
      ) {
          return "Up to date.".to_string();
      }
@@ -81,10 +79,9 @@ index 0ecbbdd..2a462fa 100644
          return format!(
              "{} is the latest {} release, but no build of it is published for {}.",
 diff --git a/crates/pa-cli/src/package_command.rs b/crates/pa-cli/src/package_command.rs
-index f1e5ba2..27d0dce 100644
 --- a/crates/pa-cli/src/package_command.rs
 +++ b/crates/pa-cli/src/package_command.rs
-@@ -555,6 +555,14 @@ fn run_package_update(
+@@ -555,6 +555,14 @@
      self_update: &dyn Fn(&SelfUpdateOptions, Option<&str>) -> i32,
  ) -> PackageCommandOutcome {
      let target = options.update_target.unwrap_or(UpdateTarget::All);
@@ -100,10 +97,9 @@ index f1e5ba2..27d0dce 100644
          .settings()
          .get_update_channel()
 diff --git a/crates/pa-cli/src/public_command.rs b/crates/pa-cli/src/public_command.rs
-index 0f2d57b..f6763f0 100644
 --- a/crates/pa-cli/src/public_command.rs
 +++ b/crates/pa-cli/src/public_command.rs
-@@ -671,6 +671,10 @@ fn run_update(args: &[String]) -> PublicCommandResult {
+@@ -671,6 +671,10 @@
      let Some(options) = parse_update_options(args) else {
          return handled_failed();
      };
@@ -115,10 +111,9 @@ index 0f2d57b..f6763f0 100644
      // installer; any other binary stays on the managed-install flow.
      if options.rollback || options.archive.is_some() {
 diff --git a/crates/pa-cli/src/self_update.rs b/crates/pa-cli/src/self_update.rs
-index e0b9275..10f2282 100644
 --- a/crates/pa-cli/src/self_update.rs
 +++ b/crates/pa-cli/src/self_update.rs
-@@ -72,6 +72,10 @@ pub fn confirm_nightly_switch(
+@@ -72,6 +72,10 @@
  /// code; failures print the `Error: …` line and exit 1 (including the
  /// installer-ownership message verbatim).
  pub fn run(options: &SelfUpdateOptions, persisted_wire: Option<&str>) -> i32 {
@@ -132,7 +127,7 @@ index e0b9275..10f2282 100644
 diff --git a/crates/pa-cli/src/update_flow/update_command.rs b/crates/pa-cli/src/update_flow/update_command.rs
 --- a/crates/pa-cli/src/update_flow/update_command.rs
 +++ b/crates/pa-cli/src/update_flow/update_command.rs
-@@ -42,6 +42,10 @@ pub struct UpdateCommandOptions {
+@@ -42,6 +42,10 @@
  /// Returns an error when the binary is not installer-owned or a phase,
  /// the lock, a status write, or the coordinator spawn fails.
  pub async fn run_update_command(options: &UpdateCommandOptions) -> Result<i32> {
@@ -143,7 +138,7 @@ diff --git a/crates/pa-cli/src/update_flow/update_command.rs b/crates/pa-cli/src
      let agent_dir = crate::config::get_agent_dir();
      let socket_path = pa_daemon::socket::default_daemon_socket_path();
      let install_root = super::activation_root().map_err(|_| {
-@@ -618,6 +622,10 @@ pub async fn run_coordinator_mode(
+@@ -618,6 +622,10 @@
      status_path: PathBuf,
      origin: Option<&str>,
  ) -> Result<i32> {
@@ -157,7 +152,7 @@ diff --git a/crates/pa-cli/src/update_flow/update_command.rs b/crates/pa-cli/src
 diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/installer.rs
 --- a/crates/pa-core/src/update/installer.rs
 +++ b/crates/pa-core/src/update/installer.rs
-@@ -197,6 +197,11 @@ pub async fn run_installer(
+@@ -197,6 +197,11 @@
      channel: Option<&'static str>,
      output: InstallerOutput,
  ) -> std::result::Result<Installed, UpdateFailure> {
@@ -169,7 +164,7 @@ diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/
      let prefix = install_prefix();
      let channel = channel.or_else(|| installed_channel(&prefix));
      run_installer_from(&installer_script_url(channel), &prefix, channel, output).await
-@@ -220,6 +225,11 @@ pub async fn run_installer_from(
+@@ -220,6 +225,11 @@
      channel: Option<&'static str>,
      output: InstallerOutput,
  ) -> std::result::Result<Installed, UpdateFailure> {
@@ -181,7 +176,7 @@ diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/
      current_target().map_err(|error| UpdateFailure {
          message: format!("{error:#}"),
      })?;
-@@ -247,6 +257,11 @@ pub async fn run_bundled_installer(
+@@ -247,6 +257,11 @@
      prefix: &Path,
      args: &[&std::ffi::OsStr],
  ) -> std::result::Result<Installed, UpdateFailure> {
@@ -196,7 +191,7 @@ diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/
 diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/release.rs
 --- a/crates/pa-core/src/update/release.rs
 +++ b/crates/pa-core/src/update/release.rs
-@@ -58,7 +58,7 @@ pub fn update_user_agent(version: &str) -> String {
+@@ -58,7 +58,7 @@
  }
  
  /// Fetch and validate the channel's latest release.
@@ -205,7 +200,7 @@ diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/re
  /// malformed manifest is `None`, never an error - `Planning` decides skip.
  ///
  /// # Errors
-@@ -74,7 +74,7 @@ pub async fn latest_release(
+@@ -74,7 +74,7 @@
      base_url: &str,
      timeout: Duration,
  ) -> Result<Option<LatestRelease>> {
@@ -217,7 +212,7 @@ diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/re
 diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/session_ui/commands.rs
 --- a/crates/pa-tui/src/session_ui/commands.rs
 +++ b/crates/pa-tui/src/session_ui/commands.rs
-@@ -334,13 +334,23 @@ impl SessionUi {
+@@ -334,13 +334,23 @@
                      } else {
                          "inferred from the running version"
                      };
@@ -248,7 +243,7 @@ diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/sessio
                      return Ok(());
                  }
                  if arg == "off" || arg == "stable" {
-@@ -354,10 +364,17 @@ impl SessionUi {
+@@ -354,10 +364,17 @@
                          self.error_row(&format!("{error:#}"), view);
                          return Ok(());
                      }
@@ -270,7 +265,7 @@ diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/sessio
                      return Ok(());
                  }
                  if !arg.is_empty() && arg != "on" {
-@@ -372,10 +389,17 @@ impl SessionUi {
+@@ -372,10 +389,17 @@
                      self.error_row(&format!("{error:#}"), view);
                      return Ok(());
                  }
@@ -292,7 +287,7 @@ diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/sessio
              }
              // `/factory [on|off|status]`: the factory's opt-in gate (the
              // operator's directive: the factory is disabled until the
-@@ -525,6 +549,10 @@ impl SessionUi {
+@@ -525,6 +549,10 @@
                      self.error_row("Usage: /update", view);
                      return Ok(());
                  }
@@ -304,10 +299,9 @@ diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/sessio
                      self.note_as(
                          "An update is already running; its outcome lands here when it finishes.",
 diff --git a/crates/pa-tui/src/session_ui/share.rs b/crates/pa-tui/src/session_ui/share.rs
-index ec81fcc..15da1a8 100644
 --- a/crates/pa-tui/src/session_ui/share.rs
 +++ b/crates/pa-tui/src/session_ui/share.rs
-@@ -48,6 +48,10 @@ impl SessionUi {
+@@ -48,6 +48,10 @@
      /// on-disk binary (the running binary is in-memory), so the TUI stays mounted, the daemon keeps
      /// running, and the outcome lands as a row through [`Self::update_notes`].
      pub(super) fn spawn_update(&mut self, view: &mut AgentView) {

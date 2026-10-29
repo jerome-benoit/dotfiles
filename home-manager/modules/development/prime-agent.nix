@@ -237,8 +237,8 @@ let
         postInstall = ''
           mkdir -p $out/share/prime-agent
           cp -r prime-agent-runtime docs skills README.md LICENSE CHANGELOG.md $out/share/prime-agent/
-          # Release archives embed synthetic fixtures. Pin production data
-          # independently; catalog updates do not change the Rust source pin.
+          # Git tag archives omit bundled catalogs. Pin production data separately;
+          # catalog updates do not change the Rust source pin.
           cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
           cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
         '';
