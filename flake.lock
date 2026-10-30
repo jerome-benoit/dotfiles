@@ -11,11 +11,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793301075,
-        "narHash": "sha256-AoqWlQNbbgHO00euKY6unqOS5TK7n/WE9J4yVysCQQU=",
+        "lastModified": 1793378199,
+        "narHash": "sha256-DKJB8vJPygMPMwGPhd4oOumTOYAajaNJzMcKay+9EzA=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "d533d7cfd8f6d84c3b31114959e550efed7adc82",
+        "rev": "996a3a71d881634f35eac620c1992ed39835d766",
         "type": "github"
       },
       "original": {
@@ -175,11 +175,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793305799,
-        "narHash": "sha256-kQw9pjvLfQn9zi/TOCBV+WrM26mQIEeLdmzxMzAgkz4=",
+        "lastModified": 1793373182,
+        "narHash": "sha256-bhf38D5+e16DOd7cyKat8sAgCR28OD3IZ58Fc7QUiSc=",
         "owner": "NousResearch",
         "repo": "hermes-agent",
-        "rev": "088f657ecf77674c7b8e2ededf4e3576d82e042c",
+        "rev": "5057eaa3a4d0cbef0e30078418a5115faa62889e",
         "type": "github"
       },
       "original": {
@@ -319,11 +319,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793310567,
-        "narHash": "sha256-vNOAynAYcicACV7qVYzohrN50c8oRcYlXKL017KtmZA=",
+        "lastModified": 1793381300,
+        "narHash": "sha256-7X4voMdHMlQPBhbLVRh34UVFP3Puv2ygiNiRjZfbBuY=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "83e399999642663492ecd9a6f32af2c3a8ce032a",
+        "rev": "822594b9ae6d1e8778dda79cf7a7b84d0f9f45f3",
         "type": "github"
       },
       "original": {
@@ -335,11 +335,11 @@
     "opencode-nvim": {
       "flake": false,
       "locked": {
-        "lastModified": 1792851415,
-        "narHash": "sha256-vPTAB62yN2T7+5yJqjBD3EN0hzIeLvaYpUs2RrKTJQk=",
+        "lastModified": 1793375285,
+        "narHash": "sha256-Qhn8hGQ/S6SCV0GxsrS8nAPSq0ndwMNaEYhOw0Mv/Pc=",
         "owner": "NickvanDyke",
         "repo": "opencode.nvim",
-        "rev": "f8e8cf02be7340489df1b67b518ce2842c65520f",
+        "rev": "4851ae503585dc5142ad66a98e8952a74e1f7b3a",
         "type": "github"
       },
       "original": {
@@ -533,11 +533,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793175074,
-        "narHash": "sha256-NVlhcOgfpAkfI6Qk9RTD5caMNQlmALcT+YGyRMSR9sw=",
+        "lastModified": 1793294006,
+        "narHash": "sha256-+sF2dhxfVqshStCQoohzQVI5+GCT50ktNyL0ATf7zc8=",
         "owner": "Niko1221",
         "repo": "Strata",
-        "rev": "46c152a1310f77cd2f0ce2c7cd213962df14fe83",
+        "rev": "870aedd9e1ebe1c91f94da93b59af17729f6c5c0",
         "type": "github"
       },
       "original": {
