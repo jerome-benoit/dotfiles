@@ -1,15 +1,18 @@
 # Historical Process: Sync `hermes-agent/main-patched`
 
 ## Status
+
 The active flake follows `github:NousResearch/hermes-agent` directly.
 Do not resynchronize or repin the historical fork during routine lock updates.
 The procedure below applies only if the project explicitly switches back to a fork.
 
 ## Historical Repositories
+
 - Fork: `github:jerome-benoit/hermes-agent`, branch `main-patched`.
 - Upstream: `github:NousResearch/hermes-agent`, branch `main`.
 
 ## Rules
+
 - Run git commands as `GIT_MASTER=1 git ...`.
 - Work in a temporary clone under `/tmp/opencode`, not in `/home/fraggle/.nix`.
 - Record the old remote fork SHA before rewriting; use it only as the exact push lease.
@@ -18,6 +21,7 @@ The procedure below applies only if the project explicitly switches back to a fo
 - Do not encode current SHAs, dates, narHashes, or a fixed ahead-count in this memory; derive them during each sync.
 
 ## Sync Procedure
+
 1. Inspect `/home/fraggle/.nix` status and preserve any existing dirty work.
 2. Clone the fork in `/tmp/opencode`, add/fetch upstream, and fetch `origin/main-patched`.
 3. Record:
@@ -41,4 +45,5 @@ The procedure below applies only if the project explicitly switches back to a fo
 10. Clean up the temp clone. If a build was explicitly requested, run it before cleanup.
 
 ## If All Fork Patches Drop
+
 Switch `.nix` back to upstream `github:NousResearch/hermes-agent` instead of keeping an empty fork branch.

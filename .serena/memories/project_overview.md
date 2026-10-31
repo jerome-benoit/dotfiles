@@ -14,24 +14,24 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 ## Flake Inputs
 
-| Input                     | Source                                           | Description                                                                                                             |
-| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `nixpkgs`                 | `github:nixos/nixpkgs?ref=nixpkgs-unstable`      | Nix packages (unstable)                                                                                                 |
-| `home-manager`            | `github:nix-community/home-manager`              | Home Manager, follows nixpkgs                                                                                           |
-| `opencode`                | `github:anomalyco/opencode/v2`                   | OpenCode 2.x TUI/CLI/Desktop (v2 branch, follows nixpkgs)                                                              |
-| `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`               | Neovim plugin (non-flake)                                                                                               |
-| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`       | AI agent session manager (non-flake)                                                                                    |
-| `herdr`                   | `github:ogulcancelik/herdr`                      | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                |
-| `openspec`                | `github:Fission-AI/OpenSpec`                     | OpenSpec CLI, follows nixpkgs                                                                                           |
-| `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`             | OpenClaw tool binaries, follows nixpkgs                                                                                 |
-| `hermes-agent`            | `github:NousResearch/hermes-agent`             | Hermes Agent (upstream), follows nixpkgs + flake-parts + Home Manager + pyproject-nix + uv2nix + pyproject-build-systems |
-| `qmd`                     | `github:tobi/qmd`                                | QMD CLI, follows nixpkgs + flake-utils                                                                                  |
-| `agtx`                    | `github:fynnfluegge/agtx`                        | Agtx terminal agent (non-flake)                                                                                         |
-| `flake-utils`             | `github:numtide/flake-utils`                     | Flake utilities                                                                                                         |
-| `flake-parts`             | `github:hercules-ci/flake-parts`                 | Flake composition                                                                                                       |
-| `pyproject-nix`           | `github:pyproject-nix/pyproject.nix`             | Python packaging for Nix, follows nixpkgs                                                                               |
-| `uv2nix`                  | `github:pyproject-nix/uv2nix`                    | uv lockfile to Nix, follows nixpkgs + pyproject-nix                                                                     |
-| `pyproject-build-systems` | `github:pyproject-nix/build-system-pkgs`         | Python build systems, follows nixpkgs + pyproject-nix + uv2nix                                                          |
+| Input                     | Source                                      | Description                                                                                                              |
+| ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `nixpkgs`                 | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)                                                                                                  |
+| `home-manager`            | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs                                                                                            |
+| `opencode`                | `github:anomalyco/opencode/v2`              | OpenCode 2.x TUI/CLI/Desktop (v2 branch, follows nixpkgs)                                                                |
+| `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)                                                                                                |
+| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`  | AI agent session manager (non-flake)                                                                                     |
+| `herdr`                   | `github:ogulcancelik/herdr`                 | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                 |
+| `openspec`                | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                                                                            |
+| `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                                                                  |
+| `hermes-agent`            | `github:NousResearch/hermes-agent`          | Hermes Agent (upstream), follows nixpkgs + flake-parts + Home Manager + pyproject-nix + uv2nix + pyproject-build-systems |
+| `qmd`                     | `github:tobi/qmd`                           | QMD CLI, follows nixpkgs + flake-utils                                                                                   |
+| `agtx`                    | `github:fynnfluegge/agtx`                   | Agtx terminal agent (non-flake)                                                                                          |
+| `flake-utils`             | `github:numtide/flake-utils`                | Flake utilities                                                                                                          |
+| `flake-parts`             | `github:hercules-ci/flake-parts`            | Flake composition                                                                                                        |
+| `pyproject-nix`           | `github:pyproject-nix/pyproject.nix`        | Python packaging for Nix, follows nixpkgs                                                                                |
+| `uv2nix`                  | `github:pyproject-nix/uv2nix`               | uv lockfile to Nix, follows nixpkgs + pyproject-nix                                                                      |
+| `pyproject-build-systems` | `github:pyproject-nix/build-system-pkgs`    | Python build systems, follows nixpkgs + pyproject-nix + uv2nix                                                           |
 
 ## Supported Platforms
 
@@ -49,10 +49,10 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 ## Specialisations
 
-| Name       | Email source                   | Signature source              |
-| ---------- | ------------------------------ | ----------------------------- |
-| `work`     | privateConfig.work.email       | work.jobTitle + work.employer |
-| `personal` | privateConfig.personal.email   | identity + personal.domain    |
+| Name       | Email source                 | Signature source              |
+| ---------- | ---------------------------- | ----------------------------- |
+| `work`     | privateConfig.work.email     | work.jobTitle + work.employer |
+| `personal` | privateConfig.personal.email | identity + personal.domain    |
 
 Specialisation switching: `hmw` / `hmp` aliases (available only from within a specialisation), or `make switch SPEC=work`.
 

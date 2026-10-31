@@ -234,16 +234,18 @@ Hermes Agent configuration:
 ### agtx.nix
 
 - Runtime PATH includes the platform's `ps` and `kill`, plus tmux, Git and GitHub CLI.
-- Keep feature-gated test coverage and the unverified Darwin test waiver separate.
+- Tests include DB, MCP and mock-based coverage through `test-mocks`; execution is Linux-only, with Darwin unvalidated.
 
 ### strata.nix
 
-- The runtime revision certifies local prerequisites, not merely an updater exit code. Incomplete updates invalidate the marker and retry at the same source revision.
-- Reuse upstream component inventory and engine-version metadata, including component manifests without optional `BUILD.json`. Retain source refs, the workspace lock and Nix interpreter roots.
-- Component references retain upstream compatibility and explicit pins; only raw executable paths use the legacy engine-version floor.
-- Explicit engine rollbacks survive ordinary launches while their source revision, payload and local source fingerprints remain unchanged. Approve only observed successful swaps; keep runtime prerequisites and unknown-version rejection.
-- Automatic Python/config repair preserves approved engines. Explicit update/setup or a changed source/payload retires the corresponding approval; a rollback alone never certifies runtime.
-- Local certification does not prove GPU compatibility, model integrity or successful inference.
+- The runtime revision records validated local prerequisites; incomplete updates invalidate it and retry on the next launch.
+- Validation uses upstream component inventory and engine metadata; component manifests do not require `BUILD.json`.
+- Source refs, the workspace lock and Nix interpreter roots support offline rollback and serialized updates.
+- Component references use upstream compatibility and explicit pins; raw executable paths use the legacy engine-version floor.
+- Successful engine rollbacks remain approved while the source revision, payload and local source fingerprints are unchanged.
+- Python/config repair preserves approved engines; explicit update/setup or source/payload changes invalidate the corresponding approval.
+- Rollback approval does not bypass runtime prerequisites or unknown-version rejection.
+- Runtime validation does not establish GPU compatibility, model integrity or successful inference.
 
 ### opencode.nix
 
@@ -261,7 +263,7 @@ OpenCode AI assistant:
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
 - Upstream CI maintains `nix/hashes.json` for the three supported platforms; the local hash fixer does not maintain OpenCode dependency hashes
-- Use the dependency hashes shipped in the locked upstream source; do not maintain a separate local table. The selected CLI and generated Desktop share that dependency derivation.
+- CLI and generated Desktop share the dependency derivation and hashes from the locked upstream source
 - Warnings if packages unavailable for system
 
 ### bun.nix
@@ -286,7 +288,6 @@ Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
 - Activation preserves existing regular files, including empty files; dry runs never create config files or directories
 - Package consumed from the `herdr` flake input (`inputs.herdr.packages.${system}.default`), no vendor/src hash to maintain
 - No conductor/telegram/slack integration (unlike the former agent-deck)
-
 
 ### aoe.nix
 
@@ -431,7 +432,7 @@ Full IDE configuration (~500 lines):
 - Terminal toggle, context prompts and command mappings
 - Session, navigation and prompt actions dispatch to the visible TUI through an opt-in local plugin and private OSC input, without changing user keybinds.
 - The bridge asset lives under `xdg.dataHome`; terminal preflight links it into OpenCode's effective config root without replacing user files or overriding `OPENCODE_CONFIG_DIR`.
-- The obsolete `<leader>osh` session-sharing action is removed; upstream V2 no longer supports sharing.
+- Session sharing is unavailable in OpenCode V2.
 - Notifications consume V2 `event.data` and `session.execution.failed`.
 - Statusline integration
 - Event-driven file reloads and permission handling
