@@ -59,7 +59,7 @@ let
   # Workaround: mkStateScript quotes mkdir but not the other state destinations.
   # Render safe shell-word placeholders, then quote the real roots exactly once.
   # Keep the actual working directory in config.yaml, not its shell placeholder.
-  # Remove this adapter when upstream quotes every use of both destination roots.
+  # Remove when upstream quotes every use of both destination roots.
   hermesStateScript =
     builtins.replaceStrings [ "__DOTFILES_HERMES_HOME__" "__DOTFILES_HERMES_WORKING_DIRECTORY__" ]
       (map lib.escapeShellArg [
@@ -232,7 +232,7 @@ in
         name: source: lib.nameValuePair "${configDir}/plugins/${name}" { inherit source; }
       ) cfg.plugins;
 
-      # The Linux link must exist before reloadSystemd can start new services.
+      # Workaround: Linux needs the stable secret link before reloadSystemd.
       # Its target may still be absent: After/Requires=sops-nix gates service startup.
       # Darwin waits for synchronous sops activation before loading launchd agents.
       # Remove when upstream preserves this stable secret link and both startup orders.

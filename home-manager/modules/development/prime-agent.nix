@@ -212,7 +212,7 @@ let
           "pa-types"
           "--lib"
         ];
-        # This wall-clock test flakes under load.
+        # Workaround: this wall-clock test flakes under sandbox load.
         # Remove when it passes reliably under sandbox load.
         checkFlags = [
           "--skip=piped_stdin::tests::a_live_producer_resets_the_window"
