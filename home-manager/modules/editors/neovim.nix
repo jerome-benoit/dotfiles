@@ -363,6 +363,22 @@ let
     -- OpenCode AI Integration
     -- The v2 TUI starts/reuses the daemon; the plugin reads its service registry.
     local opencode_cmd = "opencode"
+    local function opencode_prepare_plugin()
+      local root = vim.env.OPENCODE_CONFIG_DIR
+      if not root or root == "" then
+        local xdg = vim.env.XDG_CONFIG_HOME
+        root = (xdg and xdg ~= "" and xdg or vim.uv.os_homedir() .. "/.config") .. "/opencode"
+      end
+      local directory = root .. "/plugins"
+      local target = ${builtins.toJSON "${config.xdg.dataHome}/opencode-neovim"}
+      local link = directory .. "/neovim-terminal"
+      vim.fn.mkdir(directory, "p")
+      local ok, err = vim.uv.fs_symlink(target, link)
+      if not ok and vim.uv.fs_readlink(link) ~= target then
+        error("Cannot register OpenCode Neovim plugin at " .. link .. ": " .. tostring(err))
+      end
+    end
+
     local opencode_actions = {
       { "osl", "session.list", "Session: List" },
       { "osn", "session.new", "Session: New" },
@@ -390,12 +406,14 @@ let
       },
     }
     local opencode_toggle = function()
+      opencode_prepare_plugin()
       require("snacks.terminal").toggle(opencode_cmd, opencode_terminal_opts)
     end
 
     vim.g.opencode_opts = {
       server = {
         start = function()
+          opencode_prepare_plugin()
           require("snacks.terminal").open(opencode_cmd, opencode_terminal_opts)
         end,
       },
@@ -542,11 +560,9 @@ in
       }
     ];
 
-    home.file."${config.xdg.configHome}/opencode/plugins/neovim-terminal/tui.js" =
-      lib.mkIf cfg.plugins.opencode.enable
-        {
-          source = ./opencode-neovim/tui.js;
-        };
+    home.file."${config.xdg.dataHome}/opencode-neovim/tui.js" = lib.mkIf cfg.plugins.opencode.enable {
+      source = ./opencode-neovim/tui.js;
+    };
 
     programs.neovim = {
       enable = true;

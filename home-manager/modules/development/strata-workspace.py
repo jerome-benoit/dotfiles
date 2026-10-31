@@ -2,8 +2,8 @@
 
 Keep revision refs for offline rollback, serialize source/runtime changes, and root Nix Python.
 A runtime revision records validated local prerequisites, not merely an updater's exit status.
-Validation uses the pinned upstream config inventory, component paths, and engine freshness rules;
-it does not prove GPU compatibility, model integrity, or successful inference.
+Component references retain upstream compatibility and pins; raw paths use legacy freshness rules.
+Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
 
 from contextlib import contextmanager
@@ -186,6 +186,7 @@ def check_runtime(root):
     sys.path.insert(0, str(root))
     import setup
     from strata_control import doctor, engine_component
+    from strata_control.profiles import read_run_config
 
     problems = []
     rollbacks = {}
@@ -223,6 +224,10 @@ def check_runtime(root):
             if component["required"] and component["status"] in {"missing", "invalid"}:
                 problems.append(f"{config.name}: {component['name']} {component['status']}: "
                                 f"{component.get('path', component.get('reason', ''))}")
+        # Component references use upstream compatibility checks and explicit pins,
+        # not the legacy flat-engine version floor.
+        if engine_component.is_reference(read_run_config(config)["exe"]):
+            continue
         engine = next(component for component in report["components"] if component["name"] == "engine")
         exe = Path(engine["path"])
         if engine["status"] != "ok" or exe in checked:

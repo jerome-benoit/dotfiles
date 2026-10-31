@@ -763,6 +763,106 @@ PY
         result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
 
+    def make_runtime_component(self, version):
+        import hashlib
+        directory = Path(self.env["STRATA_COMPONENTS_DIR"]) / "engine" / f"{version}-linux-x86_64-cpu"
+        directory.mkdir(parents=True, exist_ok=True)
+        executable = directory / "strata"
+        shutil.copyfile(shutil.which("true"), executable)
+        executable.chmod(0o700)
+        payload = executable.read_bytes()
+        manifest = {
+            "schema_version": 1, "id": "strata-engine", "version": version,
+            "platform": "linux-x86_64", "backend": "cpu", "min_runtime": "0.1.0",
+            "entrypoint": "strata",
+            "files": [{"path": "strata", "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}],
+        }
+        (directory / "engine-component.json").write_text(json.dumps(manifest))
+        return directory
+
+    def make_component_workspace(self):
+        root = self.make_updater_workspace()
+        self.prepare(self.new)
+        self.env["STRATA_COMPONENTS_DIR"] = str(root.parent / "components")
+        # Exercise the resolver's runtime constraint when the Control version is known.
+        (root / "VERSION").write_text("0.2.0\n")
+        config = json.loads((root / "strata-fixture.json").read_text())
+        config.update(exe="component:strata-engine", backend="cpu", open_browser=False)
+        (root / "strata-fixture.json").write_text(json.dumps(config))
+        return root, self.make_runtime_component("0.1.45")
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux component fixture")
+    def test_component_reference_preserves_compatibility_and_explicit_pin(self):
+        root, lower = self.make_component_workspace()
+        self.make_runtime_component("0.1.46")
+        resolve = [
+            str(root / ".venv/bin/python"), "-c",
+            "from strata_control import engine_component as e; print(e.resolve(backend='cpu').version)",
+        ]
+        result = subprocess.run(resolve, cwd=root, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0.1.46")
+        state = Path(self.env["STRATA_COMPONENTS_DIR"]) / ".updates/state.json"
+        state.parent.mkdir()
+        state.write_text(json.dumps({"engine": {"pinned": lower.name}}))
+        result = subprocess.run(resolve, cwd=root, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0.1.45")
+        # Optional legacy metadata must not override a usable component manifest.
+        (lower / "BUILD.json").write_text("{invalid")
+        refresh = [sys.executable, "-c", RUNNER, WORKSPACE, str(root), self.new, "", "refresh"]
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.new)
+        for _ in range(2):
+            result = subprocess.run(refresh, env=self.env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(marker.read_text().strip(), self.new)
+            self.assertFalse((root / "update-attempts").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux component fixture")
+    def test_component_reference_keeps_prerequisite_and_resolver_rejections(self):
+        state = self.state
+        for broken in ("runtime", "manifest", "entrypoint", "tokenizer"):
+            with self.subTest(broken=broken):
+                self.state = state / broken
+                root, component = self.make_component_workspace()
+                manifest = component / "engine-component.json"
+                if broken == "runtime":
+                    value = json.loads(manifest.read_text())
+                    value["min_runtime"] = "999.0.0"
+                    manifest.write_text(json.dumps(value))
+                elif broken == "manifest":
+                    manifest.write_text("{invalid")
+                elif broken == "entrypoint":
+                    executable = component / "strata"
+                    payload = executable.read_bytes()
+                    executable.write_bytes(bytes([payload[0] ^ 1]) + payload[1:])
+                else:
+                    (root / "tokenizer/vocab.json").unlink()
+                marker = root / ".git/strata-runtime-revision"
+                marker.write_text(self.new)
+                refresh = [sys.executable, "-c", RUNNER, WORKSPACE, str(root), self.new, "", "refresh", "--build"]
+                result = subprocess.run(refresh, env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux component fixture")
+    def test_component_reference_does_not_exempt_legacy_alias_in_either_order(self):
+        root, component = self.make_component_workspace()
+        reference = root / "strata-fixture.json"
+        config = json.loads(reference.read_text())
+        config["exe"] = str(component / "strata")
+        legacy = root / "strata-legacy.json"
+        legacy.write_text(json.dumps(config))
+        command = [str(root / ".venv/bin/python"), WORKSPACE, "--runtime-status", str(root)]
+        for first, second in ((reference, legacy), (legacy, reference)):
+            with self.subTest(first=first.name):
+                os.utime(first, (20, 20))
+                os.utime(second, (10, 10))
+                result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("engine version 0.1.45", result.stderr)
+
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_failed_explicit_update_invalidates_existing_same_revision_certificate(self):
         root = self.make_updater_workspace()

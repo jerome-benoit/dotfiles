@@ -240,6 +240,7 @@ Hermes Agent configuration:
 
 - The runtime revision certifies local prerequisites, not merely an updater exit code. Incomplete updates invalidate the marker and retry at the same source revision.
 - Reuse upstream component inventory and engine-version metadata, including component manifests without optional `BUILD.json`. Retain source refs, the workspace lock and Nix interpreter roots.
+- Component references retain upstream compatibility and explicit pins; only raw executable paths use the legacy engine-version floor.
 - Explicit engine rollbacks survive ordinary launches while their source revision, payload and local source fingerprints remain unchanged. Approve only observed successful swaps; keep runtime prerequisites and unknown-version rejection.
 - Automatic Python/config repair preserves approved engines. Explicit update/setup or a changed source/payload retires the corresponding approval; a rollback alone never certifies runtime.
 - Local certification does not prove GPU compatibility, model integrity or successful inference.
@@ -429,6 +430,7 @@ Full IDE configuration (~500 lines):
 - Keymaps: `<leader>o*` prefix
 - Terminal toggle, context prompts and command mappings
 - Session, navigation and prompt actions dispatch to the visible TUI through an opt-in local plugin and private OSC input, without changing user keybinds.
+- The bridge asset lives under `xdg.dataHome`; terminal preflight links it into OpenCode's effective config root without replacing user files or overriding `OPENCODE_CONFIG_DIR`.
 - The obsolete `<leader>osh` session-sharing action is removed; upstream V2 no longer supports sharing.
 - Notifications consume V2 `event.data` and `session.execution.failed`.
 - Statusline integration
