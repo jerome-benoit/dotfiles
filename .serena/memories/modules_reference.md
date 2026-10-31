@@ -222,6 +222,25 @@ Hermes Agent configuration:
 - Non-empty `plugins` requires normalized absolute `home.homeDirectory` and
   `services.hermes-agent.hermesHome` paths; `hermesHome` must equal or descend from HOME.
 - Set `plugins = lib.mkForce { };` when using a Hermes home outside HOME.
+- State setup shell-quotes the Hermes home and working directory, including paths with spaces.
+- Linux creates the stable `.env` link before service reload; `After`/`Requires=sops-nix` gates its secret target. Darwin waits for synchronous secret activation before loading agents.
+- Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and the applicable CUDA libraries.
+
+### aoe.nix
+
+- Seed `config.toml` only when no file or symlink exists.
+- Prefer the declared future XDG session environment during activation. Without a declared export, follow the native environment and existing-directory precedence, including Darwin's legacy fallback.
+
+### agtx.nix
+
+- Runtime PATH includes the platform's `ps` and `kill`, plus tmux, Git and GitHub CLI.
+- Keep feature-gated test coverage and the unverified Darwin test waiver separate.
+
+### strata.nix
+
+- The runtime revision certifies local prerequisites, not merely an updater exit code. Incomplete updates invalidate the marker and retry at the same source revision.
+- Reuse upstream component inventory and engine-version metadata, including component manifests without optional `BUILD.json`. Retain source refs, the workspace lock and Nix interpreter roots.
+- Local certification does not prove GPU compatibility, model integrity or successful inference.
 
 ### opencode.nix
 
@@ -239,7 +258,8 @@ OpenCode AI assistant:
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
 - Upstream CI maintains `nix/hashes.json` for the three supported platforms; the local hash fixer does not maintain OpenCode dependency hashes
-- Temporary `pins/opencode.json` supplies the three native dependency hashes from [upstream PR #60187](https://github.com/anomalyco/opencode/pull/60187) to the default CLI and generated Desktop.
+- Temporary `pins/opencode.json` uses the native hashes from [upstream PR #60785](https://github.com/anomalyco/opencode/pull/60785), computed for `42287632a8368dbe8c0af6d8f6f1359af7e20daa` and included in the pinned source. Dependency inputs match that calculation; native builds with this flake's followed nixpkgs remain unverified.
+- Update the OpenCode lock and dependency hashes together when the dependency inputs change. Remove the override after native builds validate the upstream hashes with the followed nixpkgs.
 - Warnings if packages unavailable for system
 
 ### bun.nix
@@ -407,6 +427,9 @@ Full IDE configuration (~500 lines):
 
 - Keymaps: `<leader>o*` prefix
 - Terminal toggle, context prompts and command mappings
+- Session, navigation and prompt actions dispatch to the visible TUI through an opt-in local plugin and private OSC input, without changing user keybinds.
+- The obsolete `<leader>osh` session-sharing action is removed; upstream V2 no longer supports sharing.
+- Notifications consume V2 `event.data` and `session.execution.failed`.
 - Statusline integration
 - Event-driven file reloads and permission handling
 - HTTP requests and SSE events use `curl`

@@ -88,21 +88,39 @@ in
     warnings = optionalPackages.warnings;
 
     home.activation.aoeConfig = lib.mkIf (cfg.package != null && cfg.defaultTool != null) (
-      let
-        configDir =
-          if pkgs.stdenv.hostPlatform.isDarwin then
-            "${config.home.homeDirectory}/.agent-of-empires"
-          else
-            "${config.xdg.configHome}/agent-of-empires";
-        configFile = "${configDir}/config.toml";
-      in
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        run mkdir -p "${configDir}"
-        if [[ ! -f "${configFile}" ]]; then
-          run ${lib.getExe pkgs.bash} -c 'cat > "$1"' -- "${configFile}" << 'EOF'
+        (
+          aoeHome=${lib.escapeShellArg config.home.homeDirectory}
+          # Activation may still inherit the previous session's XDG environment.
+          ${config.lib.shell.exportAll (
+            lib.optionalAttrs (config.home.sessionVariables ? XDG_CONFIG_HOME) {
+              inherit (config.home.sessionVariables) XDG_CONFIG_HOME;
+            }
+          )}
+          # Without a declared export, match upstream's environment lookup.
+          if [[ "''${XDG_CONFIG_HOME-}" == /* ]]; then
+            aoeXdgBase=$XDG_CONFIG_HOME
+          else
+            aoeXdgBase="$aoeHome/.config"
+          fi
+          aoeConfigDir="$aoeXdgBase/agent-of-empires"
+          ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            # Resolve existing layouts during activation, without moving user data.
+            aoeLegacyDir="$aoeHome/.agent-of-empires"
+            if [[ ! -e "$aoeConfigDir" ]]; then
+              if [[ -e "$aoeLegacyDir" || "''${XDG_CONFIG_HOME-}" != /* ]]; then
+                aoeConfigDir=$aoeLegacyDir
+              fi
+            fi
+          ''}
+          aoeConfigFile="$aoeConfigDir/config.toml"
+          run mkdir -p -- "$aoeConfigDir"
+          if [[ ! -e "$aoeConfigFile" && ! -L "$aoeConfigFile" ]]; then
+            run ${lib.getExe pkgs.bash} -c 'cat > "$1"' -- "$aoeConfigFile" << 'EOF'
         ${aoeConfig}
         EOF
-        fi
+          fi
+        )
       ''
     );
   };

@@ -14,8 +14,9 @@ let
       inherit (pkgs) fetchurl fetchzip;
     }).opencode;
 
-  # Workaround: upstream's dependency hashes lag behind its source updates.
-  # Remove when upstream publishes the current hashes for all supported platforms.
+  # Workaround: keep native dependency hashes separate from source updates.
+  # Revalidate against upstream's hash bot after dependency or toolchain changes.
+  # Remove when native builds validate upstream hashes with the followed nixpkgs.
   baseOpencodePackage =
     let
       package = inputs.opencode.packages.${system}.default or null;
@@ -32,7 +33,7 @@ let
     package:
     if package != null then
       package.overrideAttrs (previousAttrs: {
-        # Workaround: Desktop and Neovim discover service.json, not service-prod.json.
+        # Workaround: Desktop discovers service.json, not service-prod.json.
         # Remove when upstream CLI and clients use the same service registry.
         env = (previousAttrs.env or { }) // {
           OPENCODE_CHANNEL = "latest";

@@ -29,58 +29,62 @@ let
   };
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
+  cublasRuntimeEnabled = cudaRuntimeEnabled && pkgs.stdenv.hostPlatform.isx86_64;
   voiceRuntimeLibVar = if isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
   voiceRuntimeLibPath =
     lib.makeLibraryPath (
       [ pkgs.portaudio ]
-      ++ lib.optionals cudaRuntimeEnabled [
-        # CTranslate2 wheels dlopen libcublas.so.12 independently of the selected CUDA package set.
+      ++ lib.optionals cublasRuntimeEnabled [
+        # Only the x86_64 CTranslate2 wheel uses CUDA; the aarch64 wheel uses OpenBLAS.
+        # Its CUDA 12 ABI is independent of the selected CUDA package set.
         pkgs.cudaPackages_12_9.libcublas
       ]
     )
     # They also dlopen libcuda.so.1, so expose addDriverRunpath.driverLink.
     + lib.optionalString cudaRuntimeEnabled ":${pkgs.addDriverRunpath.driverLink}/lib";
 
-  extendHermesDependencyGroups =
-    package:
-    package
-    // {
-      # Merge extra dependency groups across overrides to preserve existing integrations.
-      override =
-        requested:
-        extendHermesDependencyGroups (
-          package.override (
-            previous:
-            let
-              overrides = if builtins.isFunction requested then requested previous else requested;
-            in
-            overrides
-            // lib.optionalAttrs (overrides ? extraDependencyGroups) {
-              # The upstream full package already carries portable integration
-              # groups; additional groups must extend rather than replace them.
-              extraDependencyGroups = lib.unique (
-                (previous.extraDependencyGroups or [ ]) ++ overrides.extraDependencyGroups
-              );
-            }
-          )
-        );
-    };
-
   # Workaround: upstream wrappers omit PortAudio and CUDA runtime library paths.
   # Remove when upstream exposes those libraries to Hermes executables.
-  hermesAgentPackage = extendHermesDependencyGroups (
-    baseHermesAgentPackage.overrideAttrs (previousAttrs: {
-      nativeBuildInputs = lib.unique ((previousAttrs.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ]);
-      postFixup = (previousAttrs.postFixup or "") + ''
-        for bin in "$out"/bin/*; do
-          [ -x "$bin" ] || continue
-          wrapProgram "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
-        done
-      '';
-    })
-  );
+  hermesAgentPackage = baseHermesAgentPackage.overrideAttrs (previousAttrs: {
+    postFixup = (previousAttrs.postFixup or "") + ''
+      for bin in "$out"/bin/*; do
+        [ -x "$bin" ] || continue
+        wrapProgram "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
+      done
+    '';
+  });
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
   hermesDesktopPackage = effectiveHermesAgentPackage.hermesDesktop or null;
+
+  # Workaround: mkStateScript quotes mkdir but not the other state destinations.
+  # Render safe shell-word placeholders, then quote the real roots exactly once.
+  # Keep the actual working directory in config.yaml, not its shell placeholder.
+  # Remove this adapter when upstream quotes every use of both destination roots.
+  hermesStateScript =
+    builtins.replaceStrings [ "__DOTFILES_HERMES_HOME__" "__DOTFILES_HERMES_WORKING_DIRECTORY__" ]
+      (map lib.escapeShellArg [
+        configDir
+        serviceCfg.workingDirectory
+      ])
+      (
+        hermesModuleCommon.mkStateScript {
+          inherit pkgs;
+          cfg = serviceCfg;
+          hermesHome = "__DOTFILES_HERMES_HOME__";
+          workingDirectory = "__DOTFILES_HERMES_WORKING_DIRECTORY__";
+          configWorkingDirectory = serviceCfg.workingDirectory;
+          run = "$DRY_RUN_CMD ";
+          stateDirs = hermesModuleCommon.stateSubdirs;
+          managedSystem = "home-manager";
+          modes = {
+            config = "0600";
+            env = "0600";
+            managed = "0600";
+            auth = "0600";
+            document = "0600";
+          };
+        }
+      );
 
 in
 {
@@ -128,6 +132,39 @@ in
         services.hermes-agent.hermesHome paths, with hermesHome equal to or below homeDirectory.
       '';
     };
+  };
+
+  # Workaround: upstream emits HERMES_HOME without systemd Environment quoting.
+  # Adapt only its exact assignment; leave user additions and quoted entries intact.
+  # Remove when upstream quotes processEnvironment values in its user units.
+  options.systemd.user.services = lib.mkOption {
+    type = lib.types.attrsOf (
+      lib.types.submodule (
+        { name, ... }: {
+          options.Service.Environment = lib.mkOption {
+            apply =
+              entries:
+              if
+                cfg.enable
+                && isLinux
+                && lib.elem name [
+                  "hermes-agent"
+                  "hermes-backend"
+                ]
+              then
+                map (
+                  entry:
+                  if entry == "HERMES_HOME=${configDir}" then
+                    builtins.toJSON (lib.replaceStrings [ "%" ] [ "%%" ] entry)
+                  else
+                    entry
+                ) entries
+              else
+                entries;
+          };
+        }
+      )
+    );
   };
 
   config = lib.mkIf cfg.enable {
@@ -185,25 +222,33 @@ in
     };
 
     home = {
+      activation.hermesAgentSetup = lib.mkForce (
+        lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] hermesStateScript
+      );
+
       # Workaround: upstream extraPlugins uses names its migration checks do not recognize.
       # Remove when upstream installs plugins under their canonical names.
       file = lib.mapAttrs' (
         name: source: lib.nameValuePair "${configDir}/plugins/${name}" { inherit source; }
       ) cfg.plugins;
 
-      # Workaround: upstream may copy environmentFiles before sops-nix refreshes them.
-      # Remove when migrated to environmentFiles and upstream waits for secrets on Linux and Darwin.
+      # The Linux link must exist before reloadSystemd can start new services.
+      # Its target may still be absent: After/Requires=sops-nix gates service startup.
+      # Darwin waits for synchronous sops activation before loading launchd agents.
+      # Remove when upstream preserves this stable secret link and both startup orders.
       activation.hermesAgentEnvironment =
-        if isDarwin then
-          lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] ''
-            run mkdir -p "${configDir}"
-            run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
-          ''
-        else
-          lib.hm.dag.entryAfter [ "hermesAgentSetup" "sops-nix" ] ''
-            run mkdir -p "${configDir}"
-            run ln -sfn "${config.sops.secrets."hermes-env".path}" "${configDir}/.env"
+        let
+          linkEnvironment = ''
+            run mkdir -p ${lib.escapeShellArg configDir}
+            run ln -sfn ${
+              lib.escapeShellArg config.sops.secrets."hermes-env".path
+            } ${lib.escapeShellArg "${configDir}/.env"}
           '';
+        in
+        if isDarwin then
+          lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] linkEnvironment
+        else
+          lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "hermesAgentSetup" ] linkEnvironment;
     };
 
     warnings = lib.optional (

@@ -24,7 +24,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `herdr`                   | `github:ogulcancelik/herdr`                      | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                |
 | `openspec`                | `github:Fission-AI/OpenSpec`                     | OpenSpec CLI, follows nixpkgs                                                                                           |
 | `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`             | OpenClaw tool binaries, follows nixpkgs                                                                                 |
-| `hermes-agent`            | `github:jerome-benoit/hermes-agent/main-patched` | Hermes Agent (fork with darwin fixes), follows nixpkgs + flake-parts + pyproject-nix + uv2nix + pyproject-build-systems |
+| `hermes-agent`            | `github:NousResearch/hermes-agent`             | Hermes Agent (upstream), follows nixpkgs + flake-parts + Home Manager + pyproject-nix + uv2nix + pyproject-build-systems |
 | `qmd`                     | `github:tobi/qmd`                                | QMD CLI, follows nixpkgs + flake-utils                                                                                  |
 | `agtx`                    | `github:fynnfluegge/agtx`                        | Agtx terminal agent (non-flake)                                                                                         |
 | `flake-utils`             | `github:numtide/flake-utils`                     | Flake utilities                                                                                                         |

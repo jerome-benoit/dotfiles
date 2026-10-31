@@ -89,6 +89,26 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip())
 
+    def test_initial_bootstrap_failure_never_certifies_runtime(self):
+        root = self.prepare(self.old)
+        marker = root / ".git/strata-runtime-revision"
+        self.assertFalse(marker.exists())
+        setup = root / "setup.sh"
+        setup.write_text(f'''#!{shutil.which("sh")}
+cd "$(dirname "$0")" || exit 8
+attempts=0
+test ! -f bootstrap-attempts || read -r attempts < bootstrap-attempts
+printf '%s\\n' "$((attempts + 1))" > bootstrap-attempts
+exit 9
+''')
+        setup.chmod(0o700)
+        for attempt in (1, 2):
+            result = subprocess.run(self.command(self.old) + ["run"], env=self.env,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 9)
+            self.assertFalse(marker.exists())
+            self.assertEqual((root / "bootstrap-attempts").read_text().strip(), str(attempt))
+
     def test_user_state_survives_update_gc_and_offline_rollback(self):
         root = self.prepare(self.old)
         expected = {}
@@ -254,9 +274,33 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.prepare(self.old), root)
         self.assertEqual((root / "code.py").read_text(), "old source\n")
 
+    def make_runtime_source(self, root):
+        shutil.copyfile(Path(UPSTREAM) / "setup.py", root / "setup.py")
+        shutil.copytree(Path(UPSTREAM) / "strata_control", root / "strata_control")
+        # Use a real local distribution, without fetching the pinned production wheels.
+        (root / "requirements.txt").write_text("pip\n")
+
+    def make_runtime_model(self, root, name="fixture"):
+        tokenizer = root / "tokenizer"
+        tokenizer.mkdir(exist_ok=True)
+        for child in ("vocab.json", "merges.txt", "token_type.json"):
+            (tokenizer / child).write_text("{}")
+        engine = root / "engine"
+        engine.mkdir(exist_ok=True)
+        (engine / "strata").write_text("B")
+        (engine / "strata").chmod(0o700)
+        (engine / "BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
+        config = {
+            "exe": str(engine / "strata"), "args": [], "backend": "cuda",
+            "tokenizer": str(tokenizer), "custom": {"preserve": True},
+        }
+        (root / f"strata-{name}.json").write_text(json.dumps(config))
+        return config
+
     def make_updater_workspace(self):
         root = self.prepare(self.old)
-        shutil.copyfile(Path(UPSTREAM) / "setup.py", root / "setup.py")
+        self.make_runtime_source(root)
+        subprocess.run([sys.executable, "-m", "venv", str(root / ".venv")], env=self.env, check=True)
         setup = root / "setup.sh"
         setup.write_text(f'''#!{shutil.which("sh")}
 cd "$(dirname "$0")" || exit 8
@@ -265,6 +309,8 @@ import sys
 sys.path.append(r"{UPSTREAM}")
 from pathlib import Path
 import setup
+attempts = setup.ROOT / "update-attempts"
+attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
 setup.pip_install = lambda *args, **kwargs: None
 def install(url):
     candidate = setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
@@ -275,14 +321,13 @@ sys.exit(setup.main())
 PY
 ''')
         setup.chmod(0o700)
-        for name, version in (("", "B"), (".previous", "A"), ("default", "C"), ("custom", "D")):
+        self.make_runtime_model(root)
+        for name, version in ((".previous", "A"), ("default", "C"), ("custom", "D")):
             folder = root / "engine" / name
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "strata").write_text(version)
-            (folder / "BUILD.json").write_text(json.dumps({"version": version}))
-        (root / "strata-fixture.json").write_text(json.dumps({
-            "exe": str(root / "engine/strata"), "args": [], "backend": "cuda",
-        }))
+            (folder / "strata").chmod(0o700)
+            (folder / "BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
         return root
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
@@ -309,7 +354,8 @@ PY
                 if not build:
                     candidate = root / source
                     (candidate / "strata").write_text("E")
-                    (candidate / "BUILD.json").write_text(json.dumps({"version": "E"}))
+                    (candidate / "strata").chmod(0o700)
+                    (candidate / "BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
                     result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
                                             capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -323,6 +369,7 @@ PY
             with self.subTest(flag=flag):
                 self.state = state / flag.lstrip("-")
                 root = self.make_updater_workspace()
+                (root / ".git/strata-runtime-revision").write_text(self.old)
                 config = (root / "strata-fixture.json").read_bytes()
                 result = subprocess.run(self.command(self.new) + ["run", flag], env=self.env,
                                         capture_output=True, text=True, timeout=30)
@@ -364,6 +411,7 @@ PY
                     (folder / "strata").write_text(version)
                     (folder / "BUILD.json").write_text(json.dumps({"version": version}))
                 marker = root / ".git/strata-runtime-revision"
+                marker.write_text(self.old)
                 command = self.command(self.new) + ["run", flag]
                 for current, saved in (("A", "B"), ("B", "A")):
                     result = subprocess.run(command, env=self.env, capture_output=True,
@@ -376,30 +424,149 @@ PY
                                          version)
                     self.assertEqual(marker.read_text().strip(), self.old)
 
-    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
-    def test_runtime_update_failure_retries_and_success_uses_upstream(self):
-        root = self.base / "runtime"
-        shutil.copytree(UPSTREAM, root)
-        for directory, _, _ in os.walk(root):
-            Path(directory).chmod(0o700)
-        (root / ".git").mkdir()
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_zero_exit_partial_update_retries_same_revision_and_reuses_valid_runtime(self):
+        root = self.make_updater_workspace()
         marker = root / ".git/strata-runtime-revision"
-        marker.write_text(self.old)
-        setup = root / "setup.sh"
-        setup.unlink()
-        setup.write_text("#!/bin/sh\nexit 9\n")
-        command = [sys.executable, "-c", RUNNER, WORKSPACE, str(root), self.new, "", "refresh"]
-        for _ in range(2):
-            result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+        (root / "engine/BUILD.json").write_text(json.dumps({"version": "0.1.12", "source": "prebuilt"}))
+        # Missing update source leaves the installed engine unchanged; upstream still returns zero.
+        command = self.command(self.new) + ["run", "--prebuilt=missing"]
+        config = (root / "strata-fixture.json").read_bytes()
+        for attempt in (1, 2):
+            result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(marker.read_text(), self.old)
-        shutil.copyfile(Path(UPSTREAM) / "setup.sh", setup)
-        result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+            self.assertFalse(marker.exists())
+            self.assertEqual((root / "update-attempts").read_text(), str(attempt))
+            self.assertEqual((root / "strata-fixture.json").read_bytes(), config)
+        valid = self.command(self.new) + ["run", "--update", "--prebuilt=" + str(root / "engine/custom")]
+        result = subprocess.run(valid, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(marker.read_text().strip(), self.new)
-        settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
-        self.assertIn(str(root), json.loads(settings.read_text())["installs"])
-        self.assertTrue(os.access(root / ".venv/bin/python", os.X_OK))
+        # A normal refresh reuses a locally valid certificate without running the updater.
+        refresh = [sys.executable, "-c", RUNNER, WORKSPACE, str(root), self.new, "", "refresh"]
+        result = subprocess.run(refresh, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((root / "update-attempts").read_text(), "3")
+        # Explicit --update still forces the actual upstream update even at the same revision.
+        result = subprocess.run(valid, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((root / "update-attempts").read_text(), "4")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_runtime_validation_rejects_missing_components_and_false_existing_certificate(self):
+        root = self.make_updater_workspace()
+        marker = root / ".git/strata-runtime-revision"
+        refresh = [sys.executable, "-c", RUNNER, WORKSPACE, str(root), self.new, "", "refresh", "--build"]
+        for missing in (root / "engine/strata", root / "tokenizer/vocab.json"):
+            with self.subTest(missing=missing):
+                saved = missing.read_bytes()
+                mode = missing.stat().st_mode
+                missing.unlink()
+                marker.write_text(self.new)
+                result = subprocess.run(refresh, env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(str(missing), result.stderr)
+                self.assertFalse(marker.exists())
+                missing.write_bytes(saved)
+                missing.chmod(mode)
+        (root / "strata-fixture.json").unlink()
+        result = subprocess.run(refresh, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("run strata --setup", result.stderr)
+        self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_every_installed_model_engine_must_satisfy_runtime_contract(self):
+        root = self.make_updater_workspace()
+        other = root / "engine/other"
+        other.mkdir()
+        (other / "strata").write_text("old second engine")
+        (other / "strata").chmod(0o700)
+        (other / "BUILD.json").write_text(json.dumps({"version": "0.1.12", "source": "prebuilt"}))
+        config = json.loads((root / "strata-fixture.json").read_text())
+        config["exe"] = str(other / "strata")
+        (root / "strata-second.json").write_text(json.dumps(config))
+        result = subprocess.run(self.command(self.new) + ["run", "--update", "--build"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(other / "strata"), result.stderr)
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_component_manifest_version_does_not_require_optional_build_record(self):
+        root = self.make_updater_workspace()
+        engine = root / "engine"
+        executable = engine / "strata"
+        # Exercise metadata precedence with a real native executable, never model inference.
+        shutil.copyfile(shutil.which("true"), executable)
+        executable.chmod(0o700)
+        (engine / "BUILD.json").unlink()
+        payload = executable.read_bytes()
+        import hashlib
+        manifest = {
+            "schema_version": 1,
+            "id": "strata-engine",
+            "version": "0.1.46",
+            "platform": "linux-x86_64",
+            "backend": "cpu",
+            "entrypoint": "strata",
+            "files": [{"path": "strata", "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}],
+        }
+        path = engine / "engine-component.json"
+        path.write_text(json.dumps(manifest))
+        command = [str(root / ".venv/bin/python"), WORKSPACE, "--runtime-status", str(root)]
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest["version"] = "0.1.12"
+        path.write_text(json.dumps(manifest))
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_failed_explicit_update_invalidates_existing_same_revision_certificate(self):
+        root = self.make_updater_workspace()
+        self.prepare(self.new)
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.new)
+        setup = root / "setup.sh"
+        setup.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
+        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "--update"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 9)
+        self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_runtime_validation_rejects_missing_and_stale_python_distribution(self):
+        root = self.make_updater_workspace()
+        command = self.command(self.new) + ["run", "--update", "--build"]
+        marker = root / ".git/strata-runtime-revision"
+        for requirement, diagnostic in (("strata-missing-runtime==1", "Python package missing"),
+                                        ("pip==0", "requires ==0")):
+            (root / "requirements.txt").write_text(requirement + "\n")
+            result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(diagnostic, result.stderr)
+            self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
+    def test_runtime_validation_rejects_failed_local_build_stamp(self):
+        root = self.make_updater_workspace()
+        shutil.copyfile(Path(UPSTREAM) / "CMakeLists.txt", root / "CMakeLists.txt")
+        code = (
+            "import setup; from pathlib import Path; import json; "
+            "p = Path('engine/BUILD.json'); "
+            "p.write_text(json.dumps({'source': 'local', 'version': setup.source_version(), "
+            "'src': setup.source_hash(setup.ENGINE_SOURCES), 'vision': 'none'}))"
+        )
+        subprocess.run([str(root / ".venv/bin/python"), "-c", code], cwd=root,
+                       env=self.env, check=True)
+        # BUILD.json claims the new source; the binary still carries the older compiled-in version.
+        (root / "engine/strata").write_text("engine=0.1.46\n")
+        result = subprocess.run(self.command(self.new) + ["run", "--update", "--build"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("compiled engine does not match this source", result.stderr)
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
 
 
     def gated_process(self, command):
@@ -446,6 +613,7 @@ PY
 
     def test_updater_keeps_lock_after_helper_is_killed(self):
         root = self.prepare(self.old)
+        self.make_runtime_model(root)
         gate = self.base / "updater.py"
         gate.write_text(GATE)
         (root / "setup.sh").write_text(f'exec "{sys.executable}" "{gate}"\n')
@@ -457,7 +625,7 @@ PY
         process.kill()
         process.wait(timeout=10)
         self.assert_workspace_locked()
-        self.assertEqual(marker.read_text().strip(), self.old)
+        self.assertFalse(marker.exists())
         peer.sendall(b"q")
         peer.close()
         self.assert_workspace_unlocked()
@@ -553,7 +721,7 @@ PY
         empty.mkdir()
         self.env["NIX_CONFIG"] += f"substituters = file://{empty}\n"
         marker = root / ".git/strata-runtime-revision"
-        marker.unlink()
+        marker.unlink(missing_ok=True)
         failed = subprocess.run(self.command(self.new) + ["run"], env=self.env,
                                 capture_output=True, text=True, timeout=60)
         self.assertNotEqual(failed.returncode, 0)
@@ -571,7 +739,7 @@ PY
         }
         config.write_text(json.dumps(expected_config))
         marker = root / ".git/strata-runtime-revision"
-        self.assertEqual(marker.read_text().strip(), self.new)
+        marker.write_text(self.new)
         gate = self.base / "updater.py"
         gate.write_text(GATE)
         setup = root / "setup.sh"
@@ -592,10 +760,10 @@ PY
     def test_failed_venv_repair_is_retried_across_launcher_invocations(self):
         root = self.prepare(self.new)
         venv = self.make_venv_without_pip(root)
+        self.make_runtime_source(root)
+        expected_config = self.make_runtime_model(root, "user")
         marker = root / ".git/strata-runtime-revision"
         config = root / "strata-user.json"
-        expected_config = {"exe": sys.executable, "args": [], "custom": "preserve"}
-        config.write_text(json.dumps(expected_config))
         allow_success = self.base / "allow-success"
         setup = root / "setup.sh"
         setup.write_text(f'''#!{shutil.which("sh")}
@@ -640,10 +808,15 @@ fi
         setup.chmod(0o700)
         revision = self.commit()
         root = self.prepare(revision)
-        (root / "strata-process.json").write_text(json.dumps({
-            "exe": sys.executable, "args": [], "backend": "hip",
-            "model_name": "process-fixture",
-        }))
+        for name in ("requirements.txt", "requirements-monitor.txt"):
+            path = root / name
+            path.unlink()
+            path.write_text("pip\n")
+        config = self.make_runtime_model(root, "process")
+        (root / "engine/strata").unlink()
+        (root / "engine/strata").symlink_to(sys.executable)
+        config.update(backend="hip", model_name="process-fixture")
+        (root / "strata-process.json").write_text(json.dumps(config))
         command = self.command(revision) + ["run"]
         process, server_pid, peer = self.gated_process(command)
         self.assertEqual(server_pid, process.pid)

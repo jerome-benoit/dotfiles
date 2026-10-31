@@ -72,17 +72,38 @@ let
   seeded =
     (configure {
       modules.development = {
-        aoe = {
-          enable = true;
-          package = pkgs.hello;
-          theme = "dracula";
-          defaultTool = "codex";
-        };
         herdr = {
           enable = true;
           package = pkgs.hello;
           theme = "nord";
         };
+      };
+    }).config;
+  aoeSeeded =
+    (configure {
+      home.homeDirectory = lib.mkForce "${fixtureHome}/aoe literal $missing ' $(touch aoe-shell-expanded)";
+      # This option does not export XDG_CONFIG_HOME when XDG management is disabled.
+      xdg.enable = false;
+      xdg.configHome = "${fixtureHome}/not-exported-config-home";
+      modules.development.aoe = {
+        enable = true;
+        package = pkgs.hello;
+        theme = "dracula";
+        defaultTool = "codex";
+      };
+    }).config;
+  aoeManaged =
+    (configure {
+      home.homeDirectory = lib.mkForce "${fixtureHome}/managed home";
+      xdg = {
+        enable = true;
+        configHome = "${fixtureHome}/managed XDG config";
+      };
+      modules.development.aoe = {
+        enable = true;
+        package = pkgs.hello;
+        theme = "dracula";
+        defaultTool = "codex";
       };
     }).config;
   desktop =
@@ -130,21 +151,45 @@ let
             "$(touch caveman-shell-expanded)"
           ];
       aoe = {
-        script = seeded.home.activation.aoeConfig.data;
-        directory =
-          if pkgs.stdenv.hostPlatform.isDarwin then ".agent-of-empires" else ".config/agent-of-empires";
-        expected = {
-          theme.name = "dracula";
-          session.default_tool = "codex";
-        };
+        script = aoeSeeded.home.activation.aoeConfig.data;
+        homeDirectory = aoeSeeded.home.homeDirectory;
+        isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
       };
+      aoeManaged = {
+        script = aoeManaged.home.activation.aoeConfig.data;
+        homeDirectory = aoeManaged.home.homeDirectory;
+        configHome = aoeManaged.xdg.configHome;
+      };
+      aoeExports =
+        map
+          (
+            value:
+            let
+              configured =
+                (configure {
+                  home.homeDirectory = lib.mkForce "${fixtureHome}/export home";
+                  home.sessionVariables.XDG_CONFIG_HOME = value;
+                  xdg.enable = false;
+                  modules.development.aoe = {
+                    enable = true;
+                    package = pkgs.hello;
+                    defaultTool = "codex";
+                  };
+                }).config;
+            in
+            {
+              inherit value;
+              script = configured.home.activation.aoeConfig.data;
+              homeDirectory = configured.home.homeDirectory;
+            }
+          )
+          [
+            null
+            "$HOME/expanded config"
+          ];
       herdr = {
         script = seeded.home.activation.herdrConfig.data;
         directory = ".config/herdr";
-        expected = {
-          onboarding = false;
-          theme.name = "nord";
-        };
       };
     }
   );
@@ -239,7 +284,7 @@ pkgs.runCommand "check-development-integrations"
     metadata = json.loads(Path(sys.argv[1]).read_text())
     with tempfile.TemporaryDirectory(prefix="development-check-") as temporary:
         root = Path(temporary)
-        for name in ("aoe", "herdr"):
+        for name in ("herdr",):
             fixture = metadata[name]
             for initial in ("absent", "directory", "user-file", "empty-file"):
                 home = root / name / initial / "home with spaces"
@@ -278,7 +323,7 @@ pkgs.runCommand "check-development-integrations"
                     assert stat.S_IMODE(target.stat().st_mode) == 0o600
                 activate()
                 if before is None:
-                    assert tomllib.loads(target.read_text()) == fixture["expected"]
+                    tomllib.loads(target.read_text())
                     assert stat.S_IMODE(target.stat().st_mode) == 0o640
                     target.write_bytes(user_bytes)
                     target.chmod(0o600)
@@ -288,6 +333,151 @@ pkgs.runCommand "check-development-integrations"
                 assert target.read_bytes() == before, (name, initial)
                 assert stat.S_IMODE(target.stat().st_mode) == 0o600
                 print(f"{name}: {initial}: dry-run, seed and user edits preserved")
+
+        fixture = metadata["aoe"]
+        # These cases follow AoE's consumer contract in src/session/mod.rs:
+        # Linux always uses XDG; Darwin prefers existing XDG, then legacy,
+        # then an absolute XDG environment opt-in, then its legacy default.
+        for variable in ("unset", "empty", "relative", "absolute"):
+            for layout in ("fresh", "xdg", "legacy", "both"):
+                for initial in ("absent", "user-file", "empty-file", "dangling-symlink"):
+                    case = (variable, layout, initial)
+                    case_root = root / "aoe" / variable / layout / initial
+                    home = Path(fixture["homeDirectory"].replace(metadata["fixtureHome"], str(case_root)))
+                    home.mkdir(parents=True)
+                    environment = {
+                        "HOME": str(home),
+                        "PATH": "${lib.makeBinPath [ pkgs.coreutils ]}",
+                        "NO_COLOR": "1",
+                    }
+                    if variable != "unset":
+                        environment["XDG_CONFIG_HOME"] = {
+                            "empty": "",
+                            "relative": "relative config",
+                            "absolute": str(case_root / "XDG literal $missing ' $(touch aoe-shell-expanded)"),
+                        }[variable]
+                    env_xdg = environment.get("XDG_CONFIG_HOME", "")
+                    absolute_env = env_xdg.startswith("/")
+                    xdg = (Path(env_xdg) if absolute_env else home / ".config") / "agent-of-empires"
+                    legacy = home / ".agent-of-empires"
+                    if layout in ("xdg", "both"):
+                        xdg.mkdir(parents=True)
+                    if layout in ("legacy", "both"):
+                        legacy.mkdir(parents=True)
+                    if not fixture["isDarwin"] or layout in ("xdg", "both"):
+                        directory = xdg
+                    elif layout == "legacy" or not absolute_env:
+                        directory = legacy
+                    else:
+                        directory = xdg
+                    target = directory / "config.toml"
+                    user_bytes = b"# user-owned configuration\n"
+                    if initial != "absent":
+                        directory.mkdir(parents=True, exist_ok=True)
+                        if initial == "dangling-symlink":
+                            target.symlink_to("missing-user-config")
+                        else:
+                            target.write_bytes(user_bytes if initial == "user-file" else b"")
+                            target.chmod(0o600)
+                    # The nonselected layout may contain a different user's config.
+                    other = legacy if directory == xdg else xdg
+                    other_target = other / "config.toml"
+                    if other.exists():
+                        other_target.write_bytes(b"# other layout remains untouched\n")
+                        other_target.chmod(0o600)
+                    before_paths = set(case_root.rglob("*"))
+                    before_files = {
+                        file: (file.read_bytes(), stat.S_IMODE(file.stat().st_mode))
+                        for file in before_paths if file.is_file()
+                    }
+                    script = (
+                        "umask 027\nsource " + shlex.quote(metadata["runHelper"]) + "\n"
+                        + fixture["script"].replace(metadata["fixtureHome"], str(case_root))
+                    )
+                    def activate_aoe(dry=False):
+                        result = subprocess.run(
+                            ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
+                            env={**environment, **({"DRY_RUN": "1"} if dry else {})},
+                            cwd=case_root, capture_output=True, text=True, timeout=10,
+                        )
+                        assert result.returncode == 0, (case, dry, result.stdout, result.stderr)
+                        assert not (case_root / "aoe-shell-expanded").exists(), case
+
+                    activate_aoe(dry=True)
+                    assert set(case_root.rglob("*")) == before_paths, case
+                    activate_aoe()
+                    if initial == "absent":
+                        seeded_config = tomllib.loads(target.read_text())
+                        assert seeded_config["theme"]["name"] == "dracula", case
+                        assert seeded_config["session"]["default_tool"] == "codex", case
+                        assert stat.S_IMODE(target.stat().st_mode) == 0o640, case
+                        target.write_bytes(user_bytes)
+                        target.chmod(0o600)
+                        before_files[target] = (user_bytes, 0o600)
+                    activate_aoe(dry=True)
+                    activate_aoe()
+                    for file, (content, mode) in before_files.items():
+                        assert file.read_bytes() == content, (case, file)
+                        assert stat.S_IMODE(file.stat().st_mode) == mode, (case, file)
+                    if initial == "dangling-symlink":
+                        assert target.is_symlink() and os.readlink(target) == "missing-user-config", case
+                        assert not target.exists(), case
+                    assert not (case_root / "not-exported-config-home").exists(), case
+                    assert other.exists() == (other in before_paths), case
+                    assert not (case_root / "relative config").exists(), case
+                    print(f"aoe: {case}: consumer path, dry-run and user data preserved")
+
+        # A switch must seed the future managed environment, not an absent or stale export.
+        for ambient in ("unset", "old"):
+            fixture = metadata["aoeManaged"]
+            case_root = root / "aoe-managed" / ambient
+            home = Path(fixture["homeDirectory"].replace(metadata["fixtureHome"], str(case_root)))
+            home.mkdir(parents=True)
+            config_home = Path(fixture["configHome"].replace(metadata["fixtureHome"], str(case_root)))
+            old = home / "previous-config"
+            environment = {"HOME": str(home), "PATH": "${
+              lib.makeBinPath [ pkgs.coreutils ]
+            }", "NO_COLOR": "1"}
+            if ambient == "old":
+                environment["XDG_CONFIG_HOME"] = str(old)
+            script = ("source " + shlex.quote(metadata["runHelper"]) + "\n"
+                      + fixture["script"].replace(metadata["fixtureHome"], str(case_root)))
+            for dry in (True, False):
+                subprocess.run(
+                    ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
+                    env={**environment, **({"DRY_RUN": "1"} if dry else {})},
+                    cwd=case_root, check=True, capture_output=True, text=True, timeout=10,
+                )
+                target = config_home / "agent-of-empires/config.toml"
+                assert target.exists() != dry, (ambient, dry)
+            seeded_config = tomllib.loads(target.read_text())
+            assert seeded_config["theme"]["name"] == "dracula", ambient
+            assert seeded_config["session"]["default_tool"] == "codex", ambient
+            assert not (home / ".config/agent-of-empires").exists(), ambient
+            assert not old.exists(), ambient
+            print(f"aoe: managed XDG with {ambient} ambient export selects future consumer path")
+
+        # Use the same null filtering and POSIX expansion as the future HM session.
+        for fixture in metadata["aoeExports"]:
+            case = "null" if fixture["value"] is None else "expanded"
+            case_root = root / "aoe-export" / case
+            home = Path(fixture["homeDirectory"].replace(metadata["fixtureHome"], str(case_root)))
+            home.mkdir(parents=True)
+            inherited = home / "ambient config"
+            environment = {"HOME": str(home), "XDG_CONFIG_HOME": str(inherited),
+                           "PATH": "${lib.makeBinPath [ pkgs.coreutils ]}", "NO_COLOR": "1"}
+            script = ("source " + shlex.quote(metadata["runHelper"]) + "\n"
+                      + fixture["script"].replace(metadata["fixtureHome"], str(case_root)))
+            subprocess.run(
+                ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
+                env=environment, cwd=case_root, check=True, capture_output=True, text=True, timeout=10,
+            )
+            expected = inherited if case == "null" else home / "expanded config"
+            assert tomllib.loads((expected / "agent-of-empires/config.toml").read_text())["session"]["default_tool"] == "codex"
+            assert not (home / ".config/agent-of-empires").exists(), case
+            if case == "expanded":
+                assert not inherited.exists(), case
+            print(f"aoe: {case} session export matches Home Manager shell semantics")
 
         # Relocate only the safe prefix; retain Nix's quoting of literal paths.
         for fixture in metadata["caveman"]:

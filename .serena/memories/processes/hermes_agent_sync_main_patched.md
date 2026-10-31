@@ -1,12 +1,13 @@
-# Process: Sync `hermes-agent/main-patched`
+# Historical Process: Sync `hermes-agent/main-patched`
 
-## Purpose
-Keep the fork branch used by `.nix` rebased on upstream while preserving only the fork-local patches that are still needed.
+## Status
+The active flake follows `github:NousResearch/hermes-agent` directly.
+Do not resynchronize or repin the historical fork during routine lock updates.
+The procedure below applies only if the project explicitly switches back to a fork.
 
-## Stable Repositories
+## Historical Repositories
 - Fork: `github:jerome-benoit/hermes-agent`, branch `main-patched`.
 - Upstream: `github:NousResearch/hermes-agent`, branch `main`.
-- `.nix` follows the fork while fork-local patches remain necessary.
 
 ## Rules
 - Run git commands as `GIT_MASTER=1 git ...`.

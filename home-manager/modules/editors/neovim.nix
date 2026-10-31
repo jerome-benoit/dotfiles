@@ -363,7 +363,27 @@ let
     -- OpenCode AI Integration
     -- The v2 TUI starts/reuses the daemon; the plugin reads its service registry.
     local opencode_cmd = "opencode"
+    local opencode_actions = {
+      { "osl", "session.list", "Session: List" },
+      { "osn", "session.new", "Session: New" },
+      { "osi", "session.interrupt", "Session: Interrupt" },
+      { "osc", "session.compact", "Session: Compact" },
+      { "osu", "session.undo", "Session: Undo" },
+      { "osr", "session.redo", "Session: Redo" },
+      { "onj", "session.half.page.down", "Nav: Scroll down" },
+      { "onk", "session.half.page.up", "Nav: Scroll up" },
+      { "onJ", "session.page.down", "Nav: Page down" },
+      { "onK", "session.page.up", "Nav: Page up" },
+      { "ong", "session.first", "Nav: First message" },
+      { "onG", "session.last", "Nav: Last message" },
+      { "ops", "prompt.submit", "Prompt: Submit" },
+      { "opc", "prompt.clear", "Prompt: Clear" },
+      { "oc", "agent.cycle", "Cycle agent" },
+    }
     local opencode_terminal_opts = {
+      env = {
+        NVIM_OPENCODE_COMMANDS = vim.json.encode(vim.tbl_map(function(action) return action[2] end, opencode_actions)),
+      },
       win = {
         position = "right",
         enter = false,
@@ -378,13 +398,6 @@ let
         start = function()
           require("snacks.terminal").open(opencode_cmd, opencode_terminal_opts)
         end,
-      },
-      events = {
-        enabled = true,
-        reload = { enabled = true },
-        permissions = {
-          enabled = true,
-        },
       },
       ask = {
         prompt = "Ask opencode: ",
@@ -415,25 +428,30 @@ let
     opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
     opencode_map("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
 
-    opencode_map("n", "<leader>osl", function() require("opencode").command("session.list") end, { desc = "OpenCode Session: List", silent = true })
-    opencode_map("n", "<leader>osn", function() require("opencode").command("session.new") end, { desc = "OpenCode Session: New", silent = true })
-    opencode_map("n", "<leader>osh", function() require("opencode").command("session.share") end, { desc = "OpenCode Session: Share", silent = true })
-    opencode_map("n", "<leader>osi", function() require("opencode").command("session.interrupt") end, { desc = "OpenCode Session: Interrupt", silent = true })
-    opencode_map("n", "<leader>osc", function() require("opencode").command("session.compact") end, { desc = "OpenCode Session: Compact", silent = true })
-    opencode_map("n", "<leader>osu", function() require("opencode").command("session.undo") end, { desc = "OpenCode Session: Undo", silent = true })
-    opencode_map("n", "<leader>osr", function() require("opencode").command("session.redo") end, { desc = "OpenCode Session: Redo", silent = true })
-
-    opencode_map("n", "<leader>onj", function() require("opencode").command("session.half.page.down") end, { desc = "OpenCode Nav: Scroll down", silent = true })
-    opencode_map("n", "<leader>onk", function() require("opencode").command("session.half.page.up") end, { desc = "OpenCode Nav: Scroll up", silent = true })
-    opencode_map("n", "<leader>onJ", function() require("opencode").command("session.page.down") end, { desc = "OpenCode Nav: Page down", silent = true })
-    opencode_map("n", "<leader>onK", function() require("opencode").command("session.page.up") end, { desc = "OpenCode Nav: Page up", silent = true })
-    opencode_map("n", "<leader>ong", function() require("opencode").command("session.first") end, { desc = "OpenCode Nav: First message", silent = true })
-    opencode_map("n", "<leader>onG", function() require("opencode").command("session.last") end, { desc = "OpenCode Nav: Last message", silent = true })
-
-    opencode_map("n", "<leader>ops", function() require("opencode").command("prompt.submit") end, { desc = "OpenCode Prompt: Submit", silent = true })
-    opencode_map("n", "<leader>opc", function() require("opencode").command("prompt.clear") end, { desc = "OpenCode Prompt: Clear", silent = true })
-
-    opencode_map("n", "<leader>oc", function() require("opencode").command("agent.cycle") end, { desc = "OpenCode: Cycle agent", silent = true })
+    -- UI actions target this terminal's selected session and draft, not the
+    -- daemon's most recently updated session or its command-template registry.
+    for index, action in ipairs(opencode_actions) do
+      opencode_map("n", "<leader>" .. action[1], function()
+        local terminal = require("snacks.terminal").get(opencode_cmd, vim.tbl_extend("force", opencode_terminal_opts, { create = false }))
+        if not terminal then
+          vim.notify("Open OpenCode with <leader>ot first", vim.log.levels.ERROR)
+          return
+        end
+        local channel = vim.bo[terminal.buf].channel
+        if not vim.b[terminal.buf].opencode_ready or vim.fn.jobwait({ channel }, 0)[1] ~= -1 then
+          vim.notify("OpenCode terminal is not ready", vim.log.levels.ERROR)
+          return
+        end
+        terminal:show()
+        local ok, sent = pcall(vim.fn.chansend, channel, string.format("\027]777;opencode-neovim-command;%d\007", index))
+        if not ok or sent == 0 then
+          vim.notify("OpenCode action failed: " .. tostring(sent), vim.log.levels.ERROR)
+        elseif action[2] == "session.list" then
+          terminal:focus()
+          vim.cmd.startinsert()
+        end
+      end, { desc = "OpenCode " .. action[3], silent = true })
+    end
 
     local wk = require("which-key")
     wk.add({
@@ -444,17 +462,26 @@ let
     })
 
     local opencode_events_group = vim.api.nvim_create_augroup("OpencodeEvents", { clear = true })
+    vim.api.nvim_create_autocmd("TermRequest", {
+      group = opencode_events_group,
+      callback = function(args)
+        local state = args.data.sequence:match("^\027%]777;opencode%-neovim%-(%a+)")
+        if state then
+          vim.b[args.buf].opencode_ready = state == "ready"
+        end
+      end,
+    })
     vim.api.nvim_create_autocmd("User", {
       group = opencode_events_group,
       pattern = "OpencodeEvent:*",
       callback = function(args)
         local opencode_event = args.data.event
-        local properties = opencode_event.properties or {}
-        local status = properties.status
+        local data = opencode_event.data or {}
+        local status = data.status
         if opencode_event.type == "session.status" and status and status.type == "idle" then
           vim.notify("OpenCode ready", vim.log.levels.INFO)
-        elseif opencode_event.type == "session.error" then
-          vim.notify("OpenCode error: " .. vim.inspect(properties), vim.log.levels.ERROR)
+        elseif opencode_event.type == "session.execution.failed" then
+          vim.notify("OpenCode error: " .. vim.inspect(data.error), vim.log.levels.ERROR)
         end
       end,
     })
@@ -514,6 +541,12 @@ in
         message = "neovim: opencode module must be enabled (set modules.development.opencode.enable = true)";
       }
     ];
+
+    home.file."${config.xdg.configHome}/opencode/plugins/neovim-terminal/tui.js" =
+      lib.mkIf cfg.plugins.opencode.enable
+        {
+          source = ./opencode-neovim/tui.js;
+        };
 
     programs.neovim = {
       enable = true;
