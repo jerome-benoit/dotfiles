@@ -356,14 +356,24 @@ def run_workspace(state, revision, args):
         options = [arg.partition("=")[0] for arg in args]
         requested = {
             flag for flag in ("--help", "--check", "--inspect", "--rollback-engine", "--update",
-                              "--setup", "--model", "--family", "--no-start")
+                              "--setup", "--model", "--family", "--no-start", "--calibrate")
             if any(len(option) > 2 and flag.startswith(option) for option in options)
         }
         if any(option.startswith("-h") for option in options):
             requested.add("--help")
         explicit_update = "--update" in requested
-        setup_requested = bool(requested & {"--setup", "--model", "--family", "--no-start"})
-        standalone_requested = bool(requested & {"--help", "--inspect", "--rollback-engine"}) or (
+        calibration_requested = (
+            "--calibrate" in requested
+            and not requested & {"--update", "--setup", "--check"}
+            and bool(model_configs(root))
+        )
+        setup_requested = (
+            bool(requested & {"--setup", "--model", "--family", "--no-start"})
+            and not calibration_requested
+        )
+        standalone_requested = (calibration_requested and "--no-start" in requested) or bool(
+            requested & {"--help", "--inspect", "--rollback-engine"}
+        ) or (
             "--check" in requested and not explicit_update
         )
         rollback_requested = "--rollback-engine" in requested

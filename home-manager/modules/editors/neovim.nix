@@ -9,7 +9,10 @@
 let
   cfg = config.modules.editors.neovim;
 
-  opencodeBridgeDirectory = "${config.xdg.dataHome}/opencode-neovim";
+  opencodeBridgeDirectory = "${config.home.profileDirectory}/share/opencode-neovim";
+  opencodeBridgePackage = pkgs.writeTextDir "share/opencode-neovim/tui.js" (
+    builtins.readFile ./opencode-neovim/tui.js
+  );
 
   theme = config.modules.themes.current;
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
@@ -373,7 +376,7 @@ let
       end
       local directory = root .. "/plugins"
       local target = ${builtins.toJSON opencodeBridgeDirectory}
-      local link = directory .. "/neovim-terminal"
+      local link = directory .. "/neovim-terminal-managed"
       vim.fn.mkdir(directory, "p")
       local ok, err = vim.uv.fs_symlink(target, link)
       if not ok and vim.uv.fs_readlink(link) ~= target then
@@ -562,9 +565,7 @@ in
       }
     ];
 
-    home.file."${opencodeBridgeDirectory}/tui.js" = lib.mkIf cfg.plugins.opencode.enable {
-      source = ./opencode-neovim/tui.js;
-    };
+    home.packages = lib.optional cfg.plugins.opencode.enable opencodeBridgePackage;
 
     programs.neovim = {
       enable = true;

@@ -243,7 +243,7 @@ Hermes Agent configuration:
 - Source refs, the workspace lock and Nix interpreter roots support offline rollback and serialized updates.
 - Component references use upstream compatibility and explicit pins; raw executable paths use the legacy engine-version floor.
 - Successful engine rollbacks remain approved while the source revision, payload and local source fingerprints are unchanged.
-- Python/config repair preserves approved engines; explicit update/setup or source/payload changes invalidate the corresponding approval.
+- Python/config repair and calibration preserve approved engines; explicit update/setup or source/payload changes invalidate the corresponding approval.
 - Rollback approval does not bypass runtime prerequisites or unknown-version rejection.
 - Runtime validation does not establish GPU compatibility, model integrity or successful inference.
 
@@ -431,7 +431,7 @@ Full IDE configuration (~500 lines):
 - Keymaps: `<leader>o*` prefix
 - Terminal toggle, context prompts and command mappings
 - Session, navigation and prompt actions dispatch to the visible TUI through an opt-in local plugin and private OSC input, without changing user keybinds.
-- The bridge asset lives under `xdg.dataHome`; terminal preflight links it into OpenCode's effective config root without replacing user files or overriding `OPENCODE_CONFIG_DIR`.
+- The bridge package exposes a stable profile path; terminal preflight registers it in OpenCode's effective config root without replacing user files or overriding `OPENCODE_CONFIG_DIR`.
 - Session sharing is unavailable in OpenCode V2.
 - Notifications consume V2 `event.data` and `session.execution.failed`.
 - Statusline integration

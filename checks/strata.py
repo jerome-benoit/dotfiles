@@ -457,6 +457,66 @@ PY
         self.assert_workspace_unlocked()
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_calibration_preserves_rollback_and_runtime_certificate(self):
+        state = self.state
+        for certificate in ("current", "pending", "missing"):
+            with self.subTest(certificate=certificate):
+                self.state = state / certificate
+                root = self.make_rollback_workspace()
+                (root / "strata-fixture.json").rename(root / "strata-Q2_0.json")
+                script = root / "setup.sh"
+                script.write_text(script.read_text().replace(
+                    "sys.exit(setup.main())",
+                    'def calibrate(config):\n'
+                    '    (setup.ROOT / "calibrated-model").write_text(config.name)\n'
+                    '    return True\n'
+                    'setup.calibrate_config = calibrate\n'
+                    'sys.exit(setup.main())',
+                ))
+                result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                approval = root / ".git/strata-engine-rollback.json"
+                approved = approval.read_bytes()
+                marker = root / ".git/strata-runtime-revision"
+                if certificate == "pending":
+                    marker.write_text(self.old)
+                elif certificate == "missing":
+                    marker.unlink()
+                certified = marker.read_bytes() if marker.exists() else None
+                for args in (
+                    ["--calibrate", "--no-start"],
+                    ["--cal", "--no-st", "--model=Q2_0", "--family=qwen"],
+                ):
+                    result = subprocess.run(self.command(self.new) + ["run", *args, "--yes"],
+                                            env=self.env, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((root / "calibrated-model").read_text(), "strata-Q2_0.json")
+                    self.assertEqual(approval.read_bytes(), approved)
+                    self.assertEqual(marker.read_bytes() if marker.exists() else None, certified)
+                    self.assertEqual((root / "engine/strata").read_text(), "A")
+                    self.assertFalse((root / "update-attempts").exists())
+                self.start_rollback_workspace(root, "--calibrate", "--model=Q2_0", "--family=qwen")
+                self.assertEqual((root / "engine/strata").read_text(), "A")
+                self.assertFalse((root / "update-attempts").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_explicit_update_takes_precedence_over_calibration(self):
+        root = self.make_rollback_workspace()
+        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = subprocess.run(
+            self.command(self.new) + ["run", "--calibrate", "--update",
+                                      "--prebuilt=" + str(root / "engine/custom")],
+            env=self.env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((root / "engine/strata").read_text(), "D")
+        self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
+        self.assertEqual((root / "update-attempts").read_text(), "1")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_engine_rollback_survives_normal_launch_and_explicit_update(self):
         state = self.state
         for available, certificate in ((True, "current"), (False, "pending"), (True, "missing")):
@@ -511,16 +571,17 @@ PY
                     config = json.loads((root / "strata-fixture.json").read_text())
                     config["exe"] = str(other / "strata")
                     (root / "strata-other.json").write_text(json.dumps(config))
-                result = subprocess.run(self.command(self.new) + ["run", "--no-browser"],
-                                        env=self.env, capture_output=True, text=True, timeout=30)
-                self.assertNotEqual(result.returncode, 0)
+                for args in ([], ["--calibrate"]):
+                    result = subprocess.run(self.command(self.new) + ["run", "--no-browser", *args],
+                                            env=self.env, capture_output=True, text=True, timeout=30)
+                    self.assertNotEqual(result.returncode, 0)
                 self.assertEqual((root / "engine/strata").read_text(), "A")
                 self.assertFalse((root / ".git/strata-runtime-revision").exists())
                 self.assertTrue((root / ".git/strata-engine-rollback.json").exists())
                 self.assertIn({"tokenizer": "vocab.json", "python": "requires ==0",
                                "other-engine": "engine/other/strata"}[missing], result.stderr)
                 # The real updater may repair prerequisites, but must not reacquire the engine.
-                self.assertEqual((root / "update-attempts").read_text(), "1")
+                self.assertEqual((root / "update-attempts").read_text(), "2")
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_failed_or_noop_rollback_does_not_approve_old_engine(self):
