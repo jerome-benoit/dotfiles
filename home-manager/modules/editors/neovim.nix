@@ -9,6 +9,8 @@
 let
   cfg = config.modules.editors.neovim;
 
+  opencodeBridgeDirectory = "${config.xdg.dataHome}/opencode-neovim";
+
   theme = config.modules.themes.current;
   nvimAiPluginOpencode = pkgs.vimUtils.buildVimPlugin {
     pname = "opencode-nvim";
@@ -370,7 +372,7 @@ let
         root = (xdg and xdg ~= "" and xdg or vim.uv.os_homedir() .. "/.config") .. "/opencode"
       end
       local directory = root .. "/plugins"
-      local target = ${builtins.toJSON "${config.xdg.dataHome}/opencode-neovim"}
+      local target = ${builtins.toJSON opencodeBridgeDirectory}
       local link = directory .. "/neovim-terminal"
       vim.fn.mkdir(directory, "p")
       local ok, err = vim.uv.fs_symlink(target, link)
@@ -560,7 +562,7 @@ in
       }
     ];
 
-    home.file."${config.xdg.dataHome}/opencode-neovim/tui.js" = lib.mkIf cfg.plugins.opencode.enable {
+    home.file."${opencodeBridgeDirectory}/tui.js" = lib.mkIf cfg.plugins.opencode.enable {
       source = ./opencode-neovim/tui.js;
     };
 

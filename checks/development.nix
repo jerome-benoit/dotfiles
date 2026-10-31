@@ -282,6 +282,15 @@ pkgs.runCommand "check-development-integrations"
     import tomllib
 
     metadata = json.loads(Path(sys.argv[1]).read_text())
+
+    def activate(script, environment, *, cwd=None, dry=False):
+        result = subprocess.run(
+            ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
+            env={**environment, **({"DRY_RUN": "1"} if dry else {})},
+            cwd=cwd, capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0, (cwd or environment["HOME"], dry, result.stdout, result.stderr)
+
     with tempfile.TemporaryDirectory(prefix="development-check-") as temporary:
         root = Path(temporary)
         for name in ("herdr",):
@@ -307,29 +316,21 @@ pkgs.runCommand "check-development-integrations"
                     "PATH": "${lib.makeBinPath [ pkgs.coreutils ]}",
                     "NO_COLOR": "1",
                 }
-                def activate(dry=False):
-                    result = subprocess.run(
-                        ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
-                        env={**environment, **({"DRY_RUN": "1"} if dry else {})},
-                        capture_output=True, text=True, timeout=10,
-                    )
-                    assert result.returncode == 0, (name, initial, dry, result.stderr)
-
-                activate(dry=True)
+                activate(script, environment, dry=True)
                 assert directory.exists() == (initial != "absent"), (name, initial)
                 assert target.exists() == (before is not None), (name, initial)
                 if before is not None:
                     assert target.read_bytes() == before
                     assert stat.S_IMODE(target.stat().st_mode) == 0o600
-                activate()
+                activate(script, environment)
                 if before is None:
                     tomllib.loads(target.read_text())
                     assert stat.S_IMODE(target.stat().st_mode) == 0o640
                     target.write_bytes(user_bytes)
                     target.chmod(0o600)
                     before = user_bytes
-                activate(dry=True)
-                activate()
+                activate(script, environment, dry=True)
+                activate(script, environment)
                 assert target.read_bytes() == before, (name, initial)
                 assert stat.S_IMODE(target.stat().st_mode) == 0o600
                 print(f"{name}: {initial}: dry-run, seed and user edits preserved")
@@ -395,12 +396,7 @@ pkgs.runCommand "check-development-integrations"
                         + fixture["script"].replace(metadata["fixtureHome"], str(case_root))
                     )
                     def activate_aoe(dry=False):
-                        result = subprocess.run(
-                            ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
-                            env={**environment, **({"DRY_RUN": "1"} if dry else {})},
-                            cwd=case_root, capture_output=True, text=True, timeout=10,
-                        )
-                        assert result.returncode == 0, (case, dry, result.stdout, result.stderr)
+                        activate(script, environment, cwd=case_root, dry=dry)
                         assert not (case_root / "aoe-shell-expanded").exists(), case
 
                     activate_aoe(dry=True)
@@ -443,11 +439,7 @@ pkgs.runCommand "check-development-integrations"
             script = ("source " + shlex.quote(metadata["runHelper"]) + "\n"
                       + fixture["script"].replace(metadata["fixtureHome"], str(case_root)))
             for dry in (True, False):
-                subprocess.run(
-                    ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
-                    env={**environment, **({"DRY_RUN": "1"} if dry else {})},
-                    cwd=case_root, check=True, capture_output=True, text=True, timeout=10,
-                )
+                activate(script, environment, cwd=case_root, dry=dry)
                 target = config_home / "agent-of-empires/config.toml"
                 assert target.exists() != dry, (ambient, dry)
             seeded_config = tomllib.loads(target.read_text())
@@ -468,10 +460,7 @@ pkgs.runCommand "check-development-integrations"
                            "PATH": "${lib.makeBinPath [ pkgs.coreutils ]}", "NO_COLOR": "1"}
             script = ("source " + shlex.quote(metadata["runHelper"]) + "\n"
                       + fixture["script"].replace(metadata["fixtureHome"], str(case_root)))
-            subprocess.run(
-                ["${lib.getExe pkgs.bash}", "--noprofile", "--norc", "-euc", script],
-                env=environment, cwd=case_root, check=True, capture_output=True, text=True, timeout=10,
-            )
+            activate(script, environment, cwd=case_root)
             expected = inherited if case == "null" else home / "expanded config"
             assert tomllib.loads((expected / "agent-of-empires/config.toml").read_text())["session"]["default_tool"] == "codex"
             assert not (home / ".config/agent-of-empires").exists(), case
