@@ -8,31 +8,13 @@
 let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
-  pins =
-    (import ./pins {
-      inherit lib;
-      inherit (pkgs) fetchurl fetchzip;
-    }).opencode;
-
-  # Workaround: upstream's dependency hashes lag behind its source updates.
-  # Remove when upstream publishes the current hashes for all supported platforms.
-  baseOpencodePackage =
-    let
-      package = inputs.opencode.packages.${system}.default or null;
-      nodeModules = package.node_modules or null;
-    in
-    if nodeModules == null then
-      package
-    else
-      package.override {
-        node_modules = nodeModules.override { hash = pins.nodeModules.${system}; };
-      };
+  baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
 
   mkOpencodePackage =
     package:
     if package != null then
       package.overrideAttrs (previousAttrs: {
-        # Workaround: Desktop and Neovim discover service.json, not service-prod.json.
+        # Workaround: Desktop discovers service.json, not service-prod.json.
         # Remove when upstream CLI and clients use the same service registry.
         env = (previousAttrs.env or { }) // {
           OPENCODE_CHANNEL = "latest";

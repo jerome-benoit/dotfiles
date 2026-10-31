@@ -23,9 +23,8 @@ let
   version = pins.version;
   src = pins.src;
 
-  # Python 3.12: python311 cannot be evaluated here, nixpkgs disables sphinx
-  # below 3.12 and sphinxHook pulls it in, which breaks beautifulsoup4,
-  # python-dotenv, httpx and tyro; the runtime itself accepts >=3.11.
+  # Python 3.12: beautifulsoup4 pulls in sphinxHook, and nixpkgs disables
+  # sphinx below 3.12; the runtime itself accepts >=3.11.
   py = pkgs.python312;
   runtimeRoot = "${src}/prime-agent-runtime";
   runtimeProject = "${runtimeRoot}/pyproject.toml";
@@ -213,7 +212,8 @@ let
           "pa-types"
           "--lib"
         ];
-        # This wall-clock test flakes under load.
+        # Workaround: this wall-clock test flakes under sandbox load.
+        # Remove when it passes reliably under sandbox load.
         checkFlags = [
           "--skip=piped_stdin::tests::a_live_producer_resets_the_window"
         ];

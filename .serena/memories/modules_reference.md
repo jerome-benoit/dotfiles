@@ -222,6 +222,30 @@ Hermes Agent configuration:
 - Non-empty `plugins` requires normalized absolute `home.homeDirectory` and
   `services.hermes-agent.hermesHome` paths; `hermesHome` must equal or descend from HOME.
 - Set `plugins = lib.mkForce { };` when using a Hermes home outside HOME.
+- State setup shell-quotes the Hermes home and working directory, including paths with spaces.
+- Linux creates the stable `.env` link before service reload; `After`/`Requires=sops-nix` gates its secret target. Darwin waits for synchronous secret activation before loading agents.
+- Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and the applicable CUDA libraries.
+
+### aoe.nix
+
+- Seed `config.toml` only when no file or symlink exists.
+- Prefer the declared future XDG session environment during activation. Without a declared export, follow the native environment and existing-directory precedence, including Darwin's legacy fallback.
+
+### agtx.nix
+
+- Runtime PATH includes the platform's `ps` and `kill`, plus tmux, Git and GitHub CLI.
+- Tests include DB, MCP and mock-based coverage through `test-mocks`; execution is Linux-only, with Darwin unvalidated.
+
+### strata.nix
+
+- The runtime revision records validated local prerequisites; incomplete updates invalidate it and retry on the next launch.
+- Validation uses upstream component inventory and engine metadata; component manifests do not require `BUILD.json`.
+- Source refs, the workspace lock and Nix interpreter roots support offline rollback and serialized updates.
+- Component references use upstream compatibility and explicit pins; raw executable paths use the legacy engine-version floor.
+- Successful engine rollbacks remain approved while the source revision, payload and local source fingerprints are unchanged.
+- Python/config repair and calibration preserve approved engines; explicit update/setup or source/payload changes invalidate the corresponding approval.
+- Rollback approval does not bypass runtime prerequisites or unknown-version rejection.
+- Runtime validation does not establish GPU compatibility, model integrity or successful inference.
 
 ### opencode.nix
 
@@ -239,7 +263,7 @@ OpenCode AI assistant:
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
 - Upstream CI maintains `nix/hashes.json` for the three supported platforms; the local hash fixer does not maintain OpenCode dependency hashes
-- Temporary `pins/opencode.json` supplies the three native dependency hashes from [upstream PR #60187](https://github.com/anomalyco/opencode/pull/60187) to the default CLI and generated Desktop.
+- CLI and generated Desktop share the dependency derivation and hashes from the locked upstream source
 - Warnings if packages unavailable for system
 
 ### bun.nix
@@ -264,7 +288,6 @@ Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
 - Activation preserves existing regular files, including empty files; dry runs never create config files or directories
 - Package consumed from the `herdr` flake input (`inputs.herdr.packages.${system}.default`), no vendor/src hash to maintain
 - No conductor/telegram/slack integration (unlike the former agent-deck)
-
 
 ### aoe.nix
 
@@ -407,6 +430,10 @@ Full IDE configuration (~500 lines):
 
 - Keymaps: `<leader>o*` prefix
 - Terminal toggle, context prompts and command mappings
+- Session, navigation and prompt actions dispatch to the visible TUI through an opt-in local plugin and private OSC input, without changing user keybinds.
+- The bridge package exposes a stable profile path; terminal preflight registers it in OpenCode's effective config root without replacing user files or overriding `OPENCODE_CONFIG_DIR`.
+- Session sharing is unavailable in OpenCode V2.
+- Notifications consume V2 `event.data` and `session.execution.failed`.
 - Statusline integration
 - Event-driven file reloads and permission handling
 - HTTP requests and SSE events use `curl`

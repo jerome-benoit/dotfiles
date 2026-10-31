@@ -28,16 +28,16 @@ After installation, restart your shell to pick up aliases.
 
 ## Private Configuration and Credentials (SOPS)
 
-| Command                 | Description                                                     |
-| ----------------------- | --------------------------------------------------------------- |
-| `make decrypt-private`  | Decrypt private configuration only for Nix evaluation           |
-| `make decrypt`          | Decrypt private configuration and credentials for inspection    |
-| `make encrypt`          | Re-encrypt private configuration and credentials after editing  |
-| `make edit-private`     | Edit private configuration interactively                        |
-| `make edit-credentials` | Edit runtime credentials interactively                           |
-| `make clean`            | Remove decrypted configuration, credentials, and temporaries     |
-| `make switch SPEC=work` | Switch Home Manager with transient private configuration         |
-| `make build`            | Build Home Manager with transient private configuration          |
+| Command                 | Description                                                    |
+| ----------------------- | -------------------------------------------------------------- |
+| `make decrypt-private`  | Decrypt private configuration only for Nix evaluation          |
+| `make decrypt`          | Decrypt private configuration and credentials for inspection   |
+| `make encrypt`          | Re-encrypt private configuration and credentials after editing |
+| `make edit-private`     | Edit private configuration interactively                       |
+| `make edit-credentials` | Edit runtime credentials interactively                         |
+| `make clean`            | Remove decrypted configuration, credentials, and temporaries   |
+| `make switch SPEC=work` | Switch Home Manager with transient private configuration       |
+| `make build`            | Build Home Manager with transient private configuration        |
 
 ## Formatting
 

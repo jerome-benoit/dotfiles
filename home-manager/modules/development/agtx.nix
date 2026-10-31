@@ -8,6 +8,14 @@
 
 let
   cfg = config.modules.development.agtx;
+  processTools =
+    if pkgs.stdenv.hostPlatform.isDarwin then
+      [
+        pkgs.darwin.ps
+        pkgs.darwin.shell_cmds
+      ]
+    else
+      [ pkgs.procps ];
 
   agtxPackage = pkgs.rustPlatform.buildRustPackage {
     pname = "agtx";
@@ -25,8 +33,8 @@ let
       pkgs.procps
     ];
 
-    # Workaround: upstream test helpers need the test-mocks feature, absent by default.
-    # Remove when the tests build without the extra feature.
+    # Enable the feature-gated DB, MCP and mock-based tests, not just the default suite.
+    # Keep until upstream exposes the same coverage without this feature.
     checkFeatures = [ "test-mocks" ];
     # Workaround: the test suite drives the git binary, and is unvalidated on Darwin.
     # Remove when the test suite passes on aarch64-darwin.
@@ -35,11 +43,14 @@ let
     postFixup = ''
       wrapProgram $out/bin/agtx \
         --prefix PATH : ${
-          lib.makeBinPath [
-            pkgs.tmux
-            pkgs.git
-            pkgs.gh
-          ]
+          lib.makeBinPath (
+            [
+              pkgs.tmux
+              pkgs.git
+              pkgs.gh
+            ]
+            ++ processTools
+          )
         }
     '';
 

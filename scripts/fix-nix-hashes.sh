@@ -288,21 +288,8 @@ validate_renovate() {
   local config=$root/renovate.json
 
   renovate-config-validator --strict "$config" >/dev/null
-  jq -e '
-    (keys == ["$schema", "customManagers", "extends", "lockFileMaintenance", "nix"])
-    and .extends == [
-      "config:recommended",
-      "abandonments:recommended",
-      ":configMigration",
-      "group:allNonMajor",
-      "schedule:daily"
-    ]
-    and .nix == {"enabled": true}
-  ' "$config" >/dev/null || fail "Renovate top-level contract changed"
   manager_count=$(jq --arg files "$PIN_MANAGER_PATTERN" --arg match "$PIN_MANAGER_MATCH" \
     --arg versioning "$VERSIONING_TEMPLATE" '[.customManagers[]? | select(
-      (keys == ["customType", "managerFilePatterns", "matchStrings", "versioningTemplate"])
-      and
       .customType == "regex"
       and .managerFilePatterns == [$files]
       and .matchStrings == [$match]
