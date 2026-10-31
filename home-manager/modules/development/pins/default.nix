@@ -75,8 +75,6 @@ assert
     ) ompData.hashes;
   };
 
-  opencode = readPin ./opencode.json;
-
   primeAgent = {
     inherit (primeAgentData)
       version

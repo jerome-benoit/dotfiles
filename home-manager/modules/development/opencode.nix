@@ -8,26 +8,7 @@
 let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
-  pins =
-    (import ./pins {
-      inherit lib;
-      inherit (pkgs) fetchurl fetchzip;
-    }).opencode;
-
-  # Workaround: keep native dependency hashes separate from source updates.
-  # Revalidate against upstream's hash bot after dependency or toolchain changes.
-  # Remove when native builds validate upstream hashes with the followed nixpkgs.
-  baseOpencodePackage =
-    let
-      package = inputs.opencode.packages.${system}.default or null;
-      nodeModules = package.node_modules or null;
-    in
-    if nodeModules == null then
-      package
-    else
-      package.override {
-        node_modules = nodeModules.override { hash = pins.nodeModules.${system}; };
-      };
+  baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
 
   mkOpencodePackage =
     package:
