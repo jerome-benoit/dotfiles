@@ -240,6 +240,8 @@ Hermes Agent configuration:
 
 - The runtime revision certifies local prerequisites, not merely an updater exit code. Incomplete updates invalidate the marker and retry at the same source revision.
 - Reuse upstream component inventory and engine-version metadata, including component manifests without optional `BUILD.json`. Retain source refs, the workspace lock and Nix interpreter roots.
+- Explicit engine rollbacks survive ordinary launches while their source revision, payload and local source fingerprints remain unchanged. Approve only observed successful swaps; keep runtime prerequisites and unknown-version rejection.
+- Automatic Python/config repair preserves approved engines. Explicit update/setup or a changed source/payload retires the corresponding approval; a rollback alone never certifies runtime.
 - Local certification does not prove GPU compatibility, model integrity or successful inference.
 
 ### opencode.nix

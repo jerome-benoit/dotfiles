@@ -19,6 +19,8 @@ import sys
 
 REMOTE = "https://github.com/Niko1221/Strata.git"
 RUNTIME_REVISION = "strata-runtime-revision"
+ENGINE_ROLLBACK = "strata-engine-rollback.json"
+ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
 
 
 def git(root, *args, check=True):
@@ -97,6 +99,85 @@ def model_configs(root):
     return configs
 
 
+def engine_identity(directory):
+    """Track unchanged payloads without hashing large binaries or mutable directories."""
+    if not directory.is_dir():
+        return {}
+    files = {}
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+        info = path.stat()
+        files[path.name] = [
+            str(path.resolve()), info.st_dev, info.st_ino, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns, info.st_mode,
+        ]
+    return files
+
+
+def engine_sources(root, vision=False):
+    sys.path.insert(0, str(root))
+    import setup
+
+    names = ["ENGINE_SOURCES"] + (["VISION_SOURCES"] if vision else [])
+    return {name: setup.source_hash(getattr(setup, name)) for name in names}
+
+
+def engine_rollbacks(root, revision):
+    try:
+        saved = json.loads((root / ".git" / ENGINE_ROLLBACK).read_text())
+    except (FileNotFoundError, ValueError):
+        return {}
+    if not isinstance(saved, dict) or saved.get("revision") != revision:
+        return {}
+    entries = saved.get("engines")
+    if not isinstance(entries, dict):
+        return {}
+    approved = {}
+    for name in ENGINE_DIRECTORIES:
+        entry = entries.get(name)
+        if not isinstance(entry, dict):
+            continue
+        files = engine_identity(root / name)
+        if "strata" not in files or entry.get("files") != files:
+            continue
+        sources = entry.get("sources", {})
+        if not isinstance(sources, dict):
+            continue
+        if sources and sources != engine_sources(root, "VISION_SOURCES" in sources):
+            continue
+        approved[name] = entry
+    return approved
+
+
+def record_engine_rollback(root, revision, before):
+    approved = engine_rollbacks(root, revision)
+    changed = False
+    for name, (installed, previous) in before.items():
+        files = engine_identity(root / name)
+        current = files.get("strata")
+        # A zero-exit help/inspect command is not proof of a rollback.
+        if not current or not previous or current[1:3] != previous[1:3]:
+            continue
+        if installed and current[1:3] == installed[1:3]:
+            continue
+        metadata = root / name / "BUILD.json"
+        try:
+            build = json.loads(metadata.read_text()) if metadata.exists() else {}
+        except ValueError:
+            build = {}
+        sources = {}
+        if isinstance(build, dict) and (build.get("source") == "local" or build.get("backend") == "hip"):
+            sources = engine_sources(root, build.get("vision", "none") != "none")
+        approved[name] = {"files": files, "sources": sources}
+        changed = True
+    if changed:
+        path = root / ".git" / ENGINE_ROLLBACK
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"revision": revision, "engines": approved}) + "\n")
+        temporary.replace(path)
+
+
 def check_runtime(root):
     """Run in the runtime interpreter; inspect local state without acquisition or engine execution."""
     from importlib import metadata
@@ -107,6 +188,10 @@ def check_runtime(root):
     from strata_control import doctor, engine_component
 
     problems = []
+    rollbacks = {}
+    if (root / ".git" / ENGINE_ROLLBACK).exists():
+        revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+        rollbacks = engine_rollbacks(root, revision)
     configs = setup.installed_configs()
     if not configs:
         raise RuntimeError("No Strata model is installed; run strata --setup before strata --update")
@@ -143,11 +228,14 @@ def check_runtime(root):
         if engine["status"] != "ok" or exe in checked:
             continue
         checked.add(exe)
+        preserved = any(exe.resolve() == (root / name / "strata").resolve() for name in rollbacks)
         if sys.platform == "darwin" and exe.resolve() == (root / "build-metal/strata").resolve():
             from metal import setup_mac
             if not setup_mac.engine_current():
                 problems.append(f"{exe}: Metal engine was not built for this source")
             continue
+        info = exe.parent / "BUILD.json"
+        meta = json.loads(info.read_text()) if info.exists() else {}
         manifest = exe.parent / engine_component.MANIFEST
         if manifest.exists():
             component = engine_component.read_manifest(exe.parent)
@@ -157,14 +245,13 @@ def check_runtime(root):
             version = tuple(int(part) if part.isdigit() else 0
                             for part in re.split(r"[.\-+]", component.version))
         else:
-            version = setup.engine_version(exe)
-        if not any(version) or version < setup.MIN_ENGINE:
+            value = meta.get("version") or setup.binary_engine_version(exe) or ""
+            version = tuple(int(part) for part in str(value).split(".")[:4] if part.isdigit())
+        if not any(version) or (version < setup.MIN_ENGINE and not preserved):
             problems.append(f"{exe}: engine version {'.'.join(map(str, version)) or 'unknown'}; "
                             f"requires {'.'.join(map(str, setup.MIN_ENGINE))} or newer")
-        info = exe.parent / "BUILD.json"
-        meta = json.loads(info.read_text()) if info.exists() else {}
         managed = exe.parent.resolve() in {setup.engine_dir().resolve(), setup.engine_dir(12).resolve()}
-        if managed and (meta.get("source") == "local" or meta.get("backend") == "hip"):
+        if managed and not preserved and (meta.get("source") == "local" or meta.get("backend") == "hip"):
             if meta.get("src") != setup.source_hash(setup.ENGINE_SOURCES) or setup.stale_binary(exe):
                 problems.append(f"{exe}: compiled engine does not match this source")
             if meta.get("vision", "none") != "none" and \
@@ -195,19 +282,31 @@ def runtime_status(root, lock_fd):
 
 def refresh_runtime(root, revision, lock_fd, args, *, force=False):
     marker = root / ".git" / RUNTIME_REVISION
-    if not force and marker.exists() and marker.read_text().strip() == revision:
-        if runtime_status(root, lock_fd).returncode == 0:
+    rollback_path = root / ".git" / ENGINE_ROLLBACK
+    if force:
+        rollback_path.unlink(missing_ok=True)
+    rollbacks = engine_rollbacks(root, revision) if not force else {}
+    current = marker.exists() and marker.read_text().strip() == revision
+    status = None
+    if not force and (current or rollbacks):
+        status = runtime_status(root, lock_fd)
+        if status.returncode == 0 and current:
             return
-    # Invalidate even a same-SHA certificate before an explicit or partial update.
-    marker.unlink(missing_ok=True)
-    subprocess.run(
-        ["sh", str(root / "setup.sh"), "--update", *args],
-        check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
-    )
-    status = runtime_status(root, lock_fd)
-    if status.returncode:
-        raise RuntimeError(status.stderr.strip() or status.stdout.strip() or
-                           "Strata runtime validation failed; run strata --update after repairing the runtime")
+    if status is None or status.returncode:
+        marker.unlink(missing_ok=True)
+        if not rollbacks:
+            rollback_path.unlink(missing_ok=True)
+        # Upstream --build skips engine acquisition during --update;
+        # Python/config repair still runs without replacing rolled-back engines.
+        repair_args = [*args, "--build"] if rollbacks else args
+        subprocess.run(
+            ["sh", str(root / "setup.sh"), "--update", *repair_args],
+            check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
+        )
+        status = runtime_status(root, lock_fd)
+        if status.returncode:
+            raise RuntimeError(status.stderr.strip() or status.stdout.strip() or
+                               "Strata runtime validation failed; run strata --update after repairing the runtime")
     temporary = marker.with_suffix(".tmp")
     temporary.write_text(revision + "\n")
     temporary.replace(marker)
@@ -262,9 +361,27 @@ def run_workspace(state, revision, args):
         standalone_requested = bool(requested & {"--help", "--inspect", "--rollback-engine"}) or (
             "--check" in requested and not explicit_update
         )
+        rollback_requested = "--rollback-engine" in requested
+        rollback_path = root / ".git" / ENGINE_ROLLBACK
+        if rollback_path.exists() and not engine_rollbacks(root, revision):
+            rollback_path.unlink()
+        if not standalone_requested and (explicit_update or setup_requested):
+            rollback_path.unlink(missing_ok=True)
         # A new install or explicit setup must reach upstream's acquisition path.
         # Do not certify it here: the next launch validates the resulting runtime.
         try:
+            if rollback_requested:
+                before = {
+                    name: (engine_identity(root / name).get("strata"),
+                           engine_identity(root / name / ".previous").get("strata"))
+                    for name in ENGINE_DIRECTORIES
+                }
+                subprocess.run(
+                    [str(root / "setup.sh"), *args],
+                    check=True, pass_fds=(lock.fileno(),),
+                )
+                record_engine_rollback(root, revision, before)
+                return
             if not standalone_requested:
                 if explicit_update or (not setup_requested and model_configs(root)):
                     refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)

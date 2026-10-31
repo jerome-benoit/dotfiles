@@ -309,8 +309,9 @@ import sys
 sys.path.append(r"{UPSTREAM}")
 from pathlib import Path
 import setup
-attempts = setup.ROOT / "update-attempts"
-attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
+if "--update" in sys.argv:
+    attempts = setup.ROOT / "update-attempts"
+    attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
 setup.pip_install = lambda *args, **kwargs: None
 def install(url):
     candidate = setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
@@ -423,6 +424,246 @@ PY
                         self.assertEqual(json.loads((folder / "BUILD.json").read_text())["version"],
                                          version)
                     self.assertEqual(marker.read_text().strip(), self.old)
+
+    def make_rollback_workspace(self):
+        root = self.make_updater_workspace()
+        self.prepare(self.new)
+        (root / "engine/.previous/BUILD.json").write_text(json.dumps({
+            "version": "0.1.45", "source": "prebuilt",
+        }))
+        (root / ".git/strata-runtime-revision").write_text(self.new)
+        config = root / "strata-fixture.json"
+        values = json.loads(config.read_text())
+        values.update(backend="hip", open_browser=False)
+        config.write_text(json.dumps(values))
+        (root / "serve").mkdir()
+        (root / "serve/server.py").write_text(GATE)
+        script = root / "setup.sh"
+        script.write_text(script.read_text().replace(
+            f'exec "{sys.executable}"', f'exec "{root / ".venv/bin/python"}"',
+        ))
+        return root
+
+    def start_rollback_workspace(self, root, *args):
+        process, pid, peer = self.gated_process(
+            self.command(self.new) + ["run", "--no-browser", *args],
+        )
+        self.assertEqual(pid, process.pid)
+        self.assert_workspace_locked()
+        peer.sendall(b"q")
+        process.wait(timeout=10)
+        self.assertEqual(process.returncode, 0)
+        peer.close()
+        self.assert_workspace_unlocked()
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_engine_rollback_survives_normal_launch_and_explicit_update(self):
+        state = self.state
+        for available, certificate in ((True, "current"), (False, "pending"), (True, "missing")):
+            with self.subTest(replacement_available=available, certificate=certificate):
+                self.state = state / certificate
+                root = self.make_rollback_workspace()
+                marker = root / ".git/strata-runtime-revision"
+                if certificate == "pending":
+                    marker.write_text(self.old)
+                elif certificate == "missing":
+                    marker.unlink()
+                if not available:
+                    shutil.rmtree(root / "engine/default")
+                result = subprocess.run(self.command(self.new) + ["run", "--rollback-eng"],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for _ in range(2):
+                    self.start_rollback_workspace(root)
+                    self.assertEqual((root / "engine/strata").read_text(), "A")
+                    self.assertFalse((root / "update-attempts").exists())
+                    self.assertEqual(marker.read_text().strip(), self.new)
+                result = subprocess.run(
+                    self.command(self.new) + ["run", "--update", "--prebuilt=" + str(root / "engine/custom")],
+                    env=self.env, capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "engine/strata").read_text(), "D")
+                self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
+                self.start_rollback_workspace(root)
+                self.assertEqual((root / "update-attempts").read_text(), "1")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_rollback_approval_does_not_mask_missing_prerequisites(self):
+        state = self.state
+        for missing in ("tokenizer", "python", "other-engine"):
+            with self.subTest(missing=missing):
+                self.state = state / missing
+                root = self.make_rollback_workspace()
+                result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if missing == "tokenizer":
+                    (root / "tokenizer/vocab.json").unlink()
+                elif missing == "python":
+                    (root / "requirements.txt").write_text("pip==0\n")
+                else:
+                    other = root / "engine/other"
+                    other.mkdir()
+                    (other / "strata").write_text("unapproved")
+                    (other / "strata").chmod(0o700)
+                    (other / "BUILD.json").write_text(json.dumps({"version": "0.1.45"}))
+                    config = json.loads((root / "strata-fixture.json").read_text())
+                    config["exe"] = str(other / "strata")
+                    (root / "strata-other.json").write_text(json.dumps(config))
+                result = subprocess.run(self.command(self.new) + ["run", "--no-browser"],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((root / "engine/strata").read_text(), "A")
+                self.assertFalse((root / ".git/strata-runtime-revision").exists())
+                self.assertTrue((root / ".git/strata-engine-rollback.json").exists())
+                self.assertIn({"tokenizer": "vocab.json", "python": "requires ==0",
+                               "other-engine": "engine/other/strata"}[missing], result.stderr)
+                # The real updater may repair prerequisites, but must not reacquire the engine.
+                self.assertEqual((root / "update-attempts").read_text(), "1")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_failed_or_noop_rollback_does_not_approve_old_engine(self):
+        state = self.state
+        for noop in (True, False):
+            with self.subTest(noop=noop):
+                self.state = state / str(noop)
+                root = self.make_rollback_workspace()
+                (root / "engine/BUILD.json").write_text(json.dumps({
+                    "version": "0.1.45", "source": "prebuilt",
+                }))
+                args = ["--rollback-engine", "--help"] if noop else ["--rollback-engine"]
+                if not noop:
+                    shutil.rmtree(root / "engine/.previous")
+                result = subprocess.run(self.command(self.new) + ["run", *args],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0 if noop else 1)
+                self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
+                self.start_rollback_workspace(root)
+                self.assertEqual((root / "engine/strata").read_text(), "C")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_source_or_payload_change_retires_rollback_approval(self):
+        state = self.state
+        for change in ("source", "payload", "setup", "failed-update"):
+            with self.subTest(change=change):
+                self.state = state / change
+                root = self.make_rollback_workspace()
+                result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if change == "source":
+                    for revision in (self.old, self.new):
+                        result = subprocess.run(self.command(revision) + ["run", "--help"],
+                                                env=self.env, capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                elif change == "payload":
+                    executable = root / "engine/strata"
+                    info = executable.stat()
+                    executable.write_text("X")
+                    os.utime(executable, ns=(info.st_atime_ns, info.st_mtime_ns))
+                else:
+                    script = root / "setup.sh"
+                    original = script.read_text()
+                    script.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
+                    flag = "--set" if change == "setup" else "--update"
+                    result = subprocess.run(
+                        [sys.executable, WORKSPACE, str(self.state), self.new, flag],
+                        env=self.env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 9, result.stderr)
+                    script.write_text(original)
+                self.start_rollback_workspace(root)
+                self.assertEqual((root / "engine/strata").read_text(), "C")
+                self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_automatic_python_repair_preserves_rolled_back_engine(self):
+        root = self.make_rollback_workspace()
+        wheel = self.base / "rollback_probe-1.0-py3-none-any.whl"
+        files = {
+            "rollback_probe/__init__.py": "",
+            "rollback_probe-1.0.dist-info/METADATA": (
+                "Metadata-Version: 2.1\nName: rollback-probe\nVersion: 1.0\n"
+            ),
+            "rollback_probe-1.0.dist-info/WHEEL": (
+                "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+            ),
+        }
+        files["rollback_probe-1.0.dist-info/RECORD"] = "".join(f"{name},,\n" for name in files)
+        with zipfile.ZipFile(wheel, "w") as archive:
+            for name, content in files.items():
+                archive.writestr(name, content)
+        self.env.update(PIP_NO_INDEX="1", PIP_FIND_LINKS=str(self.base))
+        (root / "requirements.txt").write_text("pip\nrollback-probe==1.0\n")
+        script = root / "setup.sh"
+        script.write_text(script.read_text().replace(
+            "setup.pip_install = lambda *args, **kwargs: None\n", "",
+        ))
+        (root / "serve/server.py").write_text("import rollback_probe\n" + GATE)
+        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.start_rollback_workspace(root)
+        self.assertEqual((root / "engine/strata").read_text(), "A")
+        self.assertEqual((root / "update-attempts").read_text(), "1")
+        self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.new)
+        self.start_rollback_workspace(root)
+        self.assertEqual((root / "engine/strata").read_text(), "A")
+        self.assertEqual((root / "update-attempts").read_text(), "1")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_rollback_approvals_are_per_toolkit(self):
+        root = self.make_rollback_workspace()
+        shutil.copytree(root / "engine", root / "engine-cuda12")
+        config = json.loads((root / "strata-fixture.json").read_text())
+        config["exe"] = str(root / "engine-cuda12/strata")
+        (root / "strata-cuda12.json").write_text(json.dumps(config))
+        for args in (["--rollback-engine"], ["--rollback-engine", "--cuda=12"]):
+            result = subprocess.run(self.command(self.new) + ["run", *args],
+                                    env=self.env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.start_rollback_workspace(root, "--yes")
+        for directory in ("engine", "engine-cuda12"):
+            self.assertEqual((root / directory / "strata").read_text(), "A")
+        self.assertFalse((root / "update-attempts").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_versionless_rollback_never_certifies_runtime(self):
+        root = self.make_rollback_workspace()
+        (root / "engine/.previous/BUILD.json").write_text('{"source": "prebuilt"}')
+        shutil.rmtree(root / "engine/default")
+        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = subprocess.run(
+            [str(root / ".venv/bin/python"), WORKSPACE, "--runtime-status", str(root)],
+            env=self.env, cwd=root, capture_output=True, text=True, timeout=30,
+        )
+        self.assertNotEqual(status.returncode, 0)
+        result = subprocess.run(self.command(self.new) + ["run", "--no-browser"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((root / "engine/strata").read_text(), "A")
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_local_rollback_preserves_same_revision_source_checks(self):
+        root = self.make_rollback_workspace()
+        shutil.copyfile(Path(UPSTREAM) / "CMakeLists.txt", root / "CMakeLists.txt")
+        (root / "engine/.previous/BUILD.json").write_text(json.dumps({
+            "version": "0.1.45", "source": "local", "src": "previous-source", "vision": "none",
+        }))
+        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.start_rollback_workspace(root)
+        self.assertEqual((root / "engine/strata").read_text(), "A")
+        source = root / "CMakeLists.txt"
+        source.write_text(source.read_text() + "\n# local source changed\n")
+        self.start_rollback_workspace(root)
+        self.assertEqual((root / "engine/strata").read_text(), "C")
+        self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_zero_exit_partial_update_retries_same_revision_and_reuses_valid_runtime(self):
@@ -571,12 +812,14 @@ PY
 
     def gated_process(self, command):
         self.env.pop("STRATA_EXECV", None)
-        ready = self.base / "ready"
+        gate = Path(tempfile.mkdtemp(prefix="gate-", dir=self.base))
+        self.addCleanup(shutil.rmtree, gate)
+        ready = gate / "ready"
         os.mkfifo(ready)
         descriptor = os.open(ready, os.O_RDONLY | os.O_NONBLOCK)
         self.addCleanup(os.close, descriptor)
         self.env["GATE_READY"] = str(ready)
-        self.env["GATE_SOCKET"] = str(self.base / "gate.sock")
+        self.env["GATE_SOCKET"] = str(gate / "socket")
         process = subprocess.Popen(command, env=self.env, start_new_session=True,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
