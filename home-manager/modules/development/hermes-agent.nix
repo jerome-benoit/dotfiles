@@ -43,15 +43,20 @@ let
     # They also dlopen libcuda.so.1, so expose addDriverRunpath.driverLink.
     + lib.optionalString cudaRuntimeEnabled ":${pkgs.addDriverRunpath.driverLink}/lib";
 
-  # Workaround: upstream wrappers omit PortAudio and CUDA runtime library paths.
-  # Remove when upstream exposes those libraries to Hermes executables.
+  # Workaround: upstream wrappers omit audio discovery tools and runtime paths.
+  # Remove when upstream exposes those dependencies to Hermes executables.
   hermesAgentPackage = baseHermesAgentPackage.overrideAttrs (previousAttrs: {
     postFixup = (previousAttrs.postFixup or "") + ''
       for bin in "$out"/bin/*; do
         [ -x "$bin" ] || continue
-        wrapProgram "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}"
+        wrapProgram "$bin" --prefix ${voiceRuntimeLibVar} : "${voiceRuntimeLibPath}" \
+          ${lib.optionalString isLinux "--prefix PATH : ${lib.makeBinPath [ pkgs.binutils ]}"}
       done
     '';
+    # Expose the service launcher without building the application/model closure.
+    passthru = (previousAttrs.passthru or { }) // {
+      integrationSecretGate = secretGate;
+    };
   });
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
   hermesDesktopPackage = effectiveHermesAgentPackage.hermesDesktop or null;
@@ -85,6 +90,21 @@ let
           };
         }
       );
+
+  # Workaround: launchd starts Hermes and sops independently at login.
+  # Remove when upstream gates service startup on its secret provider.
+  secretGate = pkgs.writeShellScript "hermes-secret-ready" ''
+    attempts=0
+    until [ -r ${lib.escapeShellArg config.sops.secrets."hermes-env".path} ]; do
+      if [ "$attempts" -ge 60 ]; then
+        echo "Hermes secret unavailable after 60 seconds" >&2
+        exit 1
+      fi
+      attempts=$((attempts + 1))
+      ${pkgs.coreutils}/bin/sleep 1
+    done
+    exec "$@"
+  '';
 
 in
 {
@@ -207,6 +227,25 @@ in
             After = [ "sops-nix.service" ];
             Requires = [ "sops-nix.service" ];
           };
+        })
+      ]
+    );
+
+    launchd.agents = lib.mkIf isDarwin (
+      lib.mkMerge [
+        (lib.mkIf cfg.enableGateway {
+          hermes-agent.config.ProgramArguments = lib.mkForce (
+            [ "${secretGate}" ] ++ hermesModuleCommon.gatewayArgv serviceCfg
+          );
+        })
+        (lib.mkIf cfg.enableDashboard {
+          hermes-backend.config.ProgramArguments = lib.mkForce (
+            [ "${secretGate}" ]
+            ++ hermesModuleCommon.backendArgv {
+              inherit pkgs;
+              cfg = serviceCfg;
+            }
+          );
         })
       ]
     );

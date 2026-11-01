@@ -1,0 +1,44 @@
+# Workaround: Cursor package exposes cursor-agent, not agent.
+# Remove when upstream registry detects and launches the packaged executable.
+--- a/src/agents.rs
++++ b/src/agents.rs
+@@ -767,7 +767,7 @@
+             SessionCaptureContext::PaneScoped,
+             SessionCaptureContext::PaneScoped,
+         ),
+-        ..agent("cursor", "agent", "see https://docs.cursor.com/cli")
++        ..agent("cursor", "cursor-agent", "see https://docs.cursor.com/cli")
+     },
+     AgentDef {
+         oneshot_flag: Some("-p"),
+--- a/src/tmux/mod.rs
++++ b/src/tmux/mod.rs
+@@ -3184,6 +3184,28 @@
+ 
+ #[cfg(test)]
+ mod tests {
++
++    #[test]
++    #[cfg(unix)]
++    #[serial_test::serial]
++    fn nix_cursor_registry_detects_and_launches_cursor_agent() {
++        if run_probe_test_in_subprocess() { return; }
++        use std::os::unix::fs::{symlink, PermissionsExt};
++        let directory = tempfile::tempdir().unwrap();
++        let binary = directory.path().join("cursor-agent");
++        std::fs::write(&binary, "#!/bin/sh\nprintf '<%s>\\n' \"$@\"\n").unwrap();
++        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
++        symlink(env!("NIX_AOE_WHICH"), directory.path().join("which")).unwrap();
++        let _env = crate::session::test_support::EnvGuard::set(&[("PATH", directory.path())]);
++        let cursor = crate::agents::get_agent("cursor").unwrap();
++        assert_eq!(agent_available_direct(cursor, None), Some(true));
++        assert!(which::which("agent").is_err());
++        assert!(agent_availability_snapshot(&[cursor]).contains("cursor"));
++        let output = Command::new(cursor.launch_base_command()).args(["two words", "$HOME; literal"]).output().unwrap();
++        assert!(output.status.success());
++        assert_eq!(String::from_utf8(output.stdout).unwrap(), "<two words>\n<$HOME; literal>\n");
++    }
++
+     /// Invalidation must clear after an in-flight probe publishes, not before.
+     #[test]
+     #[serial_test::serial]

@@ -1,0 +1,400 @@
+# Workaround: pinned host contracts changed plugin loading, routing and config roots.
+# Remove when upstream generators consume these contracts and Hermes deny lists.
+--- a/packages/cli/src/index.ts
++++ b/packages/cli/src/index.ts
+@@ -9096,10 +9096,12 @@
+   ];
+ }
+ 
+-// OpenCode reads $XDG_CONFIG_HOME/opencode, else ~/.config/opencode on every
++// OpenCode reads OPENCODE_CONFIG_DIR, else XDG_CONFIG_HOME/opencode or ~/.config/opencode on every
+ // platform, and opencode.jsonc over opencode.json when both are there.
+ function opencodeConfigDir(): string {
+-  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
++  const root = process.env.OPENCODE_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
++  if (!isAbsolute(root)) throw new Error("OpenCode config root must be absolute");
++  return root;
+ }
+ 
+ function opencodeConfigPath(): string {
+@@ -9172,13 +9174,12 @@
+ 
+ const command = ${JSON.stringify(cmd)};
+ const prefix = ${JSON.stringify(pre)};
+-const contexts = new Map();
+-const pending = new Map();
+-
+-function call(event, payload = {}) {
++
++function callNative(event, payload = {}) {
+   try {
+     const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
+       input: JSON.stringify({ event_name: event, ...payload }),
++      cwd: payload.cwd,
+       encoding: "utf8",
+       timeout: 2000,
+       maxBuffer: 2 * 1024 * 1024,
+@@ -9242,6 +9243,11 @@
+   return /^(?:please\\s+)?(?:continue|go ahead|keep going|proceed|do (?:it|that)|fix (?:it|that)|retry|try again|explain (?:it|that)|what do you mean|yes|yep|yeah|why\\??|how\\??)[.!?\\s]*$/.test(prompt);
+ }
+ 
++
++export const CavemanNative = async ({ directory } = { directory: process.cwd() }) => {
++  const call = (event, payload = {}) => callNative(event, { ...payload, cwd: directory });
++  const contexts = new Map();
++  const pending = new Map();
+ function sessionContext(sessionID) {
+   if (!sessionID) return undefined;
+   if (!contexts.has(sessionID)) {
+@@ -9252,7 +9258,7 @@
+   return contexts.get(sessionID);
+ }
+ 
+-export const CavemanNative = async () => ({
++  return ({
+   event: async ({ event }) => {
+     const type = event?.type;
+     const props = event?.properties ?? {};
+@@ -9337,6 +9343,7 @@
+     pending.clear();
+   },
+ });
++};
+ `;
+ }
+ 
+@@ -9351,10 +9358,64 @@
+ const command = ${JSON.stringify(cmd)};
+ const prefix = ${JSON.stringify(pre)};
+ 
++
++function digest(value) {
++  try {
++    const raw = JSON.stringify(value);
++    return { bytes: Buffer.byteLength(raw), sha256: "sha256:" + createHash("sha256").update(raw).digest("hex") };
++  } catch { return undefined; }
++}
++
++function taskType(value) {
++  let text;
++  try { text = JSON.stringify(value).toLowerCase(); } catch { return "general"; }
++  const has = (...terms) => terms.some((term) => text.includes(term));
++  if (has("migration", "migrate", "schema change", "backfill", "rollback")) return "migration";
++  if (has("bug", "fix", "broken", "regression", "crash", "error", "incorrect")) return "bugfix";
++  if (has("investigate", "diagnose", "root cause", "why does", "trace")) return "investigation";
++  if (has("refactor", "restructure", "reorganize", "cleanup")) return "refactor";
++  if (has("review", "audit", "critique", "assess")) return "review";
++  if (has("verify", "verification", "prove", "validate", "check that")) return "verification";
++  if (has("build", "implement", "add", "create", "ship", "feature")) return "feature";
++  return "general";
++}
++
++function taskTerms(value) {
++  let text;
++  try { text = JSON.stringify(value); } catch { return []; }
++  const stop = new Set(["about", "after", "agent", "before", "build", "change", "code", "create", "from", "have", "help", "implement", "into", "make", "please", "project", "repository", "should", "spec", "task", "that", "then", "there", "these", "they", "this", "through", "user", "want", "what", "when", "where", "which", "with", "would", "your"]);
++  const out = [];
++  const seen = new Set();
++  for (const raw of text.match(/[A-Za-z][A-Za-z0-9_./-]{2,63}/g) ?? []) {
++    const term = raw.toLowerCase().replace(/^[-./]+|[-./]+$/g, "");
++    if (!term || term.includes("..") || stop.has(term) || seen.has(term) || /^(?:sk|pk|rk|ghp|github_pat|xox[baprs]|akia)[-_]/i.test(term) || /^[a-z0-9_-]{40,}$/i.test(term)) continue;
++    seen.add(term);
++    out.push(term);
++    if (out.length === 12) break;
++  }
++  return out;
++}
++
++function taskContinuation(value) {
++  const visit = (item) => {
++    if (typeof item === "string") return item;
++    if (Array.isArray(item)) return item.map(visit).filter(Boolean).join(" ");
++    if (!item || typeof item !== "object") return "";
++    return visit(item.text ?? item.content ?? item.message ?? "");
++  };
++  const prompt = visit(value).trim().toLowerCase();
++  if (!prompt || prompt.length > 160 || prompt.split(/\\s+/).length > 14) return false;
++  return /^(?:please\\s+)?(?:continue|go ahead|keep going|proceed|do (?:it|that)|fix (?:it|that)|retry|try again|explain (?:it|that)|what do you mean|yes|yep|yeah|why\\??|how\\??)[.!?\\s]*$/.test(prompt);
++}
++
++export default {
++  id: "caveman-native",
++  async setup(ctx) {
+ function call(event, payload = {}) {
+   try {
+     const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
+-      input: JSON.stringify({ event_name: event, ...payload }),
++      input: JSON.stringify({ event_name: event, ...payload, cwd: ctx.location.directory }),
++      cwd: ctx.location.directory,
+       encoding: "utf8",
+       timeout: 2000,
+       maxBuffer: 2 * 1024 * 1024,
+@@ -9369,58 +9430,6 @@
+   } catch { return undefined; }
+ }
+ 
+-function digest(value) {
+-  try {
+-    const raw = JSON.stringify(value);
+-    return { bytes: Buffer.byteLength(raw), sha256: "sha256:" + createHash("sha256").update(raw).digest("hex") };
+-  } catch { return undefined; }
+-}
+-
+-function taskType(value) {
+-  let text;
+-  try { text = JSON.stringify(value).toLowerCase(); } catch { return "general"; }
+-  const has = (...terms) => terms.some((term) => text.includes(term));
+-  if (has("migration", "migrate", "schema change", "backfill", "rollback")) return "migration";
+-  if (has("bug", "fix", "broken", "regression", "crash", "error", "incorrect")) return "bugfix";
+-  if (has("investigate", "diagnose", "root cause", "why does", "trace")) return "investigation";
+-  if (has("refactor", "restructure", "reorganize", "cleanup")) return "refactor";
+-  if (has("review", "audit", "critique", "assess")) return "review";
+-  if (has("verify", "verification", "prove", "validate", "check that")) return "verification";
+-  if (has("build", "implement", "add", "create", "ship", "feature")) return "feature";
+-  return "general";
+-}
+-
+-function taskTerms(value) {
+-  let text;
+-  try { text = JSON.stringify(value); } catch { return []; }
+-  const stop = new Set(["about", "after", "agent", "before", "build", "change", "code", "create", "from", "have", "help", "implement", "into", "make", "please", "project", "repository", "should", "spec", "task", "that", "then", "there", "these", "they", "this", "through", "user", "want", "what", "when", "where", "which", "with", "would", "your"]);
+-  const out = [];
+-  const seen = new Set();
+-  for (const raw of text.match(/[A-Za-z][A-Za-z0-9_./-]{2,63}/g) ?? []) {
+-    const term = raw.toLowerCase().replace(/^[-./]+|[-./]+$/g, "");
+-    if (!term || term.includes("..") || stop.has(term) || seen.has(term) || /^(?:sk|pk|rk|ghp|github_pat|xox[baprs]|akia)[-_]/i.test(term) || /^[a-z0-9_-]{40,}$/i.test(term)) continue;
+-    seen.add(term);
+-    out.push(term);
+-    if (out.length === 12) break;
+-  }
+-  return out;
+-}
+-
+-function taskContinuation(value) {
+-  const visit = (item) => {
+-    if (typeof item === "string") return item;
+-    if (Array.isArray(item)) return item.map(visit).filter(Boolean).join(" ");
+-    if (!item || typeof item !== "object") return "";
+-    return visit(item.text ?? item.content ?? item.message ?? "");
+-  };
+-  const prompt = visit(value).trim().toLowerCase();
+-  if (!prompt || prompt.length > 160 || prompt.split(/\\s+/).length > 14) return false;
+-  return /^(?:please\\s+)?(?:continue|go ahead|keep going|proceed|do (?:it|that)|fix (?:it|that)|retry|try again|explain (?:it|that)|what do you mean|yes|yep|yeah|why\\??|how\\??)[.!?\\s]*$/.test(prompt);
+-}
+-
+-export default {
+-  id: "caveman-native",
+-  async setup(ctx) {
+     // Per-plugin-instance state: one setup() runs per location, so two
+     // projects never share session context through module scope.
+     const contexts = new Map();
+@@ -9444,13 +9453,7 @@
+       if (!controller.signal.aborted) console.warn("[caveman-native] Event subscription failed");
+     });
+ 
+-    function sameLocation(event) {
+-      return event.location?.directory === ctx.location.directory &&
+-        event.location?.workspaceID === ctx.location.workspaceID;
+-    }
+-
+     function handleEvent(event) {
+-      if (!sameLocation(event)) return;
+       const type = event.type;
+       const sessionID = event.data?.sessionID;
+       if (typeof sessionID !== "string" || !sessionID) return;
+@@ -9515,7 +9518,8 @@
+           input && typeof input === "object" && typeof input.command === "string") {
+         try {
+           const raw = execFileSync(command, [...prefix, "shrink-hook"], {
+-            input: JSON.stringify({ tool_name: "Bash", tool_input: { command: input.command } }),
++            input: JSON.stringify({ tool_name: "Bash", tool_input: { command: input.command }, cwd: ctx.location.directory }),
++            cwd: ctx.location.directory,
+             encoding: "utf8",
+             timeout: 750,
+             windowsHide: true,
+@@ -10537,6 +10541,12 @@
+ }
+ 
+ function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
++  if (/^[ \t]*\[[ \t]*\][ \t]*(?:#.*)?$/.test(enabled.value)) {
++    if (lines.slice(enabled.start + 1, enabled.end).some(hermesYamlContent)) {
++      throw new Error("Hermes empty plugin list has unexpected child content");
++    }
++    return [];
++  }
+   if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
+   const items: (HermesYamlEntry & { name: string })[] = [];
+   for (let i = enabled.start + 1; i < enabled.end; i++) {
+@@ -10644,6 +10654,7 @@
+ }
+ 
+ function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { text: string; owned: Record<string, unknown> } {
++  requireHermesPluginAllowed(source, HERMES_NATIVE_PLUGIN_NAME);
+   const lines = yamlLines(source);
+   let layout = hermesYamlLayout(lines);
+   if (layout.markerComments.size) {
+@@ -10706,6 +10717,8 @@
+   }
+   const items = hermesNativePluginItems(lines, enabled);
+   if (!items.some((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)) {
++    // Hermes serializes an empty sequence as []; convert only that supported form.
++    lines[enabled.start] = lines[enabled.start]!.replace(/\[[ \t]*\]/, "");
+     const itemPad = " ".repeat(items[0]?.indent ?? enabled.indent + 2);
+     const block = [`${itemPad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${itemPad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${itemPad}${HERMES_NATIVE_PLUGIN_END}`];
+     lines.splice(enabled.start + 1, 0, ...block);
+@@ -11152,6 +11165,10 @@
+ // progress line per step itself; refusals still throw with their full message.
+ function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
+   const { detected, profiles } = enableProfiles(argv);
++  if (profiles.some((profile) => profile.id === "hermes")) {
++    const path = hermesConfigPath();
++    requireHermesPluginAllowed(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_NATIVE_PLUGIN_NAME);
++  }
+   if (profiles.some((profile) => profile.id !== "aider")) registrationPath();
+   const gw = gatewayURL();
+   for (const profile of profiles) {
+@@ -11871,7 +11888,8 @@
+           owned = CODEX_NATIVE_TABLES.every((table) => tables.get(table) === true) && codexNativeRouted(lines) && text.indexOf("\uFEFF", 1) === -1;
+         } else if (operation.kind === "hermes-config") {
+           const state = hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
+-          owned = state.plugin !== undefined && state.mcp !== undefined;
++          owned = state.plugin !== undefined && state.mcp !== undefined
++            && hermesNamedPluginEnabled(current.toString("utf8"), HERMES_NATIVE_PLUGIN_NAME);
+         } else if (operation.kind === "gemini-settings") {
+           const root = parseJsonFileObject(operation.file, current);
+           const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
+@@ -18729,25 +18747,29 @@
+ // with \`caveman retrieve\`). Remove with \`caveman hooks uninstall opencode\`.
+ import { execFileSync } from "node:child_process";
+ 
+-export const CavemanShrink = async () => ({
+-  "tool.execute.before": async (input, output) => {
+-    if (input?.tool !== "bash") return;
+-    const command = output?.args?.command;
+-    if (typeof command !== "string" || !command.trim()) return;
+-    try {
+-      const res = execFileSync(${JSON.stringify(cmd)}, ${argv}, {
+-        input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
+-        encoding: "utf8",
+-        windowsHide: true,
+-      });
+-      if (!res) return;
+-      const rewritten = JSON.parse(res)?.hookSpecificOutput?.updatedInput?.command;
+-      if (typeof rewritten === "string" && rewritten) output.args.command = rewritten;
+-    } catch {
+-      // byte-safe: any failure leaves the original command untouched.
+-    }
++export default {
++  id: "caveman-shrink",
++  async setup(ctx) {
++    await ctx.tool.hook("execute.before", async (event) => {
++      if (event?.tool !== "shell") return;
++      const command = event.input?.command;
++      if (typeof command !== "string" || !command.trim()) return;
++      try {
++        const res = execFileSync(${JSON.stringify(cmd)}, ${argv}, {
++          input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
++          cwd: ctx.location.directory,
++          encoding: "utf8",
++          windowsHide: true,
++        });
++        if (!res) return;
++        const rewritten = JSON.parse(res)?.hookSpecificOutput?.updatedInput?.command;
++        if (typeof rewritten === "string" && rewritten) event.input.command = rewritten;
++      } catch {
++        // Any child or decoding failure leaves the original command unchanged.
++      }
++    });
+   },
+-});
++};
+ `;
+ }
+ function installShrinkPluginOpencode(): boolean {
+@@ -18880,10 +18902,26 @@
+ `;
+ }
+ 
++function hermesPluginMembership(text: string, field: string, name: string): boolean {
++  const lines = yamlLines(text);
++  const plugins = hermesYamlMap(lines).get("plugins");
++  if (!plugins) return false;
++  const entry = hermesYamlMap(lines, plugins).get(field);
++  return entry ? hermesNativePluginItems(lines, entry).some((item) => item.name === name) : false;
++}
++
+ function hermesNamedPluginEnabled(text: string, name: string): boolean {
+-  const escaped = escapeRegExp(name);
+-  return new RegExp(`(^|\\n)\\s*-\\s*["']?${escaped}["']?\\s*(?:#.*)?(?=\\n|$)`).test(text)
+-    || new RegExp(`enabled:\\s*\\[[^\\]]*["']?${escaped}["']?`).test(text);
++  try {
++    return !hermesPluginMembership(text, "disabled", name)
++      && hermesPluginMembership(text, "enabled", name);
++  } catch { return false; }
++}
++
++function requireHermesPluginAllowed(text: string, name: string): void {
++  // Parse both lists before any writes; unsupported YAML fails closed.
++  const disabled = hermesPluginMembership(text, "disabled", name);
++  hermesPluginMembership(text, "enabled", name);
++  if (disabled) throw new Error(`Hermes plugin ${name} is disabled; run hermes plugins enable ${name}`);
+ }
+ 
+ function hermesPluginEnabled(text: string): boolean {
+@@ -18901,6 +18939,8 @@
+       return false;
+     }
+   }
++  try { requireHermesPluginAllowed(existing, HERMES_PLUGIN_NAME); }
++  catch (error) { console.error(String(error)); return false; }
+   if (hermesPluginEnabled(existing)) return true;
+   const stripped = stripMarkedBlock(existing, HERMES_PLUGIN_ENABLE_BEGIN, HERMES_PLUGIN_ENABLE_END).text;
+   const lines = yamlLines(stripped);
+@@ -18920,6 +18960,10 @@
+         break;
+       }
+     }
++    if (inlineEnabled && /^[ \t]*enabled:[ \t]*\[[ \t]*\][ \t]*(?:#.*)?$/.test(lines[enabledLine]!)) {
++      lines[enabledLine] = lines[enabledLine]!.replace(/\[[ \t]*\]/, "");
++      inlineEnabled = false;
++    }
+     if (inlineEnabled) {
+       console.error(`${mark("warn")} ${path} uses inline plugins.enabled; wrote Hermes plugin but could not add marker-fenced enable entry`);
+       return false;
+@@ -18998,6 +19042,14 @@
+ }
+ 
+ function installShrinkPluginHermes(): boolean {
++  try {
++    const path = hermesConfigPath();
++    requireHermesPluginAllowed(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_PLUGIN_NAME);
++  } catch (error) {
++    try { unlinkSync(shrinkHookMarkerPath("hermes")); } catch { /* no marker */ }
++    console.error(String(error));
++    return false;
++  }
+   registrationPath();
+   try {
+     mkdirSync(hermesPluginDir(), { recursive: true });
+@@ -19008,7 +19060,9 @@
+     return false;
+   }
+   if (!enableHermesPluginInConfig()) {
+-    process.stderr.write(`${mark("warn")} Hermes plugin written to ${hermesPluginDir()}, but plugins.enabled was not updated; run ${cyan(`hermes plugins enable ${HERMES_PLUGIN_NAME}`)}\n`);
++    process.stderr.write(`${mark("warn")} Hermes plugin inactive; run ${cyan(`hermes plugins enable ${HERMES_PLUGIN_NAME}`)}\n`);
++    try { unlinkSync(shrinkHookMarkerPath("hermes")); } catch { /* no marker */ }
++    return false;
+   }
+   return true;
+ }
+@@ -19080,6 +19134,10 @@
+   return join(cavemanHome(), "hooks", `${agentId}.json`);
+ }
+ function shrinkHookInstalled(agentId: string): boolean {
++  if (agentId === "hermes") {
++    try { if (!hermesPluginEnabled(readFileSync(hermesConfigPath(), "utf8"))) return false; }
++    catch { return false; }
++  }
+   try { return statSync(shrinkHookMarkerPath(agentId)).isFile(); } catch { return false; }
+ }
+ function writeShrinkHookMarker(agentId: string) {

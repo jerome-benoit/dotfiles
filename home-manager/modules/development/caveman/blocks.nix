@@ -29,6 +29,7 @@ buildGoModule {
     # Workaround: OpenCode 2 needs a compatible adapter and invocation-scoped hints.
     # Remove when upstream supports both APIs and location-relative workdirs.
     ../../../../patches/caveman-blocks-opencode2.patch
+    ../../../../patches/caveman-blocks-config-root.patch
   ];
 
   postInstall = ''

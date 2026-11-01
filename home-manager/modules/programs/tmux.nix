@@ -128,10 +128,6 @@ in
         bind -r C-h previous-window
         bind -r C-l next-window
 
-        # ============================================================================
-        # THEME POST-CONFIG
-        # ============================================================================
-        ${tmuxThemePlugins.${theme.family}.postConfig}
       '';
 
       plugins = [
@@ -143,6 +139,9 @@ in
           plugin = tmuxThemePlugins.${theme.family}.plugin;
           extraConfig = tmuxThemePlugins.${theme.family}.extraConfig;
         }
+      ]
+      ++ tmuxThemePlugins.${theme.family}.extraPlugins
+      ++ [
         {
           plugin = pkgs.tmuxPlugins.resurrect;
           extraConfig = ''
@@ -155,12 +154,12 @@ in
         {
           plugin = pkgs.tmuxPlugins.continuum;
           extraConfig = ''
+            ${tmuxThemePlugins.${theme.family}.postConfig}
             set -g @continuum-restore 'on'
             set -g @continuum-save-interval '15'
           '';
         }
-      ]
-      ++ tmuxThemePlugins.${theme.family}.extraPlugins;
+      ];
     };
   };
 }

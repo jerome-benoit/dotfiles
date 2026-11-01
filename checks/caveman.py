@@ -413,6 +413,26 @@ for (const [workdir, matches] of [
 console.log("OpenCode 1/2: output, metadata, invocation isolation and location workdirs passed");
 """.encode())
     run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo)
+    foreign_root = home / ".config/opencode/foreign.json"
+    foreign_root.write_text('{"foreign":true}\n')
+    for additions in (
+        {"XDG_CONFIG_HOME": str(root / "blocks xdg ' $literal")},
+        {"XDG_CONFIG_HOME": str(root / "blocks unused-xdg"),
+         "OPENCODE_CONFIG_DIR": str(root / "blocks override ' $literal")},
+    ):
+        selected_env = {**env, **additions}
+        expected = Path(additions.get("OPENCODE_CONFIG_DIR", str(Path(additions["XDG_CONFIG_HOME"]) / "opencode")))
+        run("caveman-blocks", "hooks", "install", "--harness", "opencode", cwd=repo, environment=selected_env)
+        selected_plugin = expected / "plugins/caveman-blocks.js"
+        assert selected_plugin.exists()
+        report = json.loads(run("caveman-blocks", "hooks", "status", "--harness", "opencode", "--json",
+                                cwd=repo, environment=selected_env).stdout)
+        assert report["harnesses"][0]["installed"] is True, report
+        assert report["harnesses"][0]["config"] == str(selected_plugin), report
+        assert not plugin.exists()
+        run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo, environment=selected_env)
+        assert not selected_plugin.exists()
+        assert foreign_root.read_text() == '{"foreign":true}\n'
 
     # A persisted native hook bypasses the CLI wrapper. With only the package
     # on PATH it must revive, identify and stop its own proxy, including on Darwin.

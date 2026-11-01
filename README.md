@@ -53,6 +53,13 @@ make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
 
 Recovery: with the configured SOPS age identity + the git repo, SOPS secrets and GPG subkeys are recoverable. The GPG primary key is not in the bundle; back it up separately offline.
 
+Secret edits and GPG bundle exports stage ciphertext beside the destination and publish
+only after successful completion. Failed writes leave the previous ciphertext intact.
+Interactive SOPS plaintext stays in a private manager-owned workspace, removed after
+supervised editor shutdown, including handled hangup and quit signals. Uncatchable
+termination or machine failure cannot guarantee plaintext cleanup.
+GPG bundle passphrases preserve leading and trailing whitespace.
+
 ### Formatting
 
 ```bash
@@ -68,6 +75,20 @@ nix flake check      # Run all checks:
                      # - Symlinks validation
                      # - Build all home-manager configurations
 ```
+
+Focused synthetic integration checks (no user activation, real secrets, model downloads or GPU inference):
+
+```bash
+nix build .#checks.x86_64-linux.secrets
+nix build .#checks.x86_64-linux.consumers
+nix build .#checks.x86_64-linux.hermes-agent
+nix build .#checks.x86_64-linux.caveman
+```
+
+These checks exercise real secret consumers with disposable keys, literal shell
+arguments, terminal dispatch, editor APIs, real Pyright initialization and buffer
+attachment, and generated agent integrations.
+Darwin login ordering still requires native-platform validation.
 
 ### Maintenance
 

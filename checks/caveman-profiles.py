@@ -371,13 +371,23 @@ def shrink_callbacks(f):
     source = r'''
 import {pathToFileURL} from "node:url";
 const module = await import(pathToFileURL(process.argv[1]));
-const hooks = await module.CavemanShrink();
-const output = {args:{command:process.argv[2]}};
-await hooks["tool.execute.before"]({tool:"bash"}, output);
-console.log(JSON.stringify(output));
+const plugin = module.default;
+if (!plugin || typeof plugin.id !== "string" || typeof plugin.setup !== "function")
+  throw new Error("OpenCode V2 plugin definition rejected");
+const hooks = new Map();
+await plugin.setup({
+  location: {directory: process.cwd()},
+  tool: {hook(name, callback) {hooks.set(name, callback);}},
+});
+const event = {tool:"shell", input:{command:process.argv[2]}};
+await hooks.get("execute.before")(event);
+const ignored = {tool:"read", input:{command:process.argv[2]}};
+await hooks.get("execute.before")(ignored);
+if (ignored.input.command !== process.argv[2]) throw new Error("Non-shell tool rewritten");
+console.log(JSON.stringify(event));
 '''
     output = json.loads(f.node(source, plugin, f.command, env={**f.env, "PATH": ""}).stdout)
-    f.assert_rewritten(output["args"]["command"])
+    f.assert_rewritten(output["input"]["command"])
     # Load Hermes' actual generated Python module with its public register API.
     hermes = f.home / ".hermes/plugins/caveman_shrink/__init__.py"
     spec = importlib.util.spec_from_file_location("generated_hermes_shrink", hermes)
@@ -1414,6 +1424,151 @@ def package_invocations(root):
     assert not (home / ".caveman/integrations/aider.json").exists()
 
 
+def opencode_location_contract(f):
+    # Failed version discovery deliberately selects the supported combined artifact.
+    # This probe models discovery failure, not an OpenCode implementation.
+    host = f.hosts / "opencode"
+    host.unlink()
+    put(host, f"#!{shell_interpreter()}\nexit 1\n", 0o755)
+    f.cli("enable", "opencode")
+    plugin = f.home / ".config/opencode/plugins/caveman-native.js"
+    log = f.root / "native-calls.jsonl"
+    launcher = f.a / "bin/caveman"
+    real = launcher.with_name("caveman-real")
+    shutil.copy2(launcher, real)
+    # Observe the real native CLI boundary, then forward unchanged to the real CLI.
+    put(launcher, f"#!{sys.executable}\n"
+        "import json,os,subprocess,sys\n"
+        "from pathlib import Path\n"
+        f"real={str(real)!r}\n"
+        "if sys.argv[1:2] not in ([\"native-hook\"],[\"shrink-hook\"]): os.execv(real,[real,*sys.argv[1:]])\n"
+        "data=sys.stdin.buffer.read()\n"
+        f"with Path({str(log)!r}).open('a') as stream:\n"
+        " stream.write(json.dumps({'argv':sys.argv[1:],'cwd':os.getcwd(),'payload':json.loads(data)})+'\\n')\n"
+        "result=subprocess.run([real,*sys.argv[1:]],input=data)\n"
+        "sys.exit(result.returncode)\n", 0o755)
+    location = f.root / "location B ' literal"
+    location.mkdir()
+    execute([GIT, "init", "--initial-branch=main", location], f.env)
+    source = r'''
+import {pathToFileURL} from "node:url";
+import {readFileSync} from "node:fs";
+const plugin = (await import(pathToFileURL(process.argv[1]))).default;
+if (!plugin || !plugin.id || typeof plugin.setup !== "function") throw new Error("V2 loader shape rejected");
+const pending = [];
+let wake;
+const hooks = new Map();
+const dispose = await plugin.setup({
+  location:{directory:process.argv[2], workspaceID:"location-B"},
+  event:{async *subscribe({signal}) {
+    while (!signal.aborted) {
+      if (!pending.length) await new Promise(resolve => {wake=resolve; signal.addEventListener("abort",resolve,{once:true});});
+      while (pending.length) yield pending.shift();
+    }
+  }},
+  session:{async hook(name, handler){hooks.set("session:"+name,handler);}},
+  tool:{async hook(name, handler){hooks.set("tool:"+name,handler);}},
+});
+await hooks.get("session:context")({sessionID:"location-contract",system:[]});
+await hooks.get("session:prompt")({sessionID:"location-contract",prompt:{parts:[{type:"text",text:"Review repository"}]}});
+await hooks.get("session:compaction")({sessionID:"location-contract",system:[]});
+await hooks.get("tool:execute.before")({sessionID:"location-contract",tool:"shell",input:{command:"git status"}});
+await hooks.get("tool:execute.after")({sessionID:"location-contract",tool:"shell",status:"completed",input:{command:"git status"},result:{output:"clean"}});
+// Producer-shaped locationless deletion must finalize immediately, not on disposal.
+pending.push({type:"session.deleted",data:{sessionID:"location-contract"}});
+wake?.();
+await new Promise(resolve => setImmediate(resolve));
+const calls = () => readFileSync(process.argv[3],"utf8").trim().split("\n").map(JSON.parse);
+if (calls().filter(row=>row.argv[2]==="SessionEnd").length !== 1) throw new Error("Locationless deletion dropped");
+dispose();
+if (calls().filter(row=>row.argv[2]==="SessionEnd").length !== 1) throw new Error("Deleted session finalized twice");
+const legacy = await plugin.server({directory:process.argv[2]});
+await legacy.event({event:{type:"session.created",properties:{info:{id:"legacy-contract"}}}});
+await legacy["experimental.chat.system.transform"]({sessionID:"legacy-contract"},{system:[]});
+await legacy["experimental.session.compacting"]({sessionID:"legacy-contract"},{context:[]});
+await legacy.event({event:{type:"session.deleted",properties:{sessionID:"legacy-contract"}}});
+await legacy.dispose();
+const legacyCalls = calls().filter(row=>row.payload.session_id==="legacy-contract");
+if (!legacyCalls.some(row=>row.argv[2]==="SessionStart")) throw new Error("V1 SessionStart missing");
+if (!legacyCalls.some(row=>row.argv[2]==="PreCompact")) throw new Error("V1 compaction missing");
+if (legacyCalls.filter(row=>row.argv[2]==="SessionEnd").length!==1) throw new Error("V1 session finalized twice");
+console.log(JSON.stringify(calls()));
+'''
+    try:
+        calls = json.loads(f.node(source, plugin, location, log).stdout)
+        assert len(calls) >= 6, calls
+        assert all(row["cwd"] == str(location) for row in calls), calls
+        native = [row for row in calls if row["argv"][0] == "native-hook"]
+        assert all(row["payload"]["cwd"] == str(location) for row in native), native
+    finally:
+        shutil.copy2(real, launcher)
+
+
+def hermes_denial(f):
+    config = f.paths("hermes")
+    original = config.read_bytes() if config.exists() else b""
+    try:
+        f.cli("tools", "hooks", "install", "hermes")
+        # Model the host's ordinary disable operation, preserving its deny entry.
+        document = yaml.safe_load(config.read_text())
+        document["plugins"]["enabled"] = [
+            name for name in document["plugins"]["enabled"] if name != "caveman_shrink"
+        ]
+        document["plugins"]["disabled"] = ["caveman_shrink"]
+        disabled = yaml.safe_dump(document, sort_keys=False).encode()
+        config.write_bytes(disabled)
+        before_plugin = (f.home / ".hermes/plugins/caveman_shrink/__init__.py").read_bytes()
+        result = f.cli("tools", "hooks", "install", "hermes", check=False)
+        assert result.returncode != 0
+        assert b"hermes plugins enable caveman_shrink" in result.stderr
+        assert config.read_bytes() == disabled
+        assert (f.home / ".hermes/plugins/caveman_shrink/__init__.py").read_bytes() == before_plugin
+        assert not (f.cave / "hooks/hermes.json").exists()
+        # PyYAML's normal host serialization uses [] after the deny list empties.
+        document["plugins"]["enabled"] = ["caveman_shrink"]
+        document["plugins"]["disabled"] = []
+        config.write_text(yaml.safe_dump(document, sort_keys=False))
+        f.cli("tools", "hooks", "install", "hermes")
+        assert (f.cave / "hooks/hermes.json").exists()
+        assert yaml.safe_load(config.read_text())["plugins"]["disabled"] == []
+        native_denial = b"model:\n  provider: openai\nplugins:\n  disabled:\n    - caveman_native\n"
+        config.write_bytes(native_denial)
+        result = f.cli("enable", "hermes", check=False)
+        assert result.returncode != 0
+        assert config.read_bytes() == native_denial
+        assert not (f.cave / "integrations/hermes.json").exists()
+        assert not (f.home / ".hermes/plugins/caveman_native").exists()
+        recovered = {"model": {"provider": "openai"}, "plugins": {"enabled": [], "disabled": []}}
+        config.write_text(yaml.safe_dump(recovered, sort_keys=False))
+        f.cli("enable", "hermes")
+        report = json.loads(f.cli("doctor", "hermes").stdout)
+        assert report["state"] == "installed", report
+        assert yaml.safe_load(config.read_text())["plugins"]["disabled"] == []
+        f.cli("disable", "hermes")
+    finally:
+        config.write_bytes(original)
+
+
+def opencode_roots(f):
+    ordinary = f.home / ".config/opencode"
+    foreign = ordinary / "foreign.json"
+    put(foreign, '{"foreign":true}\n')
+    for name, additions in (
+        ("xdg", {"XDG_CONFIG_HOME": str(f.root / "xdg literal ' $root")}),
+        ("override", {"XDG_CONFIG_HOME": str(f.root / "unused-xdg"),
+                      "OPENCODE_CONFIG_DIR": str(f.root / "override literal ' $root")}),
+    ):
+        environment = {**f.env, **additions}
+        expected = Path(additions.get("OPENCODE_CONFIG_DIR", str(Path(additions["XDG_CONFIG_HOME"]) / "opencode")))
+        f.cli("tools", "hooks", "install", "opencode", env=environment)
+        plugin = expected / "plugins/caveman-shrink.js"
+        assert plugin.is_file(), (name, expected)
+        assert not (ordinary / "plugins/caveman-shrink.js").exists()
+        f.cli("tools", "hooks", "uninstall", "opencode", env=environment)
+        assert not plugin.exists()
+        assert foreign.read_text() == '{"foreign":true}\n'
+
+
 def main():
     # Large executable copies stay on inherited TMPDIR. Only native state gets
     # a separate short path, shared throughout each scenario's A/B lifecycle.
@@ -1432,6 +1587,9 @@ def main():
             ("hermes-markers", hermes_foreign_markers),
             ("hermes-foreign-removal", hermes_foreign_removal),
             ("native-registration", native_registration_commands),
+            ("hermes-denial", hermes_denial),
+            ("opencode-roots", opencode_roots),
+            ("opencode-location", opencode_location_contract),
         ):
             state = short_native_state()
             fixture = None

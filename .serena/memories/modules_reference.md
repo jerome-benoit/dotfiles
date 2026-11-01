@@ -152,7 +152,7 @@ Shell configuration with oh-my-zsh:
 - Session variables: NH_FLAKE, WORKSPACE, EDITOR
 - Base plugins: colorize, screen, docker, python, poetry, rust, deno, volta, node, npm, etc.
 - Dynamic plugins based on: profile modules, distro, platform
-- Custom init: `oc()` tmux wrapper for the OpenCode TUI with project-scoped sessions, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
+- Custom init: `oc()` preserves literal OpenCode arguments across its project-scoped tmux launch, EDITOR setup (code --wait), DVM support, .secrets loading with permission check
 - envExtra: cargo env, gh auth token for NIX_CONFIG access-tokens and HOMEBREW_GITHUB_API_TOKEN
 - Profile: Volta setup, PATH configuration, .zprofile.d scripts sourcing
 
@@ -209,7 +209,7 @@ GitHub CLI:
 
 Git TUI with dynamic theme colors from `themes.current`:
 
-- Custom conventional commit command (key: C)
+- Custom conventional commit command (key: C); subject, body and breaking-change trailer are shell-quoted separately.
 - Delta pager integration
 - Auto-fetch, auto-refresh enabled
 - **Requires**: git module enabled
@@ -223,13 +223,15 @@ Hermes Agent configuration:
   `services.hermes-agent.hermesHome` paths; `hermesHome` must equal or descend from HOME.
 - Set `plugins = lib.mkForce { };` when using a Hermes home outside HOME.
 - State setup shell-quotes the Hermes home and working directory, including paths with spaces.
-- Linux creates the stable `.env` link before service reload; `After`/`Requires=sops-nix` gates its secret target. Darwin waits for synchronous secret activation before loading agents.
-- Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and the applicable CUDA libraries.
+- Linux creates the stable `.env` link before service reload; `After`/`Requires=sops-nix` gates its secret target. Darwin also gates each gateway/backend launch on secret readability, failing after 60 seconds rather than starting without credentials.
+- Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and applicable CUDA libraries. Linux wrappers include `ld` and `objdump` for Python's PortAudio discovery without a compiler.
 
 ### aoe.nix
 
 - Seed `config.toml` only when no file or symlink exists.
 - Prefer the declared future XDG session environment during activation. Without a declared export, follow the native environment and existing-directory precedence, including Darwin's legacy fallback.
+
+- The selected packaged AoE registry detects and launches Nixpkgs' `cursor-agent`; no generic `agent` alias is installed.
 
 ### agtx.nix
 
@@ -262,8 +264,9 @@ OpenCode AI assistant:
 - Generated Desktop requires a non-null CLI package selection
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
-- Upstream CI maintains `nix/hashes.json` for the three supported platforms; the local hash fixer does not maintain OpenCode dependency hashes
-- CLI and generated Desktop share the dependency derivation and hashes from the locked upstream source
+- Workaround: the authorized OpenCode lock revision `977f5c6` carries stale dependency hashes. `pins/opencode.json` temporarily uses the three native-platform values published by [upstream PR60957](https://github.com/anomalyco/opencode/pull/60957), hash commit `f95f806017daa55161b6b92743c0c63d35874c4f` on dependency base `b95c1f379cdac24ea2fa8c56a84eaf58dad4ad0f`.
+- The dependency base and pinned revision have identical Bun lock, package manifests and Nix dependency inputs. CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged. The flake lock is not moved.
+- Remove this override when the pinned upstream revision ships those published values. Upstream CI owns regeneration; the local hash fixer does not maintain these hashes.
 - Warnings if packages unavailable for system
 
 ### bun.nix
@@ -341,7 +344,7 @@ Terminal multiplexer:
 - vi mode, mouse enabled
 - Theme: dynamic plugin selection via `theme.family` (supports tokyonight and catppuccin)
 - Plugins: sensible, yank, pain-control, vim-tmux-navigator, resurrect, continuum
-- Catppuccin: includes battery plugin + custom status line
+- Catppuccin: battery plugin loads before final status composition; Continuum loads last so its periodic-save hook remains installed.
 - Session persistence: 15-minute autosave, restore on start
 - Assertion validates theme family exists in `tmuxThemePlugins`
 
@@ -353,6 +356,7 @@ Terminal multiplexer:
 - zjstatus plugin for status bar with dynamic theme colors
 - Session serialization enabled (60s interval)
 - Custom keybindings: Alt+hjkl navigation, Alt+[] tabs, Alt+n/t new pane/tab, Alt+f/z float/fullscreen
+- `Ctrl-o` enters Session mode; `w` and `p` launch session/plugin managers there, never intercepting ordinary Normal-mode typing.
 
 ### lazydocker.nix
 
@@ -416,13 +420,14 @@ Full IDE configuration (~500 lines):
 - Theme: dynamic plugin selection via `theme.family` (tokyonight-nvim or catppuccin-nvim)
 - Files: neo-tree-nvim, oil-nvim
 - Editor: nvim-surround, nvim-autopairs, comment-nvim, which-key-nvim, gitsigns-nvim
-- Treesitter: with all grammars
+- Treesitter: all grammars; FileType enables highlighting and indentation. `gnn` selects a named node, `grn` grows an ancestor, `grc` grows a local scope, and `grm` restores the previous selection.
+- Whole-line incremental selections at EOF use linewise Visual mode to retain the final newline. Partial-line EOF selections remain charwise; Neovim cannot include that final newline without adding unwanted prefix bytes.
 - Fuzzy: telescope-nvim with fzf-native
 - Formatting: conform-nvim
 - Completion: blink-cmp, lazydev-nvim
 - AI (optional): opencode-nvim
 
-**LSP Servers**: bashls, pyright, ts_ls, gopls, rust_analyzer, nixd, lua_ls
+**LSP Servers**: bashls, pyright, ts_ls, gopls, rust_analyzer, nixd, lua_ls; named definitions come from nvim-lspconfig before native `vim.lsp.enable`.
 
 **Formatters**: stylua, prettier, nixfmt, ruff
 
@@ -433,12 +438,18 @@ Full IDE configuration (~500 lines):
 - Session, navigation and prompt actions dispatch to the visible TUI through an opt-in local plugin and private OSC input, without changing user keybinds.
 - The bridge package exposes a stable profile path; terminal preflight registers it in OpenCode's effective config root without replacing user files or overriding `OPENCODE_CONFIG_DIR`.
 - Session sharing is unavailable in OpenCode V2.
-- Notifications consume V2 `event.data` and `session.execution.failed`.
-- Statusline integration
+- Notifications and statusline consume native `session.execution.started/succeeded/interrupted/failed` events; completed/interrupted runs restore idle status, and failures retain error notifications.
 - Event-driven file reloads and permission handling
 - HTTP requests and SSE events use `curl`
 
 **Requires**: opencode module enabled if opencode plugin enabled
+
+### Caveman and Colibri runtime contracts
+
+- Caveman CLI, installer and Blocks use `OPENCODE_CONFIG_DIR`, then `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. Changing roots does not move or delete old files.
+- Generated OpenCode shrink plugins use the V2 default definition and current `shell` input. Native hook children run in their host location, including locationless session-deletion cleanup routed by the host.
+- Hermes deny lists take precedence over enable lists. Caveman refuses inactive native/shrink installs before writing files; use `hermes plugins enable caveman_native` or `hermes plugins enable caveman_shrink` to change that preference.
+- Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
 
 ---
 

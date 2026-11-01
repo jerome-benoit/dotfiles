@@ -42,7 +42,10 @@ let
           '';
           selectedInputs = inputs // {
             opencode.packages.${pkgs.stdenv.hostPlatform.system} = {
-              default = cli;
+              default = cli.overrideAttrs {
+                # Preserve the upstream dependency interface while isolating CLI staging.
+                node_modules = inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default.node_modules;
+              };
               opencode-desktop = lib.makeOverridable (_: pkgs.hello) { };
             };
           };
@@ -119,6 +122,14 @@ let
   overridden = desktop { desktopPackage = pkgs.hello; };
   optedOut = desktop { desktopPackage = null; };
   disabled = desktop { enableDesktop = false; };
+  customDependency = pkgs.writeTextDir "node_modules/custom-owner.json" ''{"owner":"custom-package"}'';
+  customCli = desktop {
+    opencodePackage =
+      inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs
+        {
+          node_modules = customDependency;
+        };
+  };
   scripts = pkgs.writeText "development-activation-fixtures.json" (
     builtins.toJSON {
       inherit fixtureHome;
@@ -198,6 +209,14 @@ assert overridden.modules.development.opencode.desktopPackage == pkgs.hello;
 assert builtins.elem pkgs.hello overridden.home.packages;
 assert optedOut.modules.development.opencode.desktopPackage == null;
 assert map toString optedOut.home.packages == map toString disabled.home.packages;
+assert
+  opencodePackages.opencodePackage.node_modules.outputHash
+  == (lib.importJSON ../home-manager/modules/development/pins/opencode.json)
+  .hashes.${pkgs.stdenv.hostPlatform.system};
+assert
+  opencodePackages.desktopPackage.node_modules == opencodePackages.opencodePackage.node_modules;
+assert customCli.modules.development.opencode.opencodePackage.node_modules == customDependency;
+assert customCli.modules.development.opencode.desktopPackage.node_modules == customDependency;
 pkgs.runCommand "check-development-integrations"
   {
     nativeBuildInputs = [

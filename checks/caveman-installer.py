@@ -598,6 +598,53 @@ process.stdout.write(JSON.stringify({started, changed, output}));
     assert not (opencode / "plugins/caveman").exists()
     assert not (fixture.home / ".config/opencode").exists()
 
+    # OPENCODE_CONFIG_DIR replaces XDG's complete root, without migrating old data.
+    override_fixture = Fixture(root / "opencode-override", lifetime=True)
+    override_fixture.env["XDG_CONFIG_HOME"] = str(override_fixture.root / "unused xdg")
+    override = override_fixture.root / "override root ' $literal"
+    override_fixture.env["OPENCODE_CONFIG_DIR"] = str(override)
+    old_root = override_fixture.home / ".config/opencode"
+    old_root.mkdir(parents=True)
+    foreign = old_root / "foreign.json"
+    foreign.write_text('{"foreign":true}\n')
+    override_fixture.install("--only", "opencode")
+    assert (override / "plugins/caveman/plugin.js").is_file()
+    assert (override / "skills/caveman/SKILL.md").is_file()
+    override_program = """
+import {pathToFileURL} from 'node:url';
+import {readFileSync, existsSync} from 'node:fs';
+import {join} from 'node:path';
+const plugin = await import(pathToFileURL(process.argv[1]).href);
+const hooks = await plugin.CavemanPlugin({});
+const root = process.argv[2];
+const state = () => readFileSync(join(root, '.caveman-active'), 'utf8').trim();
+await hooks.event({event:{type:'session.created'}});
+await hooks['chat.message']({}, {parts:[{type:'text',text:'/ultracave'}]});
+const persistent = state();
+await hooks['chat.message']({}, {parts:[{type:'text',text:'/caveman-review'}]});
+const oneShot = state();
+const previous = readFileSync(join(root, '.caveman-active.prev'), 'utf8').trim();
+await hooks['chat.message']({}, {parts:[{type:'text',text:'ordinary next turn'}]});
+console.log(JSON.stringify({
+  persistent, oneShot, previous, restored:state(),
+  previousRemoved:!existsSync(join(root,'.caveman-active.prev')),
+  log:readFileSync(join(root,'.caveman-mode-log.jsonl'),'utf8'),
+}));
+"""
+    state = json.loads(call(
+        [override_fixture.profile / "lib/caveman/node", "--input-type=module", "-e",
+         override_program, override / "plugins/caveman/plugin.js", override],
+        override_fixture.env, override_fixture.root,
+    ).stdout)
+    assert state["persistent"] == state["previous"] == state["restored"] == "ultracave", state
+    assert state["oneShot"] == "review" and state["previousRemoved"], state
+    assert state["log"], state
+    assert not Path(override_fixture.env["XDG_CONFIG_HOME"]).exists()
+    assert foreign.read_text() == '{"foreign":true}\n'
+    override_fixture.install("--uninstall")
+    assert not (override / "plugins/caveman").exists()
+    assert foreign.read_text() == '{"foreign":true}\n'
+
     # Persist the bundled JavaScript middleware through private Node, not npx or Go.
     # The upstream launcher records argv and runs the packaged MCP server over stdio.
     fixture = Fixture(root / "opencode-mcp-generation-switch", lifetime=True)

@@ -67,9 +67,12 @@ in
             bind "Alt z" { ToggleFocusFullscreen; }
             bind "Alt w" { TogglePaneFrames; }
 
+            bind "Ctrl o" { SwitchToMode "Session"; }
+          }
+          session {
             // Plugin management
-            bind "Ctrl o" "w" { LaunchOrFocusPlugin "session-manager"; }
-            bind "Ctrl o" "p" { LaunchOrFocusPlugin "plugin-manager"; }
+            bind "w" { LaunchOrFocusPlugin "session-manager"; SwitchToMode "Normal"; }
+            bind "p" { LaunchOrFocusPlugin "plugin-manager"; SwitchToMode "Normal"; }
           }
         }
       '';

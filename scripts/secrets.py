@@ -615,6 +615,7 @@ class SecretsManager:
         self.supervisor = ProcessSupervisor()
         self.owns_lock = False
         self.temporaries: set[Path] = set()
+        self.editor_workspaces: set[Path] = set()
         self.transaction_journal = self.secrets_directory / ".secrets-transaction.json"
         self.transaction_backups: set[Path] = set()
         self.owned_plaintexts: set[Path] = set()
@@ -786,6 +787,14 @@ class SecretsManager:
         )
         error = self._remove_paths(removable_temporaries)
         cleanup_error = cleanup_error or error
+        for workspace in tuple(self.editor_workspaces):
+            try:
+                shutil.rmtree(workspace)
+                self.editor_workspaces.discard(workspace)
+            except FileNotFoundError:
+                self.editor_workspaces.discard(workspace)
+            except BaseException as error:
+                cleanup_error = cleanup_error or error
         if not transaction_pending:
             error = self._remove_paths(tuple(self.transaction_backups))
             cleanup_error = cleanup_error or error
@@ -866,7 +875,9 @@ class SecretsManager:
         finally:
             os.close(descriptor)
 
-    def sops(self, *arguments: str) -> int:
+    def sops(
+        self, *arguments: str, environment: Mapping[str, str] | None = None
+    ) -> int:
         return self.supervisor.run(
             [
                 "nix",
@@ -876,7 +887,8 @@ class SecretsManager:
                 "nixpkgs#sops",
                 "--",
                 *arguments,
-            ]
+            ],
+            environment,
         )
 
     def decrypt_to_temporary(self, encrypted: Path, prefix: str) -> Path:
@@ -1036,9 +1048,35 @@ class SecretsManager:
             raise cleanup_error
 
     def edit(self, encrypted: Path) -> None:
-        status = self.sops(str(encrypted))
-        if status != 0:
-            raise SecretsError(f"failed to edit {encrypted}", status)
+        staged = self.temporary(f"{encrypted.name}.tmp.")
+        if encrypted.exists():
+            shutil.copy2(encrypted, staged)
+        else:
+            # SOPS treats an absent path as a new document, not empty ciphertext.
+            staged.unlink()
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
+        try:
+            workspace = Path(tempfile.mkdtemp(prefix="sops-editor-"))
+            self.editor_workspaces.add(workspace)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        environment = os.environ.copy()
+        environment["TMPDIR"] = str(workspace)
+        try:
+            status = self.sops(
+                "--filename-override", str(encrypted), str(staged),
+                environment=environment,
+            )
+            if status != 0:
+                raise SecretsError(f"failed to edit {encrypted}", status)
+            self.sync_file(staged)
+            staged.replace(encrypted)
+            self.temporaries.discard(staged)
+            self.sync_secrets_directory()
+        finally:
+            # ProcessSupervisor drains descendants before returning or raising.
+            shutil.rmtree(workspace)
+            self.editor_workspaces.discard(workspace)
 
     def run(self, command: Sequence[str]) -> int:
         self.refuse_existing(self.private_config_plaintext)

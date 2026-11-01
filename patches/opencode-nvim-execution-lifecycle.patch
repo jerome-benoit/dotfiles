@@ -1,0 +1,35 @@
+# Workaround: OpenCode emits native execution lifecycle events, not session.status.
+# Remove when opencode.nvim registers and consumes those lifecycle events.
+--- a/lua/opencode/events/status.lua
++++ b/lua/opencode/events/status.lua
+@@ -31,13 +31,10 @@
+ 
+   if event.type == "server.connected" then
+     status = "idle"
+-  elseif event.type == "session.status" then
+-    local kind = event.data and event.data.status and event.data.status.type
+-    if kind == "idle" then
+-      status = "idle"
+-    elseif kind == "busy" or kind == "retry" then
+-      status = "busy"
+-    end
++  elseif event.type == "session.execution.started" then
++    status = "busy"
++  elseif event.type == "session.execution.succeeded" or event.type == "session.execution.interrupted" then
++    status = "idle"
+   elseif event.type == "session.execution.failed" then
+     status = "error"
+   elseif event.type == "global.disposed" or event.type == "server.instance.disposed" then
+--- a/plugin/events/status.lua
++++ b/plugin/events/status.lua
+@@ -2,7 +2,9 @@
+   group = vim.api.nvim_create_augroup("OpencodeStatus", { clear = true }),
+   pattern = {
+     "OpencodeEvent:server.connected",
+-    "OpencodeEvent:session.status",
++    "OpencodeEvent:session.execution.started",
++    "OpencodeEvent:session.execution.succeeded",
++    "OpencodeEvent:session.execution.interrupted",
+     "OpencodeEvent:session.execution.failed",
+     "OpencodeEvent:global.disposed",
+     "OpencodeEvent:server.instance.disposed",

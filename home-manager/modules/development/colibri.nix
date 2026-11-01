@@ -44,6 +44,7 @@ let
       safetensors
       huggingface-hub
       numpy
+      pillow
       tokenizers
       datasets
     ]
@@ -97,7 +98,11 @@ let
       ];
       extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
-      makeArgs = "ARCH=${archBaseline} CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc CUDA_ARCH=all-major"; # all-major: headless-safe
+      # Workaround: block-scaled cuBLASLt requires CUDA 12.8.
+      # Remove when upstream automatically disables tensor cores on older toolkits.
+      makeArgs =
+        "ARCH=${archBaseline} CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc CUDA_ARCH=all-major"
+        + lib.optionalString (cudaPackages.cudaOlder "12.8") " NO_TC=1"; # all-major: headless-safe
     };
 
   archBaseline = if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
@@ -161,8 +166,22 @@ let
       test -f $out/lib/colibri/web/dist/index.html
       $out/bin/coli --version
       PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python -c 'import openai_server'
+      PYTHONPATH=$out/lib/colibri/tools ${pythonEnv}/bin/python - <<'PY'
+      import io
+      import numpy
+      from PIL import Image
+      from qwen38_image import preprocess
+      image = io.BytesIO()
+      Image.new("RGB", (32, 32)).save(image, format="PNG")
+      patches, height, width = preprocess(image.getvalue())
+      assert patches.dtype == numpy.float32 and numpy.isfinite(patches).all()
+      assert patches.size > 0 and height > 0 and width > 0
+      PY
       runHook postInstallCheck
     '';
+
+    # Exercise the real Python preprocessor without building engines or loading models.
+    passthru.integrationPython = pythonEnv;
 
     # Wrap the raw `coli` script through pythonEnv. COLI_ENGINE stays unset:
     # pinning it routes every model to GLM instead of dispatching per config.

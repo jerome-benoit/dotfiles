@@ -1,0 +1,15 @@
+{
+  "hashes": {
+    "aarch64-darwin": "sha256-gziOe1Up6Kx+QNcYKYgADtJ250+rhGNC2jM57XhsK5g=",
+    "aarch64-linux": "sha256-nWrchR5EM9KsjlPnyRCnW9Jyha13W3Bynca+ghsoK7U=",
+    "x86_64-linux": "sha256-xeEiIROe5jc0G5pFVayQbVG8G084v2wUnVAfU4n2HCM="
+  },
+  "provenance": {
+    "pullRequest": "https://github.com/anomalyco/opencode/pull/60957",
+    "hashCommit": "f95f806017daa55161b6b92743c0c63d35874c4f",
+    "dependencyBase": "b95c1f379cdac24ea2fa8c56a84eaf58dad4ad0f",
+    "botRun": "https://github.com/anomalyco/opencode/actions/runs/41237494781",
+    "compatiblePinnedRevision": "977f5c695c2b4a254560743432d20f622cbe1233",
+    "compatibility": "Parent confirmed no bun.lock, package.json or nix changes between dependencyBase and compatiblePinnedRevision. Native hash jobs published all three values; parent independently realized the x86_64-linux hash."
+  }
+}
