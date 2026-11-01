@@ -1,5 +1,5 @@
 # base: 977f5c695c2b4a254560743432d20f622cbe1233
-# intent: isolate Nix CLI builds while retaining every copy of an adopted service version.
+# intent: isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 diff --git a/packages/desktop/src/main/service/cli-version.ts b/packages/desktop/src/main/service/cli-version.ts
 --- a/packages/desktop/src/main/service/cli-version.ts
 +++ b/packages/desktop/src/main/service/cli-version.ts
@@ -35,9 +35,9 @@ diff --git a/packages/desktop/src/main/service/cli-stages.ts b/packages/desktop/
 -// Each version and architecture stages its own copy of the CLI, and only the current one (plus any adopted
 -// beta server still running) is kept: a downgrade stages its copy anew. Windows refuses to delete an executable
 -// that has not exited yet, so a failed removal is logged and retried on the next launch.
-+// The service registry exposes versions, not executable identities. Keep all Nix copies of the bundled
-+// and adopted versions so cleanup cannot unlink a running server's executable. Other versions are removed.
-+// Windows refuses to delete running executables; failed removals are retried on the next launch.
++// The registry exposes versions, not executable identities. Keep every build of the bundled and
++// adopted versions for the current architecture. Remove unrelated stages; retry failed removals
++// on the next launch.
  export const cleanStages = Effect.fn("DesktopCli.cleanStages")(function* (
    binary: string,
    options?: { readonly keep?: ReadonlyArray<string> },

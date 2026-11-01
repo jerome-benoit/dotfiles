@@ -40,7 +40,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
-- `patches/opencode-nix-cli-stages.patch` — isolate staged CLI builds by Nix output identity and retain all copies of the bundled and adopted service versions for the current architecture; no prerequisite patches.
+- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
 
 ## Local Patch Refresh
 
