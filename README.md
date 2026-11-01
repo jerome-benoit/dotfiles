@@ -92,5 +92,5 @@ nix build .#checks.x86_64-linux.caveman
 
 ```bash
 nix flake update     # Update inputs
-nh clean all --keep 3
+nh clean all --keep 3 --optimise
 ```
