@@ -1,5 +1,6 @@
-# Workaround: OpenCode overrides its complete config root.
-# Remove when upstream installer honors OPENCODE_CONFIG_DIR.
+# base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4
+# prerequisites: caveman-nix-installer-paths.patch
+# intent: Honor the absolute effective OpenCode config root in the installer and copied plugin.
 --- a/installer/install.js
 +++ b/installer/install.js
 @@ -1544,6 +1544,10 @@

@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory() as directory:
     bin_dir = root / 'bin'
     bin_dir.mkdir()
     # Inert argv sinks stand in only for terminal attachment and the model client.
-    # They execute the actual helper's shell command through /bin/sh, like tmux.
+    # They execute the actual helper's shell command through the configured shell, like tmux.
     (bin_dir / 'opencode').write_text('#!' + sys.executable + '\nimport json,os,sys\nfrom pathlib import Path\nPath(os.environ["ARGS"]).write_text(json.dumps(sys.argv[1:]))\n')
     (bin_dir / 'tmux').write_text('#!' + sys.executable + '\nimport os,subprocess,sys\nif sys.argv[1]=="has-session":sys.exit(int(os.environ["EXISTING"]))\nif sys.argv[1] in ("new-window","new-session"):sys.exit(subprocess.call([os.environ["REPARSE_SHELL"],"-c",sys.argv[-1]]))\n')
     idle_shell = root / "shell path ' literal"

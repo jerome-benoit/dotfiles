@@ -1,5 +1,6 @@
-# Workaround: Cursor package exposes cursor-agent, not agent.
-# Remove when upstream registry detects and launches the packaged executable.
+# base: agent-of-empires/agent-of-empires ee916d9640b6cf51aadf7f766b3b285fd9a461ff
+# prerequisites: none
+# intent: Detect and launch the packaged cursor-agent executable instead of agent.
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -767,7 +767,7 @@
@@ -13,7 +14,7 @@
          oneshot_flag: Some("-p"),
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
-@@ -3184,6 +3184,28 @@
+@@ -3184,6 +3184,36 @@
  
  #[cfg(test)]
  mod tests {
@@ -22,7 +23,9 @@
 +    #[cfg(unix)]
 +    #[serial_test::serial]
 +    fn nix_cursor_registry_detects_and_launches_cursor_agent() {
-+        if run_probe_test_in_subprocess() { return; }
++        if run_probe_test_in_subprocess() {
++            return;
++        }
 +        use std::os::unix::fs::{symlink, PermissionsExt};
 +        let directory = tempfile::tempdir().unwrap();
 +        let binary = directory.path().join("cursor-agent");
@@ -34,9 +37,15 @@
 +        assert_eq!(agent_available_direct(cursor, None), Some(true));
 +        assert!(which::which("agent").is_err());
 +        assert!(agent_availability_snapshot(&[cursor]).contains("cursor"));
-+        let output = Command::new(cursor.launch_base_command()).args(["two words", "$HOME; literal"]).output().unwrap();
++        let output = Command::new(cursor.launch_base_command())
++            .args(["two words", "$HOME; literal"])
++            .output()
++            .unwrap();
 +        assert!(output.status.success());
-+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "<two words>\n<$HOME; literal>\n");
++        assert_eq!(
++            String::from_utf8(output.stdout).unwrap(),
++            "<two words>\n<$HOME; literal>\n"
++        );
 +    }
 +
      /// Invalidation must clear after an in-flight probe publishes, not before.

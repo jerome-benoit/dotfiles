@@ -16,7 +16,7 @@ let
     }).opencode.hashes;
   # Workaround: pinned upstream dependency hashes predate its locked Bun inputs.
   # PR60957 publishes hashes at f95f806 on dependency base b95c1f3; the pinned
-  # 977f5c6 has identical dependency inputs. Preserve the authorized flake.lock.
+  # 977f5c6 has identical dependency inputs.
   # Remove when the pinned upstream revision includes those published hashes.
   baseOpencodePackage =
     if upstreamOpencodePackage == null then

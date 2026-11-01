@@ -1,5 +1,6 @@
-# Workaround: embedded OpenCode paths ignore host config root precedence.
-# Remove when upstream resolves its OpenCode profile against the effective root.
+# base: caveman-ai/blocks v0.1.0-rc.5
+# prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order)
+# intent: Resolve the OpenCode hook profile against the absolute effective config root.
 --- a/internal/hook/profiles.go
 +++ b/internal/hook/profiles.go
 @@ -4,6 +4,7 @@
@@ -10,7 +11,7 @@
  	"regexp"
  	"sort"
  
-@@ -64,6 +65,21 @@
+@@ -64,6 +65,25 @@
  	out := make([]Profile, 0, len(m))
  	for name, p := range m {
  		p.Name = name
@@ -20,12 +21,16 @@
 +				base := os.Getenv("XDG_CONFIG_HOME")
 +				if base == "" {
 +					home, err := os.UserHomeDir()
-+					if err != nil { return nil, err }
++					if err != nil {
++						return nil, err
++					}
 +					base = filepath.Join(home, ".config")
 +				}
 +				root = filepath.Join(base, "opencode")
 +			}
-+			if !filepath.IsAbs(root) { return nil, fmt.Errorf("OpenCode config root must be absolute: %q", root) }
++			if !filepath.IsAbs(root) {
++				return nil, fmt.Errorf("OpenCode config root must be absolute: %q", root)
++			}
 +			p.Config = filepath.Join(root, "plugins", "caveman-blocks.js")
 +			p.Detect = []string{root}
 +		}

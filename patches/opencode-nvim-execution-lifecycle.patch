@@ -1,5 +1,6 @@
-# Workaround: OpenCode emits native execution lifecycle events, not session.status.
-# Remove when opencode.nvim registers and consumes those lifecycle events.
+# base: NickvanDyke/opencode.nvim 4851ae503585dc5142ad66a98e8952a74e1f7b3a
+# prerequisites: none
+# intent: Register native OpenCode execution lifecycle events and map completion or interruption to idle status.
 --- a/lua/opencode/events/status.lua
 +++ b/lua/opencode/events/status.lua
 @@ -31,13 +31,10 @@

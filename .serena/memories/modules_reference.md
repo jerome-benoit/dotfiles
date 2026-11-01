@@ -264,10 +264,22 @@ OpenCode AI assistant:
 - Generated Desktop requires a non-null CLI package selection
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
-- Workaround: the authorized OpenCode lock revision `977f5c6` carries stale dependency hashes. `pins/opencode.json` temporarily uses the three native-platform values published by [upstream PR60957](https://github.com/anomalyco/opencode/pull/60957), hash commit `f95f806017daa55161b6b92743c0c63d35874c4f` on dependency base `b95c1f379cdac24ea2fa8c56a84eaf58dad4ad0f`.
-- The dependency base and pinned revision have identical Bun lock, package manifests and Nix dependency inputs. CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged. The flake lock is not moved.
+- Workaround: pinned OpenCode revision `977f5c6` carries stale dependency hashes. `pins/opencode.json` temporarily uses the three native-platform values published by [upstream PR60957](https://github.com/anomalyco/opencode/pull/60957), hash commit `f95f806017daa55161b6b92743c0c63d35874c4f` on dependency base `b95c1f379cdac24ea2fa8c56a84eaf58dad4ad0f`.
+- The dependency base and pinned revision have identical Bun lock, package manifests and Nix dependency inputs. CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged.
 - Remove this override when the pinned upstream revision ships those published values. Upstream CI owns regeneration; the local hash fixer does not maintain these hashes.
 - Warnings if packages unavailable for system
+
+### caveman.nix
+
+- Caveman CLI, installer, copied OpenCode plugin and Blocks use nonempty `OPENCODE_CONFIG_DIR`, then nonempty `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. An empty override is unset; a nonempty relative root is refused. Changing roots does not move or delete old files.
+- Generated OpenCode shrink plugins use the V2 default definition and current `shell` input. Native hook children run in their host location, including locationless session-deletion cleanup routed by the host.
+- Hermes deny lists take precedence over enable lists. Caveman refuses inactive native/shrink installs before rewriting configuration or plugin payloads; use `hermes plugins enable caveman_native` or `hermes plugins enable caveman_shrink` to change that preference.
+- Hermes membership checks accept scalar-string block and flow sequences, including flow nodes on the next line, quoted names, token-adjacent comments and supported multiline scalars. A `#` inside a plain name remains data. Unrelated disabled names and duplicate deny entries are preserved; malformed or unsupported YAML fails closed before rewriting configuration or plugin payloads.
+- Already-enabled shrink flow lists remain byte-identical on reinstall. Writers still refuse nonempty flow lists that need an added membership; native-owned flow rewrites remain unsupported. A refused shrink install may invalidate its stale installation marker, but does not rewrite config or plugin files.
+
+### colibri.nix
+
+- Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
 
 ### bun.nix
 
@@ -443,15 +455,6 @@ Full IDE configuration (~500 lines):
 - HTTP requests and SSE events use `curl`
 
 **Requires**: opencode module enabled if opencode plugin enabled
-
-### Caveman and Colibri runtime contracts
-
-- Caveman CLI, installer, copied OpenCode plugin and Blocks use nonempty `OPENCODE_CONFIG_DIR`, then nonempty `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. An empty override is unset; a nonempty relative root is refused. Changing roots does not move or delete old files.
-- Generated OpenCode shrink plugins use the V2 default definition and current `shell` input. Native hook children run in their host location, including locationless session-deletion cleanup routed by the host.
-- Hermes deny lists take precedence over enable lists. Caveman refuses inactive native/shrink installs before writing files; use `hermes plugins enable caveman_native` or `hermes plugins enable caveman_shrink` to change that preference.
-- Hermes membership checks accept scalar-string block and flow sequences, including flow nodes on the next line, quoted names, token-adjacent comments and supported multiline scalars. A `#` inside a plain name remains data. Unrelated disabled names and duplicate deny entries are preserved; malformed or unsupported YAML fails closed before installation writes.
-- Already-enabled shrink flow lists remain byte-identical on reinstall. Writers still refuse nonempty flow lists that need an added membership; native-owned flow rewrites remain unsupported. A refused shrink install may invalidate its stale installation marker, but does not rewrite config or plugin files.
-- Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
 
 ---
 
