@@ -32,6 +32,10 @@ hmp  # personal
 make switch SPEC=work
 ```
 
+### OpenCode Desktop
+
+Nix packaging overrides isolate staged CLI binaries by output identity. All copies of the bundled and adopted service versions are retained; unrelated versions are cleaned on launch.
+
 ### Private configuration and credentials
 
 Managed via [SOPS](https://github.com/getsops/sops). Private configuration is decrypted at eval-time; runtime credentials are decrypted by sops-nix.

@@ -57,16 +57,25 @@ let
               };
             }).config;
           package = config.modules.development.opencode;
-          source = pkgs.runCommand "opencode-stages-${name}" { } ''
-            target=packages/desktop/src/main/service/cli-version.ts
-            mkdir -p "$(dirname "$target")" "$out"
-            cp ${inputs.opencode}/packages/desktop/src/main/service/cli-version.ts "$target"
-            chmod u+w "$target"
+          source = pkgs.runCommand "opencode-stages-${name}" { nativeBuildInputs = [ pkgs.patch ]; } ''
+            service=packages/desktop/src/main/service
+            mkdir -p "$service" "$out"
+            for file in cli-version.ts cli-stages.ts desktop-cli.ts; do
+              cp ${inputs.opencode}/"$service/$file" "$service/$file"
+            done
+            chmod -R u+w packages
+            for file in ${lib.escapeShellArgs package.desktopPackage.patches}; do
+              patch -p1 < "$file"
+            done
             ${package.desktopPackage.postPatch}
-            cp "$target" "$out/cli-version.ts"
+            cp "$service"/{cli-version,cli-stages}.ts "$out/"
+            ln -s ${opencodePackages.opencodePackage.node_modules}/packages/desktop/node_modules "$out/node_modules"
           '';
         in
-        "${source}/cli-version.ts"
+        {
+          inherit source;
+          identity = builtins.baseNameOf (toString package.opencodePackage);
+        }
       )
       [
         "first"
@@ -270,24 +279,53 @@ pkgs.runCommand "check-development-integrations"
     node --experimental-strip-types --input-type=module - ${scripts} <<'JS'
     import assert from "node:assert/strict";
     import { readFileSync } from "node:fs";
+    import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+    import { tmpdir } from "node:os";
+    import { join } from "node:path";
     import { pathToFileURL } from "node:url";
 
     const fixtures = JSON.parse(readFileSync(process.argv[2], "utf8"));
-    const [first, second] = await Promise.all(
-      fixtures.opencodeStages.map((file) => import(pathToFileURL(file))),
-    );
+    const [first, second] = fixtures.opencodeStages;
+    const { stageName, keptStages } = await import(pathToFileURL(join(first.source, "cli-version.ts")));
+    const { cleanStages } = await import(pathToFileURL(join(first.source, "cli-stages.ts")));
+    const { Effect, Layer } = await import(pathToFileURL(join(first.source, "node_modules/effect/dist/index.js")));
+    const { NodeFileSystem, NodePath } = await import(pathToFileURL(join(first.source, "node_modules/@effect/platform-node/dist/index.js")));
+    const exists = (file) => access(file).then(() => true, () => false);
     for (const arch of ["x64", "arm64"]) {
-      const current = first.stageName("2.0.32", arch);
-      const rebuilt = second.stageName("2.0.32", arch);
-      const adopted = first.stageName("2.0.31", arch);
-      assert.notEqual(current, rebuilt, "a rebuilt CLI must not reuse the previous executable");
-      const kept = first.keptStages("2.0.32", "2.0.31", arch);
-      assert.ok(kept.includes(current), "cleanup must retain the bundled executable");
-      assert.ok(kept.includes(adopted), "cleanup must retain the adopted version in this package namespace");
-      assert.ok(!kept.includes(rebuilt), "cleanup must not retain a different package's obsolete stage");
+      const current = stageName("2.0.32", arch, first.identity);
+      const rebuilt = stageName("2.0.32", arch, second.identity);
+      const adopted = stageName("2.0.31", arch, second.identity);
+      const stale = stageName("2.0.30", arch, first.identity);
+      const otherArch = stageName("2.0.32", arch === "arm64" ? "x64" : "arm64", first.identity);
+      const nearMatch = stageName("2.0.320", arch, first.identity);
+      const legacy = stageName("2.0.32", arch);
+      assert.notEqual(current, rebuilt, "same-version Nix rebuilds need distinct executables");
+      assert.notEqual(current, otherArch, "architectures must not share a staged executable");
+      for (const running of ["2.0.32", "2.0.31", undefined]) {
+        const root = await mkdtemp(join(tmpdir(), "opencode-stages-"));
+        try {
+          for (const stage of [current, rebuilt, adopted, stale, otherArch, nearMatch, legacy]) {
+            await mkdir(join(root, stage));
+            await writeFile(join(root, stage, "opencode-cli"), stage);
+          }
+          await writeFile(join(root, "foreign-file"), "user-owned file");
+          await Effect.runPromise(cleanStages(join(root, current, "opencode-cli"), {
+            keep: keptStages("2.0.32", running, arch),
+          }).pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer))));
+          for (const stage of [current, rebuilt, legacy]) {
+            assert.ok(await exists(join(root, stage, "opencode-cli")), "retain every current-version identity");
+          }
+          assert.equal(await exists(join(root, adopted)), running === "2.0.31", "retain the adopted version, not stale versions");
+          for (const stage of [stale, otherArch, nearMatch]) {
+            assert.ok(!(await exists(join(root, stage))), "remove unrelated versions and architectures");
+          }
+          assert.equal(readFileSync(join(root, "foreign-file"), "utf8"), "user-owned file");
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      }
     }
-    assert.notEqual(first.stageName("2.0.32", "x64"), first.stageName("2.0.32", "arm64"));
-    console.log("opencode: rebuilt CLI isolation, architecture isolation and stage retention passed");
+    console.log("opencode: Nix identity isolation and real-filesystem stage cleanup passed");
     JS
     python3 - ${scripts} <<'PY'
     import json
