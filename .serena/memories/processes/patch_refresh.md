@@ -7,7 +7,9 @@ the `patches` lists directly. Prime Agent source pins come from
 `home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
 installer patches follow the `caveman` input in `flake.lock`; its separate
 Blocks source and companion assets use `pins/caveman.json`.
-The `hermes-agent`, `opencode` and `strata` inputs do not set these patch bases.
+OpenCode Desktop patches follow the selected CLI source, which defaults to the
+`opencode` input in `flake.lock`.
+The `hermes-agent` and `strata` inputs do not set these patch bases.
 Reassess each patch when its own source changes.
 
 ## Naming
@@ -38,6 +40,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
+- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
 
 ## Local Patch Refresh
 

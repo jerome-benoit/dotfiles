@@ -57,13 +57,12 @@ let
       # opencode-desktop builds with bare nixpkgs.legacyPackages and pins its own
       # electron, so the host nixpkgs config does not reach it.
       (desktop.override { opencode = cfg.opencodePackage; }).overrideAttrs (previousAttrs: {
-        # Workaround: Desktop caches CLI binaries by version, ignoring Nix overrides.
-        # Remove when upstream keys staged binaries by source identity.
+        # Workaround: version-only CLI stages collide across Nix builds.
+        # Remove when upstream keys stages by identity and retains adopted executables.
+        patches = (previousAttrs.patches or [ ]) ++ [ ../../../patches/opencode-nix-cli-stages.patch ];
         postPatch = (previousAttrs.postPatch or "") + ''
-          substituteInPlace packages/desktop/src/main/service/cli-version.ts \
-            --replace-fail \
-              'return `''${version}-''${arch}`.replace(/[^a-zA-Z0-9._-]/g, "-")' \
-              'return `''${version}-''${arch}-${builtins.baseNameOf (toString cfg.opencodePackage)}`.replace(/[^a-zA-Z0-9._-]/g, "-")'
+          substituteInPlace packages/desktop/src/main/service/desktop-cli.ts \
+            --replace-fail '@opencode-nix-cli-identity@' '${builtins.baseNameOf (toString cfg.opencodePackage)}'
         '';
 
         # Workaround: upstream stages the CLI outside the directory its Desktop build reads.

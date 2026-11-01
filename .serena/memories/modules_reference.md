@@ -267,7 +267,9 @@ OpenCode AI assistant:
 - CLI, Desktop and Neovim use the shared background service by default
 - Custom CLI packages must be upstream-compatible source-built derivations; service and Linux runtime adjustments also apply to overrides
 - Existing build environment and post-fixup hooks are preserved
-- Generated Desktop bundles the selected CLI; shared `stageName` keys staging and cleanup by version, architecture and CLI Nix store identity
+- Generated Desktop bundles the selected CLI
+- Staged CLI paths include the version, architecture and Nix output identity
+- Cleanup retains all stages of the bundled and adopted versions for the current architecture
 - Build-time CLI staging uses upstream's `packages/cli/dist` layout
 - `checks.opencode-desktop` builds Desktop and verifies the bundled CLI, version manifest and copied executable
 - Generated Desktop requires a non-null CLI package selection
