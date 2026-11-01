@@ -27,7 +27,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
 - `patches/caveman-hermes-native-yaml.patch` — carry upstream PR #1395's writer fixes, recognize normalized Hermes ownership semantically, and restore only owned values.
-- `patches/caveman-consumer-contracts.patch` — adapt OpenCode roots, V2 plugin scopes and Hermes YAML membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
+- `patches/caveman-opencode-hermes.patch` — adapt OpenCode roots, V2 plugin scopes and Hermes YAML membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
 - `patches/caveman-installer-config-root.patch` — honor the effective OpenCode root in the installer and copied plugin; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/aoe-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.

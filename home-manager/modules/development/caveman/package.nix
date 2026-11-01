@@ -102,7 +102,7 @@ stdenvNoCC.mkDerivation {
     ../../../../patches/caveman-hermes-native-yaml.patch
     # Workaround: generated plugins use old OpenCode APIs and incomplete Hermes membership checks.
     # Remove when upstream supports V2 scopes, effective roots and deny-list-aware YAML membership.
-    ../../../../patches/caveman-consumer-contracts.patch
+    ../../../../patches/caveman-opencode-hermes.patch
   ];
 
   buildPhase = ''
