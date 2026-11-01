@@ -20,7 +20,7 @@ let
       null
     else
       baseAoePackage.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ../../../patches/aoe-cursor-executable.patch ];
+        patches = (old.patches or [ ]) ++ [ ../../../patches/agent-of-empires-cursor-executable.patch ];
         env = (old.env or { }) // {
           NIX_AOE_WHICH = "${pkgs.which}/bin/which";
         };

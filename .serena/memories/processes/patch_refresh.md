@@ -10,6 +10,12 @@ Blocks source and companion assets use `pins/caveman.json`.
 The `hermes-agent`, `opencode` and `strata` inputs do not set these patch bases.
 Reassess each patch when its own source changes.
 
+## Naming
+
+Use `<package>-<purpose>.patch`, in lowercase with hyphens. Start with the
+name of the package being patched, not an executable or module alias
+(e.g. `agent-of-empires-cursor-executable.patch`).
+
 ## Current Patches
 
 Each patch has `# base:` and `# intent:` headers, plus a comment at its use site
@@ -30,7 +36,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-opencode-hermes.patch` — adapt OpenCode roots, V2 plugin scopes and Hermes YAML membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
 - `patches/caveman-installer-config-root.patch` — honor the effective OpenCode root in the installer and copied plugin; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
-- `patches/aoe-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
+- `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 
 ## Local Patch Refresh
