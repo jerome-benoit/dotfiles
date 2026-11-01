@@ -226,7 +226,7 @@ in
                 initialValue = "";
               }
             ];
-            command = ''git commit -m "{{.Form.Type}}{{if .Form.Scope}}({{.Form.Scope}}){{end}}{{if .Form.Breaking}}!{{end}}: {{.Form.Message}}"{{if .Form.Body}} -m "{{.Form.Body}}"{{end}}{{if and .Form.Breaking .Form.Body}} -m "BREAKING CHANGE: {{.Form.Body}}"{{end}}'';
+            command = ''{{$scope := ""}}{{$breaking := ""}}{{if .Form.Scope}}{{$scope = printf "(%s)" .Form.Scope}}{{end}}{{if .Form.Breaking}}{{$breaking = "!"}}{{end}}git commit -m {{printf "%s%s%s: %s" .Form.Type $scope $breaking .Form.Message | quote}}{{if .Form.Body}} -m {{.Form.Body | quote}}{{end}}{{if and .Form.Breaking .Form.Body}} -m {{printf "BREAKING CHANGE: %s" .Form.Body | quote}}{{end}}'';
             loadingText = "Committing...";
             output = "terminal";
           }

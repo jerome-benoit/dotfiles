@@ -11,8 +11,20 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
-  aoePackage =
+  baseAoePackage =
     if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
+  # Workaround: Nixpkgs installs Cursor as cursor-agent, not the generic agent.
+  # Remove when upstream's registry detects and launches cursor-agent.
+  aoePackage =
+    if baseAoePackage == null then
+      null
+    else
+      baseAoePackage.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ../../../patches/agent-of-empires-cursor-executable.patch ];
+        env = (old.env or { }) // {
+          NIX_AOE_WHICH = "${pkgs.which}/bin/which";
+        };
+      });
 
   aoeConfig = ''
     [theme]

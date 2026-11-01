@@ -47,11 +47,16 @@ if [ -e secrets/gpg/keypair.tar.gz.age ]; then
 fi
 
 printf 'GPG passphrase for %s (empty if key has none): ' "$FP" >&2
-read -rs PASS
+IFS= read -rs PASS
 echo >&2
 
 TMP=$(mktemp -d 2>/dev/null || mktemp -d -t gpg-encrypt)
-trap 'rm -rf "$TMP"' EXIT INT TERM HUP
+STAGE=
+trap 'rm -rf "$TMP"; [ -z "$STAGE" ] || rm -f "$STAGE"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 131' QUIT
+trap 'exit 143' TERM
 
 age-keygen -y "$AGE_KEY" > "$TMP/recipients.txt"
 [ -s "$TMP/recipients.txt" ] || { echo "no age recipients derived from $AGE_KEY" >&2; exit 1; }
@@ -82,13 +87,16 @@ DECRYPT_ERR=$(GNUPGHOME="$TMP/test-keyring" gpg --batch --pinentry-mode loopback
 tar czf "$TMP/bundle.tar.gz" -C "$TMP" \
   gpg-secret.asc gpg-passphrase.txt
 mkdir -p secrets/gpg
+STAGE=$(mktemp secrets/gpg/.keypair.tar.gz.age.tmp.XXXXXX)
 age -R "$TMP/recipients.txt" \
-    -o secrets/gpg/keypair.tar.gz.age \
+    -o "$STAGE" \
     "$TMP/bundle.tar.gz"
-chmod 0644 secrets/gpg/keypair.tar.gz.age
+chmod 0644 "$STAGE"
 
-SIZE=$(wc -c < secrets/gpg/keypair.tar.gz.age | tr -d ' ')
-age -d -i "$AGE_KEY" secrets/gpg/keypair.tar.gz.age | tar tz >/dev/null
+SIZE=$(wc -c < "$STAGE" | tr -d ' ')
+age -d -i "$AGE_KEY" "$STAGE" | tar tz >/dev/null
+mv -f "$STAGE" secrets/gpg/keypair.tar.gz.age
+STAGE=
 echo "✓ secrets/gpg/keypair.tar.gz.age written and verified (${SIZE} bytes)"
 echo "  → git add secrets/gpg/keypair.tar.gz.age && git commit"
 

@@ -1,6 +1,6 @@
 """Exercise generated registrations through a lexical profile, not source text.
 
-Usage: caveman-profiles.py PACKAGE ABSOLUTE_GIT ABSOLUTE_NODE TYPEBOX_PACKAGE FILTERED_PROFILE NESTED_PROFILE
+Usage: caveman-profiles.py PACKAGE ABSOLUTE_GIT ABSOLUTE_NODE TYPEBOX_PACKAGE FILTERED_PROFILE NESTED_PROFILE [CASE ...]
 
 A/B are owned copies of the installed payload and native executables, with the
 same CLI version. Removing A models unavailable executable generations, not a
@@ -371,13 +371,23 @@ def shrink_callbacks(f):
     source = r'''
 import {pathToFileURL} from "node:url";
 const module = await import(pathToFileURL(process.argv[1]));
-const hooks = await module.CavemanShrink();
-const output = {args:{command:process.argv[2]}};
-await hooks["tool.execute.before"]({tool:"bash"}, output);
-console.log(JSON.stringify(output));
+const plugin = module.default;
+if (!plugin || typeof plugin.id !== "string" || typeof plugin.setup !== "function")
+  throw new Error("OpenCode V2 plugin definition rejected");
+const hooks = new Map();
+await plugin.setup({
+  location: {directory: process.cwd()},
+  tool: {hook(name, callback) {hooks.set(name, callback);}},
+});
+const event = {tool:"shell", input:{command:process.argv[2]}};
+await hooks.get("execute.before")(event);
+const ignored = {tool:"read", input:{command:process.argv[2]}};
+await hooks.get("execute.before")(ignored);
+if (ignored.input.command !== process.argv[2]) throw new Error("Non-shell tool rewritten");
+console.log(JSON.stringify(event));
 '''
     output = json.loads(f.node(source, plugin, f.command, env={**f.env, "PATH": ""}).stdout)
-    f.assert_rewritten(output["args"]["command"])
+    f.assert_rewritten(output["input"]["command"])
     # Load Hermes' actual generated Python module with its public register API.
     hermes = f.home / ".hermes/plugins/caveman_shrink/__init__.py"
     spec = importlib.util.spec_from_file_location("generated_hermes_shrink", hermes)
@@ -1414,14 +1424,313 @@ def package_invocations(root):
     assert not (home / ".caveman/integrations/aider.json").exists()
 
 
+def opencode_location_contract(f):
+    # Failed version discovery deliberately selects the supported combined artifact.
+    # This probe models discovery failure, not an OpenCode implementation.
+    host = f.hosts / "opencode"
+    host.unlink()
+    put(host, f"#!{shell_interpreter()}\nexit 1\n", 0o755)
+    f.cli("enable", "opencode")
+    plugin = f.home / ".config/opencode/plugins/caveman-native.js"
+    log = f.root / "native-calls.jsonl"
+    launcher = f.a / "bin/caveman"
+    real = launcher.with_name("caveman-real")
+    shutil.copy2(launcher, real)
+    # Observe the real native CLI boundary, then forward unchanged to the real CLI.
+    put(launcher, f"#!{sys.executable}\n"
+        "import json,os,subprocess,sys\n"
+        "from pathlib import Path\n"
+        f"real={str(real)!r}\n"
+        "if sys.argv[1:2] not in ([\"native-hook\"],[\"shrink-hook\"]): os.execv(real,[real,*sys.argv[1:]])\n"
+        "data=sys.stdin.buffer.read()\n"
+        f"with Path({str(log)!r}).open('a') as stream:\n"
+        " stream.write(json.dumps({'argv':sys.argv[1:],'cwd':os.getcwd(),'payload':json.loads(data)})+'\\n')\n"
+        "result=subprocess.run([real,*sys.argv[1:]],input=data)\n"
+        "sys.exit(result.returncode)\n", 0o755)
+    location = f.root / "location B ' literal"
+    location.mkdir()
+    execute([GIT, "init", "--initial-branch=main", location], f.env)
+    source = r'''
+import {pathToFileURL} from "node:url";
+import {readFileSync} from "node:fs";
+const plugin = (await import(pathToFileURL(process.argv[1]))).default;
+if (!plugin || !plugin.id || typeof plugin.setup !== "function") throw new Error("V2 loader shape rejected");
+const pending = [];
+let wake;
+const hooks = new Map();
+const dispose = await plugin.setup({
+  location:{directory:process.argv[2], workspaceID:"location-B"},
+  event:{async *subscribe({signal}) {
+    while (!signal.aborted) {
+      if (!pending.length) await new Promise(resolve => {wake=resolve; signal.addEventListener("abort",resolve,{once:true});});
+      while (pending.length) yield pending.shift();
+    }
+  }},
+  session:{async hook(name, handler){hooks.set("session:"+name,handler);}},
+  tool:{async hook(name, handler){hooks.set("tool:"+name,handler);}},
+});
+await hooks.get("session:context")({sessionID:"location-contract",system:[]});
+await hooks.get("session:prompt")({sessionID:"location-contract",prompt:{parts:[{type:"text",text:"Review repository"}]}});
+await hooks.get("session:compaction")({sessionID:"location-contract",system:[]});
+await hooks.get("tool:execute.before")({sessionID:"location-contract",tool:"shell",input:{command:"git status"}});
+await hooks.get("tool:execute.after")({sessionID:"location-contract",tool:"shell",status:"completed",input:{command:"git status"},result:{output:"clean"}});
+// Producer-shaped locationless deletion must finalize immediately, not on disposal.
+pending.push({type:"session.deleted",data:{sessionID:"location-contract"}});
+wake?.();
+await new Promise(resolve => setImmediate(resolve));
+const calls = () => readFileSync(process.argv[3],"utf8").trim().split("\n").map(JSON.parse);
+if (calls().filter(row=>row.argv[2]==="SessionEnd").length !== 1) throw new Error("Locationless deletion dropped");
+dispose();
+if (calls().filter(row=>row.argv[2]==="SessionEnd").length !== 1) throw new Error("Deleted session finalized twice");
+const legacy = await plugin.server({directory:process.argv[2]});
+await legacy.event({event:{type:"session.created",properties:{info:{id:"legacy-contract"}}}});
+await legacy["experimental.chat.system.transform"]({sessionID:"legacy-contract"},{system:[]});
+await legacy["experimental.session.compacting"]({sessionID:"legacy-contract"},{context:[]});
+await legacy.event({event:{type:"session.deleted",properties:{sessionID:"legacy-contract"}}});
+await legacy.dispose();
+const legacyCalls = calls().filter(row=>row.payload.session_id==="legacy-contract");
+if (!legacyCalls.some(row=>row.argv[2]==="SessionStart")) throw new Error("V1 SessionStart missing");
+if (!legacyCalls.some(row=>row.argv[2]==="PreCompact")) throw new Error("V1 compaction missing");
+if (legacyCalls.filter(row=>row.argv[2]==="SessionEnd").length!==1) throw new Error("V1 session finalized twice");
+console.log(JSON.stringify(calls()));
+'''
+    try:
+        calls = json.loads(f.node(source, plugin, location, log).stdout)
+        assert len(calls) >= 6, calls
+        assert all(row["cwd"] == str(location) for row in calls), calls
+        native = [row for row in calls if row["argv"][0] == "native-hook"]
+        assert all(row["payload"]["cwd"] == str(location) for row in native), native
+    finally:
+        shutil.copy2(real, launcher)
+
+
+def hermes_denial(f):
+    config = f.paths("hermes")
+    original = config.read_bytes() if config.exists() else b""
+    try:
+        f.cli("tools", "hooks", "install", "hermes")
+        # Model the host's ordinary disable operation, preserving its deny entry.
+        document = yaml.safe_load(config.read_text())
+        document["plugins"]["enabled"] = [
+            name for name in document["plugins"]["enabled"] if name != "caveman_shrink"
+        ]
+        document["plugins"]["disabled"] = ["caveman_shrink"]
+        disabled = yaml.safe_dump(document, sort_keys=False).encode()
+        config.write_bytes(disabled)
+        before_plugin = (f.home / ".hermes/plugins/caveman_shrink/__init__.py").read_bytes()
+        result = f.cli("tools", "hooks", "install", "hermes", check=False)
+        assert result.returncode != 0
+        assert b"hermes plugins enable caveman_shrink" in result.stderr
+        assert config.read_bytes() == disabled
+        assert (f.home / ".hermes/plugins/caveman_shrink/__init__.py").read_bytes() == before_plugin
+        assert not (f.cave / "hooks/hermes.json").exists()
+        # Empty flow sequences are a supported host serialization shape.
+        document["plugins"]["enabled"] = ["caveman_shrink"]
+        document["plugins"]["disabled"] = []
+        config.write_text(yaml.safe_dump(document, sort_keys=False))
+        f.cli("tools", "hooks", "install", "hermes")
+        assert (f.cave / "hooks/hermes.json").exists()
+        assert yaml.safe_load(config.read_text())["plugins"]["disabled"] == []
+        native_denial = b"model:\n  provider: openai\nplugins:\n  disabled:\n    - caveman_native\n"
+        config.write_bytes(native_denial)
+        result = f.cli("enable", "hermes", check=False)
+        assert result.returncode != 0
+        assert config.read_bytes() == native_denial
+        assert not (f.cave / "integrations/hermes.json").exists()
+        assert not (f.home / ".hermes/plugins/caveman_native").exists()
+        recovered = {"model": {"provider": "openai"}, "plugins": {"enabled": [], "disabled": []}}
+        config.write_text(yaml.safe_dump(recovered, sort_keys=False))
+        f.cli("enable", "hermes")
+        report = json.loads(f.cli("doctor", "hermes").stdout)
+        assert report["state"] == "installed", report
+        assert yaml.safe_load(config.read_text())["plugins"]["disabled"] == []
+        f.cli("disable", "hermes")
+    finally:
+        config.write_bytes(original)
+
+def hermes_membership(f):
+    config = f.paths("hermes")
+    plugins = f.home / ".hermes/plugins"
+    marker = f.cave / "hooks/hermes.json"
+    prefix = "model:\n  provider: openai\nplugins:\n"
+    unrelated = (
+        "  disabled:\n    - other\n    - other\n",
+        "  disabled: [other, other]\n",
+        "  disabled: ['it''s, [other]', \"escaped\\\"other\", other,] # keep\n",
+        "  disabled: [\n    other, # comma, ] in comment\n    'another',\n]\n",
+        '  disabled: ["ordinary\n    folded name", "escaped\\\n    continuation"]\n',
+        '  disabled: ["caveman_\\nshrink", "caveman_\\nnative"]\n',
+        "  disabled:\n    [other, another]\n",
+        "  disabled: # header comment [\n    # before node ]\n    [other, another]\n",
+        '  disabled: [# misleading ] { "\n    other,# misleading [ \' }\n    another]# misleading [ "\n',
+        "  disabled: [team#helper, caveman_native#helper, caveman_shrink#helper]\n",
+    )
+    for disabled in unrelated:
+        seed = prefix + "  enabled:\n    - existing\n" + disabled + "foreign: keep\n"
+        put(config, seed)
+        f.cli("enable", "hermes")
+        assert disabled in config.read_text(), disabled
+        assert json.loads(f.cli("doctor", "hermes").stdout)["state"] == "installed"
+        f.cli("disable", "hermes")
+        assert disabled in config.read_text(), disabled
+        put(config, seed)
+        f.cli("tools", "hooks", "install", "hermes")
+        assert disabled in config.read_text(), disabled
+        assert marker.is_file()
+        f.cli("tools", "hooks", "uninstall", "hermes")
+        assert disabled in config.read_text(), disabled
+
+    # Quoted continuation text is not a writable plugins.enabled mapping.
+    fake_enabled = '  disabled: ["before\n  enabled: [foreign]\n    after"]\n'
+    seed = prefix + fake_enabled + "  enabled:\n    - existing\nforeign: keep\n"
+    config.write_text(seed)
+    f.cli("tools", "hooks", "install", "hermes")
+    assert fake_enabled in config.read_text()
+    assert yaml.safe_load(config.read_text())["plugins"]["enabled"] == ["caveman_shrink", "existing"]
+    assert marker.is_file()
+    f.cli("tools", "hooks", "uninstall", "hermes")
+    assert fake_enabled in config.read_text()
+
+    # A pre-enabled shrink flow list needs no writer and keeps every config byte.
+    for enabled in (
+        "[caveman_shrink, other]",
+        "['other, ]', \"caveman_\\x73hrink\",]",
+        '[\n    other, # ], comment\n    "caveman_\\\n    shrink",\n]',
+        '[\n    caveman_shrink,\n]',
+        "\n    [caveman_shrink, other]",
+        '# header comment [\n    # before node ]\n    [caveman_shrink, other]',
+        '[# misleading ] { "\n    other,# misleading [ \' }\n    caveman_shrink]# misleading [ "',
+        "[team#helper, caveman_shrink, caveman_shrink#helper]",
+    ):
+        seed = (prefix + "  enabled: " + enabled + "\n  disabled: [other, other]\nforeign: keep\n").encode()
+        config.write_bytes(seed)
+        for _ in range(2):
+            f.cli("tools", "hooks", "install", "hermes")
+            assert marker.is_file()
+            assert config.read_bytes() == seed, enabled
+        f.cli("tools", "hooks", "uninstall", "hermes")
+        assert config.read_bytes() == seed, enabled
+
+    def plugin_bytes():
+        return {str(path.relative_to(plugins)): path.read_bytes()
+                for path in plugins.rglob("*") if path.is_file()}
+
+    for name, arguments in (
+        ("caveman_native", ("enable", "hermes")),
+        ("caveman_shrink", ("tools", "hooks", "install", "hermes")),
+    ):
+        payload = plugins / name / "__init__.py"
+        put(payload, "# foreign payload must survive refusal\n")
+        denied_lists = (
+            f"  disabled: [{name}]\n",
+            f"  disabled: [other, '{name}', {name},]\n",
+            '  disabled: ["' + name.replace("caveman", r"\x63aveman") + '"]\n',
+            '  disabled: ["caveman_\\\n    ' + name.removeprefix("caveman_") + '"]\n',
+            f"  disabled: [\n    other, # ], comment\n    {name},\n]\n",
+            f"  disabled:\n    [other, {name}]\n",
+            f"  disabled: [# misleading ] {{ \"\n    other,# misleading [ ' }}\n    {name}]# misleading [ \"\n",
+        )
+        malformed_lists = (
+            "  disabled: [other, true]\n",
+            "  disabled: [other, y]\n",
+            "  disabled: [other, n]\n",
+            "  disabled: [other, null]\n",
+            "  disabled: [other, 123]\n",
+            "  disabled: [other, .inf]\n",
+            "  disabled: [other, .nan]\n",
+            "  disabled: [other, [nested]]\n",
+            "  disabled: [other, {key: value}]\n",
+            "  disabled: [other, key:]\n",
+            '  disabled: [other, "key":value]\n',
+            "  disabled: [other, key: value]\n",
+            "  disabled: [other, &alias value]\n",
+            "  disabled: [other, *alias]\n",
+            "  disabled: [other, !!str value]\n",
+            "  disabled: [other,, another]\n",
+            "  disabled: [other}\n",
+            "  disabled: ['unterminated]\n",
+            f"  disabled: [other\n  disabled: [{name}]\n",
+            f"  disabled: [other\n  enabled: [{name}]\n",
+            "  disabled: [other]\n  disabled: []\n",
+            "  disabled: [other] trailing\n",
+            "  disabled:\n    [other\n",
+            "  disabled: [# comment contains only closing bracket ]\n",
+        )
+        # A nonempty flow list cannot be changed by either block writer.
+        unsupported_writer = (
+            "  enabled: [other]\n  disabled: []\n",
+            "  enabled: [\n    other,\n]\n  disabled: []\n",
+            f"  enabled: [{name}, true]\n  disabled: []\n",
+            "  enabled:\n    [other, another]\n  disabled: []\n",
+        )
+        if name == "caveman_native":
+            unsupported_writer += (f"  enabled: [{name}]\n  disabled: []\n",)
+        for body in (*denied_lists, *malformed_lists, *unsupported_writer):
+            seed = (prefix + body + "foreign: keep\n").encode()
+            config.write_bytes(seed)
+            before = plugin_bytes()
+            put(marker, '{"stale":true}\n')
+            result = f.cli(*arguments, check=False)
+            assert result.returncode != 0, (name, body, result.stdout, result.stderr)
+            assert config.read_bytes() == seed, (name, body)
+            assert plugin_bytes() == before, (name, body)
+            assert not (f.cave / "integrations/hermes.json").exists(), (name, body)
+            if name == "caveman_shrink":
+                assert not marker.exists(), body
+        payload.unlink()
+
+
+
+def opencode_roots(f):
+    ordinary = f.home / ".config/opencode"
+    foreign = ordinary / "foreign.json"
+    put(foreign, '{"foreign":true}\n')
+    for name, additions in (
+        ("home", {"XDG_CONFIG_HOME": None}),
+        ("empty-home", {"XDG_CONFIG_HOME": None, "OPENCODE_CONFIG_DIR": ""}),
+        ("xdg", {"XDG_CONFIG_HOME": str(f.root / "xdg literal ' $root")}),
+        ("empty-xdg", {"XDG_CONFIG_HOME": str(f.root / "empty xdg literal ' $root"),
+                       "OPENCODE_CONFIG_DIR": ""}),
+        ("override", {"XDG_CONFIG_HOME": str(f.root / "unused-xdg"),
+                      "OPENCODE_CONFIG_DIR": str(f.root / "override literal ' $root")}),
+    ):
+        environment = {key: value for key, value in {**f.env, **additions}.items() if value is not None}
+        expected = Path(environment.get("OPENCODE_CONFIG_DIR") or
+                        str(Path(environment.get("XDG_CONFIG_HOME") or f.home / ".config") / "opencode"))
+        f.cli("tools", "hooks", "install", "opencode", env=environment)
+        plugin = expected / "plugins/caveman-shrink.js"
+        assert plugin.is_file(), (name, expected)
+        if expected != ordinary:
+            assert not (ordinary / "plugins/caveman-shrink.js").exists()
+        f.cli("tools", "hooks", "uninstall", "opencode", env=environment)
+        assert not plugin.exists()
+        f.cli("enable", "opencode", env=environment)
+        native = expected / "plugins/caveman-native.js"
+        assert native.is_file(), (name, expected)
+        if expected != ordinary:
+            assert not (ordinary / "plugins/caveman-native.js").exists()
+        f.cli("disable", "opencode", env=environment)
+        assert not native.exists()
+        assert foreign.read_text() == '{"foreign":true}\n'
+    environment = {**f.env, "OPENCODE_CONFIG_DIR": "relative-opencode"}
+    for arguments in (("tools", "hooks", "install", "opencode"), ("enable", "opencode")):
+        refusal = f.cli(*arguments, env=environment, check=False)
+        assert refusal.returncode != 0
+        assert b"must be absolute" in refusal.stderr
+        assert not (f.repo / "relative-opencode").exists()
+        assert foreign.read_text() == '{"foreign":true}\n'
+
+
 def main():
     # Large executable copies stay on inherited TMPDIR. Only native state gets
     # a separate short path, shared throughout each scenario's A/B lifecycle.
     root = Path(tempfile.mkdtemp(prefix="caveman-profile-check-")).resolve()
     retain_root = False
     try:
-        package_invocations(root)
-        filtered_profiles(root)
+        if not sys.argv[7:]:
+            package_invocations(root)
+            filtered_profiles(root)
+        exercised = set()
         for name, case in (
             ("mcp", mcp_lifetime), ("delegate", custom_delegate),
             ("shrink", shrink_callbacks), ("native", native_integrations),
@@ -1432,7 +1741,14 @@ def main():
             ("hermes-markers", hermes_foreign_markers),
             ("hermes-foreign-removal", hermes_foreign_removal),
             ("native-registration", native_registration_commands),
+            ("hermes-denial", hermes_denial),
+            ("hermes-membership", hermes_membership),
+            ("opencode-roots", opencode_roots),
+            ("opencode-location", opencode_location_contract),
         ):
+            if sys.argv[7:] and name not in sys.argv[7:]:
+                continue
+            exercised.add(name)
             state = short_native_state()
             fixture = None
             case_root = root / name
@@ -1458,6 +1774,7 @@ def main():
                 finally:
                     shutil.rmtree(state)
             print(f"profile behavioral coverage: {name}", flush=True)
+        assert not set(sys.argv[7:]) - exercised, f"Unknown cases: {set(sys.argv[7:]) - exercised}"
     finally:
         if not retain_root:
             shutil.rmtree(root)

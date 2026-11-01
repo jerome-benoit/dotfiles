@@ -90,6 +90,16 @@ let
         startsBefore "sops-nix" "hermesAgentEnvironment"
         && startsBefore "hermesAgentEnvironment" "setupLaunchAgents"
     );
+  wrappedVoicePython =
+    pkgs.runCommand "hermes-voice-discovery-python"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+      }
+      ''
+        mkdir -p "$out/bin"
+        ln -s ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python "$out/bin/python"
+        ${configuration.config.services.hermes-agent.package.postFixup}
+      '';
 in
 assert lib.all (condition: condition) [
   (check "external Hermes homes fail before activation" (
@@ -156,6 +166,42 @@ pkgs.runCommand "check-hermes-agent"
     ];
   }
   ''
+    ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+      # Same wrapper fixup and exact locked wheel; no compiler on caller PATH.
+      PATH=${pkgs.coreutils}/bin ${wrappedVoicePython}/bin/python - <<'PY'
+      import ctypes.util
+      import sounddevice
+      assert ctypes.util.find_library("portaudio")
+      assert sounddevice._lib is not None
+      PY
+    ''}
+    python3 - ${smokeConfiguration.config.services.hermes-agent.package.integrationSecretGate} <<'PY'
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    import tempfile
+    import time
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        secret = root / "home with spaces/secret env"
+        secret.parent.mkdir(parents=True)
+        gate = root / "gate"
+        gate.write_text(Path(sys.argv[1]).read_text().replace("${smokeRoot}", temporary))
+        gate.chmod(0o755)
+        argv = ["two words", "' literal $HOME `false`", ""]
+        child = subprocess.Popen(
+            [str(gate), sys.executable, "-c", "import json,sys; print(json.dumps(sys.argv[1:]))", *argv],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        time.sleep(0.2)
+        assert child.poll() is None, "service started before secret"
+        secret.write_text("SYNTHETIC=ready\n")
+        stdout, stderr = child.communicate(timeout=5)
+        assert child.returncode == 0, stderr
+        assert json.loads(stdout) == argv, stdout
+    PY
     python3 - "$setupPath" "$environmentPath" <<'PY'
     import os
     from pathlib import Path

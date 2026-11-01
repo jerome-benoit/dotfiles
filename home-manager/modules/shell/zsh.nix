@@ -154,7 +154,7 @@ in
                   opencode "$@"
               else
                   # Create tmux session and run opencode
-                  local oc_cmd="opencode $*; exec $SHELL"
+                  local oc_cmd="opencode ''${(j: :)''${(qq)@}}; exec ''${(qq)SHELL}"
                   if tmux has-session -t "$session_name" 2>/dev/null; then
                       tmux new-window -t "$session_name" -c "$PWD" "$oc_cmd"
                       tmux attach-session -t "$session_name"

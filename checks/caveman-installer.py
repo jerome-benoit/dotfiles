@@ -598,6 +598,112 @@ process.stdout.write(JSON.stringify({started, changed, output}));
     assert not (opencode / "plugins/caveman").exists()
     assert not (fixture.home / ".config/opencode").exists()
 
+    # OPENCODE_CONFIG_DIR replaces XDG's complete root, without migrating old data.
+    override_fixture = Fixture(root / "opencode-override", lifetime=True)
+    override_fixture.env["XDG_CONFIG_HOME"] = str(override_fixture.root / "unused xdg")
+    override = override_fixture.root / "override root ' $literal"
+    override_fixture.env["OPENCODE_CONFIG_DIR"] = str(override)
+    old_root = override_fixture.home / ".config/opencode"
+    old_root.mkdir(parents=True)
+    foreign = old_root / "foreign.json"
+    foreign.write_text('{"foreign":true}\n')
+    override_fixture.install("--only", "opencode")
+    assert (override / "plugins/caveman/plugin.js").is_file()
+    assert (override / "skills/caveman/SKILL.md").is_file()
+    override_program = """
+import {pathToFileURL} from 'node:url';
+import {readFileSync, existsSync} from 'node:fs';
+import {join} from 'node:path';
+const plugin = await import(pathToFileURL(process.argv[1]).href);
+const hooks = await plugin.CavemanPlugin({});
+const root = process.argv[2];
+const state = () => readFileSync(join(root, '.caveman-active'), 'utf8').trim();
+await hooks.event({event:{type:'session.created'}});
+await hooks['chat.message']({}, {parts:[{type:'text',text:'/ultracave'}]});
+const persistent = state();
+await hooks['chat.message']({}, {parts:[{type:'text',text:'/caveman-review'}]});
+const oneShot = state();
+const previous = readFileSync(join(root, '.caveman-active.prev'), 'utf8').trim();
+await hooks['chat.message']({}, {parts:[{type:'text',text:'ordinary next turn'}]});
+console.log(JSON.stringify({
+  persistent, oneShot, previous, restored:state(),
+  previousRemoved:!existsSync(join(root,'.caveman-active.prev')),
+  log:readFileSync(join(root,'.caveman-mode-log.jsonl'),'utf8'),
+}));
+"""
+    state = json.loads(call(
+        [override_fixture.profile / "lib/caveman/node", "--input-type=module", "-e",
+         override_program, override / "plugins/caveman/plugin.js", override],
+        override_fixture.env, override_fixture.root,
+    ).stdout)
+    assert state["persistent"] == state["previous"] == state["restored"] == "ultracave", state
+    assert state["oneShot"] == "review" and state["previousRemoved"], state
+    assert state["log"], state
+    assert not Path(override_fixture.env["XDG_CONFIG_HOME"]).exists()
+    assert foreign.read_text() == '{"foreign":true}\n'
+    override_fixture.install("--uninstall")
+    assert not (override / "plugins/caveman").exists()
+    assert foreign.read_text() == '{"foreign":true}\n'
+
+    # Empty overrides have the same root and copied-plugin behavior as absence.
+    for name, override_value, xdg_value in (
+        ("absent-home", None, None),
+        ("empty-home", "", None),
+        ("absent-xdg", None, "xdg root ' $literal"),
+        ("empty-xdg", "", "xdg root ' $literal"),
+    ):
+        selected = Fixture(root / ("opencode-" + name))
+        if override_value is not None:
+            selected.env["OPENCODE_CONFIG_DIR"] = override_value
+        if xdg_value is None:
+            selected.env.pop("XDG_CONFIG_HOME")
+            expected = selected.home / ".config/opencode"
+        else:
+            selected.env["XDG_CONFIG_HOME"] = str(selected.root / xdg_value)
+            expected = Path(selected.env["XDG_CONFIG_HOME"]) / "opencode"
+        old_root = selected.home / ".config/opencode"
+        old_root.mkdir(parents=True)
+        foreign = old_root / "foreign.json"
+        foreign.write_text('{"foreign":true}\n')
+        selected.install("--only", "opencode")
+        copied_plugin = expected / "plugins/caveman/plugin.js"
+        assert copied_plugin.is_file(), name
+        assert (expected / "skills/caveman/SKILL.md").is_file(), name
+        observed = json.loads(call(
+            [selected.profile / "lib/caveman/node", "--input-type=module", "-e",
+             override_program, copied_plugin, expected],
+            selected.env, selected.root,
+        ).stdout)
+        assert observed["persistent"] == observed["previous"] == observed["restored"] == "ultracave", observed
+        assert observed["oneShot"] == "review" and observed["previousRemoved"], observed
+        assert observed["log"], observed
+        if expected != old_root:
+            assert not (old_root / "plugins").exists()
+            assert not (old_root / ".caveman-active").exists()
+        assert foreign.read_text() == '{"foreign":true}\n'
+        selected.install("--uninstall")
+        assert not copied_plugin.exists()
+        assert foreign.read_text() == '{"foreign":true}\n'
+
+    relative = Fixture(root / "opencode-relative")
+    relative.env["OPENCODE_CONFIG_DIR"] = "relative-opencode"
+    before_relative = snapshot(relative.home)
+    refusal = relative.install("--only", "opencode", success=False)
+    assert refusal.returncode != 0
+    assert b"must be absolute" in refusal.stderr + refusal.stdout
+    assert snapshot(relative.home) == before_relative
+    assert not (relative.root / "relative-opencode").exists()
+    # Importing the shipped copied-plugin payload must refuse the same value.
+    refusal = call(
+        [relative.profile / "lib/caveman/node", "--input-type=module", "-e",
+         "import {pathToFileURL} from 'node:url'; await import(pathToFileURL(process.argv[1]).href);",
+         source / "src/plugins/opencode/plugin.js"],
+        relative.env, relative.root, success=False,
+    )
+    assert refusal.returncode != 0 and b"must be absolute" in refusal.stderr
+    assert snapshot(relative.home) == before_relative
+    assert not (relative.root / "relative-opencode").exists()
+
     # Persist the bundled JavaScript middleware through private Node, not npx or Go.
     # The upstream launcher records argv and runs the packaged MCP server over stdio.
     fixture = Fixture(root / "opencode-mcp-generation-switch", lifetime=True)

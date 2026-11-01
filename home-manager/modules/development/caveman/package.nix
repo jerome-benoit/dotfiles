@@ -28,7 +28,12 @@ let
     inherit version src;
     # Workaround: installers persist generation-specific paths and share Claude payloads.
     # Remove when upstream supports durable paths and profile-local ownership.
-    patches = [ ../../../../patches/caveman-nix-installer-paths.patch ];
+    patches = [
+      ../../../../patches/caveman-nix-installer-paths.patch
+      # Workaround: the installer and copied plugin ignore OpenCode's root override.
+      # Remove when both honor nonempty, absolute OPENCODE_CONFIG_DIR values.
+      ../../../../patches/caveman-installer-config-root.patch
+    ];
     dontBuild = true;
     installPhase = ''
       runHook preInstall
@@ -95,6 +100,9 @@ stdenvNoCC.mkDerivation {
     # Workaround: Hermes YAML writers and ownership checks depend on formatting.
     # Remove when upstream handles document/list layout and normalized owned values.
     ../../../../patches/caveman-hermes-native-yaml.patch
+    # Workaround: generated plugins use old OpenCode APIs and incomplete Hermes membership checks.
+    # Remove when upstream supports V2 scopes, effective roots and deny-list-aware YAML membership.
+    ../../../../patches/caveman-opencode-hermes.patch
   ];
 
   buildPhase = ''

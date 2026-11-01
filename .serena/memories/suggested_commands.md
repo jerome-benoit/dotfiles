@@ -5,8 +5,10 @@
 | Command | Description                                                                  |
 | ------- | ---------------------------------------------------------------------------- |
 | `hm`    | Apply home-manager changes (default alias, preserves current specialisation) |
-| `hmw`   | Switch to work specialisation                                                |
-| `hmp`   | Switch to personal specialisation                                            |
+| `hmw`   | Switch to work specialisation (from an active specialisation)                |
+| `hmp`   | Switch to personal specialisation (from an active specialisation)            |
+
+From the base configuration, use `make switch SPEC=work` or `make switch SPEC=personal`.
 
 **Note**: `hm*` aliases use `_hm_switch` which decrypts sops secrets then calls `nh home switch --impure -c "$(whoami)" -- --impure`. The `-- --impure` is needed because nh has a bug where `--impure` isn't passed to its internal `nix eval` for config discovery.
 
@@ -49,24 +51,61 @@ After installation, restart your shell to pick up aliases.
 
 ## Validation & Testing
 
-| Command                        | Description                                              |
-| ------------------------------ | -------------------------------------------------------- |
-| `nix flake check`              | Run all checks (formatting, symlinks, build all configs) |
-| `nix flake check --show-trace` | Run checks with detailed error traces                    |
-| `nix flake show`               | Show all flake outputs                                   |
-| `nix flake metadata`           | Show flake metadata and inputs                           |
+| Command                        | Description                           |
+| ------------------------------ | ------------------------------------- |
+| `nix flake check`              | Run checks for the current platform   |
+| `nix flake check --show-trace` | Run checks with detailed error traces |
+| `nix flake show`               | Show all flake outputs                |
+| `nix flake metadata`           | Show flake metadata and inputs        |
 
-### What `nix flake check` validates:
+### Check coverage
 
-1. **formatting** - All .nix files formatted correctly (nixfmt)
-2. **symlinks** - No broken symlinks in build output (platform-aware)
-3. **statix** - Nix linter (anti-patterns, style)
-4. **deadnix** - Dead code detection (unused bindings, inputs)
-5. **home-<personal-username>** - Build personal home configuration (Linux)
-6. **home-almalinux** - Build almalinux's home configuration (Linux)
-7. **home-<work-username>** - Build work home configuration (macOS)
+`checks/default.nix` defines the shared checks:
 
-(Usernames come from `privateConfig.identity.username` and `privateConfig.work.username`)
+| Checks                            | Coverage                                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `formatting`, `statix`, `deadnix` | Nix formatting, anti-patterns and unused code                                                      |
+| `symlinks`                        | Broken symlinks in compatible Home Manager outputs                                                 |
+| `secrets`, `email`                | Secret lifecycle and account/credential consumers                                                  |
+| `consumers`                       | Literal shell arguments, terminal key dispatch, Treesitter/textobjects and real Pyright attachment |
+| `hermes-agent`                    | Generated configuration, plugin paths and service ordering                                         |
+| `caveman`                         | Generated integrations, installation ownership and native/shrink hooks                             |
+| `development`, `opencode-desktop` | Development-module activation and Desktop CLI staging                                              |
+| `strata`, `gpu`, `ci-contract`    | Workspace/runtime validation, GPU selection and CI contracts                                       |
+
+`flake.nix` adds Home Manager builds for the selected platform: personal and
+`almalinux` on `x86_64-linux`, work on `aarch64-darwin`. It also adds the selected
+`prime-agent` package. CI runs Linux and Darwin separately; a local invocation does
+not build the other platform's configurations.
+
+### Focused integration checks
+
+These commands require an `x86_64-linux` builder:
+
+```bash
+nix build .#checks.x86_64-linux.secrets
+nix build .#checks.x86_64-linux.consumers
+nix build .#checks.x86_64-linux.hermes-agent
+nix build .#checks.x86_64-linux.caveman
+```
+
+The checks use disposable secrets and generated configurations without user
+activation, model downloads or GPU inference. Scenario definitions live in
+`checks/secrets-integration.py`, `checks/consumer-{shells,terminals}.py`,
+`checks/consumer-editors.lua`, `checks/hermes-agent.nix` and `checks/caveman*.py`.
+Synthetic ordering checks do not certify native activation or login behavior.
+
+### Pure and private evaluation
+
+Pure evaluation uses the placeholder identity in `secrets/default.nix`; the focused
+checks above do not require decryption. Home Manager check names use that placeholder
+identity unless private configuration is supplied.
+
+For evaluation with the real private identity, run `make decrypt-private` before
+adding `--impure`. The loader reads `NIX_PRIVATE_CONFIG_FILE` when set, otherwise
+`$HOME/.nix/secrets/private.dec.json`, and fails if the file is absent. Run
+`make clean` after inspection. Prefer `make build` and `make switch` for transient
+private configuration during normal Home Manager operations.
 
 ## Dependency Management
 

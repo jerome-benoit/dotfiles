@@ -25,6 +25,10 @@ in
       ;
   };
   inherit development;
+  consumers = import ./consumers.nix {
+    inherit pkgs home-manager;
+    inputs = self.inputs;
+  };
   opencode-desktop = development.tests.opencode-desktop;
   email = import ./email.nix {
     inherit home-manager pkgs sops-nix;

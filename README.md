@@ -4,6 +4,8 @@ Nix flakes configuration for Generic Linux and macOS.
 
 ## Installation
 
+Before bootstrapping, install the configured SOPS age identity outside the repository with permissions `0600`.
+
 ```bash
 git clone <repository-url> ~/.nix
 cd ~/.nix
@@ -22,7 +24,7 @@ Restart your shell.
 # Apply changes (preserves current specialisation)
 hm
 
-# Switch specialisation
+# Switch specialisation (from an active specialisation)
 hmw  # work
 hmp  # personal
 
@@ -43,6 +45,10 @@ make edit-credentials # Edit runtime credentials interactively
 make clean            # Remove decrypted private configuration, credentials, and temporary files
 ```
 
+Interactive SOPS edits replace existing ciphertext only after successful encryption.
+Edits use private temporary files, removed after the editor and its supervised processes stop.
+Uncatchable termination or machine failure may leave plaintext behind.
+
 ### GPG keypair
 
 Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where the configured SOPS age identity is present.
@@ -52,6 +58,9 @@ make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
 ```
 
 Recovery: with the configured SOPS age identity + the git repo, SOPS secrets and GPG subkeys are recoverable. The GPG primary key is not in the bundle; back it up separately offline.
+
+GPG bundle exports replace the previous bundle only after successful encryption and verification.
+Bundle passphrases preserve leading and trailing whitespace.
 
 ### Formatting
 
@@ -66,7 +75,17 @@ nix fmt file.nix     # Format specific file
 nix flake check      # Run all checks:
                      # - Formatting verification
                      # - Symlinks validation
-                     # - Build all home-manager configurations
+                     # - Build Home Manager configurations for the current platform
+```
+
+Focused integration checks require an `x86_64-linux` builder. They use disposable secrets
+and do not activate your environment, download models, or run GPU inference.
+
+```bash
+nix build .#checks.x86_64-linux.secrets
+nix build .#checks.x86_64-linux.consumers
+nix build .#checks.x86_64-linux.hermes-agent
+nix build .#checks.x86_64-linux.caveman
 ```
 
 ### Maintenance

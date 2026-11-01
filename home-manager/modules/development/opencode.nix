@@ -8,7 +8,24 @@
 let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
-  baseOpencodePackage = inputs.opencode.packages.${system}.default or null;
+  upstreamOpencodePackage = inputs.opencode.packages.${system}.default or null;
+  opencodeHashes =
+    (import ./pins {
+      inherit lib;
+      inherit (pkgs) fetchurl fetchzip;
+    }).opencode.hashes;
+  # Workaround: pinned upstream dependency hashes predate its locked Bun inputs.
+  # Verified upstream hash provenance is recorded in pins/opencode.json.
+  # Remove when the pinned upstream revision includes those published hashes.
+  baseOpencodePackage =
+    if upstreamOpencodePackage == null then
+      null
+    else
+      upstreamOpencodePackage.overrideAttrs (previousAttrs: {
+        node_modules = previousAttrs.node_modules.overrideAttrs {
+          outputHash = opencodeHashes.${system};
+        };
+      });
 
   mkOpencodePackage =
     package:

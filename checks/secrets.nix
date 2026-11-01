@@ -8,10 +8,20 @@ pkgs.runCommandLocal "check-secrets-lifecycle"
       pkgs.expect
       pkgs.gnumake
       pkgs.python3
+      pkgs.age
+      pkgs.sops
+      pkgs.gnupg
+      pkgs.git
+      pkgs.gnutar
+      pkgs.gzip
     ];
   }
   ''
     shopt -s nullglob
+    ${pkgs.python3}/bin/python ${./secrets-integration.py} \
+      ${../scripts/secrets.py} ${../scripts/encrypt-gpg-bundle.sh} \
+      ${pkgs.age}/bin/age ${pkgs.age}/bin/age-keygen ${pkgs.sops}/bin/sops \
+      ${pkgs.gnupg}/bin/gpg ${pkgs.git}/bin/git ${pkgs.neovim-unwrapped}/bin/nvim
     repo="$TMPDIR/repo"
     fakebin="$TMPDIR/fakebin"
     failbin="$TMPDIR/failbin"
