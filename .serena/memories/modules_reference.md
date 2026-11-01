@@ -54,6 +54,9 @@ SOPS secrets management via `sops-nix` home-manager module:
 - **Email credentials**: declared per active account by `core/email.nix`
 - **SSH key**: `secrets/ssh/id_rsa` (format=binary, deployed to `~/.ssh/id_rsa`)
 - **SSH pubkey**: `secrets/ssh/id_rsa.pub` (via home.file, plaintext)
+- **Interactive edits**: `scripts/secrets.py` stages ciphertext beside its destination, preserves the final YAML suffix for editor detection and passes the original filename to SOPS for creation rules.
+- **Publication**: interactive edits publish by rename after successful encryption; `scripts/encrypt-gpg-bundle.sh` also verifies its staged export before replacing the previous bundle.
+- **Editor cleanup**: plaintext stays in a private manager-owned workspace until supervised descendants stop. Handled HUP, QUIT, INT and TERM trigger cleanup; SIGKILL or machine failure can leave plaintext.
 
 ### distro.nix
 
@@ -228,7 +231,13 @@ Hermes Agent configuration:
 
 ### aoe.nix
 
-- Seed `config.toml` only when no file or symlink exists.
+Agent of Empires session manager:
+
+- Options: `enable`, `enableWeb`, `package`, `theme`, `defaultTool`
+- Package from `inputs.agent-of-empires.packages.${system}`; `enableWeb` selects `aoe-with-web` instead of `default`
+- Default tool: `opencode`; default theme: `tokyo-night-storm`
+- Shell completions: bash, fish, zsh
+- Seed `config.toml` only when no file or symlink exists; dry runs leave files and directories unchanged.
 - Prefer the declared future XDG session environment during activation. Without a declared export, follow the native environment and existing-directory precedence, including Darwin's legacy fallback.
 
 - The selected packaged AoE registry detects and launches Nixpkgs' `cursor-agent`; no generic `agent` alias is installed.
@@ -264,8 +273,8 @@ OpenCode AI assistant:
 - Generated Desktop requires a non-null CLI package selection
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
-- Workaround: pinned OpenCode revision `977f5c6` carries stale dependency hashes. `pins/opencode.json` temporarily uses the three native-platform values published by [upstream PR60957](https://github.com/anomalyco/opencode/pull/60957), hash commit `f95f806017daa55161b6b92743c0c63d35874c4f` on dependency base `b95c1f379cdac24ea2fa8c56a84eaf58dad4ad0f`.
-- The dependency base and pinned revision have identical Bun lock, package manifests and Nix dependency inputs. CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged.
+- Workaround: the pinned OpenCode revision carries stale dependency hashes. `pins/opencode.json` records the replacement hashes, upstream provenance and dependency-input compatibility.
+- CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged.
 - Remove this override when the pinned upstream revision ships those published values. Upstream CI owns regeneration; the local hash fixer does not maintain these hashes.
 - Warnings if packages unavailable for system
 
@@ -303,18 +312,6 @@ Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
 - Activation preserves existing regular files, including empty files; dry runs never create config files or directories
 - Package consumed from the `herdr` flake input (`inputs.herdr.packages.${system}.default`), no vendor/src hash to maintain
 - No conductor/telegram/slack integration (unlike the former agent-deck)
-
-### aoe.nix
-
-Agent of Empires session manager:
-
-- Options: `enable`, `package`, `theme`, `defaultTool`
-- Default tool: opencode (supports claude, opencode, vibe, codex, gemini)
-- Theme: tokyo-night-storm (supports phosphor, tokyo-night-storm, catppuccin-latte, dracula, empire)
-- Config: XDG config or `~/.agent-of-empires/config.toml` on macOS
-- Config is seeded only when no regular config file exists; dry runs leave files and directories unchanged
-- Shell completions: bash, fish, zsh
-- Built from flake input with `rustPlatform.buildRustPackage`
 
 ### openspec.nix
 

@@ -15,8 +15,7 @@ let
       inherit (pkgs) fetchurl fetchzip;
     }).opencode.hashes;
   # Workaround: pinned upstream dependency hashes predate its locked Bun inputs.
-  # PR60957 publishes hashes at f95f806 on dependency base b95c1f3; the pinned
-  # 977f5c6 has identical dependency inputs.
+  # Verified upstream hash provenance is recorded in pins/opencode.json.
   # Remove when the pinned upstream revision includes those published hashes.
   baseOpencodePackage =
     if upstreamOpencodePackage == null then

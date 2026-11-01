@@ -8,6 +8,9 @@
 make decrypt-private  # Required for impure Nix evaluation
 ```
 
+Skip decryption for pure checks, which use placeholder private configuration.
+See `suggested_commands`, **Pure and private evaluation**, for the distinction.
+
 ### 1. Format Code
 
 ```bash
@@ -17,7 +20,7 @@ nix fmt
 ### 2. Run All Checks
 
 ```bash
-nix flake check       # requires --impure if secrets are involved
+nix flake check
 ```
 
 This validates:
@@ -26,7 +29,8 @@ This validates:
 - [ ] No broken symlinks in build output
 - [ ] statix lint passes without warnings (fix findings; do not suppress rules in statix.toml)
 - [ ] deadnix passes (no dead code)
-- [ ] All home configurations build successfully (personal, almalinux, work)
+- [ ] Home configurations for the current platform build successfully (personal/almalinux on Linux, work on macOS)
+- [ ] Relevant integration checks pass (see `suggested_commands`, **Validation & Testing**)
 
 ### 3. Test Changes Locally
 
@@ -140,6 +144,10 @@ Then set `config.modules.themes.active = "myThemeKey"` to use it.
 
 See `code_style_conventions` memory for platform-specific code patterns.
 
+Exercise activation and login on each affected native platform when changing
+service startup or secret ordering. Synthetic ordering checks do not prove native
+service readiness at login.
+
 ## Updating Dependencies
 
 See `suggested_commands` memory for dependency management commands.
@@ -153,6 +161,7 @@ See `suggested_commands` memory for dependency management commands.
      # ... existing
      "newuser" = mkHomeConfiguration {
        arch = constants.systems.linux.arch;  # or darwin
+       profile = constants.profiles.desktop;  # or server
        username = "newuser";
      };
    };

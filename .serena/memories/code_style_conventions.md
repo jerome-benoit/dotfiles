@@ -113,10 +113,11 @@ constants.distros.fedora      # "fedora"
 Defined in `modules/core/constants.nix`:
 
 ```nix
-config.modules.core.constants.username      # "Jérôme Benoit"
-config.modules.core.constants.primaryEmail   # "jerome.benoit@piment-noir.org"
-config.modules.core.constants.workEmail     # "jerome.benoit@sap.com"
-config.modules.core.constants.gpg.keyId     # "27B535D3"
+config.modules.core.constants.identity.fullName    # From privateConfig.identity.fullName
+config.modules.core.constants.identity.username    # From privateConfig.identity.username
+config.modules.core.constants.personal.email       # From privateConfig.personal.email
+config.modules.core.constants.work.email           # From privateConfig.work.email
+config.modules.core.constants.identity.gpg.keyId   # From privateConfig.identity.gpg.keyId
 config.modules.core.constants.historySize   # 50000
 config.modules.core.constants.timezone      # "Europe/Paris"
 config.modules.core.constants.hosts.rigel   # "rigel"

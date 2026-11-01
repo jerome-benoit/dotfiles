@@ -8,7 +8,7 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 - **Nix Flakes** - Declarative package management and system configuration
 - **Home Manager** - User environment management for Nix
-- **SOPS** - Encrypted secrets management (GPG-based, via sops-nix home-manager module)
+- **SOPS** - Encrypted secrets with PGP and age recipients; sops-nix uses the configured age identity for runtime decryption
 - **Language**: Nix expression language
 - **Renovate** - Automated dependency updates
 
@@ -18,9 +18,9 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `nixpkgs`                 | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)                                                                                                  |
 | `home-manager`            | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs                                                                                            |
-| `opencode`                | `github:anomalyco/opencode/v2`              | OpenCode 2.x TUI/CLI/Desktop (v2 branch, follows nixpkgs)                                                                |
+| `opencode`                | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop, follows nixpkgs                                                                                |
 | `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)                                                                                                |
-| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`  | AI agent session manager (non-flake)                                                                                     |
+| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`  | AI agent session manager (flake, follows nixpkgs + flake-parts)                                                          |
 | `herdr`                   | `github:ogulcancelik/herdr`                 | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                 |
 | `openspec`                | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                                                                            |
 | `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                                                                  |
@@ -75,7 +75,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 ├── flake.lock                   # Locked dependencies
 ├── constants.nix                # Global constants (systems, profiles, distros — non-secret)
 ├── Makefile                     # SOPS workflow (decrypt, encrypt, bootstrap, switch)
-├── .sops.yaml                   # SOPS encryption rules (PGP key, path patterns)
+├── .sops.yaml                   # SOPS encryption rules (PGP/age recipients, path patterns)
 ├── .editorconfig                # Editor formatting rules
 ├── renovate.json                # Renovate bot configuration
 ├── README.md                    # Documentation
