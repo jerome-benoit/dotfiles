@@ -170,7 +170,7 @@ let
     require("nvim-surround").setup()
     require("nvim-autopairs").setup()
 
-    -- Treesitter features use the current explicit activation API.
+    -- Treesitter
     require('nvim-treesitter').setup({})
     vim.api.nvim_create_autocmd("FileType", {
       group = vim.api.nvim_create_augroup("TreesitterFeatures", { clear = true }),
@@ -182,7 +182,7 @@ let
     })
     dofile(${builtins.toJSON ./treesitter-selection.lua}).setup()
 
-    -- Textobject setup controls behavior; current APIs require explicit mappings.
+    -- Treesitter Textobjects
     require('nvim-treesitter-textobjects').setup({
       select = {
         lookahead = true,
@@ -195,25 +195,61 @@ let
       },
       move = { set_jumps = true },
     })
+
     for key, capture in pairs({
-      af = "@function.outer", ["if"] = "@function.inner",
-      ac = "@class.outer", ic = "@class.inner",
-      aa = "@parameter.outer", ia = "@parameter.inner",
-      ab = "@block.outer", ib = "@block.inner",
-      ai = "@conditional.outer", ii = "@conditional.inner",
-      al = "@loop.outer", il = "@loop.inner",
-      ["a/"] = "@comment.outer", ["i/"] = "@comment.inner",
-      ak = "@call.outer", ik = "@call.inner",
+      ["af"] = "@function.outer",
+      ["if"] = "@function.inner",
+      ["ac"] = "@class.outer",
+      ["ic"] = "@class.inner",
+      ["aa"] = "@parameter.outer",
+      ["ia"] = "@parameter.inner",
+      ["ab"] = "@block.outer",
+      ["ib"] = "@block.inner",
+      ["ai"] = "@conditional.outer",
+      ["ii"] = "@conditional.inner",
+      ["al"] = "@loop.outer",
+      ["il"] = "@loop.inner",
+      ["a/"] = "@comment.outer",
+      ["i/"] = "@comment.inner",
+      ["ak"] = "@call.outer",
+      ["ik"] = "@call.inner",
     }) do
       vim.keymap.set({ "x", "o" }, key, function()
         require("nvim-treesitter-textobjects.select").select_textobject(capture, "textobjects")
       end)
     end
+
     for method, mappings in pairs({
-      goto_next_start = { ["]f"] = "@function.outer", ["]c"] = "@class.outer", ["]a"] = "@parameter.inner", ["]i"] = "@conditional.outer", ["]l"] = "@loop.outer", ["]/"] = "@comment.outer" },
-      goto_next_end = { ["]F"] = "@function.outer", ["]C"] = "@class.outer", ["]A"] = "@parameter.inner", ["]I"] = "@conditional.outer", ["]L"] = "@loop.outer" },
-      goto_previous_start = { ["[f"] = "@function.outer", ["[c"] = "@class.outer", ["[a"] = "@parameter.inner", ["[i"] = "@conditional.outer", ["[l"] = "@loop.outer", ["[/"] = "@comment.outer" },
-      goto_previous_end = { ["[F"] = "@function.outer", ["[C"] = "@class.outer", ["[A"] = "@parameter.inner", ["[I"] = "@conditional.outer", ["[L"] = "@loop.outer" },
+      goto_next_start = {
+        ["]f"] = "@function.outer",
+        ["]c"] = "@class.outer",
+        ["]a"] = "@parameter.inner",
+        ["]i"] = "@conditional.outer",
+        ["]l"] = "@loop.outer",
+        ["]/"] = "@comment.outer",
+      },
+      goto_next_end = {
+        ["]F"] = "@function.outer",
+        ["]C"] = "@class.outer",
+        ["]A"] = "@parameter.inner",
+        ["]I"] = "@conditional.outer",
+        ["]L"] = "@loop.outer",
+      },
+      goto_previous_start = {
+        ["[f"] = "@function.outer",
+        ["[c"] = "@class.outer",
+        ["[a"] = "@parameter.inner",
+        ["[i"] = "@conditional.outer",
+        ["[l"] = "@loop.outer",
+        ["[/"] = "@comment.outer",
+      },
+      goto_previous_end = {
+        ["[F"] = "@function.outer",
+        ["[C"] = "@class.outer",
+        ["[A"] = "@parameter.inner",
+        ["[I"] = "@conditional.outer",
+        ["[L"] = "@loop.outer",
+      },
     }) do
       for key, capture in pairs(mappings) do
         vim.keymap.set({ "n", "x", "o" }, key, function()
@@ -221,7 +257,11 @@ let
         end)
       end
     end
-    for key, method in pairs({ ["<leader>sn"] = "swap_next", ["<leader>sp"] = "swap_previous" }) do
+
+    for key, method in pairs({
+      ["<leader>sn"] = "swap_next",
+      ["<leader>sp"] = "swap_previous",
+    }) do
       vim.keymap.set("n", key, function()
         require("nvim-treesitter-textobjects.swap")[method]("@parameter.inner")
       end)
@@ -337,7 +377,7 @@ let
 
   nvimOpencodeConfig = lib.optionalString cfg.plugins.opencode.enable ''
     -- OpenCode AI Integration
-    -- The v2 TUI starts/reuses the daemon; the plugin reads its service registry.
+    -- The TUI starts or reuses the daemon; opencode.nvim reads its service registry.
     local opencode_cmd = "opencode"
     local function opencode_prepare_plugin()
       local root = vim.env.OPENCODE_CONFIG_DIR
@@ -414,18 +454,16 @@ let
       },
     }
 
-    local opencode_map = vim.keymap.set
-    opencode_map({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ") end, { desc = "OpenCode: Ask question", silent = true })
-    opencode_map({ "n", "x" }, "<leader>om", function() require("opencode").select() end, { desc = "OpenCode: Menu", silent = true })
-    opencode_map("n", "<leader>ot", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
-    opencode_map("t", "<C-.>", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
-    opencode_map({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
-    opencode_map("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
+    vim.keymap.set({ "n", "x" }, "<leader>oa", function() require("opencode").ask("@this: ") end, { desc = "OpenCode: Ask question", silent = true })
+    vim.keymap.set({ "n", "x" }, "<leader>om", function() require("opencode").select() end, { desc = "OpenCode: Menu", silent = true })
+    vim.keymap.set("n", "<leader>ot", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
+    vim.keymap.set("t", "<C-.>", opencode_toggle, { desc = "OpenCode: Toggle terminal", silent = true })
+    vim.keymap.set({ "n", "x" }, "go", function() return require("opencode").operator("@this ") end, { expr = true, desc = "OpenCode: Add range to prompt" })
+    vim.keymap.set("n", "goo", function() return require("opencode").operator("@this ") .. "_" end, { expr = true, desc = "OpenCode: Add line to prompt" })
 
-    -- UI actions target this terminal's selected session and draft, not the
-    -- daemon's most recently updated session or its command-template registry.
+    -- Route actions to this terminal's selected session and draft.
     for index, action in ipairs(opencode_actions) do
-      opencode_map("n", "<leader>" .. action[1], function()
+      vim.keymap.set("n", "<leader>" .. action[1], function()
         local terminal = require("snacks.terminal").get(opencode_cmd, vim.tbl_extend("force", opencode_terminal_opts, { create = false }))
         if not terminal then
           vim.notify("Open OpenCode with <leader>ot first", vim.log.levels.ERROR)

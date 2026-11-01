@@ -1064,7 +1064,9 @@ class SecretsManager:
         environment["TMPDIR"] = str(workspace)
         try:
             status = self.sops(
-                "--filename-override", str(encrypted), str(staged),
+                "--filename-override",
+                str(encrypted),
+                str(staged),
                 environment=environment,
             )
             if status != 0:
