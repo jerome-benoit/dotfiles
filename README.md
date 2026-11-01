@@ -55,6 +55,7 @@ Recovery: with the configured SOPS age identity + the git repo, SOPS secrets and
 
 Secret edits and GPG bundle exports stage ciphertext beside the destination and publish
 only after successful completion. Failed writes leave the previous ciphertext intact.
+SOPS edits preserve YAML filetype detection in the configured editor.
 Interactive SOPS plaintext stays in a private manager-owned workspace, removed after
 supervised editor shutdown, including handled hangup and quit signals. Uncatchable
 termination or machine failure cannot guarantee plaintext cleanup.

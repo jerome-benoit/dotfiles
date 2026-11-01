@@ -831,13 +831,13 @@ class SecretsManager:
                 EX_CANTCREAT,
             )
 
-    def temporary(self, prefix: str) -> Path:
+    def temporary(self, prefix: str, *, suffix: str = "") -> Path:
         previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
         descriptor: int | None = None
         path: Path | None = None
         try:
             descriptor, name = tempfile.mkstemp(
-                prefix=prefix, dir=self.secrets_directory
+                prefix=prefix, suffix=suffix, dir=self.secrets_directory
             )
             path = Path(name)
             os.fchmod(descriptor, 0o600)
@@ -1048,7 +1048,7 @@ class SecretsManager:
             raise cleanup_error
 
     def edit(self, encrypted: Path) -> None:
-        staged = self.temporary(f"{encrypted.name}.tmp.")
+        staged = self.temporary(f"{encrypted.name}.tmp.", suffix=encrypted.suffix)
         if encrypted.exists():
             shutil.copy2(encrypted, staged)
         else:

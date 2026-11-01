@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 
-manager_source, bundle_source, age, keygen, sops, gpg, git = sys.argv[1:]
+manager_source, bundle_source, age, keygen, sops, gpg, git, nvim = sys.argv[1:]
 
 def run(args, **kwargs):
     return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
@@ -36,7 +36,32 @@ with tempfile.TemporaryDirectory() as directory:
     original = encrypted.read_bytes()
     encrypted.chmod(0o640)
     editor = root / 'editor'
-    editor.write_text('#!' + sys.executable + '\nimport json,os,signal,sys,time\nfrom pathlib import Path\np=Path(sys.argv[1])\nif os.getenv("WAIT_EDITOR"):\n signal.signal(signal.SIGHUP,signal.SIG_IGN)\n signal.signal(signal.SIGQUIT,signal.SIG_IGN)\n Path(os.environ["READY"]).write_text(json.dumps({"path":str(p),"pgid":os.getpgrp()}))\n while True: time.sleep(1)\np.write_text("value: changed\\n")\n')
+    editor.write_text(f'''#!{sys.executable}
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+p = Path(sys.argv[1])
+if os.getenv("WAIT_EDITOR"):
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+    Path(os.environ["READY"]).write_text(json.dumps({{"path": str(p), "pgid": os.getpgrp()}}))
+    while True:
+        time.sleep(1)
+if os.getenv("VERIFY_YAML_FILETYPE"):
+    subprocess.run([
+        {nvim!r}, "--headless", "-u", "NONE", "--cmd", "filetype on", str(p),
+        "-c", "lua if vim.bo.filetype ~= 'yaml' then vim.api.nvim_err_writeln('expected YAML filetype, got ' .. vim.inspect(vim.bo.filetype)); vim.cmd.cquit(1) end",
+        "-c", "%s/value: original/value: changed/",
+        "-c", "wq",
+    ], check=True)
+else:
+    p.write_text("value: changed\\n")
+''')
     editor.chmod(0o755)
     env['SOPS_EDITOR'] = str(editor)
     command = [sys.executable, str(root / 'scripts/secrets.py'), 'edit-private']
@@ -83,11 +108,14 @@ with tempfile.TemporaryDirectory() as directory:
             if process.poll() is None:
                 process.kill()
                 process.wait()
-    run(command, cwd=root, env=env)
-    assert encrypted.read_bytes() != original
-    assert b'changed' in run([sops, 'decrypt', str(encrypted)], cwd=root, env=env).stdout
-    assert encrypted.stat().st_mode & 0o777 == 0o640
-    assert not list((root / 'secrets').glob('*.tmp.*'))
+    for edit_command, destination in (
+        (command, encrypted), (credential_command, credentials),
+    ):
+        run(edit_command, cwd=root, env={**env, 'VERIFY_YAML_FILETYPE': '1'})
+        assert destination.read_bytes() != original
+        assert b'value: changed' in run([sops, 'decrypt', str(destination)], cwd=root, env=env).stdout
+        assert destination.stat().st_mode & 0o777 == 0o640
+        assert not list((root / 'secrets').glob('*.tmp.*'))
 
     # Literal edge whitespace must survive the full export and fresh-keyring test.
     gnupg = root / 'gnupg'
