@@ -11,7 +11,7 @@
  // platform, and opencode.jsonc over opencode.json when both are there.
  function opencodeConfigDir(): string {
 -  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
-+  const root = process.env.OPENCODE_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
++  const root = process.env.OPENCODE_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
 +  if (!isAbsolute(root)) throw new Error("OpenCode config root must be absolute");
 +  return root;
  }
@@ -212,10 +212,136 @@
              encoding: "utf8",
              timeout: 750,
              windowsHide: true,
-@@ -10537,6 +10541,12 @@
+@@ -10260,9 +10264,9 @@
+   return value.replace(/^[ \t]+|[ \t]+$/g, "");
  }
  
- function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
+-// Read only the block YAML shapes emitted by our writers and Hermes' normalizer.
++// Read block mappings and scalar-string lists without reserializing user YAML.
+ // Keep source spans for surgical restoration, not a lossy whole-file serializer.
+-// Unsupported flow values, aliases, merge keys and duplicate keys fail closed.
++// Unsupported collections, aliases, merge keys and duplicate keys fail closed.
+ function hermesYamlScalar(value: string): string | boolean | null {
+   const raw = hermesYamlTrim(value);
+   if (raw.startsWith('"')) {
+@@ -10291,8 +10295,8 @@
+     if (/^(?:false|False|FALSE)$/.test(plain)) return false;
+     // Match complete numbers and timestamps, not numeric prefixes in plugin names.
+     if (plain && !/^[,[\]{}#&*!|>'"%@`]/.test(plain) && !/^[-?:](?:[ \t]|$)/.test(plain)
+-      && !/^-\.inf$/i.test(plain) && !/:[ \t]/.test(plain)
+-      && !/^(?:null|~|yes|no|on|off)$/i.test(plain)
++      && !/^[-+]?\.(?:inf|nan)$/i.test(plain) && !/:[ \t]/.test(plain)
++      && !/^(?:null|~|y|n|yes|no|on|off)$/i.test(plain)
+       && !/^[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?|0b[01_]+|0o[0-7_]+|0x[0-9a-fA-F_]+)$/.test(plain)
+       && !/^[-+]?(?:[1-9][0-9_]*(?::[0-5]?[0-9])+|[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*)$/.test(plain)
+       && !/^[0-9]{4}-(?:[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$/.test(plain)) return plain;
+@@ -10302,6 +10306,10 @@
+ 
+ function hermesYamlContent(line: string): boolean {
+   return !/^[ \t]*(?:#.*)?$/.test(line);
++}
++
++function hermesYamlCommentStart(text: string, index: number, tokenBoundary: boolean): boolean {
++  return text[index] === "#" && (tokenBoundary || index === 0 || /[ \t\n]/.test(text[index - 1]!));
+ }
+ 
+ function hermesYamlLineContent(lines: string[], index: number, quotedHashLines: Set<number> | undefined): boolean {
+@@ -10327,10 +10335,13 @@
+   let pendingOwner: number | undefined;
+   let plainOwner: number | undefined;
+   let quote: "'" | '"' | undefined;
+-  let flowDepth = 0;
++  const flow: string[] = [];
++  const continuations = new Set<number>();
+   let tokenStart = true;
+   let quotedToken = false;
++  let commentBoundary = false;
+   for (let index = start; index < end; index++) {
++    if (quote || flow.length) continuations.add(index);
+     const line = lines[index]!;
+     const width = line.match(/^ */)![0].length;
+     if (block) {
+@@ -10350,7 +10361,7 @@
+     }
+     if (!hermesYamlTrim(line) || (!quote && /^[ \t]*#/.test(line))) continue;
+     let text = line.slice(width);
+-    if (!quote && !flowDepth) {
++    if (!quote && !flow.length) {
+       if (plainOwner !== undefined) {
+         if (width > plainOwner) continue;
+         plainOwner = undefined;
+@@ -10402,26 +10413,33 @@
+           }
+           tokenStart = false;
+           quotedToken = true;
++          commentBoundary = true;
+         }
+         continue;
+       }
+-      if (char === "#" && (i === 0 || /[ \t]/.test(text[i - 1]!))) break;
++      if (hermesYamlCommentStart(text, i, commentBoundary)) break;
+       if (/[ \t]/.test(char)) continue;
++      commentBoundary = false;
+       if (tokenStart && (char === '"' || char === "'")) {
+         quote = char;
+         quotedToken = false;
+       } else if (tokenStart && (char === "[" || char === "{")) {
+-        flowDepth++;
++        flow.push(char);
++        commentBoundary = true;
+         quotedToken = false;
+-      } else if (flowDepth && (char === "]" || char === "}")) {
+-        flowDepth--;
++      } else if (flow.length && (char === "]" || char === "}")) {
++        if (flow.pop() !== (char === "]" ? "[" : "{")) {
++          throw new Error("Hermes YAML flow delimiters do not match");
++        }
+         tokenStart = false;
+         quotedToken = false;
+-      } else if ((flowDepth && (char === "," || (char === ":" && quotedToken)))
++        commentBoundary = true;
++      } else if ((flow.length && (char === "," || (char === ":" && quotedToken)))
+         || (char === ":" && /[ \t,[\]{}]|^$/.test(text[i + 1] ?? ""))
+         || (tokenStart && /[-?]/.test(char) && /[ \t]/.test(text[i + 1] ?? ""))) {
+         tokenStart = true;
+         quotedToken = false;
++        commentBoundary = flow.length > 0 && char === ",";
+       } else if (tokenStart && (char === "!" || char === "&")) {
+         const property = text.slice(i).match(/^(?:!<[^>]*>|[!&][^ \t,[\]{}]+)/);
+         if (property) i += property[0].length - 1;
+@@ -10431,7 +10449,8 @@
+       }
+     }
+   }
+-  return { markerComments: comments, scalarTabs, quotedHashLines };
++  if (quote || flow.length) throw new Error("Hermes YAML has an unterminated quote or flow collection");
++  return { markerComments: comments, scalarTabs, quotedHashLines, continuations };
+ }
+ 
+ function hermesYamlMap(lines: string[], parent?: HermesYamlEntry): Map<string, HermesYamlEntry> {
+@@ -10441,13 +10460,13 @@
+   const entries = new Map<string, HermesYamlEntry>();
+   let indent = parent ? -1 : 0;
+   let previous: HermesYamlEntry | undefined;
+-  let scalarTabs: Set<number> | undefined;
++  const layout = hermesYamlLayout(lines);
+   for (let i = start; i < end; i++) {
++    if (layout.continuations.has(i)) continue;
+     const line = lines[i]!;
+     if (!hermesYamlContent(line)) continue;
+     if (/^ *\t/.test(line)) {
+-      scalarTabs ??= hermesYamlLayout(lines).scalarTabs;
+-      if (!scalarTabs?.has(i)) throw new Error("Hermes YAML uses ambiguous indentation");
++      if (!layout.scalarTabs?.has(i)) throw new Error("Hermes YAML uses ambiguous indentation");
+     }
+     const width = line.match(/^ */)![0].length;
+     if (indent < 0) {
+@@ -10536,9 +10555,15 @@
+   return server;
+ }
+ 
+-function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
++function hermesYamlSequenceItems(lines: string[], enabled: HermesYamlEntry): HermesYamlEntry[] {
 +  if (/^[ \t]*\[[ \t]*\][ \t]*(?:#.*)?$/.test(enabled.value)) {
 +    if (lines.slice(enabled.start + 1, enabled.end).some(hermesYamlContent)) {
 +      throw new Error("Hermes empty plugin list has unexpected child content");
@@ -223,9 +349,123 @@
 +    return [];
 +  }
    if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
-   const items: (HermesYamlEntry & { name: string })[] = [];
+-  const items: (HermesYamlEntry & { name: string })[] = [];
++  const items: HermesYamlEntry[] = [];
    for (let i = enabled.start + 1; i < enabled.end; i++) {
-@@ -10644,6 +10654,7 @@
+     if (!hermesYamlContent(lines[i]!)) continue;
+     const item = lines[i]!.match(/^( *)- (.*)$/);
+@@ -10552,17 +10577,103 @@
+       if (hermesYamlContent(line) && line.match(/^ */)![0].length <= indent) break;
+       end++;
+     }
+-    const entry = { start: i, end, indent, value: item[2]!, name: "" };
++    const entry = { start: i, end, indent, value: item[2]! };
++    items.push(entry);
++    i = end - 1;
++  }
++  return items;
++}
++
++function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
++  const items = hermesYamlSequenceItems(lines, enabled).map((entry) => {
+     const name = hermesYamlLeaf(lines, entry);
+     if (typeof name !== "string") throw new Error("Hermes plugin name is not a string");
+-    if (name === HERMES_NATIVE_PLUGIN_NAME && items.some((entry) => entry.name === name)) {
+-      throw new Error("Hermes native plugin is duplicated");
+-    }
+-    entry.name = name;
+-    items.push(entry);
+-    i = end - 1;
++    return { ...entry, name };
++  });
++  if (items.filter((entry) => entry.name === HERMES_NATIVE_PLUGIN_NAME).length > 1) {
++    throw new Error("Hermes native plugin is duplicated");
+   }
+   return items;
++}
++
++// Read scalar-string flow lists without granting the block writers ownership.
++function hermesYamlListNames(lines: string[], entry: HermesYamlEntry): string[] {
++  const values = [entry.value, ...lines.slice(entry.start + 1, entry.end)];
++  const first = values.findIndex(hermesYamlContent);
++  if (first < 0 || !hermesYamlTrim(values[first]!).startsWith("[")) {
++    return hermesYamlSequenceItems(lines, entry).map((item) => {
++      const name = hermesYamlLeaf(lines, item);
++      if (typeof name !== "string") throw new Error("Hermes plugin name is not a string");
++      return name;
++    });
++  }
++  const source = values.slice(first).join("\n");
++  const names: string[] = [];
++  let token = "";
++  let quote: "'" | '"' | undefined;
++  let closed = false;
++  let afterComma = false;
++  let commentBoundary = true; // The opening bracket is a complete flow token.
++  const append = () => {
++    const raw = token.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
++    if (!raw) throw new Error("Hermes flow plugin list has an empty item");
++    const parts = raw.split("\n");
++    const name = hermesYamlLeaf(
++      [parts[0]!, ...parts.slice(1).map((line) => ` ${line}`)],
++      { start: 0, end: parts.length, indent: 0, value: parts[0]! },
++    );
++    if (typeof name !== "string") throw new Error("Hermes plugin name is not a string");
++    names.push(name);
++    token = "";
++  };
++  for (let i = source.indexOf("[") + 1; i < source.length; i++) {
++    const char = source[i]!;
++    if (quote) {
++      token += char;
++      if (quote === '"' && char === "\\") {
++        if (i + 1 < source.length) token += source[++i]!;
++      } else if (char === quote) {
++        if (quote === "'" && source[i + 1] === "'") token += source[++i]!;
++        else {
++          quote = undefined;
++          commentBoundary = true;
++        }
++      }
++      continue;
++    }
++    if (hermesYamlCommentStart(source, i, commentBoundary)) {
++      while (i + 1 < source.length && source[i + 1] !== "\n") i++;
++      continue;
++    }
++    if (closed) {
++      if (!/[ \t\n]/.test(char)) throw new Error("Hermes flow plugin list continues after its end");
++      continue;
++    }
++    if (!/[ \t\n]/.test(char)) commentBoundary = false;
++    if ((char === '"' || char === "'") && !hermesYamlTrim(token)) {
++      quote = char;
++      token += char;
++      afterComma = false;
++    } else if (char === "," || char === "]") {
++      if (token.replace(/[ \t\n]/g, "")) append();
++      else if (char === "," || (names.length && !afterComma)) {
++        throw new Error("Hermes flow plugin list has an empty item");
++      }
++      afterComma = char === ",";
++      commentBoundary = true;
++      if (char === "]") closed = true;
++    } else {
++      if (/[{}[\]]/.test(char)
++        || (char === ":" && (/^[ \t\n]*["']/.test(token) || /[ \t\n,[\]{}]|^$/.test(source[i + 1] ?? "")))) {
++        throw new Error("Hermes flow plugin list contains a collection or mapping");
++      }
++      if (!token && /[ \t\n]/.test(char)) continue;
++      token += char;
++      if (!/[ \t\n]/.test(char)) afterComma = false;
++    }
++  }
++  if (quote || !closed) throw new Error("Hermes flow plugin list is unterminated");
++  return names;
+ }
+ 
+ function hermesNativeOwned(text: string, owned: Record<string, unknown>) {
+@@ -10644,6 +10755,7 @@
  }
  
  function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { text: string; owned: Record<string, unknown> } {
@@ -233,7 +473,7 @@
    const lines = yamlLines(source);
    let layout = hermesYamlLayout(lines);
    if (layout.markerComments.size) {
-@@ -10706,6 +10717,8 @@
+@@ -10706,6 +10818,8 @@
    }
    const items = hermesNativePluginItems(lines, enabled);
    if (!items.some((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)) {
@@ -242,18 +482,18 @@
      const itemPad = " ".repeat(items[0]?.indent ?? enabled.indent + 2);
      const block = [`${itemPad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${itemPad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${itemPad}${HERMES_NATIVE_PLUGIN_END}`];
      lines.splice(enabled.start + 1, 0, ...block);
-@@ -11152,6 +11165,10 @@
+@@ -11152,6 +11266,10 @@
  // progress line per step itself; refusals still throw with their full message.
  function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
    const { detected, profiles } = enableProfiles(argv);
 +  if (profiles.some((profile) => profile.id === "hermes")) {
 +    const path = hermesConfigPath();
-+    requireHermesPluginAllowed(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_NATIVE_PLUGIN_NAME);
++    requireHermesPluginWritable(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_NATIVE_PLUGIN_NAME);
 +  }
    if (profiles.some((profile) => profile.id !== "aider")) registrationPath();
    const gw = gatewayURL();
    for (const profile of profiles) {
-@@ -11871,7 +11888,8 @@
+@@ -11871,7 +11989,8 @@
            owned = CODEX_NATIVE_TABLES.every((table) => tables.get(table) === true) && codexNativeRouted(lines) && text.indexOf("\uFEFF", 1) === -1;
          } else if (operation.kind === "hermes-config") {
            const state = hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
@@ -263,7 +503,7 @@
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -18729,25 +18747,29 @@
+@@ -18729,25 +18848,29 @@
  // with \`caveman retrieve\`). Remove with \`caveman hooks uninstall opencode\`.
  import { execFileSync } from "node:child_process";
  
@@ -311,7 +551,7 @@
  `;
  }
  function installShrinkPluginOpencode(): boolean {
-@@ -18880,10 +18902,26 @@
+@@ -18880,10 +19003,38 @@
  `;
  }
  
@@ -320,7 +560,7 @@
 +  const plugins = hermesYamlMap(lines).get("plugins");
 +  if (!plugins) return false;
 +  const entry = hermesYamlMap(lines, plugins).get(field);
-+  return entry ? hermesNativePluginItems(lines, entry).some((item) => item.name === name) : false;
++  return entry ? hermesYamlListNames(lines, entry).includes(name) : false;
 +}
 +
  function hermesNamedPluginEnabled(text: string, name: string): boolean {
@@ -338,10 +578,22 @@
 +  const disabled = hermesPluginMembership(text, "disabled", name);
 +  hermesPluginMembership(text, "enabled", name);
 +  if (disabled) throw new Error(`Hermes plugin ${name} is disabled; run hermes plugins enable ${name}`);
++}
++
++function requireHermesPluginWritable(text: string, name: string): void {
++  requireHermesPluginAllowed(text, name);
++  if (name === HERMES_PLUGIN_NAME && hermesPluginMembership(text, "enabled", name)) return;
++  const lines = yamlLines(text);
++  const plugins = hermesYamlMap(lines).get("plugins");
++  const enabled = plugins ? hermesYamlMap(lines, plugins).get("enabled") : undefined;
++  if (enabled) {
++    if (name === HERMES_NATIVE_PLUGIN_NAME) hermesNativePluginItems(lines, enabled);
++    else hermesYamlSequenceItems(lines, enabled);
++  }
  }
  
  function hermesPluginEnabled(text: string): boolean {
-@@ -18901,6 +18939,8 @@
+@@ -18901,27 +19052,22 @@
        return false;
      }
    }
@@ -350,24 +602,42 @@
    if (hermesPluginEnabled(existing)) return true;
    const stripped = stripMarkedBlock(existing, HERMES_PLUGIN_ENABLE_BEGIN, HERMES_PLUGIN_ENABLE_END).text;
    const lines = yamlLines(stripped);
-@@ -18920,6 +18960,10 @@
-         break;
-       }
-     }
-+    if (inlineEnabled && /^[ \t]*enabled:[ \t]*\[[ \t]*\][ \t]*(?:#.*)?$/.test(lines[enabledLine]!)) {
+-  const plugins = topLevelSection(lines, "plugins");
++  const plugins = hermesYamlMap(lines).get("plugins");
+   if (plugins) {
+-    let enabledLine = -1;
+-    let inlineEnabled = false;
+-    for (let i = plugins.start + 1; i < plugins.end; i++) {
+-      const line = lines[i]!;
+-      if (/^  enabled:\s*(?:#.*)?$/.test(line)) {
+-        enabledLine = i;
+-        break;
+-      }
+-      if (/^  enabled:\s*\[/.test(line)) {
+-        enabledLine = i;
+-        inlineEnabled = true;
+-        break;
+-      }
++    const enabled = hermesYamlMap(lines, plugins).get("enabled");
++    const enabledLine = enabled?.start ?? -1;
++    let inlineEnabled = enabled !== undefined && hermesYamlTrim(enabled.value).startsWith("[");
++    if (inlineEnabled && /^[ \t]*\[[ \t]*\][ \t]*(?:#.*)?$/.test(enabled!.value)) {
 +      lines[enabledLine] = lines[enabledLine]!.replace(/\[[ \t]*\]/, "");
 +      inlineEnabled = false;
-+    }
+     }
      if (inlineEnabled) {
-       console.error(`${mark("warn")} ${path} uses inline plugins.enabled; wrote Hermes plugin but could not add marker-fenced enable entry`);
+-      console.error(`${mark("warn")} ${path} uses inline plugins.enabled; wrote Hermes plugin but could not add marker-fenced enable entry`);
++      console.error(`${mark("warn")} ${path} uses inline plugins.enabled; could not add marker-fenced enable entry`);
        return false;
-@@ -18998,6 +19042,14 @@
+     }
+     if (enabledLine >= 0) {
+@@ -18998,6 +19144,14 @@
  }
  
  function installShrinkPluginHermes(): boolean {
 +  try {
 +    const path = hermesConfigPath();
-+    requireHermesPluginAllowed(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_PLUGIN_NAME);
++    requireHermesPluginWritable(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_PLUGIN_NAME);
 +  } catch (error) {
 +    try { unlinkSync(shrinkHookMarkerPath("hermes")); } catch { /* no marker */ }
 +    console.error(String(error));
@@ -376,7 +646,7 @@
    registrationPath();
    try {
      mkdirSync(hermesPluginDir(), { recursive: true });
-@@ -19008,7 +19060,9 @@
+@@ -19008,7 +19162,9 @@
      return false;
    }
    if (!enableHermesPluginInConfig()) {
@@ -387,7 +657,7 @@
    }
    return true;
  }
-@@ -19080,6 +19134,10 @@
+@@ -19080,6 +19236,10 @@
    return join(cavemanHome(), "hooks", `${agentId}.json`);
  }
  function shrinkHookInstalled(agentId: string): boolean {

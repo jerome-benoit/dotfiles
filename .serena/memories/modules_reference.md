@@ -446,9 +446,11 @@ Full IDE configuration (~500 lines):
 
 ### Caveman and Colibri runtime contracts
 
-- Caveman CLI, installer and Blocks use `OPENCODE_CONFIG_DIR`, then `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. Changing roots does not move or delete old files.
+- Caveman CLI, installer, copied OpenCode plugin and Blocks use nonempty `OPENCODE_CONFIG_DIR`, then nonempty `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. An empty override is unset; a nonempty relative root is refused. Changing roots does not move or delete old files.
 - Generated OpenCode shrink plugins use the V2 default definition and current `shell` input. Native hook children run in their host location, including locationless session-deletion cleanup routed by the host.
 - Hermes deny lists take precedence over enable lists. Caveman refuses inactive native/shrink installs before writing files; use `hermes plugins enable caveman_native` or `hermes plugins enable caveman_shrink` to change that preference.
+- Hermes membership checks accept scalar-string block and flow sequences, including flow nodes on the next line, quoted names, token-adjacent comments and supported multiline scalars. A `#` inside a plain name remains data. Unrelated disabled names and duplicate deny entries are preserved; malformed or unsupported YAML fails closed before installation writes.
+- Already-enabled shrink flow lists remain byte-identical on reinstall. Writers still refuse nonempty flow lists that need an added membership; native-owned flow rewrites remain unsupported. A refused shrink install may invalidate its stale installation marker, but does not rewrite config or plugin files.
 - Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
 
 ---

@@ -15,8 +15,8 @@
  	for name, p := range m {
  		p.Name = name
 +		if name == "opencode" {
-+			root, explicit := os.LookupEnv("OPENCODE_CONFIG_DIR")
-+			if !explicit {
++			root := os.Getenv("OPENCODE_CONFIG_DIR")
++			if root == "" {
 +				base := os.Getenv("XDG_CONFIG_HOME")
 +				if base == "" {
 +					home, err := os.UserHomeDir()

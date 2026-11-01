@@ -416,12 +416,16 @@ console.log("OpenCode 1/2: output, metadata, invocation isolation and location w
     foreign_root = home / ".config/opencode/foreign.json"
     foreign_root.write_text('{"foreign":true}\n')
     for additions in (
+        {"XDG_CONFIG_HOME": None},
+        {"XDG_CONFIG_HOME": None, "OPENCODE_CONFIG_DIR": ""},
         {"XDG_CONFIG_HOME": str(root / "blocks xdg ' $literal")},
+        {"XDG_CONFIG_HOME": str(root / "blocks empty xdg ' $literal"), "OPENCODE_CONFIG_DIR": ""},
         {"XDG_CONFIG_HOME": str(root / "blocks unused-xdg"),
          "OPENCODE_CONFIG_DIR": str(root / "blocks override ' $literal")},
     ):
-        selected_env = {**env, **additions}
-        expected = Path(additions.get("OPENCODE_CONFIG_DIR", str(Path(additions["XDG_CONFIG_HOME"]) / "opencode")))
+        selected_env = {key: value for key, value in {**env, **additions}.items() if value is not None}
+        expected = Path(selected_env.get("OPENCODE_CONFIG_DIR") or
+                        str(Path(selected_env.get("XDG_CONFIG_HOME") or home / ".config") / "opencode"))
         run("caveman-blocks", "hooks", "install", "--harness", "opencode", cwd=repo, environment=selected_env)
         selected_plugin = expected / "plugins/caveman-blocks.js"
         assert selected_plugin.exists()
@@ -429,10 +433,25 @@ console.log("OpenCode 1/2: output, metadata, invocation isolation and location w
                                 cwd=repo, environment=selected_env).stdout)
         assert report["harnesses"][0]["installed"] is True, report
         assert report["harnesses"][0]["config"] == str(selected_plugin), report
-        assert not plugin.exists()
+        if expected != plugin.parent.parent:
+            assert not plugin.exists()
         run("caveman-blocks", "hooks", "uninstall", "--harness", "opencode", cwd=repo, environment=selected_env)
         assert not selected_plugin.exists()
         assert foreign_root.read_text() == '{"foreign":true}\n'
+        run("caveman-blocks", "hooks", "install", "--harness", "claude-code",
+            cwd=repo, environment=selected_env)
+        claude_report = json.loads(run(
+            "caveman-blocks", "hooks", "status", "--harness", "claude-code", "--json",
+            cwd=repo, environment=selected_env).stdout)
+        assert claude_report["harnesses"][0]["installed"] is True, claude_report
+        run("caveman-blocks", "hooks", "uninstall", "--harness", "claude-code",
+            cwd=repo, environment=selected_env)
+    relative_env = {**env, "OPENCODE_CONFIG_DIR": "relative-opencode"}
+    refusal = run("caveman-blocks", "hooks", "install", "--harness", "opencode",
+                  cwd=repo, environment=relative_env, check=False)
+    assert refusal.returncode != 0 and b"must be absolute" in refusal.stderr
+    assert not (repo / "relative-opencode").exists()
+    assert foreign_root.read_text() == '{"foreign":true}\n'
 
     # A persisted native hook bypasses the CLI wrapper. With only the package
     # on PATH it must revive, identify and stop its own proxy, including on Darwin.
