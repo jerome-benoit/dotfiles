@@ -1,15 +1,15 @@
 {
   "hashes": {
-    "aarch64-darwin": "sha256-gziOe1Up6Kx+QNcYKYgADtJ250+rhGNC2jM57XhsK5g=",
-    "aarch64-linux": "sha256-nWrchR5EM9KsjlPnyRCnW9Jyha13W3Bynca+ghsoK7U=",
-    "x86_64-linux": "sha256-xeEiIROe5jc0G5pFVayQbVG8G084v2wUnVAfU4n2HCM="
+    "aarch64-darwin": "sha256-/m2P7uU1zXAQrTQfA4gyNOCs7Kme/G7jU6DSz9GNr0U=",
+    "aarch64-linux": "sha256-wJSKHtQpgdU/8XVqnDYbdyv0L+byfnJMA/pih0+6sVo=",
+    "x86_64-linux": "sha256-BQe0j5I0tQfMHeodH1O0MlWeJhMgCyoJdb9u3QeVfFg="
   },
   "provenance": {
     "pullRequest": "https://github.com/anomalyco/opencode/pull/60957",
-    "hashCommit": "f95f806017daa55161b6b92743c0c63d35874c4f",
-    "dependencyBase": "b95c1f379cdac24ea2fa8c56a84eaf58dad4ad0f",
-    "botRun": "https://github.com/anomalyco/opencode/actions/runs/41237494781",
-    "compatiblePinnedRevision": "288fa1284309d05013e3f85979e5ac2b598fd35e",
-    "compatibility": "dependencyBase and compatiblePinnedRevision have identical bun.lock, package.json and Nix dependency inputs. Native hash jobs published all three values."
+    "hashCommit": "aea1965663981506fb3e1734d3fa66275bfd69c0",
+    "dependencyBase": "06cd1a3eda8da7d021efb83cdf858229dab5c60d",
+    "botRun": "https://github.com/anomalyco/opencode/actions/runs/41384204215",
+    "compatiblePinnedRevision": "1bf08ae46a91f7793c756e4ee521e37b6b554064",
+    "compatibility": "dependencyBase and compatiblePinnedRevision have identical bun.lock, workspace manifests, Nix dependency inputs and patches. Native hash jobs published all three values."
   }
 }
