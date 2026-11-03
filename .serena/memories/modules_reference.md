@@ -285,7 +285,7 @@ OpenCode AI assistant:
 ### omp.nix
 
 - Linux preloads the C++ runtime through `DT_NEEDED`; `OMP_NATIVE_LIBRARY_PATH` supplies worker search paths without changing user subprocess `LD_LIBRARY_PATH`.
-- Build-platform Python repairs Bun's `DT_VERDEF` after autoPatchelf and before native completion generation. Python is not a runtime dependency.
+- Build-platform Python repairs Bun's `DT_VERDEF` after autoPatchelf and before native completion generation. ELF repair and pyelftools are build-time only.
 - Native install checks verify version, completions and runtime resolution by soname and absolute path.
 
 ### caveman.nix
