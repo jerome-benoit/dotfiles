@@ -14,9 +14,9 @@ let
       inherit lib;
       inherit (pkgs) fetchurl fetchzip;
     }).opencode.hashes;
-  # Workaround: pinned upstream dependency hashes predate its locked Bun inputs.
-  # Verified upstream hash provenance is recorded in pins/opencode.json.
-  # Remove when the pinned upstream revision includes those published hashes.
+  # Workaround: pinned upstream dependency hashes use a different Bun toolchain.
+  # Hash values, toolchain and verification provenance are recorded in pins/opencode.json.
+  # Remove when upstream hashes match the selected source and Bun toolchain.
   baseOpencodePackage =
     if upstreamOpencodePackage == null then
       null

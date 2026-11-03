@@ -1,15 +1,28 @@
 {
   "hashes": {
-    "aarch64-darwin": "sha256-/m2P7uU1zXAQrTQfA4gyNOCs7Kme/G7jU6DSz9GNr0U=",
-    "aarch64-linux": "sha256-wJSKHtQpgdU/8XVqnDYbdyv0L+byfnJMA/pih0+6sVo=",
-    "x86_64-linux": "sha256-BQe0j5I0tQfMHeodH1O0MlWeJhMgCyoJdb9u3QeVfFg="
+    "aarch64-darwin": "sha256-C45AEYQ7X+Dck/8ysNJmJtV3bFoZ9IC+Q8VHX4Owo3c=",
+    "aarch64-linux": "sha256-yIVvDK5LG6Vz5vgxM6QBd/XPzohquFqa2VxuNlqUT98=",
+    "x86_64-linux": "sha256-DMpKC+uX6yshpFmWiO++A7P2ytmuhrZ9/52hy3hYCqA="
   },
   "provenance": {
-    "pullRequest": "https://github.com/anomalyco/opencode/pull/60957",
-    "hashCommit": "aea1965663981506fb3e1734d3fa66275bfd69c0",
-    "dependencyBase": "06cd1a3eda8da7d021efb83cdf858229dab5c60d",
-    "botRun": "https://github.com/anomalyco/opencode/actions/runs/41384204215",
-    "compatiblePinnedRevision": "1bf08ae46a91f7793c756e4ee521e37b6b554064",
-    "compatibility": "dependencyBase and compatiblePinnedRevision have identical bun.lock, workspace manifests, Nix dependency inputs and patches. Native hash jobs published all three values."
+    "sourceRevision": "3ba597f7769e19cc3b5f67e3d6667e7b6318f6a3",
+    "nixpkgsRevision": "f9887a8a434bfba06e20dfc77bc8e0628266af84",
+    "bunVersion": "1.4.4",
+    "buildSystem": "x86_64-linux",
+    "calculation": "Upstream dependency derivation with local Bun; ARM targets use --cpu/--os with --ignore-scripts and both upstream normalization scripts.",
+    "verification": {
+      "x86_64-linux": "Native dependency and CLI builds; --version and --help verified.",
+      "aarch64-linux": "--cpu=arm64 --os=linux; no native build.",
+      "aarch64-darwin": "--cpu=arm64 --os=darwin; no native build."
+    },
+    "upstreamReference": {
+      "pullRequest": "https://github.com/anomalyco/opencode/pull/60957",
+      "hashCommit": "aea1965663981506fb3e1734d3fa66275bfd69c0",
+      "dependencyBase": "06cd1a3eda8da7d021efb83cdf858229dab5c60d",
+      "botRun": "https://github.com/anomalyco/opencode/actions/runs/41384204215",
+      "bunVersion": "1.4.2",
+      "compatibility": "dependencyBase and sourceRevision match for bun.lock, workspace manifests, Nix dependency inputs and patches; hashes differ with local Bun.",
+      "targetedCalculationValidation": "Both ARM-targeted hashes match native bot hashes with the reference Bun."
+    }
   }
 }
