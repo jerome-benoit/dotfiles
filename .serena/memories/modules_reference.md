@@ -103,6 +103,7 @@ Common packages for all platforms:
 - **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, volta
 - **GGML inference tools**: llama.cpp, stable-diffusion.cpp (`sd-cli`, `sd-server`) and whisper.cpp on desktop and server profiles. Linux uses the shared CUDA/ROCm/Vulkan selection; Apple Silicon retains native Metal defaults. Only `/bin` and `/share` are exposed in the profile, keeping each package's private libraries isolated.
 - **Linux server**: delta, grc (only on server profile)
+- **Desktop exclusions**: Antigravity is disabled on `rigel`; Crush is disabled on `faust` and `rigel`.
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
 - **OpenClaw tools** (via `nix-openclaw-tools` flake input): camsnap, discrawl, gogcli, goplaces, sag, sonoscli, summarize and wacrawl (all platforms); imsg, peekaboo and poltergeist (macOS desktop only). These standalone tools do not install the OpenClaw application or gateway.
 - **Homebrew**: .Brewfile with taps (hAIperspace/hai, moltenbits) and packages (docker-desktop, ferdium, ghostty, gpg-suite@nightly, jordanbaird-ice, shuttle, growlrrr, hai, mole)
