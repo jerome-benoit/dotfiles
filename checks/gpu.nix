@@ -179,8 +179,54 @@ let
     let
       phase = colibriBuildPhase system gpu;
     in
-    lib.hasInfix (lib.escapeShellArg "CUDA_GENCODE=${gpu.cudaPackages.flags.gencodeString}") phase
+    lib.all
+      (name: lib.hasInfix (lib.escapeShellArg "${name}=${gpu.cudaPackages.flags.gencodeString}") phase)
+      [
+        "CUDA_GENCODE"
+        "V4_CUDA_GENCODE"
+      ]
     && !(lib.hasInfix "CUDA_ARCH=" phase);
+  colibriPlans = [
+    {
+      system = "x86_64-linux";
+      gpu = legacy;
+    }
+    {
+      system = "x86_64-linux";
+      gpu = modern;
+    }
+    {
+      system = "x86_64-linux";
+      gpu = evaluate { driver = "560.35.05"; };
+    }
+    {
+      system = "aarch64-linux";
+      gpu = jetson;
+    }
+  ];
+  colibriPlanChecks = lib.concatMapStringsSep "\n" (
+    { system, gpu }:
+    ''
+      (
+        runHook() { :; }
+        make() {
+          command make "$@" --dry-run NVCC=true TRIPLET=${system} \
+            UNAME_S=Linux UNAME_M=${lib.head (lib.splitString "-" system)}
+        }
+        ${builtins.unsafeDiscardStringContext (colibriBuildPhase system gpu)}
+      ) > build-plan
+      grep '^"true" .* -c .*\.cu -o ' build-plan > cuda-commands
+      test "$(wc -l < cuda-commands)" -ge 5
+      grep -q ' -c backend_cuda_dsv4.cu ' cuda-commands
+      while IFS= read -r command; do
+        if [[ $command != *${lib.escapeShellArg gpu.cudaPackages.flags.gencodeString}* ||
+              $command == *-arch=native* ]]; then
+          printf '%s\n' "Unexpected ${system} CUDA command: $command" >&2
+          exit 1
+        fi
+      done < cuda-commands
+    ''
+  ) colibriPlans;
   hostConfiguration =
     nixos:
     let
@@ -450,12 +496,21 @@ pkgs.runCommandLocal "check-gpu-integration"
     nativeBuildInputs = [
       pkgs.bash
       pkgs.coreutils
+      pkgs.gnumake
       pkgs.shellcheck
     ];
   }
   ''
     shellcheck ${../scripts/gpu-env.sh}
     bash ${./gpu-probe.sh} ${../scripts/gpu-env.sh}
+    # Inspect real upstream recipes without CUDA, a GPU, or runtime dependencies.
+    # Discarded store references above are only printed by make's dry run.
+    cp -R ${inputs.colibri}/c c
+    chmod -R u+w c
+    # Recursive dry runs need the parent-built objects to exist as placeholders.
+    touch c/{backend_cuda,cuda_chain,cu_xb,cu_tier}.o
+    ${colibriPlanChecks}
+    echo COLIBRI_CUDA_TARGETS_OK
     echo GPU_POLICY_OK
     touch "$out"
   ''
