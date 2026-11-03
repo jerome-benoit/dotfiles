@@ -1,9 +1,9 @@
-# base: agent-of-empires/agent-of-empires ee916d9640b6cf51aadf7f766b3b285fd9a461ff
+# base: agent-of-empires/agent-of-empires 15868f950016bc8c5b07e5b59daeaca33a68ec18
 # prerequisites: none
 # intent: Detect and launch the packaged cursor-agent executable instead of agent.
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -767,7 +767,7 @@
+@@ -787,7 +787,7 @@
              SessionCaptureContext::PaneScoped,
              SessionCaptureContext::PaneScoped,
          ),
@@ -14,7 +14,7 @@
          oneshot_flag: Some("-p"),
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
-@@ -3184,6 +3184,36 @@
+@@ -3519,6 +3519,36 @@
  
  #[cfg(test)]
  mod tests {

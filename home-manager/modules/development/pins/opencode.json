@@ -5,8 +5,8 @@
     "x86_64-linux": "sha256-DMpKC+uX6yshpFmWiO++A7P2ytmuhrZ9/52hy3hYCqA="
   },
   "provenance": {
-    "sourceRevision": "3ba597f7769e19cc3b5f67e3d6667e7b6318f6a3",
-    "nixpkgsRevision": "f9887a8a434bfba06e20dfc77bc8e0628266af84",
+    "sourceRevision": "4dd7b2662c60d33f98d6bea7ff8172a496738941",
+    "nixpkgsRevision": "ea9e3ef341e11c193537f674f821a99f9f436729",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
     "calculation": "Upstream dependency derivation with local Bun; ARM targets use --cpu/--os with --ignore-scripts and both upstream normalization scripts.",
@@ -21,8 +21,8 @@
       "dependencyBase": "06cd1a3eda8da7d021efb83cdf858229dab5c60d",
       "botRun": "https://github.com/anomalyco/opencode/actions/runs/41384204215",
       "bunVersion": "1.4.2",
-      "compatibility": "dependencyBase and sourceRevision match for bun.lock, workspace manifests, Nix dependency inputs and patches; hashes differ with local Bun.",
-      "targetedCalculationValidation": "Both ARM-targeted hashes match native bot hashes with the reference Bun."
+      "compatibility": "Historical Bun 1.4.2 bot reference; the current source is independently recalculated with local Bun 1.4.4.",
+      "targetedCalculationValidation": "At dependencyBase, both ARM-targeted hashes matched native bot hashes with the reference Bun."
     }
   }
 }
