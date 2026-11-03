@@ -20,8 +20,10 @@ let
 
   version = pins.version;
 
-  # ONNX addons' RUNPATH does not include the C++ runtime.
-  # Supply autoPatchelfHook's baseline and the Linux workers' library path.
+  elfPython = pkgs.buildPackages.python3.withPackages (ps: [ ps.pyelftools ]);
+
+  # Preload the C++ runtime for main-process addons; workers also need its search path.
+  # Supply autoPatchelfHook's baseline without changing user subprocess library paths.
   nativeLibraries =
     lib.optionals hp.isElf [
       pkgs.stdenv.cc.cc.lib
@@ -49,7 +51,11 @@ let
           pkgs.installShellFiles
           pkgs.makeBinaryWrapper
         ]
-        ++ lib.optionals hp.isElf [ pkgs.autoPatchelfHook ];
+        ++ lib.optionals hp.isElf [ pkgs.autoPatchelfHook ]
+        ++ lib.optionals hp.isLinux [
+          pkgs.buildPackages.patchelf
+          elfPython
+        ];
 
         buildInputs = nativeLibraries;
 
@@ -58,6 +64,9 @@ let
         installPhase = ''
           runHook preInstall
           install -Dm755 $src $out/bin/omp
+          ${lib.optionalString hp.isLinux ''
+            patchelf --add-needed libstdc++.so.6 "$out/bin/omp"
+          ''}
           wrapProgram $out/bin/omp \
             --prefix PATH : ${lib.makeBinPath [ pkgs.git ]} \
             ${lib.optionalString hp.isLinux ''
@@ -66,23 +75,32 @@ let
           runHook postInstall
         '';
 
-        preFixup = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
-          installOmpCompletions() {
-            local completionDir
-            completionDir=$(mktemp -d)
-            HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
-              $out/bin/omp completions bash > "$completionDir/omp.bash"
-            HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
-              $out/bin/omp completions fish > "$completionDir/omp.fish"
-            HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
-              $out/bin/omp completions zsh > "$completionDir/omp.zsh"
-            installShellCompletion --cmd omp \
-              --bash "$completionDir/omp.bash" \
-              --fish "$completionDir/omp.fish" \
-              --zsh "$completionDir/omp.zsh"
-          }
-          postFixupHooks+=(installOmpCompletions)
-        '';
+        preFixup =
+          lib.optionalString hp.isLinux ''
+            # Workaround: patchelf relocates Bun's version table without updating DT_VERDEF.
+            # Remove when patchelf preserves version-definition pointers.
+            repairOmpVersionDefinitions() {
+              ${elfPython}/bin/python3 ${./omp-fix-dt-verdef.py} "$out/bin/.omp-wrapped"
+            }
+            postFixupHooks+=(repairOmpVersionDefinitions)
+          ''
+          + lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
+            installOmpCompletions() {
+              local completionDir
+              completionDir=$(mktemp -d)
+              HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+                $out/bin/omp completions bash > "$completionDir/omp.bash"
+              HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+                $out/bin/omp completions fish > "$completionDir/omp.fish"
+              HOME="$completionDir" XDG_CACHE_HOME="$completionDir/cache" XDG_CONFIG_HOME="$completionDir/config" \
+                $out/bin/omp completions zsh > "$completionDir/omp.zsh"
+              installShellCompletion --cmd omp \
+                --bash "$completionDir/omp.bash" \
+                --fish "$completionDir/omp.fish" \
+                --zsh "$completionDir/omp.zsh"
+            }
+            postFixupHooks+=(installOmpCompletions)
+          '';
 
         doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
         nativeInstallCheckInputs = [ pkgs.versionCheckHook ];
@@ -101,6 +119,8 @@ let
                 "libgcc_s.so.1": { _Unwind_Backtrace: { args: ["ptr", "ptr"], returns: "i32" } },
               };
               for (const [name, symbols] of Object.entries(libraries)) {
+                // Main-process addons resolve the preloaded runtime by soname.
+                dlopen(name, symbols).close();
                 const loaded = dirs.some(dir => {
                   try {
                     dlopen(dir + "/" + name, symbols).close();

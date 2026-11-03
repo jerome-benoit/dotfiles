@@ -62,16 +62,16 @@ After installation, restart your shell to pick up aliases.
 
 `checks/default.nix` defines the shared checks:
 
-| Checks                            | Coverage                                                                                           |
-| --------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `formatting`, `statix`, `deadnix` | Nix formatting, anti-patterns and unused code                                                      |
-| `symlinks`                        | Broken symlinks in compatible Home Manager outputs                                                 |
-| `secrets`, `email`                | Secret lifecycle and account/credential consumers                                                  |
-| `consumers`                       | Literal shell arguments, terminal key dispatch, Treesitter/textobjects and real Pyright attachment |
-| `hermes-agent`                    | Generated configuration, plugin paths and service ordering                                         |
-| `caveman`                         | Generated integrations, installation ownership and native/shrink hooks                             |
-| `development`, `opencode-desktop` | Development-module activation and Desktop CLI staging                                              |
-| `strata`, `gpu`, `ci-contract`    | Workspace/runtime validation, GPU selection and CI contracts                                       |
+| Checks                            | Coverage                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `formatting`, `statix`, `deadnix` | Nix formatting, anti-patterns and unused code                                                        |
+| `symlinks`                        | Broken symlinks and traversal errors in compatible Home Manager outputs; real filesystem regressions |
+| `secrets`, `email`                | Secret lifecycle and account/credential consumers                                                    |
+| `consumers`                       | Literal shell arguments, terminal key dispatch, Treesitter/textobjects and real Pyright attachment   |
+| `hermes-agent`                    | Generated configuration, plugin paths and service ordering                                           |
+| `caveman`                         | Generated integrations, installation ownership and native/shrink hooks                               |
+| `development`, `opencode-desktop` | Development-module activation and Desktop CLI staging                                                |
+| `strata`, `gpu`, `ci-contract`    | Workspace/runtime validation, GPU selection and CI contracts                                         |
 
 `flake.nix` adds Home Manager builds for the selected platform: personal and
 `almalinux` on `x86_64-linux`, work on `aarch64-darwin`. It also adds the selected

@@ -282,6 +282,12 @@ OpenCode AI assistant:
 - Remove this override when the pinned upstream revision ships those published values. Upstream CI owns regeneration; the local hash fixer does not maintain these hashes.
 - Warnings if packages unavailable for system
 
+### omp.nix
+
+- Linux preloads the C++ runtime through `DT_NEEDED`; `OMP_NATIVE_LIBRARY_PATH` supplies worker search paths without changing user subprocess `LD_LIBRARY_PATH`.
+- Build-platform Python repairs Bun's `DT_VERDEF` after autoPatchelf and before native completion generation. Python is not a runtime dependency.
+- Native install checks verify version, completions and runtime resolution by soname and absolute path.
+
 ### caveman.nix
 
 - Caveman CLI, installer, copied OpenCode plugin and Blocks use nonempty `OPENCODE_CONFIG_DIR`, then nonempty `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. An empty override is unset; a nonempty relative root is refused. Changing roots does not move or delete old files.
