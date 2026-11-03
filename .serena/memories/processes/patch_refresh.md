@@ -9,6 +9,7 @@ installer patches follow the `caveman` input in `flake.lock`; its separate
 Blocks source and companion assets use `pins/caveman.json`.
 OpenCode Desktop patches follow the selected CLI source, which defaults to the
 `opencode` input in `flake.lock`.
+Colibri patches follow the `colibri` input in `flake.lock`.
 The `hermes-agent` and `strata` inputs do not set these patch bases.
 Reassess each patch when its own source changes.
 
@@ -41,6 +42,7 @@ explaining why it exists and when it can go:
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
+- `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
 
 ## Local Patch Refresh
 

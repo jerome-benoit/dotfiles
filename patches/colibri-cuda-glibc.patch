@@ -1,0 +1,20 @@
+# base: JustVugg/colibri 0a5504a1dc64f86fcd0fe7db298b0448c730e7e6
+# intent: Preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
+diff --git a/c/Makefile b/c/Makefile
+--- a/c/Makefile
++++ b/c/Makefile
+@@ -335,14 +335,6 @@
+ # silently diverges from the CPU reference (backend_cuda.cu also #errors on
+ # fast-math builds, but -ftz alone defines no macro to guard on).
+ NVCCFLAGS ?= -O3 -std=$(NVCC_STD) -ftz=false $(CUDA_GENCODE) -Xcompiler=-Wall,-Wextra
+-# glibc >= 2.41 declares the C23 math additions (rsqrt/rsqrtf, sinpi/cospi, ...)
+-# with __THROW -> noexcept(true), clashing with CUDA's crt/math_functions.h
+-# under C++17 (noexcept is part of the function type since C++17). Force-include
+-# a compat header that strips __THROW from the host pass; see
+-# glibc_c23_math_compat.h. MSVC never sees glibc headers, so Linux-only.
+-ifneq ($(LINUX),)
+-NVCCFLAGS += -Xcompiler=-include,$(CURDIR)/glibc_c23_math_compat.h
+-endif
+ endif
+ # CUDA 13.1 host_config.h accepts only Visual Studio 2019-2022 and refuses
+ # anything newer outright, so on a box with VS Build Tools 18 (MSVC 19.50)

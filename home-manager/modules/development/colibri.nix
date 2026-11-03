@@ -90,6 +90,9 @@ let
       };
     in
     {
+      # Nixpkgs already matches CUDA math exception specifications to glibc.
+      # Remove when upstream stops forcing its conflicting __THROW shim.
+      patches = [ ../../../patches/colibri-cuda-glibc.patch ];
       extraBuildInputs = [
         cudaPackages.cuda_cudart
         cudaProfilerApi
@@ -130,6 +133,7 @@ let
     pname = "colibri";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
+    patches = build.patches or [ ];
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
     nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
