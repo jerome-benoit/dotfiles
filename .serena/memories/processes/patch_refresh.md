@@ -147,8 +147,9 @@ in the installed-plugin check and the patch's e2e driver.
 
 Blocks package checks run the CLI suite, `internal/hook` and the `hooks` e2e
 scenario. Verify effective-root precedence, detection, install/status/uninstall
-and write-free refusal of relative roots. Preserve foreign files and stable
-launcher targets; do not assert the printed representation of OpenCode paths.
+and relative-root refusal without changing hook configs or launcher targets.
+Preserve foreign files and stable launcher targets; do not assert the printed
+representation of OpenCode paths.
 The plugin e2e scenario requires Bun; the installed-runtime check exercises both
 OpenCode APIs under Node.
 
