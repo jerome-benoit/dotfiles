@@ -6,7 +6,7 @@
 }:
 let
   lib = pkgs.lib;
-  platformPkgs = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (
+  platformPkgs = lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (
     system:
     import nixpkgs {
       inherit system;
@@ -152,6 +152,146 @@ let
       flag = lib.findFirst (lib.hasPrefix "-DCMAKE_CUDA_ARCHITECTURES") "" package.cmakeFlags;
     in
     lib.splitString ";" (lib.last (lib.splitString "=" flag));
+  colibriBuildPhase =
+    system: gpu:
+    (lib.evalModules {
+      specialArgs = {
+        inherit inputs;
+        pkgs = platformPkgs.${system};
+      };
+      modules = [
+        ../home-manager/modules/core/lib.nix
+        ../home-manager/modules/development/colibri.nix
+        {
+          options.modules.core.gpu = lib.mkOption {
+            type = lib.types.attrs;
+            default = gpu;
+          };
+          options.home.packages = lib.mkOption {
+            type = lib.types.listOf lib.types.package;
+            default = [ ];
+          };
+        }
+      ];
+    }).config.modules.development.colibri.package.buildPhase;
+  colibriPlans =
+    lib.concatLists (
+      lib.mapAttrsToList
+        (
+          system: scenarios:
+          lib.mapAttrsToList (name: gpu: {
+            inherit name system gpu;
+            backend = "cuda";
+          }) scenarios
+        )
+        {
+          x86_64-linux = {
+            inherit
+              modern
+              legacy
+              configuredLegacy
+              capturedScope
+              capturedConfigured
+              ;
+            pascal = evaluate {
+              driver = "580.196.07";
+              capabilities = "6.1";
+            };
+            pre128 = evaluate { driver = "560.35.05"; };
+          };
+          aarch64-linux = {
+            inherit jetson mixedSbsa mixedThorAda;
+          };
+        }
+    )
+    ++
+      map
+        (system: {
+          inherit system;
+          name = "cpu";
+          backend = "cpu";
+          gpu = {
+            acceleration = "default";
+          };
+        })
+        [
+          "x86_64-linux"
+          "aarch64-linux"
+        ]
+    ++ [
+      {
+        name = "metal";
+        system = "aarch64-darwin";
+        backend = "metal";
+        gpu = throw "Metal must not evaluate CUDA policy";
+      }
+    ];
+  colibriPlanChecks = lib.concatMapStringsSep "\n" (
+    {
+      name,
+      system,
+      gpu,
+      backend,
+    }:
+    let
+      isDarwin = platformPkgs.${system}.stdenv.hostPlatform.isDarwin;
+      isCuda = backend == "cuda";
+      cpuArch = if platformPkgs.${system}.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
+    in
+    ''
+      echo "Colibri install plan: ${system}/${name}"
+      (
+        runHook() { :; }
+        make() {
+          command make "$@" --dry-run NVCC=true TRIPLET=${system} \
+            UNAME_S=${if isDarwin then "Darwin" else "Linux"} \
+            UNAME_M=${if isDarwin then "arm64" else lib.head (lib.splitString "-" system)}
+        }
+        ${builtins.unsafeDiscardStringContext (colibriBuildPhase system gpu)}
+      ) > build-plan
+      ${
+        if isCuda then
+          ''
+            grep '^"true" .* -c .*\.cu -o ' build-plan > cuda-commands
+            test "$(wc -l < cuda-commands)" -ge 5
+            v4Command=$(grep ' -c backend_cuda_dsv4.cu ' cuda-commands)
+            while IFS= read -r command; do
+              if [[ $command != *${lib.escapeShellArg gpu.cudaPackages.flags.gencodeString}* ||
+                    $command == *-arch=native* ]]; then
+                printf '%s\n' "Unexpected ${system}/${name} CUDA command: $command" >&2
+                exit 1
+              fi
+            done < cuda-commands
+            if [[ $v4Command == *-DCOLI_DSV4_NO_TC* ]]; then
+              test ${lib.boolToString (gpu.cudaPackages.cudaOlder "12.8")} = true
+            else
+              test ${lib.boolToString (gpu.cudaPackages.cudaOlder "12.8")} = false
+            fi
+          ''
+        else
+          ''
+            engineCommand=$(grep ' colibri.c .* -o colibri ' build-plan)
+            if [[ $engineCommand == *-DCOLI_CUDA* ]]; then
+              printf '%s\n' "Unexpected CUDA backend in ${system}/${name}: $engineCommand" >&2
+              exit 1
+            fi
+            ${
+              if backend == "metal" then
+                ''
+                  [[ $engineCommand == *-DCOLI_METAL* ]]
+                  [[ $engineCommand != *-march=* && $engineCommand != *-mcpu=* ]]
+                  grep -q ' -c backend_metal.mm -o backend_metal.o' build-plan
+                ''
+              else
+                ''
+                  [[ $engineCommand == *" -march=${cpuArch} "* ]]
+                  [[ $engineCommand != *-DCOLI_METAL* ]]
+                ''
+            }
+          ''
+      }
+    ''
+  ) colibriPlans;
   hostConfiguration =
     nixos:
     let
@@ -372,12 +512,21 @@ pkgs.runCommandLocal "check-gpu-integration"
     nativeBuildInputs = [
       pkgs.bash
       pkgs.coreutils
+      pkgs.gnumake
       pkgs.shellcheck
     ];
   }
   ''
     shellcheck ${../scripts/gpu-env.sh}
     bash ${./gpu-probe.sh} ${../scripts/gpu-env.sh}
+    # Inspect real upstream recipes without CUDA, a GPU, or runtime dependencies.
+    # Discarded store references above are only printed by make's dry run.
+    cp -R ${inputs.colibri}/c c
+    chmod -R u+w c
+    # Recursive dry runs need the parent-built objects to exist as placeholders.
+    touch c/{backend_cuda,cuda_chain,cu_xb,cu_tier}.o
+    ${colibriPlanChecks}
+    echo COLIBRI_CUDA_TARGETS_OK
     echo GPU_POLICY_OK
     touch "$out"
   ''

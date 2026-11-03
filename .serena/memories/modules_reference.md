@@ -300,6 +300,9 @@ OpenCode AI assistant:
 ### colibri.nix
 
 - Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
+- CUDA compilation passes the selected scope's `flags.gencodeString` through upstream's `CUDA_GENCODE` and DeepSeek V4's separate `V4_CUDA_GENCODE`, retaining configured SASS/PTX targets without probing a build-time GPU. Do not use `all-major`: CUDA 12.x includes SM 5.0, which cannot compile upstream's unguarded `__hfma2` calls.
+- Linux CUDA builds remove upstream's forced `__THROW` shim: the selected Nixpkgs/NVIDIA math headers already match glibc exception specifications. CPU and Metal sources remain unpatched.
+- `checks.gpu` dry-runs Colibri's Linux CUDA/CPU and Darwin Metal install plans against the upstream Makefiles. It checks selected CUDA targets, the pre-12.8 tensor-core fallback and portable CPU flags; Metal selection must not evaluate CUDA policy. No GPU or toolkit is needed; native build/runtime coverage is separate.
 
 ### bun.nix
 

@@ -90,6 +90,9 @@ let
       };
     in
     {
+      # Nixpkgs already matches CUDA math exception specifications to glibc.
+      # Remove when upstream stops forcing its conflicting __THROW shim.
+      patches = [ ../../../patches/colibri-cuda-glibc.patch ];
       extraBuildInputs = [
         cudaPackages.cuda_cudart
         cudaProfilerApi
@@ -98,11 +101,15 @@ let
       ];
       extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
+      # Both Makefiles need the selected scope's SASS/PTX targets, not native probes.
+      # With CUDA 12.x, all-major emits sm_50, which cannot compile upstream's __hfma2 calls.
       # Workaround: block-scaled cuBLASLt requires CUDA 12.8.
       # Remove when upstream automatically disables tensor cores on older toolkits.
       makeArgs =
-        "ARCH=${archBaseline} CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc CUDA_ARCH=all-major"
-        + lib.optionalString (cudaPackages.cudaOlder "12.8") " NO_TC=1"; # all-major: headless-safe
+        "ARCH=${archBaseline} CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc"
+        + " ${lib.escapeShellArg "CUDA_GENCODE=${cudaPackages.flags.gencodeString}"}"
+        + " ${lib.escapeShellArg "V4_CUDA_GENCODE=${cudaPackages.flags.gencodeString}"}"
+        + lib.optionalString (cudaPackages.cudaOlder "12.8") " NO_TC=1";
     };
 
   archBaseline = if pkgs.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
@@ -126,6 +133,7 @@ let
     pname = "colibri";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
+    patches = build.patches or [ ];
 
     nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
     nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
