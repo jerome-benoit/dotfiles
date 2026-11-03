@@ -102,6 +102,7 @@ Common packages for all platforms:
 
 - **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta
 - **GGML inference tools**: llama.cpp, stable-diffusion.cpp (`sd-cli`, `sd-server`) and whisper.cpp on desktop and server profiles. Linux uses the shared CUDA/ROCm/Vulkan selection; Apple Silicon retains native Metal defaults. Only `/bin` and `/share` are exposed in the profile, keeping each package's private libraries isolated.
+- **Ollama**: Linux CLI and user service share the GPU-selected `services.ollama.package`. The CLI remains installed when the service is disabled. Darwin retains Homebrew ownership.
 - **Linux server**: delta, grc (only on server profile)
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
 - **OpenClaw tools** (via `nix-openclaw-tools` flake input): camsnap, discrawl, gogcli, goplaces, sag, sonoscli, summarize and wacrawl (all platforms); imsg, peekaboo and poltergeist (macOS desktop only). These standalone tools do not install the OpenClaw application or gateway.
@@ -282,6 +283,14 @@ OpenCode AI assistant:
 - CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged.
 - Remove this override when upstream ships hashes compatible with the selected source and Bun. The local hash fixer does not maintain these hashes.
 - Warnings if packages unavailable for system
+
+### ollama.nix
+
+- Linux-only wrapper around Home Manager's `services.ollama`, enabled on desktop profiles and disabled on server profiles.
+- Reuses the package selected by `core/packages.nix`; upstream owns service generation and CLI installation when enabled.
+- Defaults to 131072 context tokens, Flash Attention and `q8_0` KV cache. Override through `services.ollama.environmentVariables`; the context is a server default, not a minimum or an OMP client budget.
+- Uses `Type=exec`, restarts on failure and logs to the user journal. Model storage and idle-unload behavior remain unchanged.
+- Darwin's Homebrew service is unchanged. See `suggested_commands` for first-activation handover and user-service lifetime.
 
 ### omp.nix
 

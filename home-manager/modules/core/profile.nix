@@ -44,6 +44,7 @@ let
         enableGateway = true;
       };
       lazygit = true;
+      ollama = pkgs.stdenv.hostPlatform.isLinux;
       omp = true;
       opencode = {
         enable = true;
@@ -117,6 +118,7 @@ let
         enableGateway = false;
       };
       lazygit = true;
+      ollama = false;
       omp = false;
       opencode = {
         enable = false;

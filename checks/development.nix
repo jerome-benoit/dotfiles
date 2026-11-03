@@ -20,6 +20,7 @@ let
         ../home-manager/modules/development/herdr.nix
         ../home-manager/modules/development/opencode.nix
         ../home-manager/modules/development/caveman.nix
+        ../home-manager/modules/development/ollama.nix
         {
           home = {
             username = "development-check";
@@ -31,6 +32,8 @@ let
       ];
     };
   configure = configureWith inputs;
+  ollamaEnabled = (configure { modules.development.ollama.enable = true; }).config;
+  ollamaDisabled = (configure { modules.development.ollama.enable = false; }).config;
   opencodeStages =
     map
       (
@@ -226,6 +229,13 @@ assert
   opencodePackages.desktopPackage.node_modules == opencodePackages.opencodePackage.node_modules;
 assert customCli.modules.development.opencode.opencodePackage.node_modules == customDependency;
 assert customCli.modules.development.opencode.desktopPackage.node_modules == customDependency;
+assert !(ollamaDisabled.systemd.user.services ? ollama);
+assert !(ollamaDisabled.launchd.agents ? ollama);
+assert
+  if pkgs.stdenv.hostPlatform.isLinux then
+    ollamaEnabled.xdg.configFile ? "systemd/user/ollama.service"
+  else
+    !(ollamaEnabled.systemd.user.services ? ollama) && !(ollamaEnabled.launchd.agents ? ollama);
 pkgs.runCommand "check-development-integrations"
   {
     nativeBuildInputs = [

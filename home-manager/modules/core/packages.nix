@@ -108,6 +108,8 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    services.ollama.package = lib.mkIf (!isDarwin) (lib.mkDefault ollama);
+
     home.packages = [
       pkgs.litellm
       pkgs.mergiraf
@@ -117,8 +119,8 @@ in
       pkgs.volta
     ]
     # Platform packages.
-    ++ lib.optionals (!isDarwin) [
-      ollama
+    ++ lib.optionals (!isDarwin && !config.services.ollama.enable) [
+      config.services.ollama.package
     ]
     # OpenClaw standalone tools.
     ++ [

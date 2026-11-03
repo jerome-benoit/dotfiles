@@ -12,6 +12,35 @@ From the base configuration, use `make switch SPEC=work` or `make switch SPEC=pe
 
 **Note**: `hm*` aliases use `_hm_switch` which decrypts sops secrets then calls `nh home switch --impure -c "$(whoami)" -- --impure`. The `-- --impure` is needed because nh has a bug where `--impure` isn't passed to its internal `nix eval` for config discovery.
 
+### Ollama user service (Linux)
+
+The desktop profile enables `modules.development.ollama.enable`; the server
+profile keeps the CLI without starting the service. Override the module flag with
+`lib.mkForce` to change that policy. Service settings use Home Manager's
+`services.ollama` options.
+
+Before the first activation, stop any manually managed Ollama server at a chosen
+idle point; for the existing launcher, use `~/bin/ollama-serve.sh --stop`.
+Then apply Home Manager. `sd-switch` starts the generated service; no imperative
+enable command or activation hook is needed. Models remain in their existing
+location; the module does not migrate or preload them.
+
+```bash
+systemctl --user status ollama.service
+journalctl --user -u ollama.service -f
+systemctl --user restart ollama.service
+```
+
+The service listens on `127.0.0.1:11434` by default. Its 131072-token context,
+Flash Attention and KV-cache defaults can be changed through
+`services.ollama.environmentVariables`; these variables are not exported to OMP
+or other client processes. Keep each client's context budget consistent with the
+server and model.
+
+The service follows the user manager's lifetime. Continuous operation without
+login requires host-managed lingering; Home Manager does not enable it here.
+Darwin continues to use the existing Homebrew service.
+
 ## Initial Installation
 
 ```bash
@@ -70,7 +99,7 @@ After installation, restart your shell to pick up aliases.
 | `consumers`                       | Literal shell arguments, terminal key dispatch, Treesitter/textobjects and real Pyright attachment   |
 | `hermes-agent`                    | Generated configuration, plugin paths and service ordering                                           |
 | `caveman`                         | Generated integrations, installation ownership and native/shrink hooks                               |
-| `development`, `opencode-desktop` | Development-module activation and Desktop CLI staging                                                |
+| `development`, `opencode-desktop` | Development-module activation, Ollama service platform/disable boundaries and Desktop CLI staging    |
 | `strata`, `gpu`, `ci-contract`    | Workspace/runtime validation, GPU selection and CI contracts                                         |
 
 `flake.nix` adds Home Manager builds for the selected platform: personal and
