@@ -13,8 +13,9 @@ let
   hosts = constants.hosts;
   bunSupported = hostname != hosts.rigel;
   antigravitySupported = hostname != hosts.rigel;
-  crushSupported = hostname != hosts.faust;
-  isSway = hostname == hosts.zeus;
+  crushSupported = hostname != hosts.faust && hostname != hosts.rigel;
+  isMorphee = hostname == hosts.morphee;
+  isZeus = hostname == hosts.zeus;
 
   profileModules = config.modules.core.profile.modules;
 in
@@ -79,6 +80,10 @@ in
         plugins.github-copilot = "${inputs.hermes-labs-plugins}/github-copilot";
       };
       lazygit.enable = profileModules.development.lazygit;
+      ollama = {
+        enable = profileModules.development.ollama.enable;
+        enableService = isMorphee && profileModules.development.ollama.enableService;
+      };
       omp.enable = bunSupported && profileModules.development.omp;
       opencode = {
         enable = bunSupported && profileModules.development.opencode.enable;
@@ -100,7 +105,7 @@ in
       lazydocker.enable = profileModules.programs.lazydocker;
       ssh.enable = profileModules.programs.ssh;
       sshm.enable = profileModules.programs.sshm;
-      sway.enable = isSway && profileModules.programs.sway;
+      sway.enable = isZeus && profileModules.programs.sway;
       syncthing.enable = pkgs.stdenv.hostPlatform.isDarwin && profileModules.programs.syncthing;
       tmux.enable = profileModules.programs.tmux;
       zellij.enable = profileModules.programs.zellij;

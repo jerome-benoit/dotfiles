@@ -13,6 +13,7 @@
     ./herdr.nix
     ./hermes-agent.nix
     ./lazygit.nix
+    ./ollama.nix
     ./omp.nix
     ./opencode.nix
     ./openspec.nix

@@ -13,19 +13,6 @@ let
   isDesktop = config.modules.core.profile.name == config.modules.core.constants.profiles.desktop;
   isServer = config.modules.core.profile.name == config.modules.core.constants.profiles.server;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-  ollama =
-    if acceleration == "cuda" then
-      pkgs.ollama-cuda.override {
-        cudaPackages = gpu.cudaPackages;
-      }
-    else if acceleration == "rocm" then
-      pkgs.ollama-rocm.override {
-        rocmGpuTargets = gpu.rocmTargets;
-      }
-    else if acceleration == "vulkan" then
-      pkgs.ollama-vulkan
-    else
-      pkgs.ollama;
   llamaCpp =
     if acceleration == "cuda" then
       pkgs.llama-cpp.override {
@@ -115,10 +102,6 @@ in
       pkgs.ortie
       ggmlCliTools
       pkgs.volta
-    ]
-    # Platform packages.
-    ++ lib.optionals (!isDarwin) [
-      ollama
     ]
     # OpenClaw standalone tools.
     ++ [
@@ -234,7 +217,6 @@ in
           cask "openvpn-connect"
           cask "podman-desktop"
           brew "mole"
-          brew "ollama", restart_service: true
           brew "jundot/omlx/omlx", restart_service: true
           brew "incoai/tap/splash"
           brew "podman"
