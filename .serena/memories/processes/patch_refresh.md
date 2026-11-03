@@ -9,6 +9,7 @@ installer patches follow the `caveman` input in `flake.lock`; its separate
 Blocks source and companion assets use `pins/caveman.json`.
 OpenCode Desktop patches follow the selected CLI source, which defaults to the
 `opencode` input in `flake.lock`.
+Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
 Colibri patches follow the `colibri` input in `flake.lock`.
 The `hermes-agent` and `strata` inputs do not set these patch bases.
 Reassess each patch when its own source changes.
