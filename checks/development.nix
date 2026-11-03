@@ -15,6 +15,7 @@ let
       };
       modules = [
         ../home-manager/modules/core/lib.nix
+        ../home-manager/modules/core/gpu.nix
         ../home-manager/modules/themes/default.nix
         ../home-manager/modules/development/aoe.nix
         ../home-manager/modules/development/herdr.nix
@@ -32,8 +33,23 @@ let
       ];
     };
   configure = configureWith inputs;
-  ollamaEnabled = (configure { modules.development.ollama.enable = true; }).config;
-  ollamaDisabled = (configure { modules.development.ollama.enable = false; }).config;
+  ollamaEnabled =
+    (configure {
+      modules.development.ollama = {
+        enable = true;
+        enableService = true;
+      };
+      services.ollama.package = pkgs.hello;
+    }).config;
+  ollamaCliOnly =
+    (configure {
+      modules.development.ollama.enable = true;
+    }).config;
+  ollamaDisabled =
+    (configure {
+      modules.development.ollama.enable = false;
+      services.ollama.package = pkgs.hello;
+    }).config;
   opencodeStages =
     map
       (
@@ -231,11 +247,20 @@ assert customCli.modules.development.opencode.opencodePackage.node_modules == cu
 assert customCli.modules.development.opencode.desktopPackage.node_modules == customDependency;
 assert !(ollamaDisabled.systemd.user.services ? ollama);
 assert !(ollamaDisabled.launchd.agents ? ollama);
+assert !(ollamaDisabled.home.file ? ".Brewfile");
+assert !(builtins.elem pkgs.hello ollamaDisabled.home.packages);
+assert !(ollamaCliOnly.systemd.user.services ? ollama);
+assert !(ollamaCliOnly.launchd.agents ? ollama);
 assert
   if pkgs.stdenv.hostPlatform.isLinux then
     ollamaEnabled.xdg.configFile ? "systemd/user/ollama.service"
+    && lib.count (package: package == pkgs.hello) ollamaEnabled.home.packages == 1
+    && lib.count (package: package == pkgs.ollama) ollamaCliOnly.home.packages == 1
   else
-    !(ollamaEnabled.systemd.user.services ? ollama) && !(ollamaEnabled.launchd.agents ? ollama);
+    !(ollamaEnabled.systemd.user.services ? ollama)
+    && !(ollamaEnabled.launchd.agents ? ollama)
+    && !(builtins.elem pkgs.hello ollamaEnabled.home.packages)
+    && ollamaEnabled.home.file ? ".Brewfile";
 pkgs.runCommand "check-development-integrations"
   {
     nativeBuildInputs = [

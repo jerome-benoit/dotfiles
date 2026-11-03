@@ -44,7 +44,10 @@ let
         enableGateway = true;
       };
       lazygit = true;
-      ollama = pkgs.stdenv.hostPlatform.isLinux;
+      ollama = {
+        enable = true;
+        enableService = pkgs.stdenv.hostPlatform.isLinux;
+      };
       omp = true;
       opencode = {
         enable = true;
@@ -118,7 +121,10 @@ let
         enableGateway = false;
       };
       lazygit = true;
-      ollama = false;
+      ollama = {
+        enable = pkgs.stdenv.hostPlatform.isLinux;
+        enableService = false;
+      };
       omp = false;
       opencode = {
         enable = false;
@@ -207,6 +213,11 @@ in
                       default = false;
                       description = "Whether to enable the gateway variant";
                     };
+                    enableService = lib.mkOption {
+                      type = lib.types.bool;
+                      default = false;
+                      description = "Whether to enable the user service";
+                    };
                     enableWeb = lib.mkOption {
                       type = lib.types.bool;
                       default = false;
@@ -216,7 +227,7 @@ in
                 })
               ]
             );
-            description = "Development module enable flags (bool or { enable, enableDashboard, enableDesktop, enableGateway, enableWeb })";
+            description = "Development module enable flags (bool or { enable, enableDashboard, enableDesktop, enableGateway, enableService, enableWeb })";
           };
           programs = lib.mkOption {
             type = lib.types.attrsOf lib.types.bool;

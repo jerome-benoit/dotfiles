@@ -14,10 +14,11 @@ From the base configuration, use `make switch SPEC=work` or `make switch SPEC=pe
 
 ### Ollama user service (Linux)
 
-The desktop profile enables `modules.development.ollama.enable`; the server
-profile keeps the CLI without starting the service. Override the module flag with
-`lib.mkForce` to change that policy. Service settings use Home Manager's
-`services.ollama` options.
+Linux desktop and server profiles enable `modules.development.ollama.enable`.
+Only desktop enables `modules.development.ollama.enableService` by default.
+Disable `enableService` to keep the CLI without a daemon; disable `enable` to
+remove both. Override profile-assigned flags with `lib.mkForce`. Package and
+service settings use Home Manager's `services.ollama` options.
 
 Before the first activation, stop any manually managed Ollama server at a chosen
 idle point; for the existing launcher, use `~/bin/ollama-serve.sh --stop`.
@@ -39,7 +40,9 @@ server and model.
 
 The service follows the user manager's lifetime. Continuous operation without
 login requires host-managed lingering; Home Manager does not enable it here.
-Darwin continues to use the existing Homebrew service.
+Darwin desktop profiles add Ollama to the shared Brewfile through the same
+module; `core.packages` supplies the generic Homebrew bundle activation.
+Homebrew service behavior remains unchanged.
 
 ## Initial Installation
 

@@ -100,9 +100,8 @@ Base home-manager configuration:
 
 Common packages for all platforms:
 
-- **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, ollama, volta
+- **All**: litellm, mergiraf, nerd-fonts.jetbrains-mono, nh, nixfmt, volta
 - **GGML inference tools**: llama.cpp, stable-diffusion.cpp (`sd-cli`, `sd-server`) and whisper.cpp on desktop and server profiles. Linux uses the shared CUDA/ROCm/Vulkan selection; Apple Silicon retains native Metal defaults. Only `/bin` and `/share` are exposed in the profile, keeping each package's private libraries isolated.
-- **Ollama**: Linux CLI and user service share the GPU-selected `services.ollama.package`. The CLI remains installed when the service is disabled. Darwin retains Homebrew ownership.
 - **Linux server**: delta, grc (only on server profile)
 - **macOS**: Extensive list (bat, bruno, delta, firefox, go, google-chrome, grc, jetbrains IDEs, python3, rustup, vscode, zed-editor, etc.)
 - **OpenClaw tools** (via `nix-openclaw-tools` flake input): camsnap, discrawl, gogcli, goplaces, sag, sonoscli, summarize and wacrawl (all platforms); imsg, peekaboo and poltergeist (macOS desktop only). These standalone tools do not install the OpenClaw application or gateway.
@@ -286,11 +285,12 @@ OpenCode AI assistant:
 
 ### ollama.nix
 
-- Linux-only wrapper around Home Manager's `services.ollama`, enabled on desktop profiles and disabled on server profiles.
-- Reuses the package selected by `core/packages.nix`; upstream owns service generation and CLI installation when enabled.
-- Defaults to 131072 context tokens, Flash Attention and `q8_0` KV cache. Override through `services.ollama.environmentVariables`; the context is a server default, not a minimum or an OMP client budget.
+- Options: `enable`, `enableService`. Linux desktop profiles enable both; Linux server profiles enable only the CLI. Disabling the module removes its CLI and service contributions.
+- Owns GPU-selected package configuration and installation. Linux uses the shared CUDA/ROCm/Vulkan policy; `services.ollama.package` remains overrideable. CLI-only mode installs the same package without creating a unit.
+- Reuses Home Manager's `services.ollama` for the Linux daemon. Defaults to 131072 context tokens, Flash Attention and `q8_0` KV cache; override through `services.ollama.environmentVariables`. Server context is not a minimum or an OMP client budget.
 - Uses `Type=exec`, restarts on failure and logs to the user journal. Model storage and idle-unload behavior remain unchanged.
-- Darwin's Homebrew service is unchanged. See `suggested_commands` for first-activation handover and user-service lifetime.
+- Darwin desktop profiles contribute the Ollama formula to the shared Brewfile, retaining Homebrew service ownership. `core/packages.nix` provides the generic Brewfile activation.
+- See `suggested_commands` for first-activation handover and user-service lifetime.
 
 ### omp.nix
 

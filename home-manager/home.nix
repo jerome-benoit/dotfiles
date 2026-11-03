@@ -79,7 +79,9 @@ in
         plugins.github-copilot = "${inputs.hermes-labs-plugins}/github-copilot";
       };
       lazygit.enable = profileModules.development.lazygit;
-      ollama.enable = profileModules.development.ollama;
+      ollama = {
+        inherit (profileModules.development.ollama) enable enableService;
+      };
       omp.enable = bunSupported && profileModules.development.omp;
       opencode = {
         enable = bunSupported && profileModules.development.opencode.enable;
