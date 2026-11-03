@@ -5,7 +5,7 @@
     "x86_64-linux": "sha256-DMpKC+uX6yshpFmWiO++A7P2ytmuhrZ9/52hy3hYCqA="
   },
   "provenance": {
-    "sourceRevision": "4dd7b2662c60d33f98d6bea7ff8172a496738941",
+    "sourceRevision": "f73e2847baf403ac402773db662e2cbee83a8cb5",
     "nixpkgsRevision": "ea9e3ef341e11c193537f674f821a99f9f436729",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",

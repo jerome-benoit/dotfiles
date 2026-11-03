@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4
+# base: JuliusBrussee/caveman 2e068f735253cce28256744804785f01887d9646
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch (in order)
 # intent: Honor effective OpenCode roots, V2 plugin definitions and host locations; read Hermes YAML memberships and respect deny lists before owned mutations.
 --- a/packages/cli/src/index.ts

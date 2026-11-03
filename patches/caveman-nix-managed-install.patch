@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4
+# base: JuliusBrussee/caveman 2e068f735253cce28256744804785f01887d9646
 # intent: refuse executable installation and self-update in the package-managed CLI,
 #   durable npm installer and module downloader; Nix owns those executables.
 --- a/packages/cli/src/index.ts

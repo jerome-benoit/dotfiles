@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4 after caveman-nix-registration-paths.patch
+# base: JuliusBrussee/caveman 2e068f735253cce28256744804785f01887d9646 after caveman-nix-registration-paths.patch
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1395
 # issues: https://github.com/JuliusBrussee/caveman/issues/1405
 #   https://github.com/JuliusBrussee/caveman/issues/1410

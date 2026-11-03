@@ -1,4 +1,4 @@
-# base: 977f5c695c2b4a254560743432d20f622cbe1233
+# base: f73e2847baf403ac402773db662e2cbee83a8cb5
 # intent: isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 diff --git a/packages/desktop/src/main/service/cli-version.ts b/packages/desktop/src/main/service/cli-version.ts
 --- a/packages/desktop/src/main/service/cli-version.ts

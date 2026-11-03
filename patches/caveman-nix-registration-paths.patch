@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4 after caveman-nix-managed-install.patch
+# base: JuliusBrussee/caveman 2e068f735253cce28256744804785f01887d9646 after caveman-nix-managed-install.patch
 # intent: separate Nix execution-time closure paths from durable agent
 #   registrations through a lexical CAVEMAN_REGISTRATION_ROOT profile prefix.
 #   Preserve upstream host-shell rendering; temporary wrap/runtime paths stay local.
