@@ -15,7 +15,8 @@ From the base configuration, use `make switch SPEC=work` or `make switch SPEC=pe
 ### Ollama user service (Linux)
 
 Linux desktop and server profiles enable `modules.development.ollama.enable`.
-Only desktop enables `modules.development.ollama.enableService` by default.
+Only the desktop profile on `morphee` enables
+`modules.development.ollama.enableService` by default.
 Disable `enableService` to keep the CLI without a daemon; disable `enable` to
 remove both. Override profile-assigned flags with `lib.mkForce`. Package and
 service settings use Home Manager's `services.ollama` options.

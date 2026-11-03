@@ -14,6 +14,7 @@ let
   bunSupported = hostname != hosts.rigel;
   antigravitySupported = hostname != hosts.rigel;
   crushSupported = hostname != hosts.faust;
+  ollamaServiceEnabled = hostname == hosts.morphee;
   isSway = hostname == hosts.zeus;
 
   profileModules = config.modules.core.profile.modules;
@@ -80,7 +81,8 @@ in
       };
       lazygit.enable = profileModules.development.lazygit;
       ollama = {
-        inherit (profileModules.development.ollama) enable enableService;
+        enable = profileModules.development.ollama.enable;
+        enableService = ollamaServiceEnabled && profileModules.development.ollama.enableService;
       };
       omp.enable = bunSupported && profileModules.development.omp;
       opencode = {

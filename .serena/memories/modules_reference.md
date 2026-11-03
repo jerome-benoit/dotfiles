@@ -285,7 +285,7 @@ OpenCode AI assistant:
 
 ### ollama.nix
 
-- Options: `enable`, `enableService`. Linux desktop profiles enable both; Linux server profiles enable only the CLI. Disabling the module removes its CLI and service contributions.
+- Options: `enable`, `enableService`. Linux profiles install the CLI; only the desktop profile on `morphee` enables the user service. Other Linux hosts and server profiles remain CLI-only. Disabling the module removes its CLI and service contributions.
 - Owns GPU-selected package configuration and installation. Linux uses the shared CUDA/ROCm/Vulkan policy; `services.ollama.package` remains overrideable. CLI-only mode installs the same package without creating a unit.
 - Reuses Home Manager's `services.ollama` for the Linux daemon. Defaults to 131072 context tokens, Flash Attention and `q8_0` KV cache; override through `services.ollama.environmentVariables`. Server context is not a minimum or an OMP client budget.
 - Uses `Type=exec`, restarts on failure and logs to the user journal. Model storage and idle-unload behavior remain unchanged.
