@@ -6,7 +6,7 @@
 }:
 let
   lib = pkgs.lib;
-  platformPkgs = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (
+  platformPkgs = lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (
     system:
     import nixpkgs {
       inherit system;
@@ -152,6 +152,35 @@ let
       flag = lib.findFirst (lib.hasPrefix "-DCMAKE_CUDA_ARCHITECTURES") "" package.cmakeFlags;
     in
     lib.splitString ";" (lib.last (lib.splitString "=" flag));
+  colibriBuildPhase =
+    system: gpu:
+    (lib.evalModules {
+      specialArgs = {
+        inherit inputs;
+        pkgs = platformPkgs.${system};
+      };
+      modules = [
+        ../home-manager/modules/core/lib.nix
+        ../home-manager/modules/development/colibri.nix
+        {
+          options.modules.core.gpu = lib.mkOption {
+            type = lib.types.attrs;
+            default = gpu;
+          };
+          options.home.packages = lib.mkOption {
+            type = lib.types.listOf lib.types.package;
+            default = [ ];
+          };
+        }
+      ];
+    }).config.modules.development.colibri.package.buildPhase;
+  colibriUsesScopeTargets =
+    system: gpu:
+    let
+      phase = colibriBuildPhase system gpu;
+    in
+    lib.hasInfix (lib.escapeShellArg "CUDA_GENCODE=${gpu.cudaPackages.flags.gencodeString}") phase
+    && !(lib.hasInfix "CUDA_ARCH=" phase);
   hostConfiguration =
     nixos:
     let
@@ -223,6 +252,55 @@ assert lib.all (condition: condition) [
       "61"
       "89"
     ]
+  ))
+  (check "Colibri preserves selected legacy, modern and mixed CUDA targets with PTX" (
+    lib.all (colibriUsesScopeTargets "x86_64-linux") [
+      modern
+      legacy
+      configuredLegacy
+      capturedScope
+      capturedConfigured
+      (evaluate {
+        driver = "580.196.07";
+        capabilities = "6.1";
+      })
+    ]
+  ))
+  (check "Colibri preserves Jetson and unified SBSA CUDA targets" (
+    lib.all (colibriUsesScopeTargets "aarch64-linux") [
+      jetson
+      mixedSbsa
+      mixedThorAda
+    ]
+  ))
+  (check "Colibri retains the pre-12.8 tensor-core workaround only on older toolkits" (
+    lib.hasInfix " NO_TC=1" (
+      colibriBuildPhase "x86_64-linux" (evaluate {
+        driver = "560.35.05";
+      })
+    )
+    && !(lib.hasInfix " NO_TC=1" (colibriBuildPhase "x86_64-linux" legacy))
+  ))
+  (check "Colibri retains its portable CPU fallbacks" (
+    lib.all
+      (
+        system:
+        let
+          phase = colibriBuildPhase system { acceleration = "default"; };
+          arch = if system == "x86_64-linux" then "x86-64-v3" else "armv8-a";
+        in
+        lib.hasInfix "ARCH=${arch}" phase && !(lib.hasInfix "CUDA" phase)
+      )
+      [
+        "x86_64-linux"
+        "aarch64-linux"
+      ]
+  ))
+  (check "Colibri retains Metal without evaluating CUDA policy" (
+    let
+      phase = colibriBuildPhase "aarch64-darwin" (throw "Metal must not evaluate CUDA policy");
+    in
+    lib.hasInfix "ARCH= METAL=1" phase && !(lib.hasInfix "CUDA" phase)
   ))
   (check "captured scope targets select the next usable toolkit" (
     capturedScope.acceleration == "cuda"
