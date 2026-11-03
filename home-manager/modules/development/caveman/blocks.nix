@@ -34,6 +34,14 @@ buildGoModule {
     ../../../../patches/caveman-blocks-config-root.patch
   ];
 
+  preCheck = ''
+    unset OPENCODE_CONFIG_DIR XDG_CONFIG_HOME
+  '';
+  postCheck = ''
+    go test ./internal/hook
+    go test -tags=e2e ./cmd/caveman-blocks -run '^TestE2E/hooks$' -count=1
+  '';
+
   postInstall = ''
     for name in LICENSE NOTICE; do
       install -Dm644 "$name" "$out/share/licenses/caveman-blocks/$name"

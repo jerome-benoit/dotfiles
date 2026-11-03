@@ -11,6 +11,15 @@
  	"regexp"
  	"sort"
  
+@@ -55,7 +56,7 @@
+ }
+ 
+ // Profiles returns the embedded harness profiles sorted by phase, then name, their config and detect
+-// paths resolved against the environment (CLAUDE_CONFIG_DIR, CODEX_HOME).
++// paths resolved against the harness overrides and OpenCode's effective config root.
+ func Profiles() ([]Profile, error) {
+ 	var m map[string]Profile
+ 	if err := toml.Unmarshal(profilesTOML, &m); err != nil {
 @@ -64,6 +65,25 @@
  	out := make([]Profile, 0, len(m))
  	for name, p := range m {
@@ -37,3 +46,260 @@
  		p.Config = resolveEnv(p.Config)
  		for i, d := range p.Detect {
  			p.Detect[i] = resolveEnv(d)
+--- a/internal/hook/profiles.toml
++++ b/internal/hook/profiles.toml
+@@ -1,7 +1,7 @@
+ # One table per harness (docs/INTEGRATION.md, layer 3). Facts from docs/research/harness-hooks-2026-10-03.md.
+ # `hooks install`, `hooks uninstall` and `hooks status` read this: config file, format, events, timeout.
+ # A path may start with ${VAR:-default}: the harness's own config-dir variable when set, else default.
+-# OpenCode has none: OPENCODE_CONFIG_DIR adds a directory, it does not move ~/.config/opencode.
++# OpenCode uses OPENCODE_CONFIG_DIR, then XDG_CONFIG_HOME/opencode, then ~/.config/opencode.
+ 
+ [claude-code]
+ phase = 1
+--- a/internal/hook/profiles_test.go
++++ b/internal/hook/profiles_test.go
+@@ -34,7 +34,7 @@
+ }
+ 
+ // TestProfileConfigEnv: Claude Code and Codex move their config with CLAUDE_CONFIG_DIR and CODEX_HOME;
+-// unset or empty, the documented default stands. The other harnesses have no such variable.
++// unset or empty, the documented default stands.
+ func TestProfileConfigEnv(t *testing.T) {
+ 	paths := func() map[string][2]string {
+ 		ps, err := Profiles()
+@@ -59,7 +59,6 @@
+ 			"claude-code": {"~/.claude/settings.json", "~/.claude"},
+ 			"codex":       {"~/.codex/hooks.json", "~/.codex"},
+ 			"cursor":      {"~/.cursor/hooks.json", "~/.cursor"},
+-			"opencode":    {"~/.config/opencode/plugins/caveman-blocks.js", "~/.config/opencode"},
+ 		} {
+ 			if got[name] != want {
+ 				t.Errorf("unset=%v %s: %v, want %v", unset, name, got[name], want)
+--- a/cmd/caveman-blocks/cmd_hooks_test.go
++++ b/cmd/caveman-blocks/cmd_hooks_test.go
+@@ -5,6 +5,7 @@
+ 	"encoding/json"
+ 	"os"
+ 	"path/filepath"
++	"reflect"
+ 	"slices"
+ 	"testing"
+ 
+@@ -184,3 +185,186 @@
+ 		t.Fatalf("version --json = %+v", v)
+ 	}
+ }
++
++func hookTree(t *testing.T, root string) map[string]string {
++	t.Helper()
++	tree := make(map[string]string)
++	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		info, err := entry.Info()
++		if err != nil {
++			return err
++		}
++		var content string
++		if entry.Type()&os.ModeSymlink != 0 {
++			content, err = os.Readlink(path)
++		} else if !entry.IsDir() {
++			var data []byte
++			data, err = os.ReadFile(path)
++			content = string(data)
++		}
++		if err != nil {
++			return err
++		}
++		tree[path] = info.Mode().String() + ":" + content
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return tree
++}
++
++func TestHooksOpenCodeConfigRoot(t *testing.T) {
++	for _, name := range []string{"unset", "empty", "xdg", "xdg-empty-override", "override", "override-relative-xdg"} {
++		t.Run(name, func(t *testing.T) {
++			base := t.TempDir()
++			home, xdg, override := filepath.Join(base, "home"), filepath.Join(base, "xdg"), filepath.Join(base, "selected ' $ root")
++			t.Setenv("HOME", home)
++			t.Setenv("USERPROFILE", home)
++			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
++			t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
++			t.Setenv("XDG_CONFIG_HOME", "")
++			t.Setenv("OPENCODE_CONFIG_DIR", "")
++			t.Setenv("CAVEMAN_NIX_MANAGED", "")
++			launcher := filepath.Join(base, "launcher")
++			if err := os.WriteFile(launcher, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
++				t.Fatal(err)
++			}
++			t.Setenv("CAVEMAN_BLOCKS_NIX_WRAPPER", launcher)
++			selected := filepath.Join(home, ".config", "opencode")
++			switch name {
++			case "unset":
++				os.Unsetenv("XDG_CONFIG_HOME")
++				os.Unsetenv("OPENCODE_CONFIG_DIR")
++			case "xdg", "xdg-empty-override":
++				t.Setenv("XDG_CONFIG_HOME", xdg)
++				selected = filepath.Join(xdg, "opencode")
++				if name == "xdg" {
++					os.Unsetenv("OPENCODE_CONFIG_DIR")
++				}
++			case "override", "override-relative-xdg":
++				t.Setenv("XDG_CONFIG_HOME", xdg)
++				if name == "override-relative-xdg" {
++					t.Setenv("XDG_CONFIG_HOME", "relative-xdg")
++				}
++				t.Setenv("OPENCODE_CONFIG_DIR", override)
++				selected = override
++			}
++			config := filepath.Join(selected, "plugins", "caveman-blocks.js")
++			status := func(scoped, installed bool) {
++				t.Helper()
++				args := []string{"hooks", "status", "--json"}
++				if scoped {
++					args = append(args, "--harness", "opencode")
++				}
++				var got struct {
++					Harnesses []harnessStatus `json:"harnesses"`
++				}
++				if err := json.Unmarshal(cli(t, args...), &got); err != nil {
++					t.Fatal(err)
++				}
++				if len(got.Harnesses) != 1 {
++					t.Fatalf("status: %+v", got)
++				}
++				h := got.Harnesses[0]
++				if h.Name != "opencode" || h.Config != config || h.Installed != installed || h.Error != "" {
++					t.Fatalf("status: %+v", h)
++				}
++			}
++			before := hookTree(t, base)
++			status(true, false)
++			if !reflect.DeepEqual(before, hookTree(t, base)) {
++				t.Fatal("status created or changed files")
++			}
++			if err := os.MkdirAll(selected, 0o755); err != nil {
++				t.Fatal(err)
++			}
++			foreign := filepath.Join(selected, "foreign.json")
++			if err := os.WriteFile(foreign, []byte("preserve"), 0o644); err != nil {
++				t.Fatal(err)
++			}
++			status(false, false)
++			cli(t, "hooks", "install")
++			status(false, true)
++			if _, err := os.Stat(config); err != nil {
++				t.Fatal(err)
++			}
++			installed := hookTree(t, base)
++			cli(t, "hooks", "install")
++			cli(t, "hooks", "status")
++			status(false, true)
++			if !reflect.DeepEqual(installed, hookTree(t, base)) {
++				t.Fatal("repeat installation or status changed the tree")
++			}
++			cli(t, "hooks", "uninstall")
++			status(false, false)
++			if _, err := os.Lstat(config); !os.IsNotExist(err) {
++				t.Fatalf("plugin remains: %v", err)
++			}
++			if data, err := os.ReadFile(foreign); err != nil || string(data) != "preserve" {
++				t.Fatalf("foreign file changed: %q %v", data, err)
++			}
++			for _, root := range []string{filepath.Join(home, ".config", "opencode"), filepath.Join(xdg, "opencode"), override} {
++				if root != selected {
++					if _, err := os.Lstat(root); !os.IsNotExist(err) {
++						t.Fatalf("unselected root changed: %s: %v", root, err)
++					}
++				}
++			}
++		})
++	}
++}
++
++func TestHooksOpenCodeRelativeRootRefused(t *testing.T) {
++	for _, name := range []string{"override", "override-no-xdg", "xdg-unset-override", "xdg-empty-override"} {
++		t.Run(name, func(t *testing.T) {
++			base := t.TempDir()
++			t.Chdir(base)
++			t.Setenv("HOME", filepath.Join(base, "home"))
++			t.Setenv("USERPROFILE", filepath.Join(base, "home"))
++			t.Setenv("XDG_DATA_HOME", filepath.Join(base, "data"))
++			t.Setenv("XDG_STATE_HOME", filepath.Join(base, "state"))
++			t.Setenv("CAVEMAN_NIX_MANAGED", "")
++			t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "xdg"))
++			t.Setenv("OPENCODE_CONFIG_DIR", filepath.Join(base, "selected"))
++			launcher := filepath.Join(base, "launcher")
++			if err := os.WriteFile(launcher, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
++				t.Fatal(err)
++			}
++			t.Setenv("CAVEMAN_BLOCKS_NIX_WRAPPER", launcher)
++			cli(t, "hooks", "install", "--harness", "opencode")
++			if name == "override" || name == "override-no-xdg" {
++				t.Setenv("OPENCODE_CONFIG_DIR", "relative-root")
++				if name == "override-no-xdg" {
++					os.Unsetenv("XDG_CONFIG_HOME")
++				}
++			} else {
++				t.Setenv("OPENCODE_CONFIG_DIR", "")
++				if name == "xdg-unset-override" {
++					os.Unsetenv("OPENCODE_CONFIG_DIR")
++				}
++				t.Setenv("XDG_CONFIG_HOME", "relative-xdg")
++			}
++			before := hookTree(t, base)
++			for _, action := range []string{"install", "uninstall", "status"} {
++				root := newRoot()
++				args := []string{"hooks", action, "--harness", "opencode"}
++				if action == "status" {
++					args = append(args, "--json")
++				}
++				root.SetArgs(args)
++				root.SetOut(new(bytes.Buffer))
++				root.SetErr(new(bytes.Buffer))
++				if err := root.Execute(); err == nil {
++					t.Fatalf("%s accepted a relative root", action)
++				}
++				if !reflect.DeepEqual(before, hookTree(t, base)) {
++					t.Fatalf("%s changed files or the stable launcher", action)
++				}
++			}
++		})
++	}
++}
+--- a/testdata/e2e/hooks.txtar
++++ b/testdata/e2e/hooks.txtar
+@@ -28,7 +28,8 @@
+ stdout '^codex: installed in ~/.codex/hooks.json$'
+ stdout 'open /hooks in Codex'
+ exec caveman-blocks hooks install --harness opencode
+-stdout '^opencode: installed in ~/.config/opencode/plugins/caveman-blocks.js$'
++exists home/.config/opencode/plugins/caveman-blocks.js
++grep '^// .*/caveman-blocks hook --harness generic$' home/.config/opencode/plugins/caveman-blocks.js
+ stdout 'loads the plugin on its next start'
+ ! exec caveman-blocks hooks install --harness nope
+ stderr 'unknown --harness'
+--- a/testdata/e2e/opencode-plugin.txtar
++++ b/testdata/e2e/opencode-plugin.txtar
+@@ -9,7 +9,6 @@
+ exec caveman-blocks init
+ exec caveman-blocks add json-peek
+ exec caveman-blocks hooks install --harness opencode
+-stdout '^opencode: installed in ~/.config/opencode/plugins/caveman-blocks.js$'
+ exists $WORK/home/.config/opencode/plugins/caveman-blocks.js
+ grep '^// .*/caveman-blocks hook --harness generic$' $WORK/home/.config/opencode/plugins/caveman-blocks.js
+ 
+@@ -26,7 +25,6 @@
+ stdout '^v2 fail-open: ok$'
+ 
+ exec caveman-blocks hooks uninstall --harness opencode
+-stdout '^opencode: removed from ~/.config/opencode/plugins/caveman-blocks.js$'
+ ! exists $WORK/home/.config/opencode/plugins/caveman-blocks.js
+ 
+ -- drive.mjs --
