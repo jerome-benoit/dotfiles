@@ -174,57 +174,122 @@ let
         }
       ];
     }).config.modules.development.colibri.package.buildPhase;
-  colibriUsesScopeTargets =
-    system: gpu:
-    let
-      phase = colibriBuildPhase system gpu;
-    in
-    lib.all
-      (name: lib.hasInfix (lib.escapeShellArg "${name}=${gpu.cudaPackages.flags.gencodeString}") phase)
-      [
-        "CUDA_GENCODE"
-        "V4_CUDA_GENCODE"
-      ]
-    && !(lib.hasInfix "CUDA_ARCH=" phase);
-  colibriPlans = [
-    {
-      system = "x86_64-linux";
-      gpu = legacy;
-    }
-    {
-      system = "x86_64-linux";
-      gpu = modern;
-    }
-    {
-      system = "x86_64-linux";
-      gpu = evaluate { driver = "560.35.05"; };
-    }
-    {
-      system = "aarch64-linux";
-      gpu = jetson;
-    }
-  ];
+  colibriPlans =
+    lib.concatLists (
+      lib.mapAttrsToList
+        (
+          system: scenarios:
+          lib.mapAttrsToList (name: gpu: {
+            inherit name system gpu;
+            backend = "cuda";
+          }) scenarios
+        )
+        {
+          x86_64-linux = {
+            inherit
+              modern
+              legacy
+              configuredLegacy
+              capturedScope
+              capturedConfigured
+              ;
+            pascal = evaluate {
+              driver = "580.196.07";
+              capabilities = "6.1";
+            };
+            pre128 = evaluate { driver = "560.35.05"; };
+          };
+          aarch64-linux = {
+            inherit jetson mixedSbsa mixedThorAda;
+          };
+        }
+    )
+    ++
+      map
+        (system: {
+          inherit system;
+          name = "cpu";
+          backend = "cpu";
+          gpu = {
+            acceleration = "default";
+          };
+        })
+        [
+          "x86_64-linux"
+          "aarch64-linux"
+        ]
+    ++ [
+      {
+        name = "metal";
+        system = "aarch64-darwin";
+        backend = "metal";
+        gpu = throw "Metal must not evaluate CUDA policy";
+      }
+    ];
   colibriPlanChecks = lib.concatMapStringsSep "\n" (
-    { system, gpu }:
+    {
+      name,
+      system,
+      gpu,
+      backend,
+    }:
+    let
+      isDarwin = platformPkgs.${system}.stdenv.hostPlatform.isDarwin;
+      isCuda = backend == "cuda";
+      cpuArch = if platformPkgs.${system}.stdenv.hostPlatform.isx86_64 then "x86-64-v3" else "armv8-a";
+    in
     ''
+      echo "Colibri install plan: ${system}/${name}"
       (
         runHook() { :; }
         make() {
           command make "$@" --dry-run NVCC=true TRIPLET=${system} \
-            UNAME_S=Linux UNAME_M=${lib.head (lib.splitString "-" system)}
+            UNAME_S=${if isDarwin then "Darwin" else "Linux"} \
+            UNAME_M=${if isDarwin then "arm64" else lib.head (lib.splitString "-" system)}
         }
         ${builtins.unsafeDiscardStringContext (colibriBuildPhase system gpu)}
       ) > build-plan
-      grep '^"true" .* -c .*\.cu -o ' build-plan > cuda-commands
-      test "$(wc -l < cuda-commands)" -ge 5
-      grep -q ' -c backend_cuda_dsv4.cu ' cuda-commands
-      while IFS= read -r command; do
-        if [[ $command != *${lib.escapeShellArg gpu.cudaPackages.flags.gencodeString}* ||
-              $command == *-arch=native* ]]; then
-          printf '%s\n' "Unexpected ${system} CUDA command: $command" >&2
-          exit 1
-        fi
-      done < cuda-commands
+      ${
+        if isCuda then
+          ''
+            grep '^"true" .* -c .*\.cu -o ' build-plan > cuda-commands
+            test "$(wc -l < cuda-commands)" -ge 5
+            v4Command=$(grep ' -c backend_cuda_dsv4.cu ' cuda-commands)
+            while IFS= read -r command; do
+              if [[ $command != *${lib.escapeShellArg gpu.cudaPackages.flags.gencodeString}* ||
+                    $command == *-arch=native* ]]; then
+                printf '%s\n' "Unexpected ${system}/${name} CUDA command: $command" >&2
+                exit 1
+              fi
+            done < cuda-commands
+            if [[ $v4Command == *-DCOLI_DSV4_NO_TC* ]]; then
+              test ${lib.boolToString (gpu.cudaPackages.cudaOlder "12.8")} = true
+            else
+              test ${lib.boolToString (gpu.cudaPackages.cudaOlder "12.8")} = false
+            fi
+          ''
+        else
+          ''
+            engineCommand=$(grep ' colibri.c .* -o colibri ' build-plan)
+            if [[ $engineCommand == *-DCOLI_CUDA* ]]; then
+              printf '%s\n' "Unexpected CUDA backend in ${system}/${name}: $engineCommand" >&2
+              exit 1
+            fi
+            ${
+              if backend == "metal" then
+                ''
+                  [[ $engineCommand == *-DCOLI_METAL* ]]
+                  [[ $engineCommand != *-march=* && $engineCommand != *-mcpu=* ]]
+                  grep -q ' -c backend_metal.mm -o backend_metal.o' build-plan
+                ''
+              else
+                ''
+                  [[ $engineCommand == *" -march=${cpuArch} "* ]]
+                  [[ $engineCommand != *-DCOLI_METAL* ]]
+                ''
+            }
+          ''
+      }
     ''
   ) colibriPlans;
   hostConfiguration =
@@ -298,55 +363,6 @@ assert lib.all (condition: condition) [
       "61"
       "89"
     ]
-  ))
-  (check "Colibri preserves selected legacy, modern and mixed CUDA targets with PTX" (
-    lib.all (colibriUsesScopeTargets "x86_64-linux") [
-      modern
-      legacy
-      configuredLegacy
-      capturedScope
-      capturedConfigured
-      (evaluate {
-        driver = "580.196.07";
-        capabilities = "6.1";
-      })
-    ]
-  ))
-  (check "Colibri preserves Jetson and unified SBSA CUDA targets" (
-    lib.all (colibriUsesScopeTargets "aarch64-linux") [
-      jetson
-      mixedSbsa
-      mixedThorAda
-    ]
-  ))
-  (check "Colibri retains the pre-12.8 tensor-core workaround only on older toolkits" (
-    lib.hasInfix " NO_TC=1" (
-      colibriBuildPhase "x86_64-linux" (evaluate {
-        driver = "560.35.05";
-      })
-    )
-    && !(lib.hasInfix " NO_TC=1" (colibriBuildPhase "x86_64-linux" legacy))
-  ))
-  (check "Colibri retains its portable CPU fallbacks" (
-    lib.all
-      (
-        system:
-        let
-          phase = colibriBuildPhase system { acceleration = "default"; };
-          arch = if system == "x86_64-linux" then "x86-64-v3" else "armv8-a";
-        in
-        lib.hasInfix "ARCH=${arch}" phase && !(lib.hasInfix "CUDA" phase)
-      )
-      [
-        "x86_64-linux"
-        "aarch64-linux"
-      ]
-  ))
-  (check "Colibri retains Metal without evaluating CUDA policy" (
-    let
-      phase = colibriBuildPhase "aarch64-darwin" (throw "Metal must not evaluate CUDA policy");
-    in
-    lib.hasInfix "ARCH= METAL=1" phase && !(lib.hasInfix "CUDA" phase)
   ))
   (check "captured scope targets select the next usable toolkit" (
     capturedScope.acceleration == "cuda"

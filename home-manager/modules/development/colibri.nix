@@ -99,7 +99,7 @@ let
       extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
       # Both Makefiles need the selected scope's SASS/PTX targets, not native probes.
-      # all-major also emits sm_50, which cannot compile upstream's __hfma2 calls.
+      # With CUDA 12.x, all-major emits sm_50, which cannot compile upstream's __hfma2 calls.
       # Workaround: block-scaled cuBLASLt requires CUDA 12.8.
       # Remove when upstream automatically disables tensor cores on older toolkits.
       makeArgs =
