@@ -1,19 +1,19 @@
 {
   "hashes": {
-    "aarch64-darwin": "sha256-C45AEYQ7X+Dck/8ysNJmJtV3bFoZ9IC+Q8VHX4Owo3c=",
-    "aarch64-linux": "sha256-yIVvDK5LG6Vz5vgxM6QBd/XPzohquFqa2VxuNlqUT98=",
-    "x86_64-linux": "sha256-DMpKC+uX6yshpFmWiO++A7P2ytmuhrZ9/52hy3hYCqA="
+    "aarch64-darwin": "sha256-M1iuuBSukjcsDO0UJvA7OQpaM49+aT1+azz6azQgpQ0=",
+    "aarch64-linux": "sha256-Idtc5YsfgNRGf8X2L4SeLs0+5S8g8SYzVF7rC9Htnjc=",
+    "x86_64-linux": "sha256-HjDNAGcri9RgY8nNp2ic2j1kvahD0/+JKtObllulC4c="
   },
   "provenance": {
-    "sourceRevision": "f73e2847baf403ac402773db662e2cbee83a8cb5",
-    "nixpkgsRevision": "ea9e3ef341e11c193537f674f821a99f9f436729",
+    "sourceRevision": "504f1ddb269c0f3b5a49f2b60401fbaca35d3d0e",
+    "nixpkgsRevision": "6dadaf4375be35033e1c84395adbd53ff5fded96",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
     "calculation": "Upstream dependency derivation with local Bun; ARM targets use --cpu/--os with --ignore-scripts and both upstream normalization scripts.",
     "verification": {
-      "x86_64-linux": "Native dependency and CLI builds; --version and --help verified.",
-      "aarch64-linux": "--cpu=arm64 --os=linux; no native build.",
-      "aarch64-darwin": "--cpu=arm64 --os=darwin; no native build."
+      "x86_64-linux": "Native dependency output; NAR hash verified; no CLI build.",
+      "aarch64-linux": "--cpu=arm64 --os=linux; NAR hash verified; no native build.",
+      "aarch64-darwin": "--cpu=arm64 --os=darwin; NAR hash verified; no native build."
     },
     "upstreamReference": {
       "pullRequest": "https://github.com/anomalyco/opencode/pull/60957",
