@@ -1,4 +1,4 @@
-# base: f73e2847baf403ac402773db662e2cbee83a8cb5
+# base: 504f1ddb269c0f3b5a49f2b60401fbaca35d3d0e
 # intent: isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 diff --git a/packages/desktop/src/main/service/cli-version.ts b/packages/desktop/src/main/service/cli-version.ts
 --- a/packages/desktop/src/main/service/cli-version.ts
@@ -17,7 +17,7 @@ diff --git a/packages/desktop/src/main/service/cli-version.ts b/packages/desktop
 diff --git a/packages/desktop/src/main/service/desktop-cli.ts b/packages/desktop/src/main/service/desktop-cli.ts
 --- a/packages/desktop/src/main/service/desktop-cli.ts
 +++ b/packages/desktop/src/main/service/desktop-cli.ts
-@@ -140,7 +140,7 @@
+@@ -145,7 +145,7 @@
    const fs = yield* FileSystem.FileSystem
    const path = yield* Path.Path
    // x64 and ARM64 installers share userData on Windows ARM64, so a same-version switch must not reuse the other copy.

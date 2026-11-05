@@ -68,6 +68,17 @@ explaining why it exists and when it can go:
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
 
+### OpenCode dependency hashes
+
+`pins/opencode.json` records hashes for the selected OpenCode source and local Bun.
+Compare dependency inputs and the Bun toolchain after updating OpenCode or Nixpkgs;
+recalculate all three targets when they change, using the upstream dependency
+recipe and both normalization scripts. Update source and toolchain provenance together.
+Record dependency-output hash checks separately from CLI builds and ARM-targeted
+`--cpu`/`--os` calculations separately from native builds. Do not carry forward
+verification claims from an older source. Keep hash-only checks serial with
+`--max-jobs 1 --cores 1`; they do not require a full CLI or Desktop build.
+
 ### Caveman source pin
 
 The Caveman CLI and installer use the `github:JuliusBrussee/caveman/main`
