@@ -1,16 +1,18 @@
-# base: JuliusBrussee/caveman 2e068f735253cce28256744804785f01887d9646
+# base: JuliusBrussee/caveman ca3a524022a9f31fb7ae46b66decf622080c2cfa
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch (in order)
-# intent: Honor effective OpenCode roots, V2 plugin definitions and host locations; read Hermes YAML memberships and respect deny lists before owned mutations.
+# intent: retain upstream OpenCode root precedence, dual-major plugins and V2
+#   location handling; require raw absolute roots, isolate V1 factory state and
+#   pass served workdirs through shrink callbacks. Read canonical Hermes scalar
+#   memberships, validate both lists before writes, respect deny lists and clear
+#   inactive hook markers without deleting foreign payloads.
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -9096,10 +9096,12 @@
-   ];
- }
- 
--// OpenCode reads $XDG_CONFIG_HOME/opencode, else ~/.config/opencode on every
-+// OpenCode reads OPENCODE_CONFIG_DIR, else XDG_CONFIG_HOME/opencode or ~/.config/opencode on every
- // platform, and opencode.jsonc over opencode.json when both are there.
+@@ -9117,9 +9117,9 @@
+ // variable installed into a root the host never reads, while still reporting
+ // success (#1441); the installer and the mode plugin resolve it the same way.
  function opencodeConfigDir(): string {
+-  const selected = (process.env.OPENCODE_CONFIG_DIR ?? "").trim();
+-  if (selected) return resolve(selected);
 -  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
 +  const root = process.env.OPENCODE_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
 +  if (!isAbsolute(root)) throw new Error("OpenCode config root must be absolute");
@@ -18,24 +20,26 @@
  }
  
  function opencodeConfigPath(): string {
-@@ -9172,13 +9174,12 @@
+@@ -9192,16 +9192,13 @@
  
  const command = ${JSON.stringify(cmd)};
  const prefix = ${JSON.stringify(pre)};
 -const contexts = new Map();
 -const pending = new Map();
+ 
+ // A host process can serve a project that is not its own launch directory, so
+ // the served project travels with every call: in the payload, which
+ // nativeRuntimeRequest reads as the session cwd, and as the child's working
+ // directory, so anything it resolves relatively resolves there (#1443).
+-let projectDir;
 -
--function call(event, payload = {}) {
+-function call(event, payload = {}, cwd = projectDir) {
 +
-+function callNative(event, payload = {}) {
++function callNative(event, payload = {}, cwd) {
    try {
      const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
-       input: JSON.stringify({ event_name: event, ...payload }),
-+      cwd: payload.cwd,
-       encoding: "utf8",
-       timeout: 2000,
-       maxBuffer: 2 * 1024 * 1024,
-@@ -9242,101 +9243,107 @@
+       input: JSON.stringify({ event_name: event, ...(cwd ? { cwd } : {}), ...payload }),
+@@ -9269,108 +9266,108 @@
    return /^(?:please\\s+)?(?:continue|go ahead|keep going|proceed|do (?:it|that)|fix (?:it|that)|retry|try again|explain (?:it|that)|what do you mean|yes|yep|yeah|why\\??|how\\??)[.!?\\s]*$/.test(prompt);
  }
  
@@ -49,7 +53,7 @@
 -  return contexts.get(sessionID);
 -}
 -
--export const CavemanNative = async () => ({
+-const hostHooks = {
 -  event: async ({ event }) => {
 -    const type = event?.type;
 -    const props = event?.properties ?? {};
@@ -58,11 +62,12 @@
 -    if (type === "session.idle") call("Stop", { session_id: sessionID });
 -    if (type === "session.compacted") {
 -      const out = call("PostCompact", { session_id: sessionID });
-+
-+export const CavemanNative = async ({ directory } = { directory: process.cwd() }) => {
-+  const call = (event, payload = {}) => callNative(event, { ...payload, cwd: directory });
++// Each V1 factory owns its project, session context and pending hints.
++export const CavemanNative = async (ctx) => {
 +  const contexts = new Map();
 +  const pending = new Map();
++  const projectDir = typeof ctx?.directory === "string" && ctx.directory ? ctx.directory : undefined;
++  const call = (event, payload = {}) => callNative(event, payload, projectDir);
 +  function sessionContext(sessionID) {
 +    if (!sessionID) return undefined;
 +    if (!contexts.has(sessionID)) {
@@ -112,12 +117,13 @@
 -      const raw = execFileSync(command, [...prefix, "shrink-hook"], {
 -        input: JSON.stringify({ tool_name: "Bash", tool_input: { command: output.args.command } }),
 -        encoding: "utf8",
+-        cwd: projectDir || undefined,
 -        timeout: 750,
 -        windowsHide: true,
 +    return contexts.get(sessionID);
 +  }
 +
-+  return ({
++  const hostHooks = {
 +    event: async ({ event }) => {
 +      const type = event?.type;
 +      const props = event?.properties ?? {};
@@ -172,7 +178,13 @@
 -    contexts.clear();
 -    pending.clear();
 -  },
--});
+-};
+-
+-// OpenCode's V1 plugin context names the served project \`directory\`. A host
+-// that supplies none (or a caller that supplies no context at all) leaves
+-// projectDir unset and every child inherits this process's cwd, as before.
+-export const CavemanNative = async (ctx) => {
+-  if (typeof ctx?.directory === "string" && ctx.directory) projectDir = ctx.directory;
 +      const dynamic = decision?.hookSpecificOutput?.additionalContext;
 +      if (typeof dynamic === "string" && dynamic) pending.set(input.sessionID, dynamic);
 +    },
@@ -199,6 +211,7 @@
 +        const raw = execFileSync(command, [...prefix, "shrink-hook"], {
 +          input: JSON.stringify({ tool_name: "Bash", tool_input: { command: output.args.command } }),
 +          encoding: "utf8",
++          cwd: projectDir || undefined,
 +          timeout: 750,
 +          windowsHide: true,
 +        });
@@ -229,86 +242,32 @@
 +      contexts.clear();
 +      pending.clear();
 +    },
-+  });
-+};
++  };
+   return hostHooks;
+ };
  `;
- }
- 
-@@ -9351,23 +9358,6 @@
- const command = ${JSON.stringify(cmd)};
- const prefix = ${JSON.stringify(pre)};
- 
--function call(event, payload = {}) {
--  try {
--    const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
--      input: JSON.stringify({ event_name: event, ...payload }),
--      encoding: "utf8",
--      timeout: 2000,
--      maxBuffer: 2 * 1024 * 1024,
--      // A host with no console of its own — OpenCode under a multiplexer or a
--      // GUI launcher — makes Windows give every console child a NEW console
--      // window, so the user sees one flash per event. Ignored off Windows.
--      windowsHide: true,
--    });
--    if (!raw.trim()) return undefined;
--    const value = JSON.parse(raw);
--    return value && typeof value === "object" ? value : undefined;
--  } catch { return undefined; }
--}
- 
- function digest(value) {
-   try {
-@@ -9421,6 +9411,25 @@
- export default {
-   id: "caveman-native",
-   async setup(ctx) {
-+    function call(event, payload = {}) {
-+      try {
-+        const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
-+          input: JSON.stringify({ event_name: event, ...payload, cwd: ctx.location.directory }),
-+          cwd: ctx.location.directory,
-+          encoding: "utf8",
-+          timeout: 2000,
-+          maxBuffer: 2 * 1024 * 1024,
-+          // A host with no console of its own — OpenCode under a multiplexer or a
-+          // GUI launcher — makes Windows give every console child a NEW console
-+          // window, so the user sees one flash per event. Ignored off Windows.
-+          windowsHide: true,
-+        });
-+        if (!raw.trim()) return undefined;
-+        const value = JSON.parse(raw);
-+        return value && typeof value === "object" ? value : undefined;
-+      } catch { return undefined; }
-+    }
-+
-     // Per-plugin-instance state: one setup() runs per location, so two
-     // projects never share session context through module scope.
-     const contexts = new Map();
-@@ -9444,13 +9453,7 @@
-       if (!controller.signal.aborted) console.warn("[caveman-native] Event subscription failed");
-     });
- 
--    function sameLocation(event) {
--      return event.location?.directory === ctx.location.directory &&
--        event.location?.workspaceID === ctx.location.workspaceID;
--    }
+@@ -9391,9 +9388,8 @@
+ // the served project travels with every call: in the payload, which
+ // nativeRuntimeRequest reads as the session cwd, and as the child's working
+ // directory, so anything it resolves relatively resolves there (#1443).
+-let projectDir;
 -
-     function handleEvent(event) {
--      if (!sameLocation(event)) return;
-       const type = event.type;
-       const sessionID = event.data?.sessionID;
-       if (typeof sessionID !== "string" || !sessionID) return;
-@@ -9515,7 +9518,8 @@
-           input && typeof input === "object" && typeof input.command === "string") {
-         try {
-           const raw = execFileSync(command, [...prefix, "shrink-hook"], {
--            input: JSON.stringify({ tool_name: "Bash", tool_input: { command: input.command } }),
-+            input: JSON.stringify({ tool_name: "Bash", tool_input: { command: input.command }, cwd: ctx.location.directory }),
-+            cwd: ctx.location.directory,
-             encoding: "utf8",
-             timeout: 750,
-             windowsHide: true,
-@@ -10260,9 +10264,9 @@
+-function call(event, payload = {}, cwd = projectDir) {
++
++function callNative(event, payload = {}, cwd) {
+   try {
+     const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
+       input: JSON.stringify({ event_name: event, ...(cwd ? { cwd } : {}), ...payload }),
+@@ -9473,7 +9469,7 @@
+     const projectCwd = typeof ctx.location?.directory === "string" && ctx.location.directory
+       ? ctx.location.directory
+       : undefined;
+-    const emit = (event, payload = {}) => call(event, payload, projectCwd);
++    const emit = (event, payload = {}) => callNative(event, payload, projectCwd);
+ 
+     function sessionContext(sessionID) {
+       if (!contexts.has(sessionID)) {
+@@ -10318,9 +10314,9 @@
    return value.replace(/^[ \t]+|[ \t]+$/g, "");
  }
  
@@ -320,7 +279,7 @@
  function hermesYamlScalar(value: string): string | boolean | null {
    const raw = hermesYamlTrim(value);
    if (raw.startsWith('"')) {
-@@ -10291,8 +10295,8 @@
+@@ -10349,8 +10345,8 @@
      if (/^(?:false|False|FALSE)$/.test(plain)) return false;
      // Match complete numbers and timestamps, not numeric prefixes in plugin names.
      if (plain && !/^[,[\]{}#&*!|>'"%@`]/.test(plain) && !/^[-?:](?:[ \t]|$)/.test(plain)
@@ -331,7 +290,7 @@
        && !/^[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?|0b[01_]+|0o[0-7_]+|0x[0-9a-fA-F_]+)$/.test(plain)
        && !/^[-+]?(?:[1-9][0-9_]*(?::[0-5]?[0-9])+|[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*)$/.test(plain)
        && !/^[0-9]{4}-(?:[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$/.test(plain)) return plain;
-@@ -10302,6 +10306,10 @@
+@@ -10360,6 +10356,10 @@
  
  function hermesYamlContent(line: string): boolean {
    return !/^[ \t]*(?:#.*)?$/.test(line);
@@ -342,7 +301,7 @@
  }
  
  function hermesYamlLineContent(lines: string[], index: number, quotedHashLines: Set<number> | undefined): boolean {
-@@ -10327,10 +10335,13 @@
+@@ -10385,10 +10385,13 @@
    let pendingOwner: number | undefined;
    let plainOwner: number | undefined;
    let quote: "'" | '"' | undefined;
@@ -357,7 +316,7 @@
      const line = lines[index]!;
      const width = line.match(/^ */)![0].length;
      if (block) {
-@@ -10350,7 +10361,7 @@
+@@ -10408,7 +10411,7 @@
      }
      if (!hermesYamlTrim(line) || (!quote && /^[ \t]*#/.test(line))) continue;
      let text = line.slice(width);
@@ -366,7 +325,7 @@
        if (plainOwner !== undefined) {
          if (width > plainOwner) continue;
          plainOwner = undefined;
-@@ -10402,26 +10413,33 @@
+@@ -10460,26 +10463,33 @@
            }
            tokenStart = false;
            quotedToken = true;
@@ -405,7 +364,7 @@
        } else if (tokenStart && (char === "!" || char === "&")) {
          const property = text.slice(i).match(/^(?:!<[^>]*>|[!&][^ \t,[\]{}]+)/);
          if (property) i += property[0].length - 1;
-@@ -10431,7 +10449,8 @@
+@@ -10489,7 +10499,8 @@
        }
      }
    }
@@ -415,7 +374,7 @@
  }
  
  function hermesYamlMap(lines: string[], parent?: HermesYamlEntry): Map<string, HermesYamlEntry> {
-@@ -10441,13 +10460,13 @@
+@@ -10499,13 +10510,13 @@
    const entries = new Map<string, HermesYamlEntry>();
    let indent = parent ? -1 : 0;
    let previous: HermesYamlEntry | undefined;
@@ -432,11 +391,13 @@
      }
      const width = line.match(/^ */)![0].length;
      if (indent < 0) {
-@@ -10536,9 +10555,15 @@
+@@ -10594,9 +10605,15 @@
    return server;
  }
  
 -function hermesNativePluginItems(lines: string[], enabled: HermesYamlEntry): (HermesYamlEntry & { name: string })[] {
+-  if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
+-  const items: (HermesYamlEntry & { name: string })[] = [];
 +function hermesYamlSequenceItems(lines: string[], enabled: HermesYamlEntry): HermesYamlEntry[] {
 +  if (/^[ \t]*\[[ \t]*\][ \t]*(?:#.*)?$/.test(enabled.value)) {
 +    if (lines.slice(enabled.start + 1, enabled.end).some(hermesYamlContent)) {
@@ -444,14 +405,12 @@
 +    }
 +    return [];
 +  }
--  if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugins.enabled is not a plain block sequence");
 +  if (!/^[ \t]*(?:#.*)?$/.test(enabled.value)) throw new Error("Hermes plugin list is not a plain block sequence");
--  const items: (HermesYamlEntry & { name: string })[] = [];
 +  const items: HermesYamlEntry[] = [];
    for (let i = enabled.start + 1; i < enabled.end; i++) {
      if (!hermesYamlContent(lines[i]!)) continue;
      const item = lines[i]!.match(/^( *)- (.*)$/);
-@@ -10552,17 +10577,103 @@
+@@ -10610,17 +10627,103 @@
        if (hermesYamlContent(line) && line.match(/^ */)![0].length <= indent) break;
        end++;
      }
@@ -562,15 +521,7 @@
  }
  
  function hermesNativeOwned(text: string, owned: Record<string, unknown>) {
-@@ -10644,6 +10755,7 @@
- }
- 
- function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { text: string; owned: Record<string, unknown> } {
-+  requireHermesPluginAllowed(source, HERMES_NATIVE_PLUGIN_NAME);
-   const lines = yamlLines(source);
-   let layout = hermesYamlLayout(lines);
-   if (layout.markerComments.size) {
-@@ -10706,6 +10818,8 @@
+@@ -10767,6 +10870,8 @@
    }
    const items = hermesNativePluginItems(lines, enabled);
    if (!items.some((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)) {
@@ -579,7 +530,7 @@
      const itemPad = " ".repeat(items[0]?.indent ?? enabled.indent + 2);
      const block = [`${itemPad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${itemPad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${itemPad}${HERMES_NATIVE_PLUGIN_END}`];
      lines.splice(enabled.start + 1, 0, ...block);
-@@ -11152,6 +11266,10 @@
+@@ -11212,6 +11317,10 @@
  // progress line per step itself; refusals still throw with their full message.
  function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
    const { detected, profiles } = enableProfiles(argv);
@@ -590,97 +541,187 @@
    if (profiles.some((profile) => profile.id !== "aider")) registrationPath();
    const gw = gatewayURL();
    for (const profile of profiles) {
-@@ -11871,7 +11989,8 @@
-           owned = CODEX_NATIVE_TABLES.every((table) => tables.get(table) === true) && codexNativeRouted(lines) && text.indexOf("\uFEFF", 1) === -1;
-         } else if (operation.kind === "hermes-config") {
+@@ -11935,7 +12044,8 @@
+           // comments and renormalises quoting, and a literal read called that
+           // drift (#1410).
            const state = hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
 -          owned = state.plugin !== undefined && state.mcp !== undefined;
 +          owned = state.plugin !== undefined && state.mcp !== undefined
-+            && hermesNamedPluginEnabled(current.toString("utf8"), HERMES_NATIVE_PLUGIN_NAME);
++            && hermesNamedPluginMembership(current.toString("utf8"), HERMES_NATIVE_PLUGIN_NAME) === "enabled";
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -18729,25 +18848,29 @@
- // with \`caveman retrieve\`). Remove with \`caveman hooks uninstall opencode\`.
+@@ -18828,11 +18938,12 @@
  import { execFileSync } from "node:child_process";
  
+ // Returns the rewritten command, or undefined to leave the original alone.
+-function rewrite(command) {
++function rewrite(command, cwd) {
+   if (typeof command !== "string" || !command.trim()) return undefined;
+   try {
+     const res = execFileSync(${JSON.stringify(cmd)}, ${argv}, {
+       input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
++      cwd,
+       encoding: "utf8",
+       windowsHide: true,
+     });
+@@ -18850,10 +18961,10 @@
+ // V1: a named factory returning a hook map, mutating output.args.command.
+ function opencodeShrinkPluginHookMapV1(): string {
+   return `
 -export const CavemanShrink = async () => ({
--  "tool.execute.before": async (input, output) => {
--    if (input?.tool !== "bash") return;
--    const command = output?.args?.command;
--    if (typeof command !== "string" || !command.trim()) return;
--    try {
--      const res = execFileSync(${JSON.stringify(cmd)}, ${argv}, {
--        input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
--        encoding: "utf8",
--        windowsHide: true,
--      });
--      if (!res) return;
--      const rewritten = JSON.parse(res)?.hookSpecificOutput?.updatedInput?.command;
--      if (typeof rewritten === "string" && rewritten) output.args.command = rewritten;
--    } catch {
--      // byte-safe: any failure leaves the original command untouched.
--    }
-+export default {
-+  id: "caveman-shrink",
-+  async setup(ctx) {
-+    await ctx.tool.hook("execute.before", async (event) => {
-+      if (event?.tool !== "shell") return;
-+      const command = event.input?.command;
-+      if (typeof command !== "string" || !command.trim()) return;
-+      try {
-+        const res = execFileSync(${JSON.stringify(cmd)}, ${argv}, {
-+          input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
-+          cwd: ctx.location.directory,
-+          encoding: "utf8",
-+          windowsHide: true,
-+        });
-+        if (!res) return;
-+        const rewritten = JSON.parse(res)?.hookSpecificOutput?.updatedInput?.command;
-+        if (typeof rewritten === "string" && rewritten) event.input.command = rewritten;
-+      } catch {
-+        // Any child or decoding failure leaves the original command unchanged.
-+      }
-+    });
++export const CavemanShrink = async (ctx) => ({
+   "tool.execute.before": async (input, output) => {
+     if (input?.tool !== "bash") return;
+-    const next = rewrite(output?.args?.command);
++    const next = rewrite(output?.args?.command, ctx?.directory);
+     if (next) output.args.command = next;
    },
--});
-+};
- `;
- }
- function installShrinkPluginOpencode(): boolean {
-@@ -18880,10 +19003,38 @@
- `;
+ });
+@@ -18874,7 +18985,7 @@
+       if (event?.tool !== "bash" && event?.tool !== "shell") return;
+       const input = event.input;
+       if (!input || typeof input !== "object") return;
+-      const next = rewrite(input.command);
++      const next = rewrite(input.command, ctx.location?.directory);
+       if (next) input.command = next;
+     });
+   },
+@@ -19029,119 +19140,37 @@
+ 
+ type HermesPluginMembership = "enabled" | "disabled" | "not-enabled";
+ 
+-function hermesFlowSequenceItems(raw: string): string[] | null {
+-  const start = raw.indexOf("[");
+-  if (start < 0) return null;
+-  const items: string[] = [];
+-  let item = "";
+-  let quote: "'" | '"' | null = null;
+-  let escaped = false;
+-  let depth = 0;
+-  for (let i = start + 1; i < raw.length; i++) {
+-    const char = raw[i]!;
+-    if (quote) {
+-      if (quote === "'" && char === "'" && raw[i + 1] === "'") {
+-        item += "''";
+-        i++;
+-        continue;
+-      }
+-      item += char;
+-      if (quote === '"' && escaped) {
+-        escaped = false;
+-        continue;
+-      }
+-      if (quote === '"' && char === "\\") {
+-        escaped = true;
+-        continue;
+-      }
+-      if (char === quote) quote = null;
+-      continue;
+-    }
+-    if (char === "#" && (i === start + 1 || /\s/.test(raw[i - 1]!))) {
+-      while (i < raw.length && raw[i] !== "\n") i++;
+-      continue;
+-    }
+-    if (char === "'" || char === '"') {
+-      quote = char;
+-      item += char;
+-      continue;
+-    }
+-    if (char === "[" || char === "{") {
+-      depth++;
+-      item += char;
+-      continue;
+-    }
+-    if (char === "]") {
+-      if (depth === 0) {
+-        items.push(item);
+-        return items.map(configValue).filter((value): value is string => value !== undefined);
+-      }
+-      depth--;
+-      item += char;
+-      continue;
+-    }
+-    if (char === "}" && depth > 0) {
+-      depth--;
+-      item += char;
+-      continue;
+-    }
+-    if (char === "," && depth === 0) {
+-      items.push(item);
+-      item = "";
+-      continue;
+-    }
+-    item += char;
+-  }
+-  return null;
+-}
+-
+ function hermesPluginListContains(text: string, listName: "enabled" | "disabled", name: string): boolean {
+   const lines = yamlLines(text);
+-  const plugins = topLevelSection(lines, "plugins");
++  const plugins = hermesYamlMap(lines).get("plugins");
+   if (!plugins) return false;
+-  for (let i = plugins.start + 1; i < plugins.end; i++) {
+-    const match = lines[i]!.match(/^  (enabled|disabled):(?:\s*(.*))?$/);
+-    if (!match || match[1] !== listName) continue;
+-    const raw = (match[2] ?? "").replace(/\s+#.*$/, "").trim();
+-    if (raw.startsWith("[")) {
+-      let flow = raw;
+-      let items = hermesFlowSequenceItems(flow);
+-      for (let next = i + 1; items === null && next < plugins.end; next++) {
+-        flow += `\n${lines[next]}`;
+-        items = hermesFlowSequenceItems(flow);
+-      }
+-      return items?.includes(name) ?? false;
+-    }
+-    if (raw && !raw.startsWith("#")) return false;
+-    let sequenceIndent: number | null = null;
+-    for (let next = i + 1; next < plugins.end; next++) {
+-      const line = lines[next]!;
+-      if (/^  [A-Za-z0-9_-]+:\s*/.test(line)) break;
+-      if (!line.trim() || /^\s*#/.test(line)) continue;
+-      const item = line.match(/^(\s*)-\s*(.*?)\s*$/);
+-      if (!item) {
+-        if (sequenceIndent !== null && line.search(/\S/) > sequenceIndent) continue;
+-        break;
+-      }
+-      const indent = item[1]!.length;
+-      if (sequenceIndent === null) sequenceIndent = indent;
+-      if (indent === sequenceIndent && configValue(item[2]) === name) return true;
+-    }
+-    return false;
+-  }
+-  return false;
++  const entry = hermesYamlMap(lines, plugins).get(listName);
++  return entry ? hermesYamlListNames(lines, entry).includes(name) : false;
  }
  
-+function hermesPluginMembership(text: string, field: string, name: string): boolean {
-+  const lines = yamlLines(text);
-+  const plugins = hermesYamlMap(lines).get("plugins");
-+  if (!plugins) return false;
-+  const entry = hermesYamlMap(lines, plugins).get(field);
-+  return entry ? hermesYamlListNames(lines, entry).includes(name) : false;
-+}
-+
- function hermesNamedPluginEnabled(text: string, name: string): boolean {
--  const escaped = escapeRegExp(name);
--  return new RegExp(`(^|\\n)\\s*-\\s*["']?${escaped}["']?\\s*(?:#.*)?(?=\\n|$)`).test(text)
--    || new RegExp(`enabled:\\s*\\[[^\\]]*["']?${escaped}["']?`).test(text);
-+  try {
-+    return !hermesPluginMembership(text, "disabled", name)
-+      && hermesPluginMembership(text, "enabled", name);
-+  } catch { return false; }
+ function hermesNamedPluginMembership(text: string, name: string): HermesPluginMembership {
+-  if (hermesPluginListContains(text, "disabled", name)) return "disabled";
+-  if (hermesPluginListContains(text, "enabled", name)) return "enabled";
+-  return "not-enabled";
+-}
+-
+-function hermesEnabledListIsInline(text: string): boolean {
++  const disabled = hermesPluginListContains(text, "disabled", name);
++  const enabled = hermesPluginListContains(text, "enabled", name);
++  return disabled ? "disabled" : enabled ? "enabled" : "not-enabled";
 +}
 +
 +function requireHermesPluginAllowed(text: string, name: string): void {
 +  // Parse both lists before any writes; unsupported YAML fails closed.
-+  const disabled = hermesPluginMembership(text, "disabled", name);
-+  hermesPluginMembership(text, "enabled", name);
++  const disabled = hermesPluginListContains(text, "disabled", name);
++  hermesPluginListContains(text, "enabled", name);
 +  if (disabled) throw new Error(`Hermes plugin ${name} is disabled; run hermes plugins enable ${name}`);
 +}
 +
 +function requireHermesPluginWritable(text: string, name: string): void {
 +  requireHermesPluginAllowed(text, name);
-+  if (name === HERMES_PLUGIN_NAME && hermesPluginMembership(text, "enabled", name)) return;
-+  const lines = yamlLines(text);
++  if (name === HERMES_PLUGIN_NAME && hermesPluginListContains(text, "enabled", name)) return;
+   const lines = yamlLines(text);
+-  const plugins = topLevelSection(lines, "plugins");
+-  return Boolean(plugins && lines.slice(plugins.start + 1, plugins.end).some((line) => /^  enabled:\s*\[/.test(line)));
 +  const plugins = hermesYamlMap(lines).get("plugins");
 +  const enabled = plugins ? hermesYamlMap(lines, plugins).get("enabled") : undefined;
 +  if (enabled) {
@@ -689,14 +730,38 @@
 +  }
  }
  
- function hermesPluginEnabled(text: string): boolean {
-@@ -18901,27 +19052,22 @@
+ function hermesPluginInstallConfigReady(): boolean {
+@@ -19155,15 +19184,8 @@
        return false;
      }
    }
+-  const membership = hermesNamedPluginMembership(existing, HERMES_PLUGIN_NAME);
+-  if (membership === "disabled") {
+-    console.error(`${mark("warn")} ${path} explicitly disables ${HERMES_PLUGIN_NAME} in plugins.disabled; no hook was installed`);
+-    return false;
+-  }
+-  if (membership !== "enabled" && hermesEnabledListIsInline(existing)) {
+-    console.error(`${mark("warn")} ${path} uses inline plugins.enabled; refusing to claim the Hermes plugin is installed`);
+-    return false;
+-  }
++  try { requireHermesPluginWritable(existing, HERMES_PLUGIN_NAME); }
++  catch (error) { console.error(String(error)); return false; }
+   return true;
+ }
+ 
+@@ -19178,32 +19200,22 @@
+       return false;
+     }
+   }
+-  const membership = hermesNamedPluginMembership(existing, HERMES_PLUGIN_NAME);
+-  if (membership === "disabled") {
+-    console.error(`${mark("warn")} ${path} explicitly disables ${HERMES_PLUGIN_NAME} in plugins.disabled; remove that entry before installing`);
+-    return false;
+-  }
+-  if (membership === "enabled") return true;
 +  try { requireHermesPluginAllowed(existing, HERMES_PLUGIN_NAME); }
 +  catch (error) { console.error(String(error)); return false; }
-   if (hermesPluginEnabled(existing)) return true;
++  if (hermesNamedPluginMembership(existing, HERMES_PLUGIN_NAME) === "enabled") return true;
    const stripped = stripMarkedBlock(existing, HERMES_PLUGIN_ENABLE_BEGIN, HERMES_PLUGIN_ENABLE_END).text;
    const lines = yamlLines(stripped);
 -  const plugins = topLevelSection(lines, "plugins");
@@ -728,38 +793,45 @@
        return false;
      }
      if (enabledLine >= 0) {
-@@ -18998,6 +19144,14 @@
- }
+@@ -19212,7 +19224,9 @@
+       const pad = " ".repeat(yamlListItemIndent(lines, enabledLine, plugins.end) ?? 4);
+       lines.splice(enabledLine + 1, 0, `${pad}${HERMES_PLUGIN_ENABLE_BEGIN}`, `${pad}- ${HERMES_PLUGIN_NAME}`, `${pad}${HERMES_PLUGIN_ENABLE_END}`);
+     } else {
+-      lines.splice(plugins.start + 1, 0, `  ${HERMES_PLUGIN_ENABLE_BEGIN}`, "  enabled:", `    - ${HERMES_PLUGIN_NAME}`, `  ${HERMES_PLUGIN_ENABLE_END}`);
++      const width = hermesYamlMap(lines, plugins).values().next().value?.indent ?? 2;
++      const pad = " ".repeat(width);
++      lines.splice(plugins.start + 1, 0, `${pad}${HERMES_PLUGIN_ENABLE_BEGIN}`, `${pad}enabled:`, `${pad}  - ${HERMES_PLUGIN_NAME}`, `${pad}${HERMES_PLUGIN_ENABLE_END}`);
+     }
+   } else {
+     if (lines.length > 0 && lines[lines.length - 1]!.trim() !== "") lines.push("");
+@@ -19283,7 +19297,10 @@
  
  function installShrinkPluginHermes(): boolean {
-+  try {
-+    const path = hermesConfigPath();
-+    requireHermesPluginWritable(existsSync(path) ? readFileSync(path, "utf8") : "", HERMES_PLUGIN_NAME);
-+  } catch (error) {
+   registrationPath();
+-  if (!hermesPluginInstallConfigReady()) return false;
++  if (!hermesPluginInstallConfigReady()) {
 +    try { unlinkSync(shrinkHookMarkerPath("hermes")); } catch { /* no marker */ }
-+    console.error(String(error));
 +    return false;
 +  }
-   registrationPath();
    try {
      mkdirSync(hermesPluginDir(), { recursive: true });
-@@ -19008,7 +19162,9 @@
+     writeFileSync(hermesPluginManifestPath(), hermesPluginManifestSource());
+@@ -19293,7 +19310,8 @@
      return false;
    }
    if (!enableHermesPluginInConfig()) {
 -    process.stderr.write(`${mark("warn")} Hermes plugin written to ${hermesPluginDir()}, but plugins.enabled was not updated; run ${cyan(`hermes plugins enable ${HERMES_PLUGIN_NAME}`)}\n`);
 +    process.stderr.write(`${mark("warn")} Hermes plugin inactive; run ${cyan(`hermes plugins enable ${HERMES_PLUGIN_NAME}`)}\n`);
 +    try { unlinkSync(shrinkHookMarkerPath("hermes")); } catch { /* no marker */ }
-+    return false;
+     return false;
    }
    return true;
- }
-@@ -19080,6 +19236,10 @@
+@@ -19366,6 +19384,10 @@
    return join(cavemanHome(), "hooks", `${agentId}.json`);
  }
  function shrinkHookInstalled(agentId: string): boolean {
 +  if (agentId === "hermes") {
-+    try { if (!hermesPluginEnabled(readFileSync(hermesConfigPath(), "utf8"))) return false; }
++    try { if (hermesNamedPluginMembership(readFileSync(hermesConfigPath(), "utf8"), HERMES_PLUGIN_NAME) !== "enabled") return false; }
 +    catch { return false; }
 +  }
    try { return statSync(shrinkHookMarkerPath(agentId)).isFile(); } catch { return false; }

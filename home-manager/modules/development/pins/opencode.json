@@ -1,17 +1,17 @@
 {
   "hashes": {
-    "aarch64-darwin": "sha256-M1iuuBSukjcsDO0UJvA7OQpaM49+aT1+azz6azQgpQ0=",
-    "aarch64-linux": "sha256-Idtc5YsfgNRGf8X2L4SeLs0+5S8g8SYzVF7rC9Htnjc=",
-    "x86_64-linux": "sha256-HjDNAGcri9RgY8nNp2ic2j1kvahD0/+JKtObllulC4c="
+    "aarch64-darwin": "sha256-ieTaB8WYBCAW9rRjaB8lSekN2uRhEdP0ApYplNJQPVM=",
+    "aarch64-linux": "sha256-S+j037CpHuhzdeM7+TShxVNz5Cw2tz/M0Ehc9DweQNU=",
+    "x86_64-linux": "sha256-RYQLBnrW6bXo7W3JVuvJOBj5jcMGy1qjfO+kzdGnFPA="
   },
   "provenance": {
-    "sourceRevision": "504f1ddb269c0f3b5a49f2b60401fbaca35d3d0e",
+    "sourceRevision": "42fceba1d173d8982fbe301e3dbb3662d4ec3014",
     "nixpkgsRevision": "6dadaf4375be35033e1c84395adbd53ff5fded96",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
-    "calculation": "Upstream dependency derivation with local Bun; ARM targets use --cpu/--os with --ignore-scripts and both upstream normalization scripts.",
+    "calculation": "Upstream dependency phases with local Bun, calibrated against the previous pin; ARM targets use --cpu/--os with --ignore-scripts and both upstream normalization scripts.",
     "verification": {
-      "x86_64-linux": "Native dependency output; NAR hash verified; no CLI build.",
+      "x86_64-linux": "Native dependency and CLI builds; NAR hash, --version and --help verified.",
       "aarch64-linux": "--cpu=arm64 --os=linux; NAR hash verified; no native build.",
       "aarch64-darwin": "--cpu=arm64 --os=darwin; NAR hash verified; no native build."
     },

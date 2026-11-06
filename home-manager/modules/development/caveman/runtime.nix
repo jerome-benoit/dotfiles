@@ -20,7 +20,25 @@ let
   platform =
     platforms.${stdenvNoCC.hostPlatform.system}
       or (throw "Caveman runtime is unsupported on ${stdenvNoCC.hostPlatform.system}");
-  binaries = pins.runtime.${platform};
+  # Workaround: released Cavemem lacks the CLI's supersede-stdin capability.
+  # Remove when BINARY_RELEASE provides a compatible Cavemem binary.
+  cavemem = pkgs.buildGo126Module {
+    pname = "cavemem";
+    version = "unstable-${src.shortRev}";
+    inherit src;
+    vendorHash = pins.cavememVendorHash;
+    subPackages = [ "mem/cmd/cavemem" ];
+    env.CGO_ENABLED = "0";
+    doCheck = true;
+    ldflags = [
+      "-s"
+      "-w"
+      "-X main.version=unstable-${src.shortRev}"
+    ];
+  };
+  binaries = pins.runtime.${platform} // {
+    cavemem = "${cavemem}/bin/cavemem";
+  };
   blocks = callPackage ./blocks.nix { pins = pins.blocks; };
   browserExecutable =
     if stdenvNoCC.hostPlatform.isDarwin then
@@ -67,13 +85,16 @@ stdenvNoCC.mkDerivation {
   '';
 
   meta = {
-    description = "Pinned Caveman companion binaries with native runtime dependencies";
+    description = "Source-built Cavemem and pinned Caveman companion binaries with native runtime dependencies";
     homepage = "https://github.com/JuliusBrussee/caveman";
     license = with lib.licenses; [
       asl20
       mit
     ];
     platforms = builtins.attrNames platforms;
-    sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
+    sourceProvenance = with lib.sourceTypes; [
+      fromSource
+      binaryNativeCode
+    ];
   };
 }

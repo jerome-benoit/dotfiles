@@ -171,6 +171,7 @@ let
       inherit (sources.caveman)
         blocks
         pnpmDepsHash
+        cavememVendorHash
         runtimeVersion
         runtime
         licenses
@@ -320,6 +321,31 @@ let
       esac
     elif [ "$#" -eq 5 ] && [ "$1" = build ] && [ "$2" = --impure ] \
       && [ "$3" = --no-link ] && [ "$4" = --expr ]; then
+      if [[ "$5" == *'pname = "cavemem";'* ]]; then
+        if [ "$NIX_HASH_FIX_ROOT" != "$MOCK_FLAKE_ROOT" ] \
+          || [[ "$5" != *"pkgs.buildGo126Module"* ]] \
+          || [[ "$5" != *"src = flake.inputs.caveman;"* ]] \
+          || [[ "$5" != *'subPackages = [ "mem/cmd/cavemem" ];'* ]] \
+          || [[ "$5" != *'env.CGO_ENABLED = "0";'* ]] \
+          || [[ "$5" != *"}).goModules"* ]]; then
+          echo "unexpected Cavemem vendoring source or build target" >&2
+          exit 1
+        fi
+        jq -e '.nodes[.nodes[.root].inputs.caveman].locked.rev
+          == "1111111111111111111111111111111111111111"' "$MOCK_FLAKE_ROOT/flake.lock" >/dev/null \
+          || exit 1
+        name=cavemem-vendor-go-modules
+        if [ -n "''${MOCK_CAVEMEM_VENDOR_WRONG_MISMATCH:-}" ]; then
+          name=unrelated-go-modules
+        fi
+        printf "error: hash mismatch in fixed-output derivation '/nix/store/00000000000000000000000000000000-%s.drv':\n" "$name" >&2
+        printf '         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n' >&2
+        printf '            got:    sha256-VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV=\n' >&2
+        if [ -n "''${MOCK_CAVEMEM_VENDOR_EXTRA_MISMATCH:-}" ]; then
+          printf '            got:    sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=\n' >&2
+        fi
+        exit 1
+      fi
       if [[ "$5" == *"src = flake.inputs.caveman;"* ]]; then
         if [ "$NIX_HASH_FIX_ROOT" != "$MOCK_FLAKE_ROOT" ]; then
           echo "unexpected Caveman flake root" >&2
@@ -705,7 +731,7 @@ pkgs.runCommandLocal "check-ci-contract"
     cmp "$TMPDIR/pending-flake.lock" flake.lock
     assert_tracked_clean
     assert_remote_unchanged "$remoteBefore"
-    for failure in MOCK_CAVEMAN_SOURCE_MISSING MOCK_BLOCKS_SOURCE_MISSING MOCK_BLOCKS_VENDOR_WRONG_MISMATCH MOCK_PNPM_VENDOR_WRONG_MISMATCH; do
+    for failure in MOCK_CAVEMAN_SOURCE_MISSING MOCK_BLOCKS_SOURCE_MISSING MOCK_BLOCKS_VENDOR_WRONG_MISMATCH MOCK_PNPM_VENDOR_WRONG_MISMATCH MOCK_CAVEMEM_VENDOR_WRONG_MISMATCH MOCK_CAVEMEM_VENDOR_EXTRA_MISMATCH; do
       if env "$failure=1" bash ${self}/scripts/fix-nix-hashes.sh update "$cavemanBase" \
         > "$TMPDIR/blocks-error.log" 2>&1; then
         echo "update accepted invalid locked source or vendor evidence" >&2
@@ -716,6 +742,7 @@ pkgs.runCommandLocal "check-ci-contract"
         MOCK_BLOCKS_SOURCE_MISSING) expected="missing Blocks source" ;;
         MOCK_BLOCKS_VENDOR_WRONG_MISMATCH) expected="cannot determine Blocks vendor hash" ;;
         MOCK_PNPM_VENDOR_WRONG_MISMATCH) expected="cannot determine Caveman pnpm hash" ;;
+        MOCK_CAVEMEM_VENDOR_WRONG_MISMATCH | MOCK_CAVEMEM_VENDOR_EXTRA_MISMATCH) expected="cannot determine Cavemem vendor hash" ;;
       esac
       grep -Fq "$expected" "$TMPDIR/blocks-error.log"
       test "$(git rev-parse HEAD)" = "$before"
@@ -734,9 +761,10 @@ pkgs.runCommandLocal "check-ci-contract"
     cmp "$TMPDIR/updated-prime.json" "$primePin"
     jq -e --argjson runtime ${lib.escapeShellArg (builtins.toJSON updateTestCavemanRuntime)} \
       --argjson licenses ${lib.escapeShellArg (builtins.toJSON updateTestCavemanLicenses)} '
-      keys == ["blocks", "licenses", "pnpmDepsHash", "runtime"]
+      keys == ["blocks", "cavememVendorHash", "licenses", "pnpmDepsHash", "runtime"]
       and .runtime.version == "9.9.9"
       and .pnpmDepsHash == "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN="
+      and .cavememVendorHash == "sha256-VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV="
       and .blocks.version == "9.8.7"
       and .blocks.src.hash == "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
       and .blocks.vendorHash == "sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG="

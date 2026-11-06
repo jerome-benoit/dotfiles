@@ -43,7 +43,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     pi = {
-      url = "github:earendil-works/pi/stable";
+      url = "github:earendil-works/pi/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     qmd = {

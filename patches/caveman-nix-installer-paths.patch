@@ -1,8 +1,9 @@
-# base: https://github.com/JuliusBrussee/caveman/archive/2e068f735253cce28256744804785f01887d9646.tar.gz
-# base-hash: sha256-DFS9Xp9msSFF4WwdPd9RdghjBzc0x4yVomM6nxQWPKw= (fetchzip unpacked source)
+# base: https://github.com/JuliusBrussee/caveman/archive/ca3a524022a9f31fb7ae46b66decf622080c2cfa.tar.gz
+# base-hash: sha256-i7r8TAem8PCOYPWVJqPRTbvzKyqwRMGzntR3lND/gao= (fetchzip unpacked source)
 # intent: use profile-local interpreters and isolate mutable Claude payload ownership.
 #   Preserve upstream atomic model writes for ordinary callers; prepared plugins
 #   collect writes into the ownership-journal transaction.
+#   Keep the upstream shell renderer for prepared-plugin statusline commands.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
@@ -11,7 +12,7 @@ diff --git a/installer/install.js b/installer/install.js
  const PLATFORM_PATHS = require('./lib/platform-paths');
  const { parseCommandArgs } = require('./lib/command-args');
 +const MANAGED_PLUGINS = require('./lib/managed-plugins');
-
+ 
  const REPO = 'JuliusBrussee/caveman';
  // Mirrors the `engines.node` floor in package.json. Hardcoded rather than read
 @@ -91,7 +92,7 @@
@@ -73,7 +74,7 @@ diff --git a/installer/install.js b/installer/install.js
 @@ -531,6 +558,13 @@
    return process.execPath;
  }
-
+ 
 +function mcpShrinkCommand(upstream) {
 +  const root = MANAGED_PLUGINS.registrationRoot();
 +  return root
@@ -85,7 +86,7 @@ diff --git a/installer/install.js b/installer/install.js
  // When the file had them, keep the commented original once and say where.
  function writeSettingsKeepingComments(settingsPath, settings, meta, warn) {
 @@ -555,10 +589,10 @@
-
+ 
  // `plugin list` also names a turned-off plugin, which runs no hooks. Only
  // `--json` saying it is on at user scope counts; a claude without it says no.
 -function claudeCavemanEnabled() {
@@ -96,11 +97,11 @@ diff --git a/installer/install.js b/installer/install.js
 +    return spawnOk(r) && JSON.parse(r.stdout).some((p) => p && p.id === pluginId && p.scope === 'user' && p.enabled === true);
    } catch (_) { return false; }
  }
-
+ 
 @@ -567,31 +601,53 @@
    results.detected++;
    say('→ Claude Code detected');
-
+ 
 -  // Plugin install (idempotent unless --force)
 +  // Nix uses an owned, mutable local marketplace. The external host still owns
 +  // registration and plugin lifecycle; its cached or foreign payloads are never
@@ -170,7 +171,7 @@ diff --git a/installer/install.js b/installer/install.js
 +      }
      }
    }
-
+ 
 @@ -658,7 +714,7 @@
          // check and `plugin install` leaves a turned-off plugin off, so ask.
          // A dry run installed nothing: a plugin not there yet is one the real
@@ -180,7 +181,7 @@ diff --git a/installer/install.js b/installer/install.js
            note(`  kept ${removed} standalone caveman hook entr${removed === 1 ? 'y' : 'ies'} in settings.json: Claude Code does not report the caveman plugin as turned on`);
          } else if (removed > 0 && opts.dryRun) note(`  would remove ${what}`);
          else if (removed > 0) {
-@@ -1721,7 +1777,7 @@
+@@ -1726,7 +1782,7 @@
        if (!cfg.mcp['caveman-shrink']) {
          cfg.mcp['caveman-shrink'] = {
            type: 'local',
@@ -189,7 +190,7 @@ diff --git a/installer/install.js b/installer/install.js
            enabled: true,
          };
          process.stdout.write(`  registered caveman-shrink MCP server (wraps: ${opts.withMcpShrink.join(' ')})\n`);
-@@ -1934,7 +1990,8 @@
+@@ -1939,7 +1995,8 @@
    const psHost = IS_WIN && hasCmd('pwsh') ? 'pwsh' : (IS_WIN ? 'powershell' : null);
    const slCmd = IS_WIN
      ? PLATFORM_PATHS.hookCommand(psHost, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(hooksDir, 'caveman-statusline.ps1')])
@@ -199,7 +200,7 @@ diff --git a/installer/install.js b/installer/install.js
    if (!settings.statusLine) {
      settings.statusLine = { type: 'command', command: slCmd };
      process.stdout.write('  statusline badge configured.\n');
-@@ -1943,6 +2000,12 @@
+@@ -1948,6 +2005,12 @@
        ? settings.statusLine
        : (settings.statusLine.command || '');
      if (existing.includes(statusline) || existing.includes('caveman-statusline')) {
@@ -212,7 +213,7 @@ diff --git a/installer/install.js b/installer/install.js
        process.stdout.write('  statusline badge already configured.\n');
      } else {
        process.stdout.write('  NOTE: existing statusline detected — caveman badge NOT added.\n');
-@@ -1961,12 +2024,14 @@
+@@ -1966,12 +2029,14 @@
  // ── MCP shrink wiring ─────────────────────────────────────────────────────
  function installMcpShrink(ctx) {
    const { note, warn, opts } = ctx;
@@ -233,7 +234,7 @@ diff --git a/installer/install.js b/installer/install.js
    }
    // Detect modern `claude mcp add`
    const help = captureSpawn('claude', ['mcp', '--help']);
-@@ -1975,14 +2040,12 @@
+@@ -1980,14 +2045,12 @@
      note('    src/hooks/README.md to your Claude Code MCP config manually.');
      return { kind: 'skip', why: 'manual config required' };
    }
@@ -251,10 +252,10 @@ diff --git a/installer/install.js b/installer/install.js
      null, opts.dryRun
    );
    if (spawnOk(r)) {
-@@ -2264,15 +2327,39 @@
+@@ -2269,15 +2332,39 @@
      // Don't rmdir hooksDir — other plugins may use it.
    }
-
+ 
 +  // Only an unchanged journal-owned local payload can be removed. Host
 +  // deregistration precedes deletion; failures or edits retain payload/journal.
 +  try {
@@ -291,9 +292,9 @@ diff --git a/installer/install.js b/installer/install.js
 -      note('  claude plugin not installed — skipping');
 +      note('  upstream claude plugin not installed or outside the Nix managed channel — skipping');
      }
-
+ 
      // caveman-shrink MCP — only run if `claude mcp` subcommand exists. Output
-@@ -2694,6 +2781,18 @@
+@@ -2699,6 +2786,18 @@
                          plugin did not install, because the plugin already
                          runs them; --with-hooks wires them anyway.)
    --no-hooks            Skip the hooks installer.
@@ -312,10 +313,10 @@ diff --git a/installer/install.js b/installer/install.js
    --with-init           Write per-repo IDE rule files into \$PWD.
    --with-mcp-shrink="<upstream cmd>"
                          Claude Code (and opencode): register caveman-shrink MCP
-@@ -2715,6 +2814,20 @@
+@@ -2720,6 +2819,20 @@
    --no-color            Disable ANSI colors.
    -h, --help            Show this help.
-
+ 
 +ENVIRONMENT
 +  CAVEMAN_REGISTRATION_ROOT
 +                        Absolute lexical stable profile prefix. Persisted hooks
@@ -333,7 +334,7 @@ diff --git a/installer/install.js b/installer/install.js
  EXAMPLES
    npx -y github:JuliusBrussee/caveman                        # default install
    npx -y github:JuliusBrussee/caveman -- --all               # all the trimmings
-@@ -2746,6 +2859,25 @@
+@@ -2751,6 +2864,25 @@
      ok:   (s) => process.stdout.write(c.green(s) + '\n'),
      results: { installed: [], skipped: [], failed: [], detected: 0 },
    };
@@ -356,13 +357,13 @@ diff --git a/installer/install.js b/installer/install.js
 +    ctx.note('  Do not also enable the upstream marketplace plugin or standalone hooks: duplicate hooks inject twice.');
 +    return 0;
 +  }
-
+ 
    if (opts.uninstall) return uninstall(ctx);
-
-@@ -2835,5 +2967,10 @@
+ 
+@@ -2840,5 +2972,10 @@
    return 0;
  }
-
+ 
 -main().then(code => process.exit(code || 0))
 -      .catch(err => { process.stderr.write((err && err.stack || String(err)) + '\n'); process.exit(1); });
 +// Expose the owning serializers for offline artifact fixtures. Requiring this
@@ -440,7 +441,7 @@ new file mode 100644
 +      const profile = registrationRoot();
 +      if (profile) {
 +        fs.writeFileSync(path.join(hooksDir, 'caveman-statusline-runtime.json'),
-+          JSON.stringify({ bashCommand: hookCommand(path.join(profile, 'lib/caveman/bash'), []) }) + '\n');
++          JSON.stringify({ bashPath: path.join(profile, 'lib/caveman/bash') }) + '\n');
 +      }
 +      const modelHelper = path.join(hooksDir, 'cavecrew-model-overrides.js');
 +      const upstreamModels = require(path.join(repoRoot, 'src/hooks/cavecrew-model-overrides.js'));
@@ -591,7 +592,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 @@ -45,19 +45,49 @@
    return target;
  }
-
+ 
 -function updateDigest(hash, root, target) {
 +function assertMutableParent(pluginDir) {
 +  if (!path.isAbsolute(pluginDir) || path.dirname(pluginDir) === pluginDir) {
@@ -639,7 +640,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 +    updates.delete(relative);
 +  }
  }
-
+ 
  function digestPath(target) {
 @@ -66,6 +96,109 @@
    // compare byte-for-byte despite having different temporary basenames.
@@ -749,12 +750,12 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
 +  // Journal rename committed the update; cleanup failure must not roll it back.
 +  removePath(transaction);
  }
-
+ 
  function copyPath(source, target) {
 @@ -303,13 +436,15 @@
    return { journalPath, journal };
  }
-
+ 
 -function uninstallOwned({ root, integration, dryRun = false, note = () => {}, warn = () => {}, unregister }) {
 +function uninstallOwned({ root, integration, dryRun = false, note = () => {}, warn = () => {}, unregister, relativePaths }) {
    const { journalPath, backupRoot } = journalPaths(root, integration);
@@ -770,7 +771,7 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
      if (pathExists(target)) {
 @@ -379,6 +514,7 @@
  }
-
+ 
  module.exports = {
 +  assertMutableParent,
    copyPath,
@@ -787,7 +788,7 @@ diff --git a/installer/lib/settings.js b/installer/lib/settings.js
 +++ b/installer/lib/settings.js
 @@ -153,12 +153,14 @@
  }
-
+ 
  // ── writeSettings ──────────────────────────────────────────────────────────
 -// Atomic write: temp file + rename. mode 0600 (settings often contains tokens).
 +// Atomic write: temp file + rename. New files use 0600; existing permissions stay.
@@ -815,7 +816,7 @@ diff --git a/src/hooks/cavecrew-model-overrides.js b/src/hooks/cavecrew-model-ov
 --- a/src/hooks/cavecrew-model-overrides.js
 +++ b/src/hooks/cavecrew-model-overrides.js
 @@ -109,7 +109,7 @@
-
+ 
  // Apply all env-var overrides to agent files under `pluginRoot`.
  // `env` defaults to process.env; pass an object in tests.
 -function applyOverrides(pluginRoot, env) {
@@ -833,24 +834,24 @@ diff --git a/src/hooks/cavecrew-model-overrides.js b/src/hooks/cavecrew-model-ov
 +        writeFile(agentPath, patched, 'utf8');
 +        continue;
 +      }
-
+ 
        // Atomic write: stage to a sibling temp file, then rename into place.
        // Preserves the original file's mode so permission bits are not lost.
 diff --git a/src/hooks/caveman-activate.js b/src/hooks/caveman-activate.js
 --- a/src/hooks/caveman-activate.js
 +++ b/src/hooks/caveman-activate.js
-@@ -585,12 +585,24 @@
+@@ -606,12 +606,24 @@
    }
-
+ 
    if (!hasStatusline && (staleCommand ? !alreadyReported : !fs.existsSync(nudgeMarkerPath))) {
-+    let bashCommand = 'bash';
++    let bashPath = 'bash';
 +    if (!isWindows) {
 +      try {
 +        const runtime = JSON.parse(fs.readFileSync(path.join(__dirname, 'caveman-statusline-runtime.json'), 'utf8'));
-+        if (typeof runtime.bashCommand !== 'string' || !runtime.bashCommand.trim()) {
++        if (typeof runtime.bashPath !== 'string' || !path.isAbsolute(runtime.bashPath)) {
 +          throw new Error('invalid statusline runtime');
 +        }
-+        bashCommand = runtime.bashCommand;
++        bashPath = runtime.bashPath;
 +      } catch (error) {
 +        if (error.code !== 'ENOENT') throw error;
 +      }
@@ -859,9 +860,9 @@ diff --git a/src/hooks/caveman-activate.js b/src/hooks/caveman-activate.js
      else safeWriteFlag(nudgeMarkerPath, '1');
      const scriptPath = stableStatuslinePath(scriptName) || path.join(__dirname, scriptName);
      const command = isWindows
-       ? `powershell -ExecutionPolicy Bypass -File "${scriptPath}"`
--      : `bash "${scriptPath}"`;
-+      : `${bashCommand} "${scriptPath}"`;
+       ? shellCommand(['powershell', '-ExecutionPolicy', 'Bypass', '-File', scriptPath])
+-      : shellCommand(['bash', scriptPath]);
++      : shellCommand([bashPath, scriptPath]);
      const statusLineSnippet =
        '"statusLine": { "type": "command", "command": ' + JSON.stringify(command) + ' }';
      output += "\n\n" +

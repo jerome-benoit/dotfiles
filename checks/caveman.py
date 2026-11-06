@@ -68,6 +68,39 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
         for profile in [".claude", ".codex", ".omp", ".pi", ".hermes"]:
             assert not (home / profile).exists(), profile
 
+    # Exercise the CLI capability probe and real Cavemem stdin transport. A
+    # replacement larger than Linux's single-argument limit must stay byte-exact.
+    memory_original = "Original memory: café, 東京 and 🦣.\n"
+    remembered = json.loads(run(
+        "caveman", "mem", "remember", "--stdin", data=memory_original.encode(),
+    ).stdout)
+    memory_replacement = "café 東京 🦣\n" * 10000
+    replacement_bytes = memory_replacement.encode()
+    assert 128 * 1024 < len(replacement_bytes) < 256 * 1024
+    superseded = json.loads(run(
+        "caveman", "mem", "supersede", remembered["id"], "--stdin", data=replacement_bytes,
+    ).stdout)
+    assert superseded["id"] != remembered["id"], superseded
+    assert superseded["supersedes"] == remembered["id"], superseded
+    memory_history = json.loads(run(
+        "caveman", "mem", "history", remembered["id"],
+    ).stdout)["history"]
+    assert [item["id"] for item in memory_history] == [remembered["id"], superseded["id"]]
+    assert [item["text"] for item in memory_history] == [memory_original, memory_replacement]
+    assert memory_history[0]["superseded_by"] == superseded["id"], memory_history
+    assert memory_history[0]["valid_until"], memory_history
+    assert not memory_history[1].get("valid_until"), memory_history
+    assert not memory_history[1].get("superseded_by"), memory_history
+    refused = run(
+        "caveman", "mem", "supersede", superseded["id"], "--stdin",
+        data=b"x" * (256 * 1024 + 1), check=False,
+    )
+    assert refused.returncode == 65, (refused.returncode, refused.stderr)
+    assert b"cave_memory_too_large" in refused.stderr, refused.stderr
+    assert json.loads(run(
+        "caveman", "mem", "history", superseded["id"],
+    ).stdout)["history"] == memory_history
+
     # CLI -> engine compression must retain a byte-exact original that another
     # executable (the MCP server) can recover from the same persistent store.
     original = json.dumps(
