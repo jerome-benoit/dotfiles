@@ -1,35 +1,37 @@
-# base: JuliusBrussee/caveman 2e068f735253cce28256744804785f01887d9646
+# base: JuliusBrussee/caveman ca3a524022a9f31fb7ae46b66decf622080c2cfa
 # prerequisites: caveman-nix-installer-paths.patch
-# intent: Honor the absolute effective OpenCode config root in the installer and copied plugin.
+# intent: Keep strict absolute OpenCode root validation after upstream added override precedence.
+#   Preserve nonempty override bytes; do not resolve relative roots against the working directory.
+diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
-@@ -1544,6 +1544,10 @@
- }
- 
- function opencodeConfigDir() {
-+  if (process.env.OPENCODE_CONFIG_DIR) {
-+    if (!path.isAbsolute(process.env.OPENCODE_CONFIG_DIR)) throw new Error('OpenCode config root must be absolute');
-+    return process.env.OPENCODE_CONFIG_DIR;
+@@ -1549,8 +1549,11 @@
+   // host read nothing). Otherwise ~/.config/opencode on every platform (on
+   // Windows that's %USERPROFILE%\.config\opencode via os.homedir()), NOT
+   // %APPDATA% (#376). Same order as the CLI and the mode plugin.
+-  const selected = (process.env.OPENCODE_CONFIG_DIR || '').trim();
+-  if (selected) return path.resolve(selected);
++  const selected = process.env.OPENCODE_CONFIG_DIR;
++  if (selected) {
++    if (!path.isAbsolute(selected)) throw new Error('OpenCode config root must be absolute');
++    return selected;
 +  }
-   // opencode uses ~/.config/opencode on every platform (on Windows that's
-   // %USERPROFILE%\.config\opencode via os.homedir()), NOT %APPDATA% (#376).
    if (process.env.XDG_CONFIG_HOME) return path.join(process.env.XDG_CONFIG_HOME, 'opencode');
+   return path.join(os.homedir(), '.config', 'opencode');
+ }
+diff --git a/src/plugins/opencode/plugin.js b/src/plugins/opencode/plugin.js
 --- a/src/plugins/opencode/plugin.js
 +++ b/src/plugins/opencode/plugin.js
-@@ -129,11 +129,15 @@
- }
- const { parseModeChange, INDEPENDENT_MODES } = loadParse();
- 
--// opencode resolves its config dir from $XDG_CONFIG_HOME, else ~/.config/opencode
-+// opencode resolves OPENCODE_CONFIG_DIR first, then XDG_CONFIG_HOME/opencode or ~/.config/opencode
- // on every platform — including Windows, where it uses %USERPROFILE%\.config\opencode
- // (NOT %APPDATA%). os.homedir() is %USERPROFILE% on win32, so the default branch
- // is already correct cross-platform.
+@@ -136,9 +136,10 @@
+ // is already correct cross-platform. The CLI and the installer resolve the same
+ // order; a flag written under a root the host does not read is invisible to it.
  function opencodeConfigDir() {
-+  if (process.env.OPENCODE_CONFIG_DIR) {
-+    if (!path.isAbsolute(process.env.OPENCODE_CONFIG_DIR)) throw new Error('OpenCode config root must be absolute');
-+    return process.env.OPENCODE_CONFIG_DIR;
-+  }
+-  const selected = (process.env.OPENCODE_CONFIG_DIR || '').trim();
++  const selected = process.env.OPENCODE_CONFIG_DIR;
+   if (selected) {
+-    return path.resolve(selected);
++    if (!path.isAbsolute(selected)) throw new Error('OpenCode config root must be absolute');
++    return selected;
+   }
    if (process.env.XDG_CONFIG_HOME) {
      return path.join(process.env.XDG_CONFIG_HOME, 'opencode');
-   }

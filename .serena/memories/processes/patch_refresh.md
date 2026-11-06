@@ -4,9 +4,9 @@
 
 Local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly. Prime Agent source pins come from
-`home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
-installer patches follow the `caveman` input in `flake.lock`; its separate
-Blocks source and companion assets use `pins/caveman.json`.
+`home-manager/modules/development/pins/prime-agent.json`. Caveman CLI, installer
+and Cavemem follow the `caveman` input in `flake.lock`; Blocks, release assets
+and source dependency hashes use `pins/caveman.json`.
 OpenCode Desktop patches follow the selected CLI source, which defaults to the
 `opencode` input in `flake.lock`.
 Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
@@ -36,9 +36,9 @@ explaining why it exists and when it can go:
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
-- `patches/caveman-hermes-native-yaml.patch` — carry upstream PR #1395's writer fixes, recognize normalized Hermes ownership semantically, and restore only owned values.
-- `patches/caveman-opencode-hermes.patch` — adapt OpenCode roots, V2 plugin scopes and Hermes YAML membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
-- `patches/caveman-installer-config-root.patch` — honor the effective OpenCode root in the installer and copied plugin; apply after nix-installer-paths.
+- `patches/caveman-hermes-native-yaml.patch` — retain upstream document/list helpers, enforce strict normalized ownership and restore only owned values while preserving later siblings.
+- `patches/caveman-opencode-hermes.patch` — isolate OpenCode factories and served workdirs, validate absolute roots and enforce strict Hermes membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
+- `patches/caveman-installer-config-root.patch` — preserve absolute OpenCode override bytes and reject relative roots in the installer and copied plugin; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
@@ -79,18 +79,33 @@ Record dependency-output hash checks separately from CLI builds and ARM-targeted
 verification claims from an older source. Keep hash-only checks serial with
 `--max-jobs 1 --cores 1`; they do not require a full CLI or Desktop build.
 
+Use a disk-backed `TMPDIR` for standalone calculations when `/tmp` is tmpfs;
+large dependency trees otherwise count against the memory limit. Replay the
+upstream filters, frozen lock and both normalizers. Calibrate the procedure
+against the previous known pin before trusting new outputs. Limit Bun network
+concurrency without changing dependency selection. Import only outputs whose
+NAR hash and fixed-output store path match the selected derivation.
+
 ### Caveman source pin
 
-The Caveman CLI and installer use the `github:JuliusBrussee/caveman/main`
+The Caveman CLI, installer and Cavemem use the `github:JuliusBrussee/caveman/main`
 source input. Upstream has no flake, so `flake = false` supplies its source
-to the local derivation, like other source-built packages in this repository.
+to the local derivations, like other source-built packages in this repository.
 `flake.lock` records the revision; do not duplicate it in the JSON asset pin.
 
 After updating the input, `scripts/fix-nix-hashes.sh update <base-ref>` refreshes
-the filtered CLI pnpm dependency hash, then reads `packages/cli/BINARY_RELEASE`
-and `BLOCKS_RELEASE` from the locked source. Runtime assets and license notices
-follow the binary release; Blocks keeps its own source and vendor hash.
+the filtered CLI pnpm hash and `cavememVendorHash`, then reads
+`packages/cli/BINARY_RELEASE` and `BLOCKS_RELEASE` from the locked source.
+The five prebuilt companions and license notices follow the binary release;
+Blocks keeps its own source and vendor hash. Cavemem builds only
+`mem/cmd/cavemem` with Go 1.26 and `CGO_ENABLED=0`, matching upstream's release
+flags, and reports its source revision rather than the companion release.
 Do not infer either companion version from the CLI's `package.json`.
+
+Keep the CLI's `supersede-stdin` capability check: older Cavemem binaries store
+the literal flag as replacement text. Retire the source-build workaround only
+when `BINARY_RELEASE` supplies that capability. Check real stdin replacement,
+history and oversized-input refusal against temporary stores, never user data.
 
 CLI patches target TypeScript before the offline pnpm build. The installer patch
 targets the same source tree separately, without shipping build dependencies.
@@ -262,8 +277,9 @@ state only; this advisory neither infers host references nor fails cleanup.
 
 #### Prepared hooks and model overrides
 
-Prepared Claude statusline suggestions use the profile's private Bash command
-from preparation-owned interpreter metadata. Existing accepted statusline commands
+Prepared Claude statusline suggestions pass the profile's raw absolute Bash path
+through the upstream host-shell renderer. Preparation-owned metadata stores
+`bashPath`, not a prequoted shell word. Existing accepted statusline commands
 remain user-owned; reinstall alone does not rewrite their interpreter.
 
 Claude's prepared agent files permit the upstream SessionStart model overrides.

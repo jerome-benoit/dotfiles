@@ -30,8 +30,8 @@ let
     # Remove when upstream supports durable paths and profile-local ownership.
     patches = [
       ../../../../patches/caveman-nix-installer-paths.patch
-      # Workaround: the installer and copied plugin ignore OpenCode's root override.
-      # Remove when both honor nonempty, absolute OPENCODE_CONFIG_DIR values.
+      # Workaround: the installer and copied plugin accept relative OpenCode root overrides.
+      # Remove when both preserve absolute override bytes and reject relative roots.
       ../../../../patches/caveman-installer-config-root.patch
     ];
     dontBuild = true;
@@ -97,11 +97,11 @@ stdenvNoCC.mkDerivation {
     # Workaround: generated agent registrations retain runtime closure paths.
     # Remove when upstream separates execution from durable registration paths.
     ../../../../patches/caveman-nix-registration-paths.patch
-    # Workaround: Hermes YAML writers and ownership checks depend on formatting.
-    # Remove when upstream handles document/list layout and normalized owned values.
+    # Workaround: Hermes ownership readers accept ambiguous YAML and remove later siblings.
+    # Remove when upstream validates owned values strictly and restores only those values.
     ../../../../patches/caveman-hermes-native-yaml.patch
-    # Workaround: generated plugins use old OpenCode APIs and incomplete Hermes membership checks.
-    # Remove when upstream supports V2 scopes, effective roots and deny-list-aware YAML membership.
+    # Workaround: OpenCode factories share state; Hermes membership checks accept ambiguous YAML.
+    # Remove when factories isolate state and cwd, roots stay absolute, and membership fails closed.
     ../../../../patches/caveman-opencode-hermes.patch
   ];
 
