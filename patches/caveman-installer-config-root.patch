@@ -1,11 +1,11 @@
-# base: JuliusBrussee/caveman ca3a524022a9f31fb7ae46b66decf622080c2cfa
+# base: JuliusBrussee/caveman 4bf8898b31c93326a5e5d90999241a1c15b52ed2
 # prerequisites: caveman-nix-installer-paths.patch
 # intent: Keep strict absolute OpenCode root validation after upstream added override precedence.
 #   Preserve nonempty override bytes; do not resolve relative roots against the working directory.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
-@@ -1549,8 +1549,11 @@
+@@ -1590,8 +1590,11 @@
    // host read nothing). Otherwise ~/.config/opencode on every platform (on
    // Windows that's %USERPROFILE%\.config\opencode via os.homedir()), NOT
    // %APPDATA% (#376). Same order as the CLI and the mode plugin.

@@ -214,6 +214,11 @@ namespace survives both NixOS's default profile and Home Manager's filtered
 `useUserPackages` outer profile. Neither interpreter becomes a public command.
 Do not restore a `share/caveman` alias: profile filters need the actual `/lib` tree.
 
+Managed `caveman-install --hook-node` accepts only the selected profile's exact
+lexical `lib/caveman/node` path; other overrides fail before preparation or writes.
+Without Nix management, prepared plugins honor upstream's bare or absolute Node
+override, while omission retains the normal interpreter discovery.
+
 Temporary `wrap` packs and runtime shell-command rewrites use the executing
 closure instead; they do not require a persistent registration profile.
 
