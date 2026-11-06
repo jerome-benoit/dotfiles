@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires 02c46190e9533d18487642d55363fe98d7209b1f
+# base: agent-of-empires/agent-of-empires 8dd8f233c67e444899e5a955d79861230bbecb02
 # prerequisites: none
 # intent: Detect and launch the packaged cursor-agent executable instead of agent.
 --- a/src/agents.rs
