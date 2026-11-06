@@ -11,11 +11,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793918212,
-        "narHash": "sha256-M3J8g068EWOvjpAHoaf/23TkTPgwlzSccCTnN0yBNHU=",
+        "lastModified": 1793970757,
+        "narHash": "sha256-XmQh9OtAdWmKwVTmCWc2FGwj2uyPuATX98L4EENhn9Q=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "431387c0318e1421a3e5dd49449fc9c9c192da5a",
+        "rev": "02c46190e9533d18487642d55363fe98d7209b1f",
         "type": "github"
       },
       "original": {
@@ -43,11 +43,11 @@
     "caveman": {
       "flake": false,
       "locked": {
-        "lastModified": 1793924806,
-        "narHash": "sha256-i7r8TAem8PCOYPWVJqPRTbvzKyqwRMGzntR3lND/gao=",
+        "lastModified": 1793964190,
+        "narHash": "sha256-AjIzHPREdqrIflIFtciVc7ZNXyrYhGv3SlAi0cf72Ks=",
         "owner": "JuliusBrussee",
         "repo": "caveman",
-        "rev": "ca3a524022a9f31fb7ae46b66decf622080c2cfa",
+        "rev": "4bf8898b31c93326a5e5d90999241a1c15b52ed2",
         "type": "github"
       },
       "original": {
@@ -163,7 +163,6 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "npm-lockfile-fix": "npm-lockfile-fix",
         "pyproject-build-systems": [
           "pyproject-build-systems"
         ],
@@ -175,11 +174,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793924184,
-        "narHash": "sha256-b3AtCMBV/Y66SbiETYwOSgRzTOKOZ6D5Vz7/0sgCIf4=",
+        "lastModified": 1793949162,
+        "narHash": "sha256-9VzFpxiMcfBMIZecNq7dXj1bkWiEcwkopqei+gdS+fQ=",
         "owner": "NousResearch",
         "repo": "hermes-agent",
-        "rev": "323c318c4eb4a22fd75e9172639d88379bbc3d42",
+        "rev": "90d6b98fd86d20981ee06ddd5b7d93e4320f26a4",
         "type": "github"
       },
       "original": {
@@ -191,11 +190,11 @@
     "hermes-labs-plugins": {
       "flake": false,
       "locked": {
-        "lastModified": 1793864236,
-        "narHash": "sha256-98WPLp0krGo03m8+4JpiPrZAlnQC/bX8GICkqpipjmQ=",
+        "lastModified": 1793951370,
+        "narHash": "sha256-BwE/9rB91ng++hK/Lx2d/A31Wh08r4YnLkdr6XsbvoE=",
         "owner": "NousResearch",
         "repo": "hermes-labs-plugins",
-        "rev": "a6c7854f6fbd8ec8109199d5ded0c9c871c069d6",
+        "rev": "4987918a068fcf4b3efbb584db5dd05e5f57c669",
         "type": "github"
       },
       "original": {
@@ -231,11 +230,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793922777,
-        "narHash": "sha256-fAIaMjSS9JOJSjTNrxqJiCj7626eg/sGmQEXvF9V7Rc=",
+        "lastModified": 1793931695,
+        "narHash": "sha256-BijKCThkKOEjPvcbaFGCoygMX1MalNN877G/v4IT9Nw=",
         "owner": "openclaw",
         "repo": "nix-openclaw-tools",
-        "rev": "f1c2a489ba3f9c7de8c851535a3c3713afe53020",
+        "rev": "e43d472439287ff09758498d234be8fca9910319",
         "type": "github"
       },
       "original": {
@@ -291,27 +290,6 @@
         "type": "github"
       }
     },
-    "npm-lockfile-fix": {
-      "inputs": {
-        "nixpkgs": [
-          "hermes-agent",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1775903712,
-        "narHash": "sha256-2GV79U6iVH4gKAPWYrxUReB0S41ty/Y3dBLquU8AlaA=",
-        "owner": "jeslie0",
-        "repo": "npm-lockfile-fix",
-        "rev": "c6093acb0c0548e0f9b8b3d82918823721930fe8",
-        "type": "github"
-      },
-      "original": {
-        "owner": "jeslie0",
-        "repo": "npm-lockfile-fix",
-        "type": "github"
-      }
-    },
     "opencode": {
       "inputs": {
         "nixpkgs": [
@@ -319,11 +297,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793924804,
-        "narHash": "sha256-5m/0IRbjIfRjF0GWyLmGo12p4HnrW3iYQXdu3jAK3xU=",
+        "lastModified": 1793967642,
+        "narHash": "sha256-LkzhNpRBtsgoRFNz/QWi/aRqVTGevHRuTAIRcD2SKNs=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "42fceba1d173d8982fbe301e3dbb3662d4ec3014",
+        "rev": "0b1b63081c1980200edf0d73726b3ffa5cafe507",
         "type": "github"
       },
       "original": {
@@ -376,11 +354,11 @@
         "nixpkgs-darwin-x64": "nixpkgs-darwin-x64"
       },
       "locked": {
-        "lastModified": 1793921709,
-        "narHash": "sha256-AV4UmRRFCMTFu/pkOQWxNiIRxYdxlfjTCk+ylvahD48=",
+        "lastModified": 1793972872,
+        "narHash": "sha256-fl5goSp8/9zAO5g1SMuUggrGqt9TEiNVvb9UzMlIv0k=",
         "owner": "earendil-works",
         "repo": "pi",
-        "rev": "2a32a605a9f18a5f0191f65358a2e764b2f69fc7",
+        "rev": "63bc4da65adc2b45b1674d85a303d5eaefe3ae07",
         "type": "github"
       },
       "original": {

@@ -26,8 +26,9 @@ let
   installerSource = stdenvNoCC.mkDerivation {
     pname = "caveman-installer-source";
     inherit version src;
-    # Workaround: installers persist generation-specific paths and share Claude payloads.
-    # Remove when upstream supports durable paths and profile-local ownership.
+    # Workaround: installers persist generation paths and share Claude payloads.
+    # Upstream --hook-node does not provide private runtimes or profile ownership.
+    # Remove when upstream supports durable private paths and isolated ownership.
     patches = [
       ../../../../patches/caveman-nix-installer-paths.patch
       # Workaround: the installer and copied plugin accept relative OpenCode root overrides.
