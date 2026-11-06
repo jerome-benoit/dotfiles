@@ -222,8 +222,9 @@ override, while omission retains the normal interpreter discovery.
 Prepared plugins emit host callbacks even with `--no-hooks` or `--minimal`.
 Explicit absolute Node overrides must therefore run a supported interpreter
 before preparation writes a payload or ownership journal. Disabled-hooks removal
-does not validate an unused override; bare `node` retains upstream's warning-only
-PATH lookup.
+skips interpreter-version checks for unused overrides. Nix-managed overrides must
+still name the selected profile's private Node. Bare `node` retains upstream's
+warning-only PATH lookup.
 
 Temporary `wrap` packs and runtime shell-command rewrites use the executing
 closure instead; they do not require a persistent registration profile.
