@@ -347,7 +347,7 @@ diff --git a/installer/install.js b/installer/install.js
  EXAMPLES
    npx -y github:JuliusBrussee/caveman                        # default install
    npx -y github:JuliusBrussee/caveman -- --all               # all the trimmings
-@@ -2853,6 +2971,9 @@
+@@ -2853,12 +2971,15 @@
 
    checkWslWindowsNode();
    checkNodeVersion();
@@ -357,6 +357,13 @@ diff --git a/installer/install.js b/installer/install.js
 
    // A pinned --hook-node lands in every hook command: refuse one that does not
    // run as a supported node before anything is written. Bare `node` is looked
+   // up on the HOOK's PATH later, which may differ from this one, so it is only
+   // flagged here.
+-  if (opts.hookNode && opts.withHooks !== false && !nodeMeetsFloor(opts.hookNode)) {
++  if (opts.hookNode && (opts.withHooks !== false || (opts.preparePlugin && !opts.uninstall)) && !nodeMeetsFloor(opts.hookNode)) {
+     if (opts.hookNode !== 'node') {
+       die(`caveman: --hook-node ${opts.hookNode} does not run as Node >=${MIN_NODE_MAJOR}; nothing changed.`);
+     }
 @@ -2876,6 +2997,25 @@
      ok:   (s) => process.stdout.write(c.green(s) + '\n'),
      results: { installed: [], skipped: [], failed: [], detected: 0 },
@@ -888,7 +895,7 @@ diff --git a/tests/installer/nix-registration-paths.test.mjs b/tests/installer/n
 new file mode 100644
 --- /dev/null
 +++ b/tests/installer/nix-registration-paths.test.mjs
-@@ -0,0 +1,674 @@
+@@ -0,0 +1,689 @@
 +// Behavioral fixtures: execute the real generated payloads, never substitute
 +// emitted hook text. External manager control responses are isolated adapters;
 +// they do not stand in for real Claude/Cursor installation or host discovery.
@@ -982,22 +989,37 @@ new file mode 100644
 +  assert.ok(JSON.parse(output).additional_context?.length > 0);
 +});
 +
-+test('unmanaged prepared plugins execute the explicit hook-node interpreter', { skip: process.platform === 'win32' }, t => {
-+  const f = fixture(t);
-+  const pluginDir = path.join(f.dir, 'cursor-plugin');
-+  const env = { ...f.env };
-+  delete env.CAVEMAN_NIX_MANAGED;
-+  delete env.CAVEMAN_REGISTRATION_ROOT;
-+  const prepared = spawnSync(process.execPath,
-+    [installer, '--prepare-plugin', 'cursor', '--plugin-dir', pluginDir, '--hook-node', f.node],
-+    { env, encoding: 'utf8' });
-+  assert.equal(prepared.status, 0, prepared.stderr);
-+  f.switchGeneration();
-+  const hooks = JSON.parse(fs.readFileSync(path.join(pluginDir, 'hooks/hooks-cursor.json')));
-+  const output = f.runHook(hooks.hooks.sessionStart[0].command,
-+    { workspace_roots: [f.dir] }, { CURSOR_PLUGIN_ROOT: pluginDir });
-+  assert.ok(JSON.parse(output).additional_context?.length > 0);
-+});
++for (const host of ['claude', 'cursor']) {
++  for (const flag of ['', '--no-hooks', '--minimal']) {
++    test(`unmanaged ${host} preparation validates hook-node with ${flag || 'default hooks'}`, { skip: process.platform === 'win32' }, t => {
++      const f = fixture(t);
++      const pluginDir = path.join(f.dir, `${host}-plugin`);
++      const env = { ...f.env, CAVEMAN_NIX_MANAGED: undefined, CAVEMAN_REGISTRATION_ROOT: undefined };
++      const args = [installer, '--prepare-plugin', host, '--plugin-dir', pluginDir, ...(flag ? [flag] : []), '--hook-node'];
++      const homeBefore = fs.readdirSync(f.env.HOME, { recursive: true });
++      const rejected = spawnSync(process.execPath, [...args, path.join(f.dir, 'missing', 'node')],
++        { env, encoding: 'utf8', timeout: 15000 });
++      assert.equal(rejected.status, 2, rejected.stderr);
++      assert.equal(fs.existsSync(pluginDir), false);
++      assert.equal(fs.existsSync(path.join(f.dir, `.caveman-${host}-plugin-ownership.json`)), false);
++      assert.deepEqual(fs.readdirSync(f.env.HOME, { recursive: true }), homeBefore);
++      const prepared = spawnSync(process.execPath, [...args, f.node], { env, encoding: 'utf8', timeout: 15000 });
++      assert.equal(prepared.status, 0, prepared.stderr);
++      f.switchGeneration();
++      if (host === 'cursor') {
++        const hooks = JSON.parse(fs.readFileSync(path.join(pluginDir, 'hooks/hooks-cursor.json')));
++        const output = f.runHook(hooks.hooks.sessionStart[0].command,
++          { workspace_roots: [f.dir] }, { ...env, CURSOR_PLUGIN_ROOT: pluginDir });
++        assert.equal(typeof JSON.parse(output).additional_context, 'string');
++      } else {
++        const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin/plugin.json')));
++        f.runHook(manifest.hooks.SessionStart[0].hooks[0].command,
++          { session_id: 'hook_node_override', source: 'startup', cwd: f.dir }, { ...env, CLAUDE_PLUGIN_ROOT: pluginDir });
++        assert.equal(fs.readFileSync(path.join(f.env.CLAUDE_CONFIG_DIR, '.caveman-sessions/hook_node_override.mode'), 'utf8').trim(), 'caveman');
++      }
++    });
++  }
++}
 +
 +for (const host of ['claude', 'cursor']) {
 +  test(`${host} prepared plugin executes real hooks after same-version A is removed`, { skip: process.platform === 'win32' }, t => {
