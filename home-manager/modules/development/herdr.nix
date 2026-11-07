@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  inputs,
   ...
 }:
 
@@ -11,10 +10,29 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   theme = config.modules.themes.current;
 
-  herdrPackages = inputs.herdr.packages.${system} or { };
-  herdrPackage = herdrPackages.default or herdrPackages.herdr or null;
+  supportedPackage =
+    package:
+    if package != null && lib.meta.availableOn pkgs.stdenv.hostPlatform package then package else null;
 
-  # herdr's built-in themes (src/app/state.rs THEME_NAMES).
+  mkDesktopPackage =
+    let
+      package = supportedPackage (pkgs.herdr-desktop or null);
+    in
+    if cfg.corePackage != null && package != null then
+      (package.override { herdr-core = cfg.corePackage; }).overrideAttrs (
+        previousAttrs:
+        lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+          # Workaround: Nix-managed apps must not rewrite user CLI launchers.
+          # Remove when nixpkgs disables automatic CLI link installation.
+          patches = (previousAttrs.patches or [ ]) ++ [
+            ../../../patches/herdr-desktop-nix-cli-link.patch
+          ];
+        }
+      )
+    else
+      null;
+
+  # Herdr's built-in themes (src/app/state.rs THEME_NAMES).
   herdrThemeNames = [
     "catppuccin"
     "catppuccin-latte"
@@ -36,7 +54,7 @@ let
     "vesper"
   ];
 
-  # Shared theme family.style -> herdr theme (herdr has no storm/macchiato/frappe
+  # Shared theme family.style -> Herdr theme (Herdr has no storm/macchiato/frappe
   # variants; extend when adding a theme to modules/themes).
   herdrThemeByFamily = {
     tokyonight = {
@@ -74,28 +92,63 @@ let
       package = cfg.package;
       warning = "herdr: package not available for system ${system}";
     }
+    {
+      package = cfg.corePackage;
+      warning = "herdr: core package not available for system ${system}";
+    }
+    {
+      package = cfg.desktopPackage;
+      enabled = cfg.enableDesktop;
+      warning = "herdr: Desktop package not available for system ${system}";
+    }
   ];
 in
 {
   options.modules.development.herdr = {
-    enable = lib.mkEnableOption "herdr configuration";
+    enable = lib.mkEnableOption "Herdr configuration";
+
+    enableDesktop = lib.mkEnableOption "Herdr Desktop integration";
 
     package = config.modules.core.lib.mkOptionalPackageOption {
-      default = herdrPackage;
-      defaultText = lib.literalExpression "inputs.herdr.packages.\${system}.default or .herdr or null";
-      description = "Herdr package";
-      example = lib.literalExpression "inputs.herdr.packages.\${system}.default";
+      default = supportedPackage (pkgs.herdr or null);
+      defaultText = lib.literalExpression "pkgs.herdr or null";
+      description = "Herdr terminal UI package";
+      example = lib.literalExpression "pkgs.herdr";
+    };
+
+    corePackage = config.modules.core.lib.mkOptionalPackageOption {
+      default = supportedPackage (pkgs.herdr-core or null);
+      defaultText = lib.literalExpression "pkgs.herdr-core or null";
+      description = "Herdr terminal engine and hc CLI package. null omits the packaged engine.";
+      example = lib.literalExpression "pkgs.herdr-core";
+    };
+
+    desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
+      default = null;
+      defaultText = lib.literalExpression "null";
+      description = "Herdr Desktop package. The default uses corePackage as its fallback engine.";
     };
 
     theme = lib.mkOption {
       type = lib.types.nullOr (lib.types.enum herdrThemeNames);
       default = null;
-      description = "Built-in herdr theme. null follows the shared theme system (modules.themes.current).";
+      description = "Built-in Herdr theme. null follows the shared theme system (modules.themes.current).";
       example = "tokyo-night";
     };
   };
 
   config = lib.mkIf cfg.enable {
+    modules.development.herdr.desktopPackage = lib.mkIf cfg.enableDesktop (
+      lib.mkDefault mkDesktopPackage
+    );
+
+    assertions = [
+      {
+        assertion = !cfg.enableDesktop || cfg.desktopPackage == null || cfg.corePackage != null;
+        message = "herdr: Desktop requires a non-null corePackage.";
+      }
+    ];
+
     home.packages = optionalPackages.packages;
 
     warnings = optionalPackages.warnings;
@@ -103,7 +156,7 @@ in
     # Seed once; never overwrite the user's edits.
     home.activation.herdrConfig = lib.mkIf (cfg.package != null) (
       let
-        # herdr uses ~/.config/herdr on Linux and macOS (no platform dir).
+        # Herdr uses ~/.config/herdr on Linux and macOS (no platform dir).
         configDir = "${config.xdg.configHome}/herdr";
         configFile = "${configDir}/config.toml";
       in

@@ -69,7 +69,9 @@ in
       cursorCli.enable = profileModules.development.cursorCli;
       gh.enable = profileModules.development.gh;
       git.enable = profileModules.development.git;
-      herdr.enable = profileModules.development.herdr;
+      herdr = {
+        inherit (profileModules.development.herdr) enable enableDesktop;
+      };
       hermesAgent = {
         inherit (profileModules.development.hermesAgent)
           enable
