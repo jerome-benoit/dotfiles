@@ -1,0 +1,12 @@
+# base: herdrdev/herdr-app 36725d47c89cd19345994363d6d9cdee5c42c80b
+# intent: Keep Nix profile selection authoritative for the macOS Desktop CLI.
+diff --git a/src/core_bin/cli_link.rs b/src/core_bin/cli_link.rs
+--- a/src/core_bin/cli_link.rs
++++ b/src/core_bin/cli_link.rs
+@@ -10,5 +10,6 @@
+ fn installed_bundle(exe: &Path) -> bool {
+     herdr_bundle(exe)
++        && !exe.starts_with("@herdr-nix-store-dir@")
+         && !exe.starts_with("/Volumes")
+         && !exe.components().any(|c| c.as_os_str() == "AppTranslocation" || c.as_os_str() == "target")
+ }

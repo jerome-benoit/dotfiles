@@ -19,7 +19,20 @@ let
       package = supportedPackage (pkgs.herdr-desktop or null);
     in
     if cfg.corePackage != null && package != null then
-      package.override { herdr-core = cfg.corePackage; }
+      (package.override { herdr-core = cfg.corePackage; }).overrideAttrs (
+        previousAttrs:
+        lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+          # Workaround: the app's CLI self-link shadows later profile selections.
+          # Remove when nixpkgs keeps store bundles from installing this link.
+          patches = (previousAttrs.patches or [ ]) ++ [
+            ../../../patches/herdr-desktop-nix-cli-link.patch
+          ];
+          postPatch = (previousAttrs.postPatch or "") + ''
+            substituteInPlace src/core_bin/cli_link.rs \
+              --replace-fail '@herdr-nix-store-dir@' '${builtins.storeDir}'
+          '';
+        }
+      )
     else
       null;
 

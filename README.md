@@ -86,6 +86,7 @@ nix build .#checks.x86_64-linux.secrets
 nix build .#checks.x86_64-linux.consumers
 nix build .#checks.x86_64-linux.hermes-agent
 nix build .#checks.x86_64-linux.caveman
+nix build .#checks.x86_64-linux.herdr-cli-link
 ```
 
 ### Maintenance
