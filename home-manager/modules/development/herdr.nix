@@ -22,21 +22,17 @@ let
       (package.override { herdr-core = cfg.corePackage; }).overrideAttrs (
         previousAttrs:
         lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-          # Workaround: the app's CLI self-link shadows later profile selections.
-          # Remove when nixpkgs keeps store bundles from installing this link.
+          # Workaround: Nix-managed apps must not rewrite user CLI launchers.
+          # Remove when nixpkgs disables automatic CLI link installation.
           patches = (previousAttrs.patches or [ ]) ++ [
             ../../../patches/herdr-desktop-nix-cli-link.patch
           ];
-          postPatch = (previousAttrs.postPatch or "") + ''
-            substituteInPlace src/core_bin/cli_link.rs \
-              --replace-fail '@herdr-nix-store-dir@' '${builtins.storeDir}'
-          '';
         }
       )
     else
       null;
 
-  # herdr's built-in themes (src/app/state.rs THEME_NAMES).
+  # Herdr's built-in themes (src/app/state.rs THEME_NAMES).
   herdrThemeNames = [
     "catppuccin"
     "catppuccin-latte"
@@ -58,7 +54,7 @@ let
     "vesper"
   ];
 
-  # Shared theme family.style -> herdr theme (herdr has no storm/macchiato/frappe
+  # Shared theme family.style -> Herdr theme (Herdr has no storm/macchiato/frappe
   # variants; extend when adding a theme to modules/themes).
   herdrThemeByFamily = {
     tokyonight = {
@@ -109,7 +105,7 @@ let
 in
 {
   options.modules.development.herdr = {
-    enable = lib.mkEnableOption "herdr configuration";
+    enable = lib.mkEnableOption "Herdr configuration";
 
     enableDesktop = lib.mkEnableOption "Herdr Desktop integration";
 
@@ -136,7 +132,7 @@ in
     theme = lib.mkOption {
       type = lib.types.nullOr (lib.types.enum herdrThemeNames);
       default = null;
-      description = "Built-in herdr theme. null follows the shared theme system (modules.themes.current).";
+      description = "Built-in Herdr theme. null follows the shared theme system (modules.themes.current).";
       example = "tokyo-night";
     };
   };
@@ -160,7 +156,7 @@ in
     # Seed once; never overwrite the user's edits.
     home.activation.herdrConfig = lib.mkIf (cfg.package != null) (
       let
-        # herdr uses ~/.config/herdr on Linux and macOS (no platform dir).
+        # Herdr uses ~/.config/herdr on Linux and macOS (no platform dir).
         configDir = "${config.xdg.configHome}/herdr";
         configFile = "${configDir}/config.toml";
       in

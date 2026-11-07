@@ -42,7 +42,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-installer-config-root.patch` — preserve absolute OpenCode override bytes and reject relative roots in the installer and copied plugin; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
-- `patches/herdr-desktop-nix-cli-link.patch` — keep macOS store bundles from creating a CLI self-link that shadows the selected Nix profile; no prerequisite patches.
+- `patches/herdr-desktop-nix-cli-link.patch` — disable automatic macOS CLI-link installation, including copied application bundles; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
 - `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.

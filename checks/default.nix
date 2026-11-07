@@ -30,7 +30,6 @@ in
     inputs = self.inputs;
   };
   opencode-desktop = development.tests.opencode-desktop;
-  herdr-cli-link = development.tests.herdr-cli-link;
   email = import ./email.nix {
     inherit home-manager pkgs sops-nix;
   };

@@ -6,10 +6,10 @@
 let
   lib = pkgs.lib;
   fixtureHome = "/home/development-check";
-  configureFor =
-    selectedPkgs: selectedInputs: settings:
+  configureWith =
+    selectedInputs: settings:
     home-manager.lib.homeManagerConfiguration {
-      pkgs = selectedPkgs;
+      inherit pkgs;
       extraSpecialArgs = {
         inputs = selectedInputs;
       };
@@ -32,15 +32,6 @@ let
         settings
       ];
     };
-  configureWith = configureFor pkgs;
-  herdrDesktop =
-    (configureFor inputs.nixpkgs.legacyPackages.aarch64-darwin inputs {
-      home.homeDirectory = lib.mkForce "/Users/development-check";
-      modules.development.herdr = {
-        enable = true;
-        enableDesktop = true;
-      };
-    }).config.modules.development.herdr.desktopPackage;
   configure = configureWith inputs;
   ollamaEnabled =
     (configure {
@@ -276,30 +267,6 @@ pkgs.runCommand "check-development-integrations"
       pkgs.nodejs_22
       pkgs.python3
     ];
-    passthru.tests.herdr-cli-link =
-      pkgs.runCommand "check-herdr-cli-link"
-        {
-          nativeBuildInputs = [
-            pkgs.patch
-            pkgs.rustc
-            pkgs.stdenv.cc
-          ];
-        }
-        ''
-          cp -R ${herdrDesktop.src} source
-          chmod -R u+w source
-          cd source
-          for file in ${lib.escapeShellArgs herdrDesktop.patches}; do
-            patch --fuzz=0 -p1 < "$file"
-          done
-          # Exercise Darwin source transformations without building its binaries.
-          ${builtins.unsafeDiscardStringContext herdrDesktop.postPatch}
-          cp ${./herdr-cli-link.rs} src/core_bin/nix_cli_link_tests.rs
-          rustc --edition=2024 --test src/core_bin/nix_cli_link_tests.rs -o cli-link-tests
-          export NIX_STORE=${lib.escapeShellArg builtins.storeDir}
-          ./cli-link-tests
-          touch "$out"
-        '';
     passthru.tests.opencode-desktop =
       let
         cli = opencodePackages.opencodePackage;

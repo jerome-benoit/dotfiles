@@ -349,7 +349,7 @@ Herdr terminal UI, persistent terminal engine and native Desktop:
 - Activation preserves existing regular files, including empty files; dry runs never create config files or directories
 - Desktop settings/mods live under `$XDG_CONFIG_HOME/herdr-app` (`HERDR_APP_HOME` overrides it); core config/state live under `$XDG_CONFIG_HOME/herdr-core` and `$XDG_STATE_HOME/herdr-core`. These remain application-owned and separate from the TUI theme/config
 - Nixpkgs supplies backend discovery, Linux desktop entries/icons and graphics RUNPATH, plus the macOS app bundle. No global loader environment or extra Home Manager service is added; the core starts on demand
-- Generated macOS Desktop does not create or rewrite `~/.local/bin/herdr-app`. Existing launchers remain untouched; a self-link from an older build can still shadow the profile and needs manual removal after checking its target
+- Generated macOS Desktop disables automatic CLI-link installation, including bundles copied by Home Manager. It does not create or rewrite `~/.local/bin/herdr-app`; explicit `desktopPackage` overrides retain their own behavior. Existing launchers remain untouched; an older self-link can still shadow the profile and needs manual removal after checking its target
 - Update the local packages through nixpkgs. Normal source-built Desktop does not auto-update; its explicit upstream setup actions remain available. Remote machine setup retains upstream release installation behavior
 
 ### openspec.nix
