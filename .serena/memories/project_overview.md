@@ -21,7 +21,6 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `opencode`                | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop, follows nixpkgs                                                                                |
 | `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)                                                                                                |
 | `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`  | AI agent session manager (flake, follows nixpkgs + flake-parts)                                                          |
-| `herdr`                   | `github:ogulcancelik/herdr`                 | Terminal multiplexer for AI coding agents (flake, follows nixpkgs; bundles rust-overlay)                                 |
 | `openspec`                | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                                                                            |
 | `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                                                                  |
 | `hermes-agent`            | `github:NousResearch/hermes-agent`          | Hermes Agent (upstream), follows nixpkgs + flake-parts + Home Manager + pyproject-nix + uv2nix + pyproject-build-systems |
@@ -111,7 +110,7 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── claude-code.nix  # Claude Code AI assistant
 │       │   ├── gh.nix           # GitHub CLI + extensions
 │       │   ├── git.nix          # Git config with delta, mergiraf, GPG signing
-│       │   ├── herdr.nix        # Terminal multiplexer for AI coding agents
+│       │   ├── herdr.nix        # Herdr terminal UI, persistent engine and native Desktop (nixpkgs)
 │       │   ├── lazygit.nix      # Git TUI with conventional commits
 │       │   ├── opencode.nix     # OpenCode AI assistant (TUI/CLI + Electron desktop)
 │       │   ├── openspec.nix     # OpenSpec CLI

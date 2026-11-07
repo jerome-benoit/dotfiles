@@ -334,15 +334,22 @@ Claude Code AI assistant:
 
 ### herdr.nix
 
-Terminal multiplexer for AI coding agents (tmux-style, pure-Rust binary):
+Herdr terminal UI, persistent terminal engine and native Desktop:
 
-- Options: `enable`, `package` (nullOr), `theme` (nullOr)
+- Options: `enable`, `enableDesktop`, `package` (nullOr), `corePackage` (nullOr), `desktopPackage` (nullOr), `theme` (nullOr)
+- Packages come from the locked nixpkgs: `herdr` (`herdr`), `herdr-core` (`hc`, `herdr-core`) and `herdr-desktop` (`herdr-app`); no separate Herdr flake input or local builder
+- Enabling the module installs the TUI and core. Desktop is opt-in at module level; desktop profiles enable it, server profiles disable the module
+- Defaults omit unavailable or unsupported packages with warnings. Core/Desktop currently support Linux x86-64/ARM64 and macOS ARM64; explicit package overrides remain the caller's responsibility
+- Generated Desktop uses `corePackage` as its packaged fallback dependency. An explicit `desktopPackage` override replaces it; `null` omits Desktop. Enabled, non-null Desktop requires non-null `corePackage`
+- Existing app `core` settings, earlier PATH/install candidates and running session daemons retain upstream precedence. Custom Desktop packages must supply a compatible engine; app/core versions need not be equal
 - Theme: `null` follows the shared theme system (`modules.themes.current`), mapped
   onto herdr built-ins (tokyonight→tokyo-night/-day, catppuccin→catppuccin/-latte);
   override with any built-in name (tokyo-night, catppuccin, dracula, nord, gruvbox, ...)
 - Config: `~/.config/herdr/config.toml` on Linux and macOS (seeds `onboarding=false` + `[theme]` on first activation; editable in-app via prefix+s / `herdr server reload-config`)
 - Activation preserves existing regular files, including empty files; dry runs never create config files or directories
-- Package consumed from the `herdr` flake input (`inputs.herdr.packages.${system}.default`), no vendor/src hash to maintain
+- Desktop settings/mods live under `$XDG_CONFIG_HOME/herdr-app` (`HERDR_APP_HOME` overrides it); core config/state live under `$XDG_CONFIG_HOME/herdr-core` and `$XDG_STATE_HOME/herdr-core`. These remain application-owned and separate from the TUI theme/config
+- Nixpkgs supplies backend discovery, Linux desktop entries/icons and graphics RUNPATH, plus the macOS app bundle. No global loader environment or extra Home Manager service is added; the core starts on demand
+- Update the local packages through nixpkgs. Normal source-built Desktop does not auto-update; its explicit upstream setup actions remain available. Remote machine setup retains upstream release installation behavior
 - No conductor/telegram/slack integration (unlike the former agent-deck)
 
 ### openspec.nix

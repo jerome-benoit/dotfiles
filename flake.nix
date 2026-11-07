@@ -26,10 +26,6 @@
         flake-parts.follows = "flake-parts";
       };
     };
-    herdr = {
-      url = "github:ogulcancelik/herdr";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     agtx = {
       url = "github:fynnfluegge/agtx";
       flake = false;

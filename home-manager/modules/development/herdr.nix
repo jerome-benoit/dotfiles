@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  inputs,
   ...
 }:
 
@@ -11,8 +10,18 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   theme = config.modules.themes.current;
 
-  herdrPackages = inputs.herdr.packages.${system} or { };
-  herdrPackage = herdrPackages.default or herdrPackages.herdr or null;
+  supportedPackage =
+    package:
+    if package != null && lib.meta.availableOn pkgs.stdenv.hostPlatform package then package else null;
+
+  mkDesktopPackage =
+    let
+      package = supportedPackage (pkgs.herdr-desktop or null);
+    in
+    if cfg.corePackage != null && package != null then
+      package.override { herdr-core = cfg.corePackage; }
+    else
+      null;
 
   # herdr's built-in themes (src/app/state.rs THEME_NAMES).
   herdrThemeNames = [
@@ -74,17 +83,41 @@ let
       package = cfg.package;
       warning = "herdr: package not available for system ${system}";
     }
+    {
+      package = cfg.corePackage;
+      warning = "herdr: core package not available for system ${system}";
+    }
+    {
+      package = cfg.desktopPackage;
+      enabled = cfg.enableDesktop;
+      warning = "herdr: Desktop package not available for system ${system}";
+    }
   ];
 in
 {
   options.modules.development.herdr = {
     enable = lib.mkEnableOption "herdr configuration";
 
+    enableDesktop = lib.mkEnableOption "Herdr Desktop integration";
+
     package = config.modules.core.lib.mkOptionalPackageOption {
-      default = herdrPackage;
-      defaultText = lib.literalExpression "inputs.herdr.packages.\${system}.default or .herdr or null";
-      description = "Herdr package";
-      example = lib.literalExpression "inputs.herdr.packages.\${system}.default";
+      default = supportedPackage (pkgs.herdr or null);
+      defaultText = lib.literalExpression "pkgs.herdr or null";
+      description = "Herdr terminal UI package";
+      example = lib.literalExpression "pkgs.herdr";
+    };
+
+    corePackage = config.modules.core.lib.mkOptionalPackageOption {
+      default = supportedPackage (pkgs.herdr-core or null);
+      defaultText = lib.literalExpression "pkgs.herdr-core or null";
+      description = "Herdr terminal engine and hc CLI package. null omits the packaged engine.";
+      example = lib.literalExpression "pkgs.herdr-core";
+    };
+
+    desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
+      default = null;
+      defaultText = lib.literalExpression "null";
+      description = "Herdr Desktop package. The default uses corePackage as its fallback engine.";
     };
 
     theme = lib.mkOption {
@@ -96,6 +129,17 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    modules.development.herdr.desktopPackage = lib.mkIf cfg.enableDesktop (
+      lib.mkDefault mkDesktopPackage
+    );
+
+    assertions = [
+      {
+        assertion = !cfg.enableDesktop || cfg.desktopPackage == null || cfg.corePackage != null;
+        message = "herdr: Desktop requires a non-null corePackage.";
+      }
+    ];
+
     home.packages = optionalPackages.packages;
 
     warnings = optionalPackages.warnings;

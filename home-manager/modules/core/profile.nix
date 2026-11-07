@@ -36,7 +36,10 @@ let
       cursorCli = true;
       gh = true;
       git = true;
-      herdr = true;
+      herdr = {
+        enable = true;
+        enableDesktop = true;
+      };
       hermesAgent = {
         enable = true;
         enableDashboard = true;
@@ -113,7 +116,10 @@ let
       cursorCli = false;
       gh = false;
       git = true;
-      herdr = false;
+      herdr = {
+        enable = false;
+        enableDesktop = false;
+      };
       hermesAgent = {
         enable = false;
         enableDashboard = false;
