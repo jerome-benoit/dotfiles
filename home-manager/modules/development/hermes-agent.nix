@@ -25,7 +25,23 @@ let
     inherit lib;
   };
   baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override {
-    inherit (pkgs) callPackage;
+    # Workaround: pnpm's macOS clone probe leaves an empty directory in the store.
+    # Remove when upstream excludes virtual-store artifacts from the archive.
+    callPackage =
+      if isDarwin then
+        pkgs.newScope {
+          fetchPnpmDeps =
+            args:
+            (pkgs.fetchPnpmDeps args).overrideAttrs (previousAttrs: {
+              preFixup = (previousAttrs.preFixup or "") + ''
+                if [ -d "$storePath/v11/links" ]; then
+                  rmdir "$storePath/v11/links"
+                fi
+              '';
+            });
+        }
+      else
+        pkgs.callPackage;
   };
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
