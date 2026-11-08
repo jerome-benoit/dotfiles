@@ -56,7 +56,7 @@ in
         endpoints = {
           authorization = "https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize";
           token = "https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token";
-          redirection = "http://localhost";
+          redirection = "http://localhost:8400";
         };
         scopes = [
           "https://graph.microsoft.com/User.Read"

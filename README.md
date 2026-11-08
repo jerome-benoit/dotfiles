@@ -64,6 +64,9 @@ himalaya envelope list -a work    # Verify actual mailbox access
 reads it and refreshes expired access tokens; `token get` is only an alias of
 `token show`, not an authorization command. Activation never initiates OAuth.
 
+The loopback callback uses `http://localhost:8400` to avoid privileged ports.
+Override its redirect endpoint if that port is occupied.
+
 Tokens live in macOS Keychain or Linux Secret Service, not SOPS or the Nix store.
 Linux enables GNOME Keyring unless pass-secret-service is configured; the desktop
 session and keyring must be available and unlocked. Storage is isolated by tenant

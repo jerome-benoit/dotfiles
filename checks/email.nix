@@ -254,7 +254,9 @@ let
         ))
         (configuration.extendModules {
           modules = [
-            { accounts.email.accounts.work.${protocol} = mkTransport "mixed.example.invalid" 993; }
+            {
+              accounts.email.accounts.work.${protocol} = lib.mkForce (mkTransport "mixed.example.invalid" 993);
+            }
           ];
         })
       ])
