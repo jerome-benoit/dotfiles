@@ -51,14 +51,16 @@ Uncatchable termination or machine failure may leave plaintext behind.
 
 ### Email
 
-Himalaya uses Ortie for Microsoft Graph authentication. Tokens are stored in the system keyring and refreshed automatically.
+#### Microsoft 365 (Exchange Online)
+
+The `work` account uses Himalaya's Microsoft Graph backend with OAuth 2.0 tokens supplied by Ortie, instead of IMAP/SMTP.
 
 ```bash
-ortie auth get -a msgraph          # Authorize once after Home Manager activation
+ortie auth get -a msgraph          # Authorize after Home Manager activation
 himalaya envelope list -a work    # Read the work mailbox
 ```
 
-The keyring must be unlocked. Tenant policy may require administrator consent or an approved OAuth client.
+Tokens are stored in the system keyring and refreshed automatically. The keyring must be unlocked; tenant policy may require administrator consent or an approved OAuth client.
 
 ### GPG keypair
 
