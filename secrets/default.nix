@@ -29,55 +29,78 @@ let
       selectedAccounts = [
         "piment-noir"
         "work"
+        "gmail"
       ];
-      accounts.piment-noir = {
-        identity = "personal";
-        aliases = [ "secondary@placeholder.invalid" ];
-        folders = {
-          inbox = "INBOX";
-          sent = "Sent";
-          drafts = "Drafts";
-          trash = "Trash";
+      accounts = {
+        piment-noir = {
+          identity = "personal";
+          folders = {
+            inbox = "INBOX";
+            sent = "Sent";
+            drafts = "Drafts";
+            trash = "Trash";
+          };
+          imap = {
+            host = "imap.ci-placeholder.invalid";
+            port = 993;
+            authentication = "login";
+            tls = {
+              enable = true;
+              useStartTls = false;
+            };
+          };
+          smtp = {
+            host = "smtp.ci-placeholder.invalid";
+            port = 465;
+            authentication = "login";
+            tls = {
+              enable = true;
+              useStartTls = false;
+            };
+          };
+          credential.type = "password";
         };
-        imap = {
-          host = "imap.ci-placeholder.invalid";
-          port = 993;
-          authentication = "login";
-          tls = {
-            enable = true;
-            useStartTls = false;
+        gmail = {
+          identity = "personal";
+          address = "gmail@placeholder.invalid";
+          folders = {
+            inbox = "INBOX";
+            sent = "SENT";
+            drafts = "DRAFT";
+            trash = "TRASH";
+          };
+          gmail = {
+            userId = "me";
+            tokenCommand = [
+              "ortie"
+              "token"
+              "show"
+              "-a"
+              "gmail"
+            ];
           };
         };
-        smtp = {
-          host = "smtp.ci-placeholder.invalid";
-          port = 465;
-          authentication = "login";
-          tls = {
-            enable = true;
-            useStartTls = false;
+        work = {
+          identity = "work";
+          folders = {
+            inbox = "INBOX";
+            sent = "Sent Items";
+            drafts = "Drafts";
+            trash = "Deleted Items";
+          };
+          msgraph = {
+            userId = "me";
+            tokenCommand = [
+              "ortie"
+              "token"
+              "show"
+              "-a"
+              "msgraph"
+            ];
           };
         };
-        credential.type = "password";
       };
-      accounts.work = {
-        identity = "work";
-        folders = {
-          inbox = "INBOX";
-          sent = "Sent Items";
-          drafts = "Drafts";
-          trash = "Deleted Items";
-        };
-        msgraph = {
-          userId = "me";
-          tokenCommand = [
-            "ortie"
-            "token"
-            "show"
-            "-a"
-            "msgraph"
-          ];
-        };
-      };
+      oauth.gmail.clientId = "ci-gmail.apps.googleusercontent.com";
     };
     work = {
       email = "ci@placeholder.invalid";

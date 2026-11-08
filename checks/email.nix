@@ -51,6 +51,7 @@ let
     hosts.server = "server.example.invalid";
     email = {
       defaultAccount = "primary";
+      oauth.gmail.clientId = "email-test.apps.googleusercontent.com";
       accounts = {
         primary = mkAccount {
           inbox = "INBOX";
@@ -90,6 +91,25 @@ let
           sent = "Sent";
           drafts = "Drafts";
           trash = "Trash";
+        };
+        gmail = {
+          identity = "personal";
+          address = "email-test-gmail@example.invalid";
+          folders = {
+            inbox = "INBOX";
+            sent = "SENT";
+            drafts = "DRAFT";
+            trash = "TRASH";
+          };
+          gmail = {
+            tokenCommand = [
+              "ortie"
+              "token"
+              "show"
+              "-a"
+              "gmail"
+            ];
+          };
         };
         work = {
           identity = "work";
@@ -140,6 +160,7 @@ let
               "secondary"
               "disabled"
               "work"
+              "gmail"
             ];
           };
           programs.himalaya.enable = true;
@@ -306,6 +327,106 @@ let
   withoutGraphConfiguration = configuration.extendModules {
     modules = [ { modules.core.email.selectedAccounts = lib.mkForce [ "primary" ]; } ];
   };
+  withGmailDefinition =
+    definition:
+    configuration.extendModules {
+      specialArgs.privateConfig = privateConfig // {
+        email = privateConfig.email // {
+          accounts = privateConfig.email.accounts // {
+            gmail = definition;
+          };
+        };
+      };
+    };
+  gmailExternalConfiguration = configuration.extendModules {
+    modules = [
+      { accounts.email.accounts.gmail.himalaya.settings.gmail.auth.token.command = graphTokenCommand; }
+    ];
+  };
+  gmailOrtieConfiguration =
+    (withGmailDefinition (
+      privateConfig.email.accounts.gmail // { gmail.tokenCommand = graphTokenCommand; }
+    )).extendModules
+      {
+        modules = [
+          {
+            accounts.email.accounts.gmail.himalaya.settings.gmail.auth.token.command = [
+              "ortie"
+              "token"
+              "show"
+              "-a"
+              "gmail"
+            ];
+          }
+        ];
+      };
+  disabledGmailConfigurations = map (module: configuration.extendModules { modules = [ module ]; }) [
+    { accounts.email.accounts.gmail.enable = false; }
+    { accounts.email.accounts.gmail.himalaya.enable = lib.mkForce false; }
+    { programs.himalaya.enable = lib.mkForce false; }
+  ];
+  invalidGmailConfigurations = [
+    (withGmailDefinition (
+      privateConfig.email.accounts.gmail
+      // {
+        gmail = {
+          tokenCommand = [ ];
+        };
+      }
+    ))
+    (withGmailDefinition (privateConfig.email.accounts.gmail // { gmail = { }; }))
+    (withGmailDefinition (
+      privateConfig.email.accounts.gmail // { msgraph.tokenCommand = graphTokenCommand; }
+    ))
+    (withGmailDefinition (privateConfig.email.accounts.gmail // { credential.type = "password"; }))
+    (configuration.extendModules {
+      specialArgs.privateConfig = lib.recursiveUpdate privateConfig {
+        email.accounts.primary.credential.type = null;
+      };
+    })
+  ]
+  ++
+    map
+      (
+        protocol:
+        configuration.extendModules {
+          modules = [
+            {
+              accounts.email.accounts.gmail.${protocol} = lib.mkForce (mkTransport "mixed.example.invalid" 993);
+            }
+          ];
+        }
+      )
+      [
+        "imap"
+        "smtp"
+      ];
+  workDefaultConfiguration = configuration.extendModules {
+    modules = [ { modules.core.email.defaultAccount = "work"; } ];
+  };
+  canonicalGmailConfiguration = configuration.extendModules {
+    modules = [
+      { accounts.email.accounts.gmail.address = lib.mkForce "canonical-gmail@example.invalid"; }
+    ];
+  };
+  explicitGmailMaildirConfiguration = configuration.extendModules {
+    modules = [
+      { accounts.email.accounts.gmail.maildir = lib.mkDefault { path = "explicit-gmail"; }; }
+    ];
+  };
+  alternateAddressConfiguration = configuration.extendModules {
+    specialArgs.privateConfig = lib.recursiveUpdate privateConfig {
+      email.accounts.primary.address = "alternate-primary@example.invalid";
+    };
+  };
+  explicitLoginConfiguration = configuration.extendModules {
+    specialArgs.privateConfig = lib.recursiveUpdate privateConfig {
+      email.accounts.primary = {
+        address = "alternate-primary@example.invalid";
+        userName = "server-login";
+      };
+    };
+  };
 
   cfg = configuration.config;
   canonicalAccounts = builtins.attrNames cfg.accounts.email.accounts;
@@ -319,6 +440,7 @@ in
 assert
   canonicalAccounts == [
     "disabled"
+    "gmail"
     "primary"
     "secondary"
     "work"
@@ -328,6 +450,7 @@ assert
     "primary"
     "secondary"
     "work"
+    "gmail"
   ];
 assert
   emailSecrets == [
@@ -341,6 +464,9 @@ assert !primaryEvaluation.success;
 assert builtins.all (
   c: !(builtins.tryEval c.activationPackage.drvPath).success
 ) invalidGraphConfigurations;
+assert builtins.all (
+  c: !(builtins.tryEval c.activationPackage.drvPath).success
+) invalidGmailConfigurations;
 assert approvedClient.client-id == "approved-client";
 assert approvedClient.auto-refresh && builtins.elem "offline_access" approvedClient.scopes;
 assert lib.hasSuffix "/approved-client" (lib.last approvedClient.storage.read.command);
@@ -349,14 +475,45 @@ assert !(withoutGraphConfiguration.config.xdg.configFile ? "ortie/config.toml");
 assert
   overrideGraphConfiguration.config.accounts.email.accounts.work.himalaya.settings.msgraph.auth.token.command
   == graphTokenCommand;
-assert ortieGraphConfiguration.config.xdg.configFile ? "ortie/config.toml";
-assert !(overrideGraphConfiguration.config.xdg.configFile ? "ortie/config.toml");
+assert ortieGraphConfiguration.config.modules.programs.ortie.settings.accounts ? "msgraph";
+assert !(overrideGraphConfiguration.config.modules.programs.ortie.settings.accounts ? "msgraph");
 assert builtins.all (
-  c: !(c.config.xdg.configFile ? "ortie/config.toml")
+  c: !(c.config.modules.programs.ortie.settings.accounts ? "msgraph")
 ) disabledGraphConfigurations;
+assert gmailOrtieConfiguration.config.modules.programs.ortie.settings.accounts ? "gmail";
+assert !(gmailExternalConfiguration.config.modules.programs.ortie.settings.accounts ? "gmail");
+assert builtins.all (
+  c: !(c.config.modules.programs.ortie.settings.accounts ? "gmail")
+) disabledGmailConfigurations;
+assert workDefaultConfiguration.config.accounts.email.accounts.work.primary;
+assert !workDefaultConfiguration.config.accounts.email.accounts.gmail.primary;
+assert !workDefaultConfiguration.config.accounts.email.accounts.primary.primary;
+assert
+  canonicalGmailConfiguration.config.modules.programs.ortie.settings.accounts.gmail.extras.login_hint
+  == "canonical-gmail@example.invalid";
+assert lib.hasInfix "/canonical-gmail@example.invalid/" (
+  lib.last canonicalGmailConfiguration.config.modules.programs.ortie.settings.accounts.gmail.storage.read.command
+);
+assert
+  lib.last cfg.modules.programs.ortie.settings.accounts.gmail.storage.read.command
+  != lib.last cfg.modules.programs.ortie.settings.accounts.msgraph.storage.read.command;
+assert
+  explicitGmailMaildirConfiguration.config.accounts.email.accounts.gmail.maildir.path
+  == "explicit-gmail";
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;
+    workDefaultConfig = workDefaultConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    gmailExternalConfig =
+      gmailExternalConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    gmailMaildirConfig =
+      explicitGmailMaildirConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    alternateAddressConfig =
+      alternateAddressConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    explicitLoginConfig =
+      explicitLoginConfiguration.config.xdg.configFile."himalaya/config.toml".source;
+    canonicalGmailConfig =
+      canonicalGmailConfiguration.config.xdg.configFile."himalaya/config.toml".source;
     credentialConfig = credentialConfiguration.config.xdg.configFile."himalaya/config.toml".source;
     overrideCredentialConfig =
       overrideCredentialConfiguration.config.xdg.configFile."himalaya/config.toml".source;
@@ -370,7 +527,7 @@ pkgs.runCommandLocal "check-email-accounts"
   }
   ''
     himalaya -c "$himalayaConfig" --json account list >/dev/null
-    python - "$himalayaConfig" "$smtpOnlyConfig" "$explicitMaildirConfig" <<'PY'
+    python - "$himalayaConfig" "$smtpOnlyConfig" "$explicitMaildirConfig" "$workDefaultConfig" "$gmailExternalConfig" "$gmailMaildirConfig" "$alternateAddressConfig" "$explicitLoginConfig" "$canonicalGmailConfig" <<'PY'
     import json
     import subprocess
     import sys
@@ -384,7 +541,7 @@ pkgs.runCommandLocal "check-email-accounts"
         "datetime-local-tz": True,
         "page-size": 50,
     }
-    assert set(config["accounts"]) == {"primary", "secondary", "work"}
+    assert set(config["accounts"]) == {"primary", "secondary", "work", "gmail"}
 
     primary = config["accounts"]["primary"]
     assert primary["default"] is True
@@ -445,6 +602,31 @@ pkgs.runCommandLocal "check-email-accounts"
     assert "imap" not in work
     assert "smtp" not in work
     assert "maildir" not in work
+    gmail = config["accounts"]["gmail"]
+    assert gmail["email"] == "email-test-gmail@example.invalid"
+    assert gmail["email"] != primary["email"]
+    assert gmail["default"] is False
+    assert gmail["mailbox"]["alias"] == {"inbox": "INBOX", "sent": "SENT", "drafts": "DRAFT", "trash": "TRASH"}
+    assert gmail["gmail"]["user-id"] == "me"
+    assert gmail["gmail"]["auth"]["token"]["command"] == ["ortie", "token", "show", "-a", "gmail"]
+    assert not any(backend in gmail for backend in ("imap", "smtp", "maildir"))
+    with open(sys.argv[4], "rb") as handle:
+        work_config = tomllib.load(handle)
+    assert {name for name, account in work_config["accounts"].items() if account.get("default")} == {"work"}
+    assert work_config["accounts"]["gmail"]["default"] is False
+    with open(sys.argv[5], "rb") as handle:
+        external = tomllib.load(handle)["accounts"]["gmail"]["gmail"]["auth"]["token"]["command"]
+    assert len(external) == 3 and external[1:] == ["%s", "graph token with spaces $HOME;literal"]
+    native_report = json.loads(subprocess.check_output(["himalaya", "-c", sys.argv[6], "--json", "account", "list"], text=True))
+    native_account = next(account for account in native_report["accounts"] if account["name"] == "gmail")
+    assert set(native_account["backends"]) == {"gmail", "maildir"}
+    for path, login in [(sys.argv[7], "alternate-primary@example.invalid"), (sys.argv[8], "server-login")]:
+        with open(path, "rb") as handle:
+            account = tomllib.load(handle)["accounts"]["primary"]
+        assert account["email"] == "alternate-primary@example.invalid"
+        assert all(account[protocol]["sasl"]["login"]["username"] == login for protocol in ("imap", "smtp"))
+    with open(sys.argv[9], "rb") as handle:
+        assert tomllib.load(handle)["accounts"]["gmail"]["email"] == "canonical-gmail@example.invalid"
 
     for path, expected in [
         (sys.argv[2], {"smtp"}),

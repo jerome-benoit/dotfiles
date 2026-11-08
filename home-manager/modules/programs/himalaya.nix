@@ -47,26 +47,43 @@ in
                   sasl.login.password.command = lib.mkOptionDefault account.passwordCommand;
                 })
             )
-            ++ lib.optional (enabled && email.definitions.${name}.msgraph != null) (
-              let
-                msgraph = email.definitions.${name}.msgraph;
-              in
-              {
-                msgraph = {
-                  "user-id" = msgraph.userId;
-                  auth.token.command = lib.mkOptionDefault msgraph.tokenCommand;
-                };
-              }
-            )
+            ++
+              map
+                (
+                  backend:
+                  let
+                    api = email.definitions.${name}.${backend};
+                  in
+                  {
+                    ${backend} = {
+                      "user-id" = api.userId;
+                      auth.token.command = lib.mkOptionDefault api.tokenCommand;
+                    };
+                  }
+                )
+                (
+                  lib.optionals enabled (
+                    builtins.filter (backend: email.definitions.${name}.${backend} != null) [
+                      "gmail"
+                      "msgraph"
+                    ]
+                  )
+                )
           );
         };
         # Override only the implicit Maildir (1500), below user defaults (1000).
-        # Graph-only accounts have no local storage, so they get no Maildir.
+        # Native API accounts need no implicit Maildir; explicit user storage wins.
         maildir = lib.mkIf (
           enabled
           && account.imap == null
           && account.jmap == null
-          && (account.smtp != null || email.definitions.${name}.msgraph != null)
+          && (
+            account.smtp != null
+            || builtins.any (backend: email.definitions.${name}.${backend} != null) [
+              "gmail"
+              "msgraph"
+            ]
+          )
         ) (lib.mkOverride 1490 null);
       }
     );

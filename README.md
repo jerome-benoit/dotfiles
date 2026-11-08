@@ -51,16 +51,23 @@ Uncatchable termination or machine failure may leave plaintext behind.
 
 ### Email
 
-#### Microsoft 365 (Exchange Online)
+Account preference order: **work** — `work`, `piment-noir`, `gmail`; **personal** — `piment-noir`, `gmail`, `work`. The first account is the default.
 
-The `work` account uses Himalaya's Microsoft Graph backend with OAuth 2.0 tokens supplied by Ortie, instead of IMAP/SMTP.
+| Account | Service | Backend | Authentication |
+| --- | --- | --- | --- |
+| `piment-noir` | OVHcloud Mail | IMAP/SMTP over TLS | Password (SOPS) |
+| `work` | Microsoft 365 (Exchange Online) | Microsoft Graph | OAuth 2.0 (Ortie) |
+| `gmail` | Gmail | Gmail API | OAuth 2.0 (Ortie) |
+
+After Home Manager activation:
 
 ```bash
-ortie auth get -a msgraph          # Authorize after Home Manager activation
-himalaya envelope list -a work    # Read the work mailbox
+ortie auth get -a msgraph          # Authorize Microsoft 365
+ortie auth get -a gmail            # Authorize Gmail
+himalaya envelope list -a gmail   # Select a mailbox: gmail, work or piment-noir
 ```
 
-Tokens are stored in the system keyring and refreshed automatically. The keyring must be unlocked; tenant policy may require administrator consent or an approved OAuth client.
+Tokens use the unlocked system keyring and refresh on demand. The Google project must enable Gmail API; in Testing, Gmail refresh tokens expire after seven days. Microsoft tenant policy may require administrator consent.
 
 ### GPG keypair
 

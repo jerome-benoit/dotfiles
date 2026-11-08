@@ -14,6 +14,8 @@ let
     {
       name,
       email,
+      defaultAccount,
+      accountOrder,
       signature,
       theme,
       sshSettings ? { },
@@ -46,6 +48,15 @@ let
               ssh.settings = lib.mkIf sshEnabled sshSettings;
             };
 
+            modules.core.email = lib.mkIf config.modules.core.email.enable {
+              defaultAccount = lib.mkForce defaultAccount;
+              selectedAccounts = lib.mkDefault (
+                builtins.filter (
+                  account: builtins.elem account config.modules.core.email.selectedAccounts
+                ) accountOrder
+                ++ lib.subtractLists accountOrder config.modules.core.email.selectedAccounts
+              );
+            };
             modules.themes.active = lib.mkForce theme;
           }
           sopsOverrides
@@ -73,6 +84,12 @@ in
       work = mkSpecialisation {
         name = "work";
         email = constants.work.email;
+        defaultAccount = "work";
+        accountOrder = [
+          "work"
+          "piment-noir"
+          "gmail"
+        ];
         signature = ''
           ${constants.identity.fullName} - ${constants.work.jobTitle}
           ${constants.work.employer}
@@ -91,6 +108,12 @@ in
       personal = mkSpecialisation {
         name = "personal";
         email = constants.personal.email;
+        defaultAccount = "piment-noir";
+        accountOrder = [
+          "piment-noir"
+          "gmail"
+          "work"
+        ];
         signature = ''
           ${constants.identity.fullName} aka ${constants.identity.username}
           Piment Noir - https://${constants.personal.domain}
