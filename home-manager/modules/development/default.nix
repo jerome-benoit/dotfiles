@@ -1,6 +1,5 @@
 {
   imports = [
-    ./agtx.nix
     ./aoe.nix
     ./bun.nix
     ./caveman.nix

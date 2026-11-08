@@ -24,22 +24,6 @@
         "type": "github"
       }
     },
-    "agtx": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1793700739,
-        "narHash": "sha256-oY4J9C7tF6fMZ2JQE4MFFXhuV+94oAszR6ak9oRvrgk=",
-        "owner": "fynnfluegge",
-        "repo": "agtx",
-        "rev": "57acf5acace3263017f3f9426e9494ef48e6eec7",
-        "type": "github"
-      },
-      "original": {
-        "owner": "fynnfluegge",
-        "repo": "agtx",
-        "type": "github"
-      }
-    },
     "caveman": {
       "flake": false,
       "locked": {
@@ -419,7 +403,6 @@
     "root": {
       "inputs": {
         "agent-of-empires": "agent-of-empires",
-        "agtx": "agtx",
         "caveman": "caveman",
         "colibri": "colibri",
         "flake-parts": "flake-parts",

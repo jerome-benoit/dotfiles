@@ -23,7 +23,6 @@ let
     };
 
     development = {
-      agtx = true;
       aoe = {
         enable = true;
         enableWeb = true;
@@ -103,7 +102,6 @@ let
     };
 
     development = {
-      agtx = false;
       aoe = {
         enable = false;
         enableWeb = false;
