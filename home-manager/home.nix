@@ -56,7 +56,6 @@ in
     };
 
     development = {
-      agtx.enable = profileModules.development.agtx;
       aoe = {
         enable = profileModules.development.aoe.enable;
         enableWeb = profileModules.development.aoe.enableWeb;

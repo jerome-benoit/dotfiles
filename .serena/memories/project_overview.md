@@ -25,7 +25,6 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 | `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                                                                  |
 | `hermes-agent`            | `github:NousResearch/hermes-agent`          | Hermes Agent (upstream), follows nixpkgs + flake-parts + Home Manager + pyproject-nix + uv2nix + pyproject-build-systems |
 | `qmd`                     | `github:tobi/qmd`                           | QMD CLI, follows nixpkgs + flake-utils                                                                                   |
-| `agtx`                    | `github:fynnfluegge/agtx`                   | Agtx terminal agent (non-flake)                                                                                          |
 | `flake-utils`             | `github:numtide/flake-utils`                | Flake utilities                                                                                                          |
 | `flake-parts`             | `github:hercules-ci/flake-parts`            | Flake composition                                                                                                        |
 | `pyproject-nix`           | `github:pyproject-nix/pyproject.nix`        | Python packaging for Nix, follows nixpkgs                                                                                |
@@ -115,7 +114,6 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 │       │   ├── opencode.nix     # OpenCode AI assistant (TUI/CLI + Electron desktop)
 │       │   ├── openspec.nix     # OpenSpec CLI
 │       │   ├── hermes-agent.nix # Hermes Agent (gateway + dashboard services)
-│       │   ├── agtx.nix         # Agtx terminal agent
 │       │   ├── pi.nix           # Pi coding agent
 │       │   └── qmd.nix          # QMD CLI
 │       ├── programs/            # Applications (9 files)

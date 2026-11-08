@@ -243,11 +243,6 @@ Agent of Empires session manager:
 
 - The selected packaged AoE registry detects and launches Nixpkgs' `cursor-agent`; no generic `agent` alias is installed.
 
-### agtx.nix
-
-- Runtime PATH includes the platform's `ps` and `kill`, plus tmux, Git and GitHub CLI.
-- Tests include DB, MCP and mock-based coverage through `test-mocks`; execution is Linux-only, with Darwin unvalidated.
-
 ### pi.nix
 
 - Options: `enable`, `package`

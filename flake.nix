@@ -26,10 +26,6 @@
         flake-parts.follows = "flake-parts";
       };
     };
-    agtx = {
-      url = "github:fynnfluegge/agtx";
-      flake = false;
-    };
     caveman = {
       url = "github:JuliusBrussee/caveman/main";
       flake = false;
