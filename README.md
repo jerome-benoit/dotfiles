@@ -53,11 +53,11 @@ Uncatchable termination or machine failure may leave plaintext behind.
 
 Account preference order: **work** — `work`, `piment-noir`, `gmail`; **personal** — `piment-noir`, `gmail`. The first account is the default.
 
-| Account | Service | Backend | Authentication |
-| --- | --- | --- | --- |
-| `piment-noir` | OVHcloud Mail | IMAP/SMTP over TLS | Password (SOPS) |
-| `work` | Microsoft 365 (Exchange Online) | Microsoft Graph | OAuth 2.0 (Ortie) |
-| `gmail` | Gmail | Gmail API | OAuth 2.0 (Ortie) |
+| Account       | Service                         | Backend            | Authentication    |
+| ------------- | ------------------------------- | ------------------ | ----------------- |
+| `piment-noir` | OVHcloud Mail                   | IMAP/SMTP over TLS | Password (SOPS)   |
+| `work`        | Microsoft 365 (Exchange Online) | Microsoft Graph    | OAuth 2.0 (Ortie) |
+| `gmail`       | Gmail                           | Gmail API          | OAuth 2.0 (Ortie) |
 
 After Home Manager activation:
 
