@@ -16,6 +16,7 @@ let
       email,
       defaultAccount,
       accountOrder,
+      excludedAccounts ? [ ],
       signature,
       theme,
       sshSettings ? { },
@@ -50,11 +51,13 @@ let
 
             modules.core.email = lib.mkIf config.modules.core.email.enable {
               defaultAccount = lib.mkForce defaultAccount;
-              selectedAccounts = lib.mkDefault (
-                builtins.filter (
-                  account: builtins.elem account config.modules.core.email.selectedAccounts
-                ) accountOrder
-                ++ lib.subtractLists accountOrder config.modules.core.email.selectedAccounts
+              selectedAccounts = lib.mkForce (
+                builtins.filter (account: !(builtins.elem account excludedAccounts)) (
+                  builtins.filter (
+                    account: builtins.elem account config.modules.core.email.selectedAccounts
+                  ) accountOrder
+                  ++ lib.subtractLists accountOrder config.modules.core.email.selectedAccounts
+                )
               );
             };
             modules.themes.active = lib.mkForce theme;
@@ -112,8 +115,8 @@ in
         accountOrder = [
           "piment-noir"
           "gmail"
-          "work"
         ];
+        excludedAccounts = [ "work" ];
         signature = ''
           ${constants.identity.fullName} aka ${constants.identity.username}
           Piment Noir - https://${constants.personal.domain}

@@ -2,11 +2,29 @@
   home-manager,
   pkgs,
   sops-nix,
+  self,
 }:
 
 let
   lib = pkgs.lib;
   constants = import ../constants.nix;
+  specialisationContracts =
+    map
+      (
+        home:
+        let
+          config = home.config;
+        in
+        {
+          personal = config.specialisation.personal.configuration;
+          work = config.specialisation.work.configuration;
+        }
+      )
+      (
+        builtins.filter (home: home.config.modules.core.email.enable) (
+          builtins.attrValues self.homeConfigurations
+        )
+      );
 
   mkTransport = host: port: {
     inherit host port;
@@ -500,6 +518,23 @@ assert
 assert
   explicitGmailMaildirConfiguration.config.accounts.email.accounts.gmail.maildir.path
   == "explicit-gmail";
+assert specialisationContracts != [ ];
+assert builtins.all (
+  specs:
+  !(specs.personal.accounts.email.accounts ? work)
+  && !(builtins.elem "work" specs.personal.modules.core.email.selectedAccounts)
+  && specs.personal.accounts.email.accounts.piment-noir.primary
+  && (specs.personal.accounts.email.accounts ? gmail)
+  && !(specs.personal.modules.programs.ortie.settings.accounts ? msgraph)
+  && (specs.personal.modules.programs.ortie.settings.accounts ? gmail)
+  && specs.work.accounts.email.accounts.work.primary
+  && (specs.work.accounts.email.accounts ? piment-noir)
+  && (specs.work.accounts.email.accounts ? gmail)
+  && (specs.work.modules.programs.ortie.settings.accounts ? msgraph)
+  &&
+    specs.personal.modules.programs.ortie.settings.accounts.gmail.storage.read.command
+    == specs.work.modules.programs.ortie.settings.accounts.gmail.storage.read.command
+) specialisationContracts;
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;

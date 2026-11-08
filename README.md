@@ -51,7 +51,7 @@ Uncatchable termination or machine failure may leave plaintext behind.
 
 ### Email
 
-Account preference order: **work** — `work`, `piment-noir`, `gmail`; **personal** — `piment-noir`, `gmail`, `work`. The first account is the default.
+Account preference order: **work** — `work`, `piment-noir`, `gmail`; **personal** — `piment-noir`, `gmail`. The first account is the default.
 
 | Account | Service | Backend | Authentication |
 | --- | --- | --- | --- |
@@ -62,9 +62,9 @@ Account preference order: **work** — `work`, `piment-noir`, `gmail`; **persona
 After Home Manager activation:
 
 ```bash
-ortie auth get -a msgraph          # Authorize Microsoft 365
+ortie auth get -a msgraph          # Authorize Microsoft 365 (work only)
 ortie auth get -a gmail            # Authorize Gmail
-himalaya envelope list -a gmail   # Select a mailbox: gmail, work or piment-noir
+himalaya envelope list -a gmail   # List Gmail messages (both specs)
 ```
 
 Tokens use the unlocked system keyring and refresh on demand. The Google project must enable Gmail API; in Testing, Gmail refresh tokens expire after seven days. Microsoft tenant policy may require administrator consent.
