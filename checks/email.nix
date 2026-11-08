@@ -46,6 +46,7 @@ let
       jobTitle = "Test";
       gheHostname = "ghe.example.invalid";
       username = "email-test-work";
+      tenantId = "00000000-0000-0000-0000-000000000000";
     };
     hosts.server = "server.example.invalid";
     email = {
@@ -90,6 +91,25 @@ let
           drafts = "Drafts";
           trash = "Trash";
         };
+        work = {
+          identity = "work";
+          folders = {
+            inbox = "INBOX";
+            sent = "Sent Items";
+            drafts = "Drafts";
+            trash = "Deleted Items";
+          };
+          msgraph = {
+            userId = "me";
+            tokenCommand = [
+              "ortie"
+              "token"
+              "show"
+              "-a"
+              "msgraph"
+            ];
+          };
+        };
       };
     };
   };
@@ -104,6 +124,7 @@ let
       ../home-manager/modules/core/constants.nix
       ../home-manager/modules/core/email.nix
       ../home-manager/modules/programs/himalaya.nix
+      ../home-manager/modules/programs/ortie.nix
       {
         home = {
           username = "email-test";
@@ -118,9 +139,11 @@ let
               "primary"
               "secondary"
               "disabled"
+              "work"
             ];
           };
           programs.himalaya.enable = true;
+          programs.ortie.enable = true;
         };
 
         programs.himalaya.settings.downloads-dir = "/home/email-test/Downloads";
@@ -198,6 +221,55 @@ let
   explicitMaildirConfiguration = smtpOnlyConfiguration.extendModules {
     modules = [ { accounts.email.accounts.primary.maildir = lib.mkDefault { path = "explicit"; }; } ];
   };
+  withGraphDefinition =
+    definition:
+    configuration.extendModules {
+      specialArgs.privateConfig = privateConfig // {
+        email = privateConfig.email // {
+          accounts = privateConfig.email.accounts // {
+            work = definition;
+          };
+        };
+      };
+    };
+  invalidGraphConfigurations = [
+    (withGraphDefinition (
+      privateConfig.email.accounts.work
+      // {
+        msgraph = {
+          tokenCommand = [ ];
+        };
+      }
+    ))
+    (withGraphDefinition (privateConfig.email.accounts.work // { msgraph = { }; }))
+  ]
+  ++
+    lib.concatMap
+      (protocol: [
+        (withGraphDefinition (
+          privateConfig.email.accounts.work
+          // {
+            ${protocol} = mkTransport "mixed.example.invalid" 993;
+          }
+        ))
+        (configuration.extendModules {
+          modules = [
+            { accounts.email.accounts.work.${protocol} = mkTransport "mixed.example.invalid" 993; }
+          ];
+        })
+      ])
+      [
+        "imap"
+        "smtp"
+      ];
+  approvedClientConfiguration = configuration.extendModules {
+    modules = [ { modules.programs.ortie.settings.accounts.msgraph.client-id = "approved-client"; } ];
+  };
+  approvedClient =
+    approvedClientConfiguration.config.modules.programs.ortie.settings.accounts.msgraph;
+  withoutGraphConfiguration = configuration.extendModules {
+    modules = [ { modules.core.email.selectedAccounts = lib.mkForce [ "primary" ]; } ];
+  };
 
   cfg = configuration.config;
   canonicalAccounts = builtins.attrNames cfg.accounts.email.accounts;
@@ -213,11 +285,13 @@ assert
     "disabled"
     "primary"
     "secondary"
+    "work"
   ];
 assert
   cfg.modules.core.email.activeAccounts == [
     "primary"
     "secondary"
+    "work"
   ];
 assert
   emailSecrets == [
@@ -228,6 +302,14 @@ assert !insecureEvaluation.success;
 assert !noTransportEvaluation.success;
 assert !authenticationEvaluation.success;
 assert !primaryEvaluation.success;
+assert builtins.all (
+  c: !(builtins.tryEval c.activationPackage.drvPath).success
+) invalidGraphConfigurations;
+assert approvedClient.client-id == "approved-client";
+assert approvedClient.auto-refresh && builtins.elem "offline_access" approvedClient.scopes;
+assert lib.hasSuffix "/approved-client" (lib.last approvedClient.storage.read.command);
+assert lib.hasSuffix "/approved-client" (lib.last approvedClient.storage.write.command);
+assert !(withoutGraphConfiguration.config.xdg.configFile ? "ortie/config.toml");
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;
@@ -258,7 +340,7 @@ pkgs.runCommandLocal "check-email-accounts"
         "datetime-local-tz": True,
         "page-size": 50,
     }
-    assert set(config["accounts"]) == {"primary", "secondary"}
+    assert set(config["accounts"]) == {"primary", "secondary", "work"}
 
     primary = config["accounts"]["primary"]
     assert primary["default"] is True
@@ -291,6 +373,34 @@ pkgs.runCommandLocal "check-email-accounts"
         "/home/email-test/.config/sops-nix/secrets/email-secondary-password",
     ]
     assert "smtp" not in secondary
+
+    work = config["accounts"]["work"]
+    assert work["default"] is False
+    assert work["email"] == "email-test-work@example.invalid"
+    assert work["display-name"] == "Email Test"
+    assert work["mailbox"]["alias"] == {
+        "inbox": "INBOX",
+        "sent": "Sent Items",
+        "drafts": "Drafts",
+        "trash": "Deleted Items",
+    }
+    assert work["msgraph"] == {
+        "user-id": "me",
+        "auth": {
+            "token": {
+                "command": [
+                    "ortie",
+                    "token",
+                    "show",
+                    "-a",
+                    "msgraph",
+                ],
+            },
+        },
+    }
+    assert "imap" not in work
+    assert "smtp" not in work
+    assert "maildir" not in work
 
     for path, expected in [
         (sys.argv[2], {"smtp"}),

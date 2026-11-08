@@ -26,6 +26,10 @@ let
     };
     email = {
       defaultAccount = "piment-noir";
+      selectedAccounts = [
+        "piment-noir"
+        "work"
+      ];
       accounts.piment-noir = {
         identity = "personal";
         aliases = [ "secondary@placeholder.invalid" ];
@@ -55,6 +59,25 @@ let
         };
         credential.type = "password";
       };
+      accounts.work = {
+        identity = "work";
+        folders = {
+          inbox = "INBOX";
+          sent = "Sent Items";
+          drafts = "Drafts";
+          trash = "Deleted Items";
+        };
+        msgraph = {
+          userId = "me";
+          tokenCommand = [
+            "ortie"
+            "token"
+            "show"
+            "-a"
+            "msgraph"
+          ];
+        };
+      };
     };
     work = {
       email = "ci@placeholder.invalid";
@@ -62,6 +85,7 @@ let
       jobTitle = "ci-placeholder";
       gheHostname = "ghe.ci-placeholder.invalid";
       username = "ci-user-work";
+      tenantId = "00000000-0000-0000-0000-000000000000";
     };
     hosts = {
       server = "server.ci-placeholder.invalid";

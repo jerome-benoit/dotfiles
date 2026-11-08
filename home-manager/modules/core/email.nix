@@ -94,9 +94,29 @@ let
         default = null;
         description = "SMTP transport settings.";
       };
+      msgraph = lib.mkOption {
+        type = lib.types.nullOr (
+          lib.types.submodule {
+            options = {
+              userId = lib.mkOption {
+                type = lib.types.str;
+                default = "me";
+                description = "Microsoft Graph user identifier for the account.";
+              };
+              tokenCommand = lib.mkOption {
+                type = lib.types.nonEmptyListOf lib.types.str;
+                description = "Command producing a short-lived bearer token.";
+              };
+            };
+          }
+        );
+        default = null;
+        description = "Microsoft Graph transport settings, or null when absent.";
+      };
       credential.type = lib.mkOption {
-        type = lib.types.enum [ "password" ];
-        description = "Credential type materialized through sops-nix.";
+        type = lib.types.nullOr (lib.types.enum [ "password" ]);
+        default = null;
+        description = "Credential type materialized through sops-nix, or null for token-based accounts.";
       };
     };
   };
@@ -141,6 +161,14 @@ let
   invalidPrimaryAccounts = builtins.filter (
     name: canonicalActiveAccounts.${name}.primary != (name == cfg.defaultAccount)
   ) cfg.activeAccounts;
+  msgraphTransportMixes = builtins.filter (
+    name:
+    let
+      definition = activeDefinitions.${name};
+      account = canonicalActiveAccounts.${name};
+    in
+    definition.msgraph != null && (account.imap != null || account.smtp != null)
+  ) cfg.activeAccounts;
   mkSecretName = name: "email-${name}-password";
 
   mkAccount =
@@ -159,10 +187,14 @@ let
         smtp
         ;
       userName = if definition.userName == null then identity.address else definition.userName;
-      passwordCommand = [
-        "cat"
-        config.sops.secrets.${secretName}.path
-      ];
+      passwordCommand =
+        if definition.msgraph != null then
+          null
+        else
+          [
+            "cat"
+            config.sops.secrets.${secretName}.path
+          ];
     };
 in
 {
@@ -177,7 +209,7 @@ in
 
     selectedAccounts = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ cfg.defaultAccount ];
+      default = privateConfig.email.selectedAccounts or [ cfg.defaultAccount ];
       description = "Email account definitions selected for this profile.";
     };
     activeAccounts = lib.mkOption {
@@ -226,10 +258,21 @@ in
         message = "email: invalid account names: ${lib.concatStringsSep ", " invalidNames}";
       }
       {
-        assertion = builtins.all (account: account.imap != null || account.smtp != null) (
-          builtins.attrValues canonicalActiveAccounts
-        );
+        assertion = builtins.all (
+          name:
+          let
+            account = canonicalActiveAccounts.${name};
+            definition = activeDefinitions.${name};
+          in
+          account.imap != null || account.smtp != null || definition.msgraph != null
+        ) cfg.activeAccounts;
         message = "email: every active account needs at least one mail transport";
+      }
+      {
+        assertion = msgraphTransportMixes == [ ];
+        message =
+          "email: Microsoft Graph accounts cannot mix with IMAP/SMTP transports: "
+          + lib.concatStringsSep ", " msgraphTransportMixes;
       }
       {
         assertion = insecureTransports == [ ];
@@ -258,6 +301,6 @@ in
         key = "email/accounts/${name}/password";
         mode = "0600";
       }
-    ) activeDefinitions;
+    ) (lib.filterAttrs (_: definition: definition.msgraph == null) activeDefinitions);
   };
 }

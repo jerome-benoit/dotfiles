@@ -69,6 +69,7 @@ let
       glow = true;
       himalaya = true;
       lazydocker = true;
+      ortie = true;
       ssh = true;
       sshm = true;
       sway = true;
@@ -148,6 +149,7 @@ let
       glow = true;
       himalaya = false;
       lazydocker = true;
+      ortie = true;
       ssh = true;
       sshm = true;
       sway = false;

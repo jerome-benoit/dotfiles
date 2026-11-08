@@ -122,6 +122,12 @@ in
         description = "Work machine username override";
         readOnly = true;
       };
+      tenantId = lib.mkOption {
+        type = lib.types.str;
+        default = privateConfig.work.tenantId;
+        description = "M365 Entra tenant identifier for the Microsoft Graph broker";
+        readOnly = true;
+      };
     };
     hosts = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;

@@ -6,6 +6,7 @@
     ./glow.nix
     ./himalaya.nix
     ./lazydocker.nix
+    ./ortie.nix
     ./ssh.nix
     ./sshm.nix
     ./sway.nix

@@ -49,6 +49,31 @@ Interactive SOPS edits replace existing ciphertext only after successful encrypt
 Edits use private temporary files, removed after the editor and its supervised processes stop.
 Uncatchable termination or machine failure may leave plaintext behind.
 
+### Email (Microsoft Graph)
+
+Active Graph accounts using `ortie token show -a msgraph` receive a managed
+`~/.config/ortie/config.toml`. Activate this configuration before authorizing:
+
+```bash
+make switch SPEC=work
+ortie auth get -a msgraph          # Interactive browser sign-in and consent
+himalaya envelope list -a work    # Verify actual mailbox access
+```
+
+`auth get` acquires and stores the first access/refresh token pair. `token show`
+reads it and refreshes expired access tokens; `token get` is only an alias of
+`token show`, not an authorization command. Activation never initiates OAuth.
+
+Tokens live in macOS Keychain or Linux Secret Service, not SOPS or the Nix store.
+Linux enables GNOME Keyring unless pass-secret-service is configured; the desktop
+session and keyring must be available and unlocked. Storage is isolated by tenant
+and client ID. Reauthorize if the tenant revokes consent or the refresh token.
+
+The default client is the public Microsoft Graph PowerShell application.
+Tenant policy may require administrator consent or an approved application;
+override `modules.programs.ortie.settings.accounts.msgraph.client-id` and
+`endpoints.redirection` to match that application's registration.
+
 ### GPG keypair
 
 Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where the configured SOPS age identity is present.
