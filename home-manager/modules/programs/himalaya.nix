@@ -54,7 +54,7 @@ in
               {
                 msgraph = {
                   "user-id" = msgraph.userId;
-                  auth.token.command = msgraph.tokenCommand;
+                  auth.token.command = lib.mkOptionDefault msgraph.tokenCommand;
                 };
               }
             )

@@ -215,6 +215,18 @@ let
       }
     ];
   };
+  graphTokenCommand = [
+    "${pkgs.coreutils}/bin/printf"
+    "%s"
+    "graph token with spaces $HOME;literal"
+  ];
+  overrideGraphConfiguration = configuration.extendModules {
+    modules = [
+      {
+        accounts.email.accounts.work.himalaya.settings.msgraph.auth.token.command = graphTokenCommand;
+      }
+    ];
+  };
   smtpOnlyConfiguration = configuration.extendModules {
     modules = [ { accounts.email.accounts.primary.imap = lib.mkForce null; } ];
   };
@@ -312,6 +324,9 @@ assert approvedClient.auto-refresh && builtins.elem "offline_access" approvedCli
 assert lib.hasSuffix "/approved-client" (lib.last approvedClient.storage.read.command);
 assert lib.hasSuffix "/approved-client" (lib.last approvedClient.storage.write.command);
 assert !(withoutGraphConfiguration.config.xdg.configFile ? "ortie/config.toml");
+assert
+  overrideGraphConfiguration.config.accounts.email.accounts.work.himalaya.settings.msgraph.auth.token.command
+  == graphTokenCommand;
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;

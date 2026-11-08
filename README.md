@@ -77,6 +77,10 @@ Tenant policy may require administrator consent or an approved application;
 override `modules.programs.ortie.settings.accounts.msgraph.client-id` and
 `endpoints.redirection` to match that application's registration.
 
+To replace the Graph token provider, set
+`accounts.email.accounts.<name>.himalaya.settings.msgraph.auth.token.command`.
+The supplied command replaces the projected default without concatenating argv.
+
 ### GPG keypair
 
 Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where the configured SOPS age identity is present.
