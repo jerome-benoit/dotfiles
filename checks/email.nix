@@ -13,7 +13,29 @@ let
       (
         home:
         let
-          config = home.config;
+          config =
+            (home.extendModules {
+              modules = [
+                {
+                  modules.programs.ortie.settings.accounts.msgraph.client-id = "approved-client";
+                  accounts.email.accounts.work = {
+                    enable = true;
+                    address = lib.mkForce "corporate@example.invalid";
+                    himalaya = {
+                      enable = true;
+                      settings.email = lib.mkForce "corporate@example.invalid";
+                      settings.msgraph.auth.token.command = [
+                        "ortie"
+                        "token"
+                        "show"
+                        "-a"
+                        "msgraph"
+                      ];
+                    };
+                  };
+                }
+              ];
+            }).config;
         in
         {
           personal = config.specialisation.personal.configuration;
@@ -25,6 +47,32 @@ let
           builtins.attrValues self.homeConfigurations
         )
       );
+  inactiveBrokerConfigurations =
+    map (module: approvedClientConfiguration.extendModules { modules = [ module ]; })
+      [
+        { accounts.email.accounts.work.enable = false; }
+        {
+          modules.core.email.selectedAccounts = lib.mkForce [
+            "primary"
+            "gmail"
+          ];
+        }
+        { accounts.email.accounts.work.himalaya.settings.msgraph.auth.token.command = graphTokenCommand; }
+      ];
+  disabledApprovedConfiguration = approvedClientConfiguration.extendModules {
+    modules = [ { programs.himalaya.enable = lib.mkForce false; } ];
+  };
+  manualBrokerConfiguration = disabledApprovedConfiguration.extendModules {
+    modules = [
+      {
+        modules.programs.ortie.settings.accounts.manual = {
+          client-id = "manual-client";
+          storage.read.command = [ "false" ];
+          storage.write.command = [ "false" ];
+        };
+      }
+    ];
+  };
 
   mkTransport = host: port: {
     inherit host port;
@@ -521,11 +569,10 @@ assert
 assert specialisationContracts != [ ];
 assert builtins.all (
   specs:
-  !(specs.personal.accounts.email.accounts ? work)
+  !specs.personal.accounts.email.accounts.work.enable
   && !(builtins.elem "work" specs.personal.modules.core.email.selectedAccounts)
   && specs.personal.accounts.email.accounts.piment-noir.primary
   && (specs.personal.accounts.email.accounts ? gmail)
-  && !(specs.personal.modules.programs.ortie.settings.accounts ? msgraph)
   && (specs.personal.modules.programs.ortie.settings.accounts ? gmail)
   && specs.work.accounts.email.accounts.work.primary
   && (specs.work.accounts.email.accounts ? piment-noir)
@@ -535,9 +582,14 @@ assert builtins.all (
     specs.personal.modules.programs.ortie.settings.accounts.gmail.storage.read.command
     == specs.work.modules.programs.ortie.settings.accounts.gmail.storage.read.command
 ) specialisationContracts;
+assert !(disabledApprovedConfiguration.config.xdg.configFile ? "ortie/config.toml");
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;
+    brokerConfigs = map (
+      c: c.config.xdg.configFile."ortie/config.toml".source
+    ) inactiveBrokerConfigurations;
+    manualBrokerConfig = manualBrokerConfiguration.config.xdg.configFile."ortie/config.toml".source;
     workDefaultConfig = workDefaultConfiguration.config.xdg.configFile."himalaya/config.toml".source;
     gmailExternalConfig =
       gmailExternalConfiguration.config.xdg.configFile."himalaya/config.toml".source;
@@ -557,11 +609,23 @@ pkgs.runCommandLocal "check-email-accounts"
       explicitMaildirConfiguration.config.xdg.configFile."himalaya/config.toml".source;
     nativeBuildInputs = [
       pkgs.himalaya
+      pkgs.ortie
       pkgs.python3
     ];
   }
   ''
     himalaya -c "$himalayaConfig" --json account list >/dev/null
+    for broker in $brokerConfigs; do
+      ortie -c "$broker" -a gmail --json auth get >/dev/null
+    done
+    python - $brokerConfigs "$manualBrokerConfig" <<'BROKERS'
+    import sys, tomllib
+    for path in sys.argv[1:-1]:
+        with open(path, "rb") as handle:
+            assert set(tomllib.load(handle)["accounts"]) == {"gmail"}
+    with open(sys.argv[-1], "rb") as handle:
+        assert set(tomllib.load(handle)["accounts"]) == {"manual"}
+    BROKERS
     python - "$himalayaConfig" "$smtpOnlyConfig" "$explicitMaildirConfig" "$workDefaultConfig" "$gmailExternalConfig" "$gmailMaildirConfig" "$alternateAddressConfig" "$explicitLoginConfig" "$canonicalGmailConfig" <<'PY'
     import json
     import subprocess

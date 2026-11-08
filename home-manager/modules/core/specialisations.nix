@@ -60,6 +60,11 @@ let
                 )
               );
             };
+            accounts.email.accounts = lib.mkIf config.modules.core.email.enable (
+              lib.genAttrs excludedAccounts (_: {
+                enable = lib.mkForce false;
+              })
+            );
             modules.themes.active = lib.mkForce theme;
           }
           sopsOverrides

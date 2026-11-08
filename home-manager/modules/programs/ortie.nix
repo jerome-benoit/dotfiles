@@ -105,15 +105,23 @@ in
     settings = lib.mkOption {
       type = lib.types.submodule { freeformType = tomlFormat.type; };
       default = { };
-      description = "Ortie configuration; tokens belong in the system keyring, not in settings.";
+      description = "Ortie configuration. gmail/msgraph are managed aliases rendered only for active Himalaya brokers; use other names for standalone accounts.";
     };
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = [ pkgs.ortie ];
-    xdg.configFile = lib.mkIf ((cfg.settings.accounts or { }) != { }) {
-      "ortie/config.toml".source = tomlFormat.generate "ortie.config.toml" cfg.settings;
-    };
+    xdg.configFile =
+      let
+        accounts = lib.filterAttrs (
+          name: _: !(builtins.elem name brokerBackends) || builtins.elem name neededBrokers
+        ) (cfg.settings.accounts or { });
+      in
+      lib.mkIf (accounts != { }) {
+        "ortie/config.toml".source = tomlFormat.generate "ortie.config.toml" (
+          cfg.settings // { inherit accounts; }
+        );
+      };
 
     # Brokers follow the effective native API token commands.
     modules.programs.ortie.settings.accounts = lib.genAttrs neededBrokers mkBroker;
