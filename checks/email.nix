@@ -244,6 +244,28 @@ let
         };
       };
     };
+  ortieGraphConfiguration =
+    (withGraphDefinition (
+      privateConfig.email.accounts.work // { msgraph.tokenCommand = graphTokenCommand; }
+    )).extendModules
+      {
+        modules = [
+          {
+            accounts.email.accounts.work.himalaya.settings.msgraph.auth.token.command = [
+              "ortie"
+              "token"
+              "show"
+              "-a"
+              "msgraph"
+            ];
+          }
+        ];
+      };
+  disabledGraphConfigurations = map (module: configuration.extendModules { modules = [ module ]; }) [
+    { accounts.email.accounts.work.enable = false; }
+    { accounts.email.accounts.work.himalaya.enable = lib.mkForce false; }
+    { programs.himalaya.enable = lib.mkForce false; }
+  ];
   invalidGraphConfigurations = [
     (withGraphDefinition (
       privateConfig.email.accounts.work
@@ -327,6 +349,11 @@ assert !(withoutGraphConfiguration.config.xdg.configFile ? "ortie/config.toml");
 assert
   overrideGraphConfiguration.config.accounts.email.accounts.work.himalaya.settings.msgraph.auth.token.command
   == graphTokenCommand;
+assert ortieGraphConfiguration.config.xdg.configFile ? "ortie/config.toml";
+assert !(overrideGraphConfiguration.config.xdg.configFile ? "ortie/config.toml");
+assert builtins.all (
+  c: !(c.config.xdg.configFile ? "ortie/config.toml")
+) disabledGraphConfigurations;
 pkgs.runCommandLocal "check-email-accounts"
   {
     inherit himalayaConfig;

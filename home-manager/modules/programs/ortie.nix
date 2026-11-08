@@ -14,21 +14,23 @@ let
   tokenStorage = pkgs.writeScript "ortie-token-storage" (
     "#!${python}/bin/python3\n" + builtins.readFile ./ortie-token-storage.py
   );
-  needsGraphBroker = builtins.any (
-    name:
-    let
-      msgraph = email.definitions.${name}.msgraph;
-    in
-    msgraph != null
-    &&
-      msgraph.tokenCommand == [
-        "ortie"
-        "token"
-        "show"
-        "-a"
-        "msgraph"
-      ]
-  ) email.activeAccounts;
+  needsGraphBroker =
+    config.programs.himalaya.enable
+    && builtins.any (
+      name:
+      let
+        account = config.accounts.email.accounts.${name};
+      in
+      account.himalaya.enable
+      &&
+        (account.himalaya.settings.msgraph.auth.token.command or null) == [
+          "ortie"
+          "token"
+          "show"
+          "-a"
+          "msgraph"
+        ]
+    ) email.activeAccounts;
   tenantId = constants.work.tenantId;
   graphAccount = cfg.settings.accounts.msgraph;
   storageAccount = "msgraph/${tenantId}/${graphAccount.client-id}";
