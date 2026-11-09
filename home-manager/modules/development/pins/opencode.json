@@ -1,11 +1,11 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-NaQfv5/jPnCmqn9rpsELhFjeIynVQ9f/HDaBbKnmd4c=",
-    "aarch64-linux": "sha256-SUe6rJDRem2oDSWTLbFZRlaQH2L035fpRBHVKkEqffo=",
-    "aarch64-darwin": "sha256-CKLcVivUE61nb+Fjw9ep5xDXoFEhiA62SvPurn+K2lw="
+    "x86_64-linux": "sha256-Wl6d4wWC1yiTjJUYGaZCoqbnK+IdEfCjBn3n2k9IULc=",
+    "aarch64-linux": "sha256-iv8ZzSTl7f3of23ylEbnz2QNhNuxDUJZSd9QtIvA53U=",
+    "aarch64-darwin": "sha256-JR06UR6EPMFCW8Da+Mfp7m9wLtZwHMrVpGfEOqeFQk8="
   },
   "provenance": {
-    "sourceRevision": "ed0171f08ac4018ae648fcca7315b3d717989d50",
+    "sourceRevision": "617a770aecc757ec79cc08f7727a1d5d3801e210",
     "nixpkgsRevision": "4fe25e12eb9f4c744966dd3de5a05246cf098601",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
