@@ -8,45 +8,64 @@
 let
   lib = pkgs.lib;
   constants = import ../constants.nix;
-  specialisationContracts =
-    map
-      (
-        home:
-        let
-          config =
-            (home.extendModules {
-              modules = [
-                {
-                  modules.programs.ortie.settings.accounts.msgraph.client-id = "approved-client";
-                  accounts.email.accounts.work = {
-                    enable = true;
-                    address = lib.mkForce "corporate@example.invalid";
-                    himalaya = {
-                      enable = true;
-                      settings.email = lib.mkForce "corporate@example.invalid";
-                      settings.msgraph.auth.token.command = [
-                        "ortie"
-                        "token"
-                        "show"
-                        "-a"
-                        "msgraph"
-                      ];
-                    };
-                  };
-                }
-              ];
-            }).config;
-        in
-        {
-          personal = config.specialisation.personal.configuration;
-          work = config.specialisation.work.configuration;
-        }
-      )
-      (
-        builtins.filter (home: home.config.modules.core.email.enable) (
-          builtins.attrValues self.homeConfigurations
-        )
-      );
+  emailHomes = builtins.filter (home: home.config.modules.core.email.enable) (
+    builtins.attrValues self.homeConfigurations
+  );
+  specialisationContracts = map (
+    home:
+    let
+      config =
+        (home.extendModules {
+          modules = [
+            {
+              modules.programs.ortie.settings.accounts.msgraph.client-id = "approved-client";
+              accounts.email.accounts.work = {
+                enable = true;
+                address = lib.mkForce "corporate@example.invalid";
+                himalaya = {
+                  enable = true;
+                  settings.email = lib.mkForce "corporate@example.invalid";
+                  settings.msgraph.auth.token.command = [
+                    "ortie"
+                    "token"
+                    "show"
+                    "-a"
+                    "msgraph"
+                  ];
+                };
+              };
+            }
+          ];
+        }).config;
+    in
+    {
+      personal = config.specialisation.personal.configuration;
+      work = config.specialisation.work.configuration;
+    }
+  ) emailHomes;
+  localEmailContracts = map (
+    home:
+    let
+      child =
+        spec:
+        (home.extendModules {
+          modules = [
+            {
+              modules.core.email.enable = lib.mkForce false;
+              modules.programs.himalaya.enable = lib.mkForce false;
+              specialisation.${spec}.configuration = {
+                modules.core.email.enable = lib.mkOverride 10 true;
+                modules.programs.himalaya.enable = lib.mkOverride 10 true;
+              };
+            }
+          ];
+        }).config.specialisation.${spec}.configuration;
+    in
+    {
+      personal = child "personal";
+      work = child "work";
+    }
+  ) emailHomes;
   inactiveBrokerConfigurations =
     map (module: approvedClientConfiguration.extendModules { modules = [ module ]; })
       [
@@ -582,6 +601,14 @@ assert builtins.all (
     specs.personal.modules.programs.ortie.settings.accounts.gmail.storage.read.command
     == specs.work.modules.programs.ortie.settings.accounts.gmail.storage.read.command
 ) specialisationContracts;
+assert builtins.all (
+  specs:
+  !specs.personal.accounts.email.accounts.work.enable
+  && specs.personal.modules.core.email.defaultAccount == "piment-noir"
+  && !(specs.personal.modules.programs.ortie.settings.accounts ? msgraph)
+  && specs.work.modules.core.email.defaultAccount == "work"
+  && specs.work.accounts.email.accounts.work.primary
+) localEmailContracts;
 assert !(disabledApprovedConfiguration.config.xdg.configFile ? "ortie/config.toml");
 pkgs.runCommandLocal "check-email-accounts"
   {

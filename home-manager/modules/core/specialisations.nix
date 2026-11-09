@@ -7,6 +7,7 @@
 let
   cfg = config.modules.core.specialisations;
   constants = config.modules.core.constants;
+  parentSelectedAccounts = config.modules.core.email.selectedAccounts;
   sshEnabled = config.modules.programs.ssh.enable;
   isZeus = constants.hostname == constants.hosts.zeus;
 
@@ -24,6 +25,7 @@ let
     }:
     {
       configuration =
+        { config, ... }:
         let
           gpgKeyId = constants.identity.gpg.keyId;
           gpgFingerprint = constants.identity.gpg.fingerprint;
@@ -53,10 +55,8 @@ let
               defaultAccount = lib.mkForce defaultAccount;
               selectedAccounts = lib.mkForce (
                 builtins.filter (account: !(builtins.elem account excludedAccounts)) (
-                  builtins.filter (
-                    account: builtins.elem account config.modules.core.email.selectedAccounts
-                  ) accountOrder
-                  ++ lib.subtractLists accountOrder config.modules.core.email.selectedAccounts
+                  builtins.filter (account: builtins.elem account parentSelectedAccounts) accountOrder
+                  ++ lib.subtractLists accountOrder parentSelectedAccounts
                 )
               );
             };
