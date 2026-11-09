@@ -1,9 +1,9 @@
-# base: JuliusBrussee/caveman 4bf8898b31c93326a5e5d90999241a1c15b52ed2
+# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
 # intent: refuse executable installation and self-update in the package-managed CLI,
 #   durable npm installer and module downloader; Nix owns those executables.
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -3214,6 +3214,9 @@
+@@ -3218,6 +3218,9 @@
  // `explicit`: `setup --install` and `update`, which restart an outdated
  // runtime even while agents use it.
  async function setupInstall(json: boolean, options: { continuing?: boolean; explicit?: boolean } = {}) {
@@ -13,7 +13,7 @@
    const lock = join(ensureCavemanHome(), ".install.lock");
    const deadline = Date.now() + BINARY_INSTALL_WAIT_MS;
    for (let told = false; ; await sleep(250)) {
-@@ -4137,6 +4140,9 @@
+@@ -4141,6 +4144,9 @@
  // version. Returns the command hints should name. Throws when neither works:
  // nothing is wired then.
  async function installDurableCli(): Promise<string> {

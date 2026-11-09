@@ -1,9 +1,9 @@
-# base: agent-of-empires/agent-of-empires 8dd8f233c67e444899e5a955d79861230bbecb02
+# base: agent-of-empires/agent-of-empires ad2e66b3a57a25368e09fe7070bd4586464e5d88
 # prerequisites: none
 # intent: Detect and launch the packaged cursor-agent executable instead of agent.
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -787,7 +787,7 @@
+@@ -788,7 +788,7 @@
              SessionCaptureContext::PaneScoped,
              SessionCaptureContext::PaneScoped,
          ),

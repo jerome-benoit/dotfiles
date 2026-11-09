@@ -69,9 +69,8 @@ validate_pin_files() {
 
   jq -e --arg hash "$HASH_PATTERN" '
     type == "object"
-    and (keys == ["blocks", "cavememVendorHash", "licenses", "pnpmDepsHash", "runtime"])
+    and (keys == ["blocks", "licenses", "pnpmDepsHash", "runtime"])
     and (.pnpmDepsHash | test($hash))
-    and (.cavememVendorHash | test($hash))
     and (.blocks | keys == ["src", "vendorHash", "version"])
     and (.blocks.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"))
     and (.blocks.src | keys == ["hash", "urlTemplate"])
@@ -84,7 +83,7 @@ validate_pin_files() {
     and (.runtime.hashes | keys == ["darwin_arm64", "linux_amd64", "linux_arm64"])
     and ([.runtime.hashes[] | keys == [
       "caveman-browse", "caveman-engine", "caveman-mcp",
-      "caveman-proxy", "caveman-shrink"
+      "caveman-proxy", "caveman-shrink", "cavemem"
     ]] | all)
     and ([.runtime.hashes[][] | test($hash)] | all)
     and (.licenses | keys == ["hashes", "urlTemplate"])
@@ -148,9 +147,8 @@ validate_effective_contract() {
     and $input.original == {type: "github", owner: "JuliusBrussee", repo: "caveman", ref: "main"}
     and .caveman.src == {rev: $input.locked.rev, narHash: $input.locked.narHash}
     and .caveman.pnpmDepsHash == $pin[0].pnpmDepsHash
-    and .caveman.cavememVendorHash == $pin[0].cavememVendorHash
     and .caveman.runtimeVersion == $pin[0].runtime.version
-    and (.caveman | keys == ["blocks", "cavememVendorHash", "licenses", "pnpmDepsHash", "runtime", "runtimeVersion", "src"])
+    and (.caveman | keys == ["blocks", "licenses", "pnpmDepsHash", "runtime", "runtimeVersion", "src"])
     and (.caveman.licenses | keys) == ($pin[0].licenses.hashes | keys)
     and (.caveman.runtime | keys) == ($pin[0].runtime.hashes | keys)
   ' "$effective" >/dev/null || fail "Caveman effective values differ from its pin or locked input"
@@ -404,8 +402,6 @@ update_caveman() {
   ')
   hash=$(caveman_pnpm_hash "$root")
   set_json "$pin" --arg hash "$hash" '.pnpmDepsHash = $hash'
-  hash=$(cavemem_vendor_hash "$root")
-  set_json "$pin" --arg hash "$hash" '.cavememVendorHash = $hash'
   version=$(jq -Rser '
     capture("^bin-v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)\\n?$").version
   ' "$source/packages/cli/BINARY_RELEASE") || fail "invalid upstream binary release"
@@ -470,39 +466,6 @@ caveman_pnpm_hash() {
   printf '%s\n' "$hash"
 }
 
-cavemem_vendor_hash() {
-  local root=$1 log hash
-  log=$(mktemp)
-  if NIX_HASH_FIX_ROOT="$root" \
-    nix build --impure --no-link --expr '
-      let
-        flake = builtins.getFlake ("git+file://" + builtins.getEnv "NIX_HASH_FIX_ROOT");
-        pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
-      in (pkgs.buildGo126Module {
-        pname = "cavemem";
-        version = "vendor";
-        src = flake.inputs.caveman;
-        subPackages = [ "mem/cmd/cavemem" ];
-        env.CGO_ENABLED = "0";
-        vendorHash = pkgs.lib.fakeHash;
-      }).goModules
-    ' > /dev/null 2> "$log"; then
-    rm -f "$log"
-    fail "Cavemem vendor fake-hash probe unexpectedly succeeded"
-  fi
-  if ! hash=$(jq -Rser '
-    . as $log
-    | [match("hash mismatch in fixed-output derivation \u0027[^\u0027\\n]*/[^/\u0027\\n]+-cavemem-vendor-go-modules\\.drv\u0027:\\s+specified:\\s+sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\\s+got:\\s+(sha256-[A-Za-z0-9+/]{43}=)"; "g") | .captures[0].string]
-    | if length == 1 and ([$log | scan("got:\\s+sha256-[A-Za-z0-9+/=]+") ] | length) == 1
-      then .[0] else error("not a unique Cavemem Go module fixed-output mismatch") end
-  ' "$log"); then
-    cat "$log" >&2
-    rm -f "$log"
-    fail "cannot determine Cavemem vendor hash"
-  fi
-  rm -f "$log"
-  printf '%s\n' "$hash"
-}
 
 blocks_vendor_hash() {
   local url=$1 source_hash=$2 log hash
