@@ -7,6 +7,7 @@
 let
   cfg = config.modules.core.specialisations;
   constants = config.modules.core.constants;
+  parentSelectedAccounts = config.modules.core.email.selectedAccounts;
   sshEnabled = config.modules.programs.ssh.enable;
   isZeus = constants.hostname == constants.hosts.zeus;
 
@@ -14,6 +15,9 @@ let
     {
       name,
       email,
+      defaultAccount,
+      accountOrder,
+      excludedAccounts ? [ ],
       signature,
       theme,
       sshSettings ? { },
@@ -21,6 +25,7 @@ let
     }:
     {
       configuration =
+        { config, ... }:
         let
           gpgKeyId = constants.identity.gpg.keyId;
           gpgFingerprint = constants.identity.gpg.fingerprint;
@@ -46,6 +51,20 @@ let
               ssh.settings = lib.mkIf sshEnabled sshSettings;
             };
 
+            modules.core.email = lib.mkIf config.modules.core.email.enable {
+              defaultAccount = lib.mkForce defaultAccount;
+              selectedAccounts = lib.mkForce (
+                builtins.filter (account: !(builtins.elem account excludedAccounts)) (
+                  builtins.filter (account: builtins.elem account parentSelectedAccounts) accountOrder
+                  ++ lib.subtractLists accountOrder parentSelectedAccounts
+                )
+              );
+            };
+            accounts.email.accounts = lib.mkIf config.modules.core.email.enable (
+              lib.genAttrs excludedAccounts (_: {
+                enable = lib.mkForce false;
+              })
+            );
             modules.themes.active = lib.mkForce theme;
           }
           sopsOverrides
@@ -73,6 +92,12 @@ in
       work = mkSpecialisation {
         name = "work";
         email = constants.work.email;
+        defaultAccount = "work";
+        accountOrder = [
+          "work"
+          "piment-noir"
+          "gmail"
+        ];
         signature = ''
           ${constants.identity.fullName} - ${constants.work.jobTitle}
           ${constants.work.employer}
@@ -91,6 +116,12 @@ in
       personal = mkSpecialisation {
         name = "personal";
         email = constants.personal.email;
+        defaultAccount = "piment-noir";
+        accountOrder = [
+          "piment-noir"
+          "gmail"
+        ];
+        excludedAccounts = [ "work" ];
         signature = ''
           ${constants.identity.fullName} aka ${constants.identity.username}
           Piment Noir - https://${constants.personal.domain}

@@ -47,11 +47,43 @@ in
                   sasl.login.password.command = lib.mkOptionDefault account.passwordCommand;
                 })
             )
+            ++
+              map
+                (
+                  backend:
+                  let
+                    api = email.definitions.${name}.${backend};
+                  in
+                  {
+                    ${backend} = {
+                      "user-id" = api.userId;
+                      auth.token.command = lib.mkOptionDefault api.tokenCommand;
+                    };
+                  }
+                )
+                (
+                  lib.optionals enabled (
+                    builtins.filter (backend: email.definitions.${name}.${backend} != null) [
+                      "gmail"
+                      "msgraph"
+                    ]
+                  )
+                )
           );
         };
         # Override only the implicit Maildir (1500), below user defaults (1000).
+        # Native API accounts need no implicit Maildir; explicit user storage wins.
         maildir = lib.mkIf (
-          enabled && account.imap == null && account.jmap == null && account.smtp != null
+          enabled
+          && account.imap == null
+          && account.jmap == null
+          && (
+            account.smtp != null
+            || builtins.any (backend: email.definitions.${name}.${backend} != null) [
+              "gmail"
+              "msgraph"
+            ]
+          )
         ) (lib.mkOverride 1490 null);
       }
     );

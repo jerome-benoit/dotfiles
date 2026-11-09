@@ -49,6 +49,26 @@ Interactive SOPS edits replace existing ciphertext only after successful encrypt
 Edits use private temporary files, removed after the editor and its supervised processes stop.
 Uncatchable termination or machine failure may leave plaintext behind.
 
+### Email
+
+Account preference order: **work** — `work`, `piment-noir`, `gmail`; **personal** — `piment-noir`, `gmail`. The first account is the default.
+
+| Account       | Service                         | Backend            | Authentication    |
+| ------------- | ------------------------------- | ------------------ | ----------------- |
+| `piment-noir` | OVHcloud Mail                   | IMAP/SMTP over TLS | Password (SOPS)   |
+| `work`        | Microsoft 365 (Exchange Online) | Microsoft Graph    | OAuth 2.0 (Ortie) |
+| `gmail`       | Gmail                           | Gmail API          | OAuth 2.0 (Ortie) |
+
+After Home Manager activation:
+
+```bash
+ortie auth get -a msgraph          # Authorize Microsoft 365 (work only)
+ortie auth get -a gmail            # Authorize Gmail
+himalaya envelope list -a gmail   # List Gmail messages (both specs)
+```
+
+Tokens use the unlocked system keyring and refresh on demand. The Google project must enable Gmail API; in Testing, Gmail refresh tokens expire after seven days. Microsoft tenant policy may require administrator consent.
+
 ### GPG keypair
 
 Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where the configured SOPS age identity is present.

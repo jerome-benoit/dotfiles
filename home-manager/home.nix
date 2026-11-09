@@ -104,6 +104,7 @@ in
       glow.enable = profileModules.programs.glow;
       himalaya.enable = profileModules.programs.himalaya;
       lazydocker.enable = profileModules.programs.lazydocker;
+      ortie.enable = profileModules.programs.ortie;
       ssh.enable = profileModules.programs.ssh;
       sshm.enable = profileModules.programs.sshm;
       sway.enable = isZeus && profileModules.programs.sway;

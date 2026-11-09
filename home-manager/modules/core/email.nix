@@ -48,6 +48,25 @@ let
     };
   };
 
+  nativeBackends = [
+    "gmail"
+    "msgraph"
+  ];
+  apiBackends = definition: builtins.filter (backend: definition.${backend} != null) nativeBackends;
+  apiType = lib.types.submodule {
+    options = {
+      userId = lib.mkOption {
+        type = lib.types.str;
+        default = "me";
+        description = "API mailbox identifier.";
+      };
+      tokenCommand = lib.mkOption {
+        type = lib.types.nonEmptyListOf lib.types.str;
+        description = "Command producing a short-lived bearer token.";
+      };
+    };
+  };
+
   accountType = lib.types.submodule {
     options = {
       identity = lib.mkOption {
@@ -57,6 +76,11 @@ let
         ];
         description = "Identity supplying the account address and display name.";
       };
+      address = lib.mkOption {
+        type = lib.types.nullOr (lib.types.strMatching emailRegex);
+        default = null;
+        description = "Mailbox address, defaulting to the selected identity.";
+      };
       aliases = lib.mkOption {
         type = lib.types.listOf (lib.types.strMatching emailRegex);
         default = [ ];
@@ -65,7 +89,7 @@ let
       userName = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
-        description = "Server login, defaulting to the identity address.";
+        description = "Server login, defaulting to the mailbox address.";
       };
       folders = lib.mkOption {
         type = lib.types.submodule {
@@ -94,9 +118,20 @@ let
         default = null;
         description = "SMTP transport settings.";
       };
+      gmail = lib.mkOption {
+        type = lib.types.nullOr apiType;
+        default = null;
+        description = "Native Gmail API settings, or null when absent.";
+      };
+      msgraph = lib.mkOption {
+        type = lib.types.nullOr apiType;
+        default = null;
+        description = "Microsoft Graph API settings, or null when absent.";
+      };
       credential.type = lib.mkOption {
-        type = lib.types.enum [ "password" ];
-        description = "Credential type materialized through sops-nix.";
+        type = lib.types.nullOr (lib.types.enum [ "password" ]);
+        default = null;
+        description = "Mailbox password credential, or null for token-based accounts.";
       };
     };
   };
@@ -141,28 +176,56 @@ let
   invalidPrimaryAccounts = builtins.filter (
     name: canonicalActiveAccounts.${name}.primary != (name == cfg.defaultAccount)
   ) cfg.activeAccounts;
+  apiTransportMixes = builtins.filter (
+    name:
+    let
+      definition = activeDefinitions.${name};
+      account = canonicalActiveAccounts.${name};
+    in
+    apiBackends definition != [ ] && (account.imap != null || account.smtp != null)
+  ) cfg.activeAccounts;
+  mixedApiAccounts = builtins.filter (
+    name: builtins.length (apiBackends activeDefinitions.${name}) > 1
+  ) cfg.activeAccounts;
+  invalidCredentials = builtins.filter (
+    name:
+    let
+      definition = activeDefinitions.${name};
+      account = canonicalActiveAccounts.${name};
+    in
+    if apiBackends definition != [ ] then
+      definition.credential.type != null
+    else
+      (account.imap != null || account.smtp != null) && definition.credential.type != "password"
+  ) cfg.activeAccounts;
   mkSecretName = name: "email-${name}-password";
 
   mkAccount =
     name: definition:
     let
       identity = identities.${definition.identity};
+      address = if definition.address == null then identity.address else definition.address;
       secretName = mkSecretName name;
     in
     {
       primary = name == cfg.defaultAccount;
-      inherit (identity) address realName;
+      inherit address;
+      inherit (identity) realName;
       inherit (definition)
         aliases
         folders
         imap
         smtp
         ;
-      userName = if definition.userName == null then identity.address else definition.userName;
-      passwordCommand = [
-        "cat"
-        config.sops.secrets.${secretName}.path
-      ];
+      userName = if definition.userName == null then address else definition.userName;
+      passwordCommand =
+        if definition.credential.type != "password" then
+          null
+        else
+          [
+            "cat"
+            config.sops.secrets.${secretName}.path
+          ];
     };
 in
 {
@@ -177,7 +240,7 @@ in
 
     selectedAccounts = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ cfg.defaultAccount ];
+      default = privateConfig.email.selectedAccounts or [ cfg.defaultAccount ];
       description = "Email account definitions selected for this profile.";
     };
     activeAccounts = lib.mkOption {
@@ -198,6 +261,19 @@ in
       default = privateConfig.email.accounts;
       readOnly = true;
       description = "Private account definitions before credential materialization.";
+    };
+    oauth = lib.mkOption {
+      type = lib.types.attrsOf (
+        lib.types.submodule {
+          options.clientId = lib.mkOption {
+            type = lib.types.strMatching ".+";
+            description = "Registered OAuth client identifier.";
+          };
+        }
+      );
+      default = privateConfig.email.oauth or { };
+      readOnly = true;
+      description = "OAuth client registrations for mail services; secrets are managed by sops-nix.";
     };
   };
 
@@ -226,10 +302,32 @@ in
         message = "email: invalid account names: ${lib.concatStringsSep ", " invalidNames}";
       }
       {
-        assertion = builtins.all (account: account.imap != null || account.smtp != null) (
-          builtins.attrValues canonicalActiveAccounts
-        );
+        assertion = builtins.all (
+          name:
+          let
+            account = canonicalActiveAccounts.${name};
+            definition = activeDefinitions.${name};
+          in
+          account.imap != null || account.smtp != null || apiBackends definition != [ ]
+        ) cfg.activeAccounts;
         message = "email: every active account needs at least one mail transport";
+      }
+      {
+        assertion = apiTransportMixes == [ ];
+        message =
+          "email: native API accounts cannot mix with IMAP/SMTP transports: "
+          + lib.concatStringsSep ", " apiTransportMixes;
+      }
+      {
+        assertion = mixedApiAccounts == [ ];
+        message =
+          "email: accounts cannot mix native API backends: " + lib.concatStringsSep ", " mixedApiAccounts;
+      }
+      {
+        assertion = invalidCredentials == [ ];
+        message =
+          "email: password transports require mailbox credentials; native API accounts cannot use them: "
+          + lib.concatStringsSep ", " invalidCredentials;
       }
       {
         assertion = insecureTransports == [ ];
@@ -258,6 +356,6 @@ in
         key = "email/accounts/${name}/password";
         mode = "0600";
       }
-    ) activeDefinitions;
+    ) (lib.filterAttrs (_: definition: definition.credential.type == "password") activeDefinitions);
   };
 }

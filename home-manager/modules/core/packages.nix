@@ -99,7 +99,6 @@ in
       pkgs.litellm
       pkgs.mergiraf
       pkgs.nh
-      pkgs.ortie
       ggmlCliTools
       pkgs.volta
     ]
