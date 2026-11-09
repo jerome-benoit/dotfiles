@@ -4,8 +4,8 @@
 
 Local patches live directly under `patches/`. Their builders declare
 the `patches` lists directly. Prime Agent source pins come from
-`home-manager/modules/development/pins/prime-agent.json`. Caveman CLI, installer
-and Cavemem follow the `caveman` input in `flake.lock`; Blocks, release assets
+`home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
+installer follow the `caveman` input in `flake.lock`; Blocks, release assets
 and source dependency hashes use `pins/caveman.json`.
 OpenCode Desktop patches follow the selected CLI source, which defaults to the
 `opencode` input in `flake.lock`.
@@ -93,7 +93,7 @@ NAR hash and fixed-output store path match the selected derivation.
 
 ### Caveman source pin
 
-The Caveman CLI, installer and Cavemem use the `github:JuliusBrussee/caveman/main`
+The Caveman CLI and installer use the `github:JuliusBrussee/caveman/main`
 source input. Upstream has no flake, so `flake = false` supplies its source
 to the local derivations, like other source-built packages in this repository.
 `flake.lock` records the revision; do not duplicate it in the JSON asset pin.
