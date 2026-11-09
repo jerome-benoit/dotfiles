@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 4bf8898b31c93326a5e5d90999241a1c15b52ed2
+# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
 # prerequisites: caveman-nix-managed-install.patch
 # intent: separate Nix execution-time closure paths from durable agent
 #   registrations through a lexical CAVEMAN_REGISTRATION_ROOT profile prefix.
@@ -16,7 +16,7 @@
      .map((mutation) => ({ file: mutation.file, exists: mutation.before !== null, kind: mutation.kind })),
    claudeProfiles: () => { try { return claudeProfileRoots(); } catch { return [claudeConfigDir()]; } },
    agentIncomplete: (agent) => {
-@@ -3710,6 +3710,7 @@
+@@ -3714,6 +3714,7 @@
  }
  
  function preflightAgentNativeSetup(agent: "claude" | "codex"): void {
@@ -24,7 +24,7 @@
    recoverPendingAgentNativeRemoval(agent);
    recoverPendingAgentNativeBundle(agent);
    const profile = findAgent(agent)!;
-@@ -6692,7 +6693,7 @@
+@@ -6737,7 +6738,7 @@
    const delegateAlreadyInstalled = Boolean(!direct && agent && mcpServerInstalled(agent.id, "caveman-delegate"));
    const ephemeralDelegateMcp = !direct && agent && (agent.id === "claude" || agent.id === "codex")
      && !opts.minimal && opts.delegate && !delegateAlreadyInstalled
@@ -33,7 +33,7 @@
      : null;
    if (!direct && agent && (agent.id === "claude" || agent.id === "codex") && opts.delegate && !delegateAlreadyInstalled && !ephemeralDelegateMcp) {
      process.stderr.write("caveman: delegate enabled but caveman-delegate server is unavailable; launching without delegate\n");
-@@ -7878,6 +7879,67 @@
+@@ -7923,6 +7924,67 @@
    return onPath && !/[\\/]fnm_multishells[\\/]/i.test(onPath) && samePath(onPath, process.execPath) ? onPath : process.execPath;
  }
  
@@ -101,7 +101,7 @@
  export function hookExecutableInvocation(
    executable: string,
    script: string | undefined,
-@@ -7924,19 +7986,21 @@
+@@ -7969,19 +8031,21 @@
    return bare.join(" ");
  }
  
@@ -128,7 +128,7 @@
  }
  
  function nativeHookEntry(command: string, agentId?: "claude" | "codex" | "gemini"): Record<string, unknown> {
-@@ -8062,7 +8126,7 @@
+@@ -8107,7 +8171,7 @@
    return resolveCapabilities({ forStart: true }).values["think.shrink"].value as boolean;
  }
  
@@ -137,7 +137,7 @@
    const root = JSON.parse(JSON.stringify(base)) as Record<string, unknown>;
    const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks)
      ? root.hooks as Record<string, unknown>
-@@ -8073,7 +8137,7 @@
+@@ -8118,7 +8182,7 @@
      // Codex runs no PostToolUseFailure event; hooks/list drops the entry.
      ? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"]
      : ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"];
@@ -146,7 +146,7 @@
    const identity = `native-hook:${agentId}`;
    for (const event of lifecycle) {
      // Replace, never accumulate: a caveman native-hook entry for this agent
-@@ -8089,7 +8153,7 @@
+@@ -8134,7 +8198,7 @@
    {
      const shrinkEvent = agentId === "gemini" ? "BeforeTool" : "PreToolUse";
      const list = Array.isArray(hooks[shrinkEvent]) ? hooks[shrinkEvent] as Array<Record<string, unknown>> : [];
@@ -155,7 +155,7 @@
      // Same replace-not-accumulate rule as the native hook: a shrink-hook entry
      // under another caveman path is ours. When the switch is OFF the rule has
      // to reach OUR path too (#1049): `base` is the host's live file, so a
-@@ -8116,7 +8180,7 @@
+@@ -8161,7 +8225,7 @@
    }
    if (agentId === "claude" && includeRecall) {
      const list = Array.isArray(hooks.UserPromptSubmit) ? hooks.UserPromptSubmit as Array<Record<string, unknown>> : [];
@@ -164,7 +164,7 @@
      if (!list.some((entry) => hookEntryCommand(entry) === recallCommand)) {
        list.push(nativeHookEntry(recallCommand, agentId));
      }
-@@ -8336,7 +8400,7 @@
+@@ -8381,7 +8445,7 @@
  
    // The hooks the native door writes (codexNativeMutations): no shrink-hook,
    // and not the installer's always-on voice hook beside ours.
@@ -173,7 +173,7 @@
    writeFileSync(join(outDir, "hooks.json"), JSON.stringify(hooks, null, 2) + "\n", { mode: 0o600 });
  
    linkCodexReadOnly(sourceHome, outDir, "skills");
-@@ -8374,7 +8438,7 @@
+@@ -8419,7 +8483,7 @@
      version: cliVersion(),
      description: "Ephemeral Caveman local-engine pack",
    }, null, 2) + "\n", { mode: 0o600 });
@@ -182,7 +182,7 @@
    if (mcpBinary || delegateMcp) {
      const mcpServers: Record<string, { command: string; args: string[] }> = {};
      if (mcpBinary) mcpServers.caveman = { command: mcpBinary, args: [] };
-@@ -8660,7 +8724,7 @@
+@@ -8705,7 +8769,7 @@
    const compatible = probeMcpBinary();
    if (!compatible) throw new Error("caveman-mcp not found; run `caveman setup --install`");
    if (!compatible.probe.current) throw new Error(`caveman-mcp ${compatible.probe.version} lacks current mcp_recovery capability; run \`caveman setup --install\``);
@@ -191,7 +191,7 @@
  }
  
  function nativeProxyBinaryRequired(gw: string): void {
-@@ -9802,6 +9866,9 @@
+@@ -9847,6 +9911,9 @@
    const after = Buffer.concat([
      Buffer.from("// caveman:native-pi — GENERATED by `caveman enable pi`.\n"),
      Buffer.from(`process.env.CAVEMAN_PI_HOOK_CMD ??= ${JSON.stringify(JSON.stringify([cmd, ...pre]))};\n`),
@@ -201,7 +201,7 @@
      readFileSync(resolvePiExtension()),
    ]);
    return [{
-@@ -10818,6 +10885,7 @@
+@@ -10863,6 +10930,7 @@
  // progress line per step itself; refusals still throw with their full message.
  function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
    const { detected, profiles } = enableProfiles(argv);
@@ -209,7 +209,7 @@
    const gw = gatewayURL();
    for (const profile of profiles) {
      const agent = profile.id as NativeAgent;
-@@ -11487,6 +11555,7 @@
+@@ -11532,6 +11600,7 @@
  }
  
  function repairNativeAgent(target: NativeAgent, { quiet = false }: { quiet?: boolean } = {}): void {
@@ -217,7 +217,7 @@
    if (!readNativeJournal(target) && !readPendingNativeJournal(target)) {
      enableNative([target], { quiet });
      return;
-@@ -11620,6 +11689,12 @@
+@@ -11665,6 +11734,12 @@
          }
        } catch { owned = false; }
      }
@@ -230,7 +230,7 @@
      return { file: operation.file, present: Boolean(current), exact: Boolean(current && bytesHash(current) === operation.after_sha256), owned };
    }) ?? [];
    const installed = Boolean(journal);
-@@ -12025,6 +12100,7 @@
+@@ -12070,6 +12145,7 @@
  }
  
  function ensureOpenClawShrinkPlugin(): string | undefined {
@@ -238,7 +238,7 @@
    const dir = openClawPluginDir();
    try {
      mkdirSync(dir, { recursive: true });
-@@ -14073,6 +14149,8 @@
+@@ -14118,6 +14194,8 @@
  // CAVEMAN_MCP_BIN, `caveman-mcp` on PATH or ~/.caveman/bin, else `npx -y
  // caveman-mcp`. The returned argv is what gets written into each agent's MCP config.
  function resolveMcpCommand(): { command: string; args: string[] } {
@@ -247,7 +247,7 @@
    const bin = cavemanBin("caveman-mcp", "CAVEMAN_MCP_BIN");
    if (bin !== "caveman-mcp" || which(bin)) return mcpServerLaunch(bin, []);
    const npx = which("npx");
-@@ -14099,6 +14177,8 @@
+@@ -14144,6 +14222,8 @@
  }
  
  function resolveCloudMcpCommand(): { command: string; args: string[] } {
@@ -256,7 +256,7 @@
    const entry = process.argv[1];
    if (!entry) {
      console.error("caveman mcp: cannot resolve CLI entrypoint for caveman-cloud server");
-@@ -14110,13 +14190,19 @@
+@@ -14155,13 +14235,19 @@
  // resolveDelegateMcpCommand locates the dependency-free caveman-delegate stdio
  // server (CAVEMAN_DELEGATE_MCP override, else the copy shipped alongside the
  // CLI). Null when the script is missing — callers must not register a dead entry.
@@ -278,7 +278,7 @@
  }
  
  function resolvePiExtension(): string {
-@@ -14130,7 +14216,7 @@
+@@ -14175,7 +14261,7 @@
  
  function buildPiWrapArgs(cmdArgs: string[], env: NodeJS.ProcessEnv, gw: string): string[] {
    const extension = resolvePiExtension();
@@ -287,7 +287,7 @@
    env.CAVEMAN_PI_HOOK_CMD = JSON.stringify([cmd, ...pre]);
    env.CAVE_GATEWAY_URL = gw;
    // After `caveman enable pi`, Pi already auto-loads the owned copy. A second
-@@ -16750,7 +16836,7 @@
+@@ -16795,7 +16881,7 @@
        console.error("caveman-browse binary not found — run `caveman setup --install` first");
        process.exit(1);
      }
@@ -296,7 +296,7 @@
    } else if (serverName === "caveman-delegate") {
      const resolved = resolveDelegateMcpCommand();
      if (!resolved) {
-@@ -17328,7 +17414,9 @@
+@@ -17373,7 +17459,9 @@
  // to PATH: a resolved `caveman`/`cave`, else this very script's node. Rendering it
  // into a command string is the caller's job, because the two callers target
  // different shells (see hookExecutableInvocation vs hostShellInvocation).
@@ -307,7 +307,7 @@
    // Never a package runner's cached copy when a lasting one exists.
    const command = durableCaveman() ?? which("caveman") ?? which("cave");
    if (!command) return { executable: stableNodePath(), script: process.argv[1]! };
-@@ -17346,8 +17434,8 @@
+@@ -17391,8 +17479,8 @@
  
  // cavemanBinForHook is that invocation as the HOST will dispatch it — on native
  // Windows the hosts run command hooks through PowerShell, which needs `&`.
@@ -318,7 +318,7 @@
    return hookExecutableInvocation(target.executable, target.script, process.platform, powershell);
  }
  
-@@ -17355,7 +17443,7 @@
+@@ -17400,7 +17488,7 @@
  // not know. null = no portable form; the caller must decline rather than emit a
  // command one of the three Windows shells cannot parse (#1263).
  function cavemanBinForHostShell(): string | null {
@@ -327,7 +327,7 @@
    return hostShellInvocation(target.executable, target.script, process.platform);
  }
  
-@@ -18749,7 +18837,9 @@
+@@ -18794,7 +18882,9 @@
    return { cmd: stableNodePath(), pre: [currentScript] };
  }
  
@@ -338,7 +338,7 @@
    return generatedPluginInvocation(
      durableCaveman() ?? which("caveman") ?? which("cave") ?? undefined,
      process.argv[1] ?? "",
-@@ -18852,6 +18942,7 @@
+@@ -18897,6 +18987,7 @@
    return `${opencodeShrinkPluginPreamble()}${opencodeShrinkPluginHookMapV1()}${opencodeShrinkPluginDefinitionV2("  server: CavemanShrink,\n")}`;
  }
  function installShrinkPluginOpencode(): boolean {
@@ -346,7 +346,7 @@
    const path = opencodePluginPath();
    try {
      mkdirSync(dirname(path), { recursive: true });
-@@ -19235,6 +19326,7 @@
+@@ -19280,6 +19371,7 @@
  }
  
  function installShrinkPluginHermes(): boolean {

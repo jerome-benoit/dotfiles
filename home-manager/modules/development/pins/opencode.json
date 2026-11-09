@@ -1,12 +1,12 @@
 {
   "hashes": {
-    "aarch64-darwin": "sha256-J0mGbOwVOjpN3nEZKzKamRPdVj0RJbo0TcghvP9NrP8=",
-    "aarch64-linux": "sha256-CCUNtPLO2d6FdWPMUOgkz/tsT/Mju+vRk5PY06gJ3TE=",
-    "x86_64-linux": "sha256-O2hF8pGUSArKgYBeP99oOW3iXVVZl5bV5WPTp3E7JIA="
+    "x86_64-linux": "sha256-NaQfv5/jPnCmqn9rpsELhFjeIynVQ9f/HDaBbKnmd4c=",
+    "aarch64-linux": "sha256-SUe6rJDRem2oDSWTLbFZRlaQH2L035fpRBHVKkEqffo=",
+    "aarch64-darwin": "sha256-CKLcVivUE61nb+Fjw9ep5xDXoFEhiA62SvPurn+K2lw="
   },
   "provenance": {
-    "sourceRevision": "de6f469a01df975521c9d953ec81c3fc76006636",
-    "nixpkgsRevision": "6dadaf4375be35033e1c84395adbd53ff5fded96",
+    "sourceRevision": "05099eaa0b5946285063896f555eeef3ece482e3",
+    "nixpkgsRevision": "4fe25e12eb9f4c744966dd3de5a05246cf098601",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
     "calculation": "Upstream dependency phases with local Bun, calibrated against the previous pin; ARM targets use --cpu/--os with --ignore-scripts and both upstream normalization scripts.",

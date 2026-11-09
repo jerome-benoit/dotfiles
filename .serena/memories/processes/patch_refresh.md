@@ -96,18 +96,14 @@ to the local derivations, like other source-built packages in this repository.
 `flake.lock` records the revision; do not duplicate it in the JSON asset pin.
 
 After updating the input, `scripts/fix-nix-hashes.sh update <base-ref>` refreshes
-the filtered CLI pnpm hash and `cavememVendorHash`, then reads
-`packages/cli/BINARY_RELEASE` and `BLOCKS_RELEASE` from the locked source.
-The five prebuilt companions and license notices follow the binary release;
-Blocks keeps its own source and vendor hash. Cavemem builds only
-`mem/cmd/cavemem` with Go 1.26 and `CGO_ENABLED=0`, matching upstream's release
-flags, and reports its source revision rather than the companion release.
-Do not infer either companion version from the CLI's `package.json`.
+the filtered CLI pnpm hash, then reads `packages/cli/BINARY_RELEASE` and
+`BLOCKS_RELEASE` from the locked source. All six prebuilt companions and license
+notices follow the binary release; Blocks keeps its own source and vendor hash.
+Do not infer companion versions from the CLI's `package.json`.
 
 Keep the CLI's `supersede-stdin` capability check: older Cavemem binaries store
-the literal flag as replacement text. Retire the source-build workaround only
-when `BINARY_RELEASE` supplies that capability. Check real stdin replacement,
-history and oversized-input refusal against temporary stores, never user data.
+the literal flag as replacement text. Check real stdin replacement, history and
+oversized-input refusal against temporary stores, never user data.
 
 CLI patches target TypeScript before the offline pnpm build. The installer patch
 targets the same source tree separately, without shipping build dependencies.

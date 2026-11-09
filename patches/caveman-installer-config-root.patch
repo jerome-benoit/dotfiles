@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 4bf8898b31c93326a5e5d90999241a1c15b52ed2
+# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
 # prerequisites: caveman-nix-installer-paths.patch
 # intent: Keep strict absolute OpenCode root validation after upstream added override precedence.
 #   Preserve nonempty override bytes; do not resolve relative roots against the working directory.

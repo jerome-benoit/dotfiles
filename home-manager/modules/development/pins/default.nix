@@ -33,7 +33,7 @@ assert
   opencode = opencodeData;
 
   caveman = {
-    inherit (cavemanData) pnpmDepsHash cavememVendorHash;
+    inherit (cavemanData) pnpmDepsHash;
     runtimeVersion = cavemanData.runtime.version;
     blocks = {
       inherit (cavemanData.blocks) version vendorHash;

@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 4bf8898b31c93326a5e5d90999241a1c15b52ed2
+# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch (in order)
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1395
 # issues: https://github.com/JuliusBrussee/caveman/issues/1405
@@ -11,7 +11,7 @@
 #   shortcut that removes containers containing foreign children added after enable.
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -10364,27 +10364,6 @@
+@@ -10409,27 +10409,6 @@
  `;
  }
  
@@ -39,7 +39,7 @@
  // Hermes provider ids that carry their OWN OAuth credential and the ChatGPT
  // Responses transport. Rewriting one to the generic `custom` provider drops
  // both: the installed resolver then picks chat_completions with
-@@ -10399,83 +10378,491 @@
+@@ -10444,83 +10423,491 @@
    return appendUrlPath(gw, keptProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(keptProvider) ? "/chatgpt" : "/w/hermes/v1");
  }
  
@@ -589,7 +589,7 @@
    return {
      text: yamlText(lines),
      owned: {
-@@ -10496,8 +10883,15 @@
+@@ -10541,8 +10928,15 @@
    const configBefore = fileBytes(configPath);
    const native = hermesNativeConfig(configBefore?.toString("utf8") ?? "", gw, mcpBinary);
    // A custom provider is the user's own endpoint; a named one is the vendor's.
@@ -607,7 +607,7 @@
    const pluginDir = hermesNativePluginDir();
    const manifestPath = join(pluginDir, "plugin.yaml");
    const initPath = join(pluginDir, "__init__.py");
-@@ -11227,34 +11621,7 @@
+@@ -11272,34 +11666,7 @@
      throw new Error(`${operation.file} changed after enable; refusing destructive disable`);
    }
    if (operation.kind === "hermes-config") {
@@ -643,7 +643,7 @@
    }
    const rootBlock = operation.owned?.root_block;
    const tablesBlock = operation.owned?.tables_block;
-@@ -11649,11 +12016,8 @@
+@@ -11694,11 +12061,8 @@
            // a YAML round-trip that changes no value at all drops our marker
            // comments and renormalises quoting, and a literal read called that
            // drift (#1410).
@@ -657,7 +657,7 @@
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -14135,7 +14499,7 @@
+@@ -14180,7 +14544,7 @@
        if (agent === "codex") return typeof operation.owned?.tables_block === "string" && codexNativeTables(codexTomlLines(current.toString("utf8")), operation.owned.tables_block).get("mcp_servers.caveman") === true;
        // A null block: the user's own caveman-native entry was already there.
        // Read by value, so a reserialised config still counts (#1410).
@@ -666,7 +666,7 @@
        if (agent === "pi") return current.toString("utf8").includes("caveman:native-pi");
        const servers = objectValue(parseJsonFileObject(operation.file, current).mcpServers);
        return operation.owned?.installed_mcp !== undefined && canonicalize(servers.caveman) === canonicalize(operation.owned.installed_mcp);
-@@ -14310,8 +14674,8 @@
+@@ -14355,8 +14719,8 @@
  // skipped too, so a header comment keeps describing the file.
  function yamlBodyStart(lines: string[]): number {
    let i = 0;
@@ -677,7 +677,7 @@
    return i;
  }
  
-@@ -14323,8 +14687,8 @@
+@@ -14368,8 +14732,8 @@
  function yamlListItemIndent(lines: string[], keyAt: number, end: number): number | null {
    for (let i = keyAt + 1; i < end; i++) {
      const line = lines[i]!;
@@ -688,7 +688,7 @@
      if (item) return item[1]!.length;
      return null;
    }
-@@ -14352,341 +14716,16 @@
+@@ -14397,341 +14761,16 @@
    return false;
  }
  

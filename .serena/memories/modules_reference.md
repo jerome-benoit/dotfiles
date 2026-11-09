@@ -301,7 +301,7 @@ OpenCode AI assistant:
 
 ### caveman.nix
 
-- Cavemem builds from the locked Caveman source with Go 1.26 and its own `cavememVendorHash`. The five other native companions retain the `BINARY_RELEASE` asset pins.
+- All six native companions, including Cavemem, use the `BINARY_RELEASE` asset pins. Blocks retains its separate source and vendor hash.
 - The CLI preserves Cavemem's `supersede-stdin` capability guard. Runtime checks verify byte-exact replacement above the argv limit, history preservation and refusal above 256 KiB without changing current memory.
 - Managed `caveman-install --hook-node` must name the selected profile's private `lib/caveman/node`; bare or foreign interpreters are refused before writes. Unmanaged prepared plugins honor the upstream interpreter override.
 - Caveman CLI, installer, copied OpenCode plugin and Blocks use nonempty `OPENCODE_CONFIG_DIR`, then nonempty `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. An empty override is unset; a nonempty relative root is refused. Changing roots does not move or delete old files.
