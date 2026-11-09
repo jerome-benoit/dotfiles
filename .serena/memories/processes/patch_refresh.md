@@ -59,6 +59,9 @@ explaining why it exists and when it can go:
    hash-pinned source, not the current contents of a mutable branch or tag.
    The installer patch records its archive URL and unpacked `fetchzip` hash;
    keep both aligned with the locked source when changing its base.
+   For another lock update in an open PR, compare against the branch's current
+   lock, preserving its pin and patch corrections. Recheck external consumers
+   even when the patch's own source is unchanged.
 3. Check whether upstream now supplies each fix. Remove only superseded hunks;
    retire the whole patch only when every carried change is covered upstream.
 4. Apply prerequisite patches in the builder's declared order before regenerating
