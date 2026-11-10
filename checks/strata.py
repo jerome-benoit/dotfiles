@@ -16,6 +16,7 @@ import zipfile
 WORKSPACE = sys.argv.pop(1)
 UPSTREAM = sys.argv.pop(1)
 LAUNCHERS = json.loads(Path(sys.argv.pop(1)).read_text())
+SOURCE_PATCH = sys.argv.pop(1)
 RUNNER = """
 import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
@@ -25,13 +26,15 @@ if len(sys.argv) > 5 and sys.argv[5] == "run":
     module.REMOTE = sys.argv[4]
     module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"],
                          data_directory=__import__("os").environ.get("TEST_DATA_DIRECTORY"),
-                         models_directory=__import__("os").environ.get("TEST_MODELS_DIRECTORY"))
+                         models_directory=__import__("os").environ.get("TEST_MODELS_DIRECTORY"),
+                         source_patch=__import__("os").environ.get("TEST_SOURCE_PATCH", @SOURCE_PATCH@) or None)
 elif len(sys.argv) > 5:
     with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
         module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno(), sys.argv[6:])
 else:
-    print(module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4]))
-"""
+    print(module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4],
+          source_patch=__import__("os").environ.get("TEST_SOURCE_PATCH", @SOURCE_PATCH@) or None))
+""".replace("@SOURCE_PATCH@", repr(SOURCE_PATCH))
 
 GATE = """
 import os, signal, socket
@@ -66,6 +69,12 @@ class WorkspaceTests(unittest.TestCase):
         (self.repo / ".gitignore").write_text(".venv/\nengine/\nbuild/\nstrata-*.json\n")
         (self.repo / "code.py").write_text("old source\n")
         shutil.copyfile(Path(UPSTREAM) / "setup.py", self.repo / "setup.py")
+        shutil.copytree(Path(UPSTREAM) / "strata_control", self.repo / "strata_control",
+                        copy_function=shutil.copyfile)
+        for directory, _, _ in os.walk(self.repo / "strata_control"):
+            Path(directory).chmod(0o700)
+        (self.repo / "tools").mkdir()
+        shutil.copyfile(Path(UPSTREAM) / "tools/nvfp4_local_pack.py", self.repo / "tools/nvfp4_local_pack.py")
         (self.repo / "removed.py").write_text("obsolete source\n")
         self.old = self.commit()
         (self.repo / "code.py").write_text("new source\n")
@@ -104,7 +113,8 @@ class WorkspaceTests(unittest.TestCase):
                 self.assertEqual(actual[:2], ["develop", "--no-update-lock-file"])
                 self.assertTrue(actual[2].startswith("path:") and actual[2].endswith("#strata"))
                 self.assertEqual(actual[3:5], ["--command", "python3"])
-                self.assertEqual(actual[6:], fixture["expected"] + args)
+                self.assertEqual(actual[6:10], fixture["expected"])
+                self.assertEqual(actual[11:], args)
                 self.assertFalse((self.base / "injected").exists())
 
     def make_acquisition_workspace(self):
@@ -243,6 +253,475 @@ sys.exit(setup.main())''',
                 self.assertFalse(models.exists())
                 self.assertFalse((root / "destinations.json").exists())
 
+    def make_ready_workspace(self):
+        root = self.prepare(self.old)
+        self.make_runtime_source(root)
+        for name in ("gguf_reader.py", "image/qimage.py"):
+            destination = root / "tools" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Path(UPSTREAM) / "tools" / name, destination)
+        script = root / "setup.sh"
+        script.write_text(f'''#!{sys.executable}
+import hashlib, importlib.util, inspect, json, os, socket, subprocess, sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+sys.path.append(r"{UPSTREAM}")
+import setup
+def no_network(*args, **kwargs):
+    raise AssertionError("setup attempted a network connection")
+socket.socket.connect = no_network
+socket.create_connection = no_network
+card = {{"index": 0, "count": 1, "name": "Test GPU", "vram_gb": 48, "arch": "89", "driver": "600.0"}}
+setup.gpus = lambda: [card]
+setup.gpu_info = lambda index: dict(card)
+setup.amd_gpus = lambda: []
+setup.ram_gb = lambda: 256
+setup.cpu_info = lambda: ("Test CPU", True, False)
+setup.page_file_gb = lambda: None
+setup.pcie_link = lambda index: None
+setup.gpu_compute_mode = lambda *args: None
+setup.gpu_drives_display = lambda *args: False
+setup.rotational_disk = lambda *args: None
+setup.free_gb = lambda *args: 1000.0
+setup.cpu_sockets = lambda: []
+setup.setup_calibration = lambda *args: None
+setup.pip_install = lambda *args, **kwargs: None
+setup.ensure_nvfp4_local_packages = lambda: None
+setup.engine_step = lambda a, gpu, hip, amd, cuda, vision: (
+    setup.ROOT, setup.ROOT / "engine", {{"version": "99.0.0"}}, [], gpu, vision)
+setup.build_image_engine = lambda *args: (setup.ROOT / "sd-cli", [])
+setup.image_backend_choice = lambda *args: ("cuda", "Q4_K_M", None)
+sha = hashlib.sha256(b"x").hexdigest()
+for repo in setup.NVFP4_REPOS.values():
+    repo["files"] = {{path: (role, 1, sha) for path, (role, _, _) in repo["files"].items()}}
+for fam in setup.FAMILIES.values():
+    if fam.get("mmproj_sha256"):
+        fam["mmproj_sha256"] = (1, sha)
+qi = setup._qimage()
+qi.FILES = {{name: (repo, path, 1, sha) for name, (repo, path, _, _) in qi.FILES.items()}}
+downloads, commands = [], []
+def write(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+def download(url, destination, *args, **kwargs):
+    destination = Path(destination)
+    if not destination.exists():
+        if os.environ.get("FORBID_ACQUISITION"):
+            raise AssertionError("unexpected download: " + str(destination))
+        downloads.append(str(destination))
+        write(destination)
+setup.download = download
+spec = importlib.util.spec_from_file_location("local_pack", setup.ROOT / "tools/nvfp4_local_pack.py")
+producer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(producer)
+producer.require_packages = lambda: None
+def produce(command, **kwargs):
+    commands.append([str(arg) for arg in command])
+    if os.environ.get("FORBID_ACQUISITION"):
+        raise AssertionError("unexpected producer: " + repr(command))
+    name = Path(command[1]).name
+    mode = command[2] if name == "nvfp4_local_pack.py" else name
+    flag = "--outfile" if mode == "convert" else "--out"
+    out = Path(command[command.index(flag) + 1])
+    if mode in ("ple", "convert", "mtp_pack.py"):
+        write(out)
+    elif mode == "pack":
+        for child in ("index.txt", "native_experts.txt", "experts.bin", "tokenizer/vocab.json"):
+            write(out / child)
+    elif mode == "mtp_rt.py":
+        write(out / "experts.bin")
+    else:
+        out.mkdir(parents=True, exist_ok=True)
+    return subprocess.CompletedProcess(command, 0)
+def run(command, **kwargs):
+    if "prepare" in command:
+        if os.environ.get("FORBID_ACQUISITION"):
+            raise AssertionError("unexpected prepare")
+        args = SimpleNamespace(model=command[command.index("--model") + 1],
+                               out=command[command.index("--out") + 1],
+                               gguf_out=command[command.index("--gguf-out") + 1] if "--gguf-out" in command else None)
+        with patch.object(subprocess, "run", side_effect=produce):
+            producer.cmd_prepare(args)
+    else:
+        produce(command)
+setup.run = run
+setup.fetch_mtp = lambda folder, *args: write(folder / "rt/experts.bin")
+setup.refresh_draft_vocab = lambda *args: None
+setup.refresh_dflash2_vocab = lambda *args: None
+if os.environ.get("WIZARD_MODEL"):
+    original_ask = setup.ask
+    def ask(prompt, options, default, yes):
+        frame = inspect.currentframe().f_back
+        if prompt == "Which model?":
+            return str(frame.f_locals["allf"].index("nvfp4") + 1)
+        if prompt == "Which size?":
+            return str(frame.f_locals["names"].index(os.environ["WIZARD_MODEL"]) + 1)
+        return original_ask(prompt, options, default, yes)
+    setup.ask = ask
+if os.environ.get("LEGACY_READY"):
+    model = os.environ["LEGACY_READY"]
+    models = Path(os.environ["LEGACY_MODELS"])
+    for f in setup.ready_files(model):
+        if not (setup.MODELS[model].get("prepare") and f[3].startswith("tensors/")):
+            dst = setup.ready_where(models, f)
+            write(dst)
+            setup.mark(dst, "sha256 " + sha)
+    if setup.MODELS[model].get("prepare"):
+        paths = setup.ready_paths(model, models)
+        for role, dst in paths.items():
+            if role in ("dense", "ple"):
+                write(dst)
+            elif role == "pack":
+                write(dst / "experts.bin")
+            elif role == "mtp":
+                write(dst / "rt/experts.bin")
+        for mark in producer.MARKS:
+            write(setup.prepared_dir(model, models) / mark)
+result = setup.main()
+(setup.ROOT / "ready-observed.json").write_text(json.dumps({{"downloads": downloads, "commands": commands}}))
+sys.exit(result)
+''')
+        script.chmod(0o700)
+        return root
+
+    def ready_command(self, model, *, wizard=False):
+        args = ["run", "--yes", "--no-start", "--no-browser", "--context", "8192",
+                "--vision", "gpu", "--images", "qwen-image",
+                "--experimental-speed-projection", "off"]
+        if not wizard:
+            args += ["--family", "nvfp4", "--model", model]
+        return self.command(self.old) + args
+
+    def read_ready_config(self, root):
+        paths = [p for p in root.glob("strata-*.json") if not p.name.endswith(".shared-settings.json")]
+        self.assertEqual(len(paths), 1, paths)
+        return json.loads(paths[0].read_text())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_ready_full_setup_json_roles_cli_and_late_wizard(self):
+        initial = self.state
+        for index, (model, split, override, wizard) in enumerate([
+            ("NVFP4", False, False, False),
+            ("NVFP4", True, False, False),
+            ("NVFP4-NVIDIA", True, True, False),
+            ("NVFP4-QAD", True, False, False),
+            ("NVFP4-QAD", True, True, True),
+            ("NVFP4", False, True, False),
+        ]):
+            with self.subTest(model=model, split=split, override=override, wizard=wizard):
+                self.state = initial / str(index)
+                root = self.make_ready_workspace()
+                data, default_models, cli_models = (self.base / f"{index}-{name}" for name in ("data", "models", "CLI models"))
+                models = cli_models if override else default_models if split else data / "models"
+                env = dict(self.env, TEST_DATA_DIRECTORY=str(data), XDG_CONFIG_HOME=str(self.base / f"config-{index}"))
+                if split:
+                    env["TEST_MODELS_DIRECTORY"] = str(default_models)
+                if wizard:
+                    env["WIZARD_MODEL"] = model
+                command = self.ready_command(model, wizard=wizard)
+                if override:
+                    command += [f"--models-di={cli_models}"]
+                result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                cfg = self.read_ready_config(root)
+                args = cfg["args"]
+                native = Path(args[args.index("--native") + 1])
+                pack = Path(args[args.index("--pack") + 1])
+                ple = Path(args[args.index("--ple-gguf") + 1])
+                mtp = Path(args[args.index("--mtp") + 1])
+                auxiliary = data / "models" if split else models
+                for path in (native, ple, Path(cfg["vision"]["mmproj"])):
+                    self.assertTrue(path.is_relative_to(models), path)
+                    self.assertTrue(path.is_file(), path)
+                self.assertEqual(cfg["vision"]["model"], str(native))
+                self.assertTrue(pack.is_relative_to(auxiliary), pack)
+                self.assertTrue((pack / "experts.bin").is_file())
+                if model == "NVFP4-QAD":
+                    self.assertTrue(mtp.is_relative_to(auxiliary))
+                    self.assertTrue((mtp / "experts.bin").is_file())
+                    for mark in ("dense.gguf.done", "ple-nvfp4.gguf.done"):
+                        self.assertTrue((native.parent / mark).is_file())
+                    for mark in ("pack.done", "draft.done"):
+                        self.assertTrue((pack.parent / mark).is_file())
+                else:
+                    self.assertTrue(mtp.is_relative_to(data))
+                    embedding = Path(args[args.index("--embd-gguf") + 1])
+                    self.assertTrue(embedding.is_relative_to(models))
+                    self.assertTrue(embedding.is_file())
+                images = cfg["images"]
+                self.assertTrue(Path(images["vae"]).is_relative_to(auxiliary))
+                for name in ("diffusion_model", "llm"):
+                    self.assertTrue(Path(images[name]).is_relative_to(models))
+                for name in ("vae", "diffusion_model", "llm"):
+                    self.assertTrue(Path(images[name]).is_file())
+                if split:
+                    payloads = [p for p in models.rglob("*") if p.is_file() and not p.name.endswith(".done")]
+                    self.assertTrue(all(p.suffix == ".gguf" for p in payloads), payloads)
+                if model == "NVFP4-QAD":
+                    for path in auxiliary.rglob("*.safetensors"):
+                        if path != Path(images["vae"]):
+                            path.unlink()
+                second = subprocess.run(command + ["--setup"], env=dict(env, FORBID_ACQUISITION="1"),
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+                self.assertEqual(json.loads((root / "ready-observed.json").read_text()), {"downloads": [], "commands": []})
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_complete_legacy_ready_reuses_pair_without_moving_or_redownloading(self):
+        root = self.make_ready_workspace()
+        data, models = self.base / "primary data", self.base / "legacy GGUF root"
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models),
+                   LEGACY_READY="NVFP4-QAD", LEGACY_MODELS=str(models))
+        result = subprocess.run(self.ready_command("NVFP4-QAD"), env=env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        cfg = self.read_ready_config(root)
+        args = cfg["args"]
+        self.assertTrue(Path(args[args.index("--pack") + 1]).is_relative_to(models))
+        self.assertTrue(Path(args[args.index("--mtp") + 1]).is_relative_to(models))
+        self.assertTrue(Path(cfg["images"]["vae"]).is_relative_to(data / "models"))
+        observed = json.loads((root / "ready-observed.json").read_text())
+        self.assertEqual(observed["commands"], [])
+        self.assertFalse(any("tensors/" in path for path in observed["downloads"]))
+
+    def run_source_script(self, root, script):
+        result = subprocess.run(
+            [sys.executable, "-c", "import sys\nsys.path.append(" + repr(UPSTREAM) + ")\n" + script],
+            env=self.env, cwd=root, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_qad_real_prepare_split_marks_resume_and_legacy_default(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import importlib.util, subprocess
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import setup
+spec = importlib.util.spec_from_file_location("producer", "tools/nvfp4_local_pack.py")
+producer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(producer)
+producer.require_packages = lambda: None
+commands = []
+def run(command):
+    commands.append(command)
+    flag = "--outfile" if "convert" in command else "--out"
+    out = Path(command[command.index(flag) + 1])
+    if out.suffix == ".gguf":
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"small output")
+    else:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "artifact").write_bytes(b"small output")
+    return subprocess.CompletedProcess(command, 0)
+models, data = Path("GGUF").resolve(), Path("data").resolve()
+model = "NVFP4-QAD"
+out = setup.prepared_dir(model, models, data)
+gguf = setup.prepared_dir(model, models)
+args = SimpleNamespace(model="checkpoint", out=str(out), gguf_out=str(gguf))
+with patch.object(subprocess, "run", side_effect=run):
+    assert producer.cmd_prepare(args) == 0
+    assert len(commands) == 6
+    assert setup.prepared_done(model, models, data)
+    paths = setup.ready_paths(model, models, data)
+    assert paths["dense"].is_file() and paths["ple"].is_file()
+    pack_cmd = next(c for c in commands if "pack" in c)
+    assert pack_cmd[pack_cmd.index("--dense-gguf") + 1] == str(paths["dense"])
+    assert pack_cmd[pack_cmd.index("--out") + 1] == str(paths["pack"])
+    assert not any(f[3].startswith("tensors/") for f in setup.ready_needed(model, models, data))
+    commands.clear()
+    producer.cmd_prepare(args)
+    assert commands == []
+    for mark, count in zip(producer.MARKS, (1, 1, 1, 3)):
+        folder = gguf if mark.endswith(".gguf.done") else out
+        (folder / mark).unlink()
+        assert not setup.prepared_done(model, models, data)
+        assert any(f[3].startswith("tensors/") for f in setup.ready_needed(model, models, data))
+        producer.cmd_prepare(args)
+        assert len(commands) == count, (mark, commands)
+        assert setup.prepared_done(model, models, data)
+        commands.clear()
+    legacy = Path("legacy").resolve()
+    producer.cmd_prepare(SimpleNamespace(model="checkpoint", out=str(legacy)))
+    assert all((legacy / mark).is_file() for mark in producer.MARKS)
+''')
+
+    def test_ready_fetch_destinations_marks_resume_and_disk_filesystems(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import hashlib, os
+from pathlib import Path
+from unittest.mock import patch
+import setup
+models, data = Path("GGUF").resolve(), Path("data").resolve()
+models.mkdir()
+(data / "models").mkdir(parents=True)
+files = {"dense.gguf": ("dense", 10, "dense"),
+         "ple.gguf": ("ple", 20, "ple"), "embd.gguf": ("embd", 30, "embd"),
+         "pack/index.txt": ("pack", 40, "index"), "pack/experts.bin": ("pack", 50, "experts"),
+         "tensors/checkpoint.safetensors": ("src", 60, "checkpoint")}
+payloads = {name: token.encode() for name, (_, _, token) in files.items()}
+setup.MODELS = {"fixture": {"repo": "owner/repo"}}
+setup.NVFP4_REPOS = {"owner/repo": {"revision": "local",
+    "files": {name: (role, len(payloads[name]), hashlib.sha256(payloads[name]).hexdigest())
+              for name, (role, _, _) in files.items()}}}
+downloads = []
+def download(url, destination, *args):
+    name = url.split("/resolve/local/")[1]
+    downloads.append(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(payloads[name])
+setup.download = download
+setup.ready_fetch("fixture", models, data)
+assert len(downloads) == len(files)
+for f in setup.ready_files("fixture"):
+    dst = setup.ready_where(models, f, data)
+    assert setup.ready_verified(dst, f[5])
+    assert dst.is_relative_to(models if f[0] in ("dense", "ple", "embd") else data / "models")
+    assert setup.ready_where(models, f) == models / "owner--repo" / f[3]
+downloads.clear()
+setup.ready_fetch("fixture", models, data)
+assert downloads == []
+paths = setup.ready_paths("fixture", models, data)
+assert paths["pack"] == data / "models/owner--repo/pack"
+# Finished downloads need no disk budget. Missing experts consume only their remainder.
+experts = next(f for f in setup.ready_files("fixture") if f[3] == "pack/experts.bin")
+dst = setup.ready_where(models, experts, data)
+dst.unlink()
+dst.with_name(dst.name + ".part").write_bytes(payloads[experts[3]][:2])
+original_stat = os.stat
+def stat(path, *args, **kwargs):
+    result = original_stat(path, *args, **kwargs)
+    values = list(result)
+    values[2] = 2 if Path(path).is_relative_to(data) else 1
+    return os.stat_result(values)
+with patch.object(setup.os, "stat", side_effect=stat):
+    budgets = setup.destination_budgets([(models / "a.gguf", 3), (data / "models/b", 4)])
+    assert sorted(gb for _, gb in budgets) == [3, 4]
+    with patch.object(setup, "free_gb", side_effect=lambda path: 0 if Path(path).is_relative_to(data) else 100):
+        problem = setup.ready_disk_problem("fixture", models, data)
+        assert problem is not None and str(data) in problem[0], problem
+        dst.with_name(dst.name + ".part").write_bytes(payloads[experts[3]])
+        assert setup.ready_disk_problem("fixture", models, data) is None
+    with patch.object(setup, "free_gb", side_effect=lambda path: 0 if Path(path).is_relative_to(models) else 100):
+        dense = paths["dense"]
+        dense.unlink()
+        problem = setup.ready_disk_problem("fixture", models, data)
+        assert problem is not None and str(models) in problem[0], problem
+budgets = setup.destination_budgets([(models / "a.gguf", 3), (data / "models/b", 4)])
+assert len(budgets) == 1 and budgets[0][1] == 7
+setup.ready_fetch("fixture", models, data)
+assert set(downloads) == {paths["dense"], dst}, downloads
+assert all(setup.ready_verified(setup.ready_where(models, f, data), f[5]) for f in setup.ready_files("fixture"))
+''')
+
+    def test_qad_downloaded_checkpoint_keeps_preparation_disk_guards(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import hashlib, os
+from pathlib import Path
+from unittest.mock import patch
+import setup
+models, data = Path("GGUF").resolve(), Path("data").resolve()
+models.mkdir()
+(data / "models").mkdir(parents=True)
+model = "NVFP4-QAD"
+sha = hashlib.sha256(b"x").hexdigest()
+repo = setup.MODELS[model]["repo"]
+setup.NVFP4_REPOS[repo]["files"] = {
+    name: (role, 1, sha) for name, (role, _, _) in setup.NVFP4_REPOS[repo]["files"].items()}
+for f in setup.ready_files(model):
+    dst = setup.ready_where(models, f, data)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(b"x")
+    setup.mark(dst, "sha256 " + sha)
+assert not setup.prepared_done(model, models, data)
+# Same filesystem: the existing 110 GB aggregate is valid once, not zero or twice.
+with patch.object(setup, "free_gb", return_value=20):
+    assert setup.ready_disk_problem(model, models, data) is not None
+with patch.object(setup, "free_gb", return_value=120):
+    assert setup.ready_disk_problem(model, models, data) is None
+original_stat = os.stat
+def stat(path, *args, **kwargs):
+    result = list(original_stat(path, *args, **kwargs))
+    result[2] = 2 if Path(path).is_relative_to(data) else 1
+    return os.stat_result(result)
+with patch.object(setup.os, "stat", side_effect=stat):
+    with patch.object(setup, "free_gb", side_effect=lambda p: 20 if Path(p).is_relative_to(data) else 200):
+        problem = setup.ready_disk_problem(model, models, data)
+        assert problem is not None and str(data) in problem[0], problem
+    # A small GGUF volume must not be charged all 110 GB.
+    with patch.object(setup, "free_gb", side_effect=lambda p: 70 if Path(p).is_relative_to(data) else 20):
+        assert setup.ready_disk_problem(model, models, data) is None
+    out = setup.prepared_dir(model, models, data)
+    out.mkdir(parents=True)
+    (out / "pack.done").write_text("done")
+    with patch.object(setup, "free_gb", return_value=1):
+        assert setup.ready_disk_problem(model, models, data) is None
+''')
+
+    def test_source_patch_revision_idempotence_edits_and_offline_unpatched_rollback(self):
+        root = self.prepare(self.old)
+        ledger = root / ".git/strata-source.patch"
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+        stamp = (root / "setup.py").stat().st_mtime_ns
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.old)
+        self.prepare(self.old)
+        self.assertEqual((root / "setup.py").stat().st_mtime_ns, stamp)
+        self.assertEqual(marker.read_text(), self.old)
+        with (root / "setup.py").open("a") as source:
+            source.write("\n# user-owned note outside managed hunks\n")
+        self.prepare(self.new)
+        self.assertTrue((root / "setup.py").read_text().endswith("# user-owned note outside managed hunks\n"))
+        self.assertEqual(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), self.new)
+        self.repo.rename(self.base / "offline")
+        self.prepare(self.old)
+        self.assertTrue(ledger.exists())
+        result = subprocess.run(self.command(self.old), env=dict(self.env, TEST_SOURCE_PATCH=""),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(ledger.exists())
+        self.assertTrue((root / "setup.py").read_text().endswith("# user-owned note outside managed hunks\n"))
+        self.prepare(self.old)
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+
+    def test_source_patch_recovers_published_ledger_and_refuses_conflicting_edits(self):
+        root = self.prepare(self.old)
+        ledger = root / ".git/strata-source.patch"
+        subprocess.run(["git", "-C", str(root), "apply", "--reverse", "-"],
+                       input=ledger.read_text(), text=True, env=self.env, check=True)
+        # A ledger published before apply is safe to resume, including across a pin change.
+        self.prepare(self.new)
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+        source = root / "setup.py"
+        source.write_text(source.read_text().replace(
+            "def ready_where(models_dir: Path, f, data_dir=None)",
+            "def ready_where(models_dir: Path, f, data_dir='user edit')",
+        ))
+        expected = source.read_bytes()
+        result = subprocess.run(self.command(self.old), env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Cannot reconcile source patch", result.stderr)
+        self.assertEqual(source.read_bytes(), expected)
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+        self.assertEqual(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), self.new)
+
+    def test_source_patch_checkout_failure_restores_old_overlay_and_keeps_user_changes(self):
+        root = self.prepare(self.old)
+        ledger = root / ".git/strata-source.patch"
+        (root / "code.py").write_text("user-owned conflicting source\n")
+        result = subprocess.run(self.command(self.new), env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((root / "code.py").read_text(), "user-owned conflicting source\n")
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+        self.assertEqual(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), self.old)
+        subprocess.run(["git", "-C", str(root), "apply", "--reverse", "--check", "-"],
+                       input=ledger.read_text(), text=True, env=self.env, check=True)
+
     def test_initial_bootstrap_failure_never_certifies_runtime(self):
         root = self.prepare(self.old)
         marker = root / ".git/strata-runtime-revision"
@@ -318,7 +797,9 @@ exit 9
         self.assertTrue((roots[0] / "removed.py").exists())
 
     def test_existing_source_symlink_without_git_preserves_user_state(self):
+        self.env["TEST_SOURCE_PATCH"] = ""
         root = self.prepare(self.old)
+        del self.env["TEST_SOURCE_PATCH"]
         legacy = root.with_name(f"source-{self.old}")
         root.rename(legacy)
         source = self.state / "source"
@@ -429,8 +910,9 @@ exit 9
         self.assertEqual((root / "code.py").read_text(), "old source\n")
 
     def make_runtime_source(self, root):
-        shutil.copyfile(Path(UPSTREAM) / "setup.py", root / "setup.py")
-        shutil.copytree(Path(UPSTREAM) / "strata_control", root / "strata_control")
+        # Patch targets were pinned before the first prepare; never replace them here.
+        # The complete control package was committed in setUp. Keep its checkout
+        # and all three patched files intact and writable across later prepares.
         # Use a real local distribution, without fetching the pinned production wheels.
         (root / "requirements.txt").write_text("pip\n")
 
@@ -532,6 +1014,7 @@ PY
 def parsed(parser, *args, **kwargs):
     a = parse(parser, *args, **kwargs)
     assert a.data_dir is None and a.models_dir is None
+    assert not a.separate_model_artifacts
     (setup.ROOT / "parsed-command").write_text("ok")
     return a
 setup.argparse.ArgumentParser.parse_args = parsed
@@ -610,7 +1093,6 @@ sys.exit(setup.main())''',
             with self.subTest(flag=flag):
                 self.state = state / flag.removeprefix("--")
                 root = self.prepare(self.old)
-                shutil.copyfile(Path(UPSTREAM) / "setup.py", root / "setup.py")
                 setup = root / "setup.sh"
                 setup.write_text(f'''#!{shutil.which("sh")}
 cd "$(dirname "$0")" || exit 8
@@ -851,7 +1333,7 @@ PY
                     script.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
                     flag = "--setu" if change == "setup" else "--update"
                     result = subprocess.run(
-                        [sys.executable, WORKSPACE, str(self.state), self.new, "", "", flag],
+                        [sys.executable, WORKSPACE, str(self.state), self.new, "", "", SOURCE_PATCH, flag],
                         env=self.env, capture_output=True, text=True, timeout=30,
                     )
                     self.assertEqual(result.returncode, 9, result.stderr)
@@ -1154,7 +1636,7 @@ PY
         marker.write_text(self.new)
         setup = root / "setup.sh"
         setup.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
-        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "", "--update"],
+        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "", SOURCE_PATCH, "--update"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 9)
         self.assertFalse(marker.exists())

@@ -11,6 +11,9 @@ let
   mutableDirectory = lib.types.addCheck lib.types.str (
     path: lib.hasPrefix "/" path && !(path == "/nix/store" || lib.hasPrefix "/nix/store/" path)
   );
+  # Upstream routes ready packs, QAD drafts and image VAE through --models-dir.
+  # Remove once upstream preserves these artifact roles with a separate GGUF root.
+  sourcePatch = ../../../patches/strata-setup-directory-roles.patch;
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
     runtimeInputs = [
@@ -24,7 +27,8 @@ let
         --command python3 ${./strata-workspace.py} \
         ${lib.escapeShellArg cfg.workspaceDirectory} ${inputs.strata.rev} \
         ${lib.escapeShellArg (if cfg.dataDirectory == null then "" else cfg.dataDirectory)} \
-        ${lib.escapeShellArg (if cfg.modelsDirectory == null then "" else cfg.modelsDirectory)} "$@"
+        ${lib.escapeShellArg (if cfg.modelsDirectory == null then "" else cfg.modelsDirectory)} \
+        ${sourcePatch} "$@"
     '';
   };
 in
@@ -37,9 +41,10 @@ in
       defaultText = lib.literalExpression ''"''${config.xdg.dataHome}/strata"'';
       description = ''
         Absolute writable directory outside /nix/store for the source checkout, virtual
-        environment, engines, build caches and interpreter GC root. Contents remain
-        user-owned and are not copied into the Nix store. Changing this path does not
-        migrate an existing workspace.
+        environment, engines, build caches and interpreter GC root. A managed source
+        patch preserves setup directory roles under the workspace lock; its diff stays
+        visible and conflicting edits are refused. Other contents remain user-owned and
+        are not copied into the Nix store. Changing this path does not migrate a workspace.
       '';
     };
     dataDirectory = lib.mkOption {
@@ -60,8 +65,10 @@ in
       description = ''
         Optional absolute directory outside /nix/store passed as --models-dir during
         first bootstrap or explicit setup. Overrides the upstream GGUF download folder
-        without changing the data directory used for packs and drafts. Null leaves
-        upstream selection unchanged, normally <data directory>/models. An explicit
+        without changing the data directory used for ready packs, drafts, non-GGUF
+        checkpoints or the image VAE. QAD writes its dense and PLE GGUFs directly here;
+        its pack and draft remain under the data directory. Null leaves upstream layout
+        and selection unchanged, normally <data directory>/models. An explicit
         CLI --models-dir takes priority, including supported abbreviations and equals
         syntax. Normal installed launches, updates, checks and standalone commands do
         not receive this default. Existing files are not migrated; the upstream wizard

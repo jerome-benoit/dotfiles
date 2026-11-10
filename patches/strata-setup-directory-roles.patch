@@ -1,0 +1,402 @@
+# base: Niko1221/Strata f33c8c30588ff00e24b6b63bad0bf6a14da19081
+# intent: Keep GGUF model payloads separate from packs, drafts, checkpoints and image VAE artifacts on opt-in setup.
+diff --git a/setup.py b/setup.py
+--- a/setup.py
++++ b/setup.py
+@@ -3620,46 +3620,93 @@
+     return [(role, repo, t["revision"], path, size, sha) for path, (role, size, sha) in t["files"].items()]
+ 
+ 
+-def ready_needed(model: str, models_dir: Path) -> list:
++def ready_needed(model: str, models_dir: Path, data_dir=None) -> list:
+     """ready_files without the checkpoint's tensors once a prepared model (MODELS[..]["prepare"]) is prepared: the
+     engine reads the prepared files only, so the ~95 GB of safetensors need not stay (or come back) on the disk."""
+     files = ready_files(model)
+-    if MODELS[model].get("prepare") and prepared_done(model, models_dir):
++    if MODELS[model].get("prepare") and prepared_done(model, models_dir, data_dir):
+         files = [f for f in files if not f[3].startswith("tensors/")]
+     return files
+ 
+ 
+-def ready_where(models_dir: Path, f) -> Path:
+-    """Where one of them goes: <models>/<owner>--<repo>/<its path in the repository> (the repository's layout, so the
+-    pack folder is whole as the engine reads it)."""
+-    return Path(models_dir) / f[1].replace("/", "--") / f[3]
+-
+-
+-def prepared_dir(model: str, models_dir: Path) -> Path:
+-    """Where a model that is prepared on this PC (MODELS[..]["prepare"]) keeps what it prepared."""
+-    return Path(models_dir) / MODELS[model]["repo"].replace("/", "--") / FP4LOCAL_PREPARED
+-
+-
+-def prepared_done(model: str, models_dir: Path) -> bool:
++def ready_where(models_dir: Path, f, data_dir=None) -> Path:
++    """Keep repository layouts whole, with only dense/PLE/embedding under models when data_dir opts into split roles."""
++    root = Path(data_dir) / "models" if data_dir is not None and f[0] not in ("dense", "ple", "embd") else Path(models_dir)
++    return root / f[1].replace("/", "--") / f[3]
++
++
++def prepared_dir(model: str, models_dir: Path, data_dir=None) -> Path:
++    """Pack/draft output directory; omit data_dir for the GGUF output directory or the legacy layout."""
++    root = Path(data_dir) / "models" if data_dir is not None else Path(models_dir)
++    return root / MODELS[model]["repo"].replace("/", "--") / FP4LOCAL_PREPARED
++
++
++def prepared_done(model: str, models_dir: Path, data_dir=None) -> bool:
+     """Every step of tools/nvfp4_local_pack.py prepare is marked done (its marks, written when each step is whole)."""
+-    d = prepared_dir(model, models_dir)
+-    return all((d / m).is_file() for m in ("ple-nvfp4.gguf.done", "dense.gguf.done", "pack.done", "draft.done"))
+-
+-
+-def ready_paths(model: str, models_dir: Path) -> dict:
++    paths = ready_paths(model, models_dir, data_dir)
++    return all(p.is_file() for p in (paths["ple"].with_name("ple-nvfp4.gguf.done"),
++                                    paths["dense"].with_name("dense.gguf.done"),
++                                    paths["pack"].parent / "pack.done", paths["mtp"].parent / "draft.done"))
++
++
++def ready_paths(model: str, models_dir: Path, data_dir=None) -> dict:
+     """What the engine is given: the pack folder and the dense, PLE and embedding GGUFs (a prepared model also has its
+     own draft layer, "mtp", and no separate embedding: the token embedding is in its dense GGUF)."""
+     if MODELS[model].get("prepare"):
+-        d = prepared_dir(model, models_dir)
+-        return {"pack": d / "pack", "dense": d / "dense.gguf", "ple": d / "ple-nvfp4.gguf", "mtp": d / "mtp"}
++        d = prepared_dir(model, models_dir, data_dir)
++        gguf = prepared_dir(model, models_dir)
++        return {"pack": d / "pack", "dense": gguf / "dense.gguf", "ple": gguf / "ple-nvfp4.gguf", "mtp": d / "mtp"}
+     out = {}
+     for f in ready_files(model):
+-        p = ready_where(models_dir, f)
++        p = ready_where(models_dir, f, data_dir)
+         if f[0] == "pack" and p.name == "index.txt":
+             out["pack"] = p.parent
+         elif f[0] in ("dense", "ple", "embd"):
+             out[f[0]] = p
+     return out
++
++
++def destination_budgets(needs):
++    """Group known remaining GB by the filesystem of each destination's nearest existing parent."""
++    groups = {}
++    for destination, gb in needs:
++        if gb <= 0:
++            continue
++        parent = Path(destination).parent
++        while not parent.exists():
++            parent = parent.parent
++        device = parent.stat().st_dev
++        previous = groups.get(device, (parent, 0.0))
++        groups[device] = (previous[0], previous[1] + gb)
++    return list(groups.values())
++
++
++def ready_disk_problem(model, models_dir, data_dir=None, vision_file=None):
++    """Check pinned download sizes at their real destinations, counting local files and resumable parts."""
++    needs = []
++    for f in ready_needed(model, models_dir, data_dir):
++        dst = ready_where(models_dir, f, data_dir)
++        if not ready_verified(dst, f[5]):
++            present = sum(p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part")) if p.is_file())
++            needs.append((dst, max(0, f[4] - present) / 1e9))
++    if vision_file is not None and not vision_file.exists():
++        needs.append((vision_file, 1.0))                 # same vision allowance as the ordinary setup path
++    if MODELS[model].get("prepare") and not prepared_done(model, models_dir, data_dir):
++        paths = ready_paths(model, models_dir, data_dir)
++        if len(destination_budgets([(paths["dense"], 1), (paths["pack"] / "index.txt", 1)])) == 1:
++            needs.append((paths["dense"], MODELS[model]["prepare_gb"]))  # aggregate estimate applies once on one filesystem
++        else:
++            if not (paths["pack"].parent / "pack.done").is_file():
++                needs.append((paths["pack"] / "index.txt", MODELS[model]["arena_gb"]))  # at least the expert arena
++            warn(f"preparation writes about {MODELS[model]['prepare_gb']:.0f} GB across {models_dir} and "
++                 f"{Path(data_dir) / 'models' if data_dir is not None else models_dir}; the remaining split is unknown. "
++                 "Disk checks cover pinned downloads and the expert arena, not all future preparation outputs")
++    for parent, gb in destination_budgets(needs):
++        free = free_gb(parent)
++        if free < gb:
++            return (f"not enough free disk space in {parent}: need ~{gb:.0f} GB, {free:.0f} GB free",
++                    "use --data-dir or --models-dir on a bigger drive for the files stored there")
++    return None
+ 
+ 
+ def ready_verified(p: Path, sha: str) -> bool:
+@@ -3670,13 +3717,13 @@
+         return False
+ 
+ 
+-def ready_fetch(model: str, models_dir: Path) -> None:
++def ready_fetch(model: str, models_dir: Path, data_dir=None) -> None:
+     """Every file of a ready-made pack: already here and checked; the same file (by SHA-256) checked for another
+     ready-made pack, linked instead of downloaded (the PLE table and the embedding); or downloaded from its pinned
+     revision and checked against its size and SHA-256 (a wrong file is deleted and setup stops)."""
+-    others = [(ready_where(models_dir, g), g[5]) for m in MODELS if MODELS[m].get("repo") for g in ready_files(m)]
+-    for f in ready_needed(model, models_dir):
+-        dst, size, sha = ready_where(models_dir, f), f[4], f[5]
++    others = [(ready_where(models_dir, g, data_dir), g[5]) for m in MODELS if MODELS[m].get("repo") for g in ready_files(m)]
++    for f in ready_needed(model, models_dir, data_dir):
++        dst, size, sha = ready_where(models_dir, f, data_dir), f[4], f[5]
+         if ready_verified(dst, sha):
+             ok(f"{f[3]} already downloaded")
+             continue
+@@ -5498,7 +5545,7 @@
+     return backend, quant, gb
+ 
+ 
+-def setup_images(a, gpu: dict, hip: bool, models_dir: Path) -> dict | None:
++def setup_images(a, gpu: dict, hip: bool, models_dir: Path, data_dir=None) -> dict | None:
+     """--images qwen-image: sd-cli for this GPU and Qwen-Image-2.1-Turbo's three files -> the run config's "images"
+     section (serve/images.py); None for --images no, or when not wanted after all."""
+     if not a.images or a.images == "no":
+@@ -5510,17 +5557,20 @@
+     need = sum(QI.FILES[k][2] for k in (quant, "vae", "llm")) / 1e9
+     if ask(f"Download the image model ({need:.1f} GB) and set up image generation?", ["y", "n"], "y", a.yes) != "y":
+         return None
+-    models_dir.mkdir(parents=True, exist_ok=True)
+-    if free_gb(models_dir) < need + 5:
+-        warn(f"less than {need + 5:.0f} GB free for the image model: the download may run out of disk space")
++    destinations = {name: QI.local_path(Path(data_dir) / "models" if data_dir is not None and name == "vae" else models_dir, name)
++                    for name in (quant, "vae", "llm")}
++    for parent, gb in destination_budgets([(destinations[name], QI.FILES[name][2] / 1e9) for name in destinations]):
++        if free_gb(parent) < gb + 5:
++            warn(f"less than {gb + 5:.0f} GB free at {parent} for the image model: the download may run out of disk space")
+     exe, lib_dirs = build_image_engine(backend, gpu or {})
+     for name in (quant, "vae", "llm"):
+         repo, path, size, sha = QI.FILES[name]
+-        dst = QI.local_path(models_dir, name)
++        dst = destinations[name]
+         download(QI.file_url(name, hf_endpoint()), dst, f"image model: {Path(path).name}")
+         verify_sha256(dst, size, sha)
+     cfg = QI.image_config(backend, quant, exe, models_dir, uma=QI.is_apu(gpu), lib_dirs=lib_dirs,
+                           policy=a.image_gpu_policy or "auto", native=getattr(a, "image_native", None) == "on")
++    cfg["vae"] = str(destinations["vae"])
+     ok(f"image generation: {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
+     return cfg
+ 
+@@ -10121,6 +10171,7 @@
+     ap.add_argument("--set-default-data-dir", action="store_true",
+                     help="with --data-dir: remember the new folder as the data folder without moving anything")
+     ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
++    ap.add_argument("--separate-model-artifacts", action="store_true", help=argparse.SUPPRESS)
+     ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
+                                                            "or its unpacked folder); it is checked and installed instead of being fetched")
+     ap.add_argument("--feed", metavar="URL|DIR",
+@@ -10864,15 +10915,21 @@
+     elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
+         warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
+              if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
++    artifacts_dir = data if a.separate_model_artifacts else None
++    ready_data_dir = artifacts_dir
+     ready = bool(fam.get("ready"))                     # NVFP4: ready-made packs (NVFP4_REPOS), no GGUF shards
+     if ready:
+         models_dir = Path(a.models_dir)
+-        for r in elsewhere:                            # already downloaded and checked in a Strata folder elsewhere
+-            if all(ready_verified(ready_where(r / "models", f), f[5]) for f in ready_needed(model, r / "models")):
+-                models_dir = r / "models"
++        candidates = [(r / "models", None) for r in elsewhere]
++        if artifacts_dir is not None:
++            candidates = [(models_dir, artifacts_dir), (models_dir, None), *candidates]
++        for candidate_models, candidate_data in candidates:
++            if all(ready_verified(ready_where(candidate_models, f, candidate_data), f[5])
++                   for f in ready_needed(model, candidate_models, candidate_data)):
++                models_dir, ready_data_dir = candidate_models, candidate_data
+                 ok(f"model files found in {models_dir}")
+                 break
+-        shards = [ready_where(models_dir, f) for f in ready_files(model)]
++        shards = [ready_where(models_dir, f, ready_data_dir) for f in ready_needed(model, models_dir, ready_data_dir)]
+     else:
+         models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
+         shards = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
+@@ -10888,15 +10945,15 @@
+                 ok(f"model files found in {models_dir}")
+                 break
+     mark_whole_unless_pinned([] if ready else shards, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))   # #173: a whole file copied in by hand has no finish mark
+-    have_model = all(ready_verified(ready_where(models_dir, f), f[5]) for f in ready_needed(model, models_dir)) if ready else \
++    have_model = all(ready_verified(ready_where(models_dir, f, ready_data_dir), f[5]) for f in ready_needed(model, models_dir, ready_data_dir)) if ready else \
+         all(s.exists() and (done(s) or a.gguf_dir) for s in shards)
+     # #425 (jctaborda): a download that resumes needs room only for what is still missing - the finished shards and
+     # the .part files already on the disk count
+     on_disk = sum(f.stat().st_size for s in shards for f in (s, s.with_name(s.name + ".part")) if f.is_file()) / 1e9
+     to_fetch = 0 if a.gguf_dir or have_model else max(MODELS[model]["download_gb"] - on_disk, 0)
+-    if ready and not have_model and MODELS[model].get("prepare") and prepared_done(model, models_dir):
+-        to_fetch = sum(f[4] for f in ready_needed(model, models_dir)
+-                       if not ready_verified(ready_where(models_dir, f), f[5])) / 1e9   # the small files only
++    if ready and not have_model and MODELS[model].get("prepare") and prepared_done(model, models_dir, ready_data_dir):
++        to_fetch = sum(f[4] for f in ready_needed(model, models_dir, ready_data_dir)
++                       if not ready_verified(ready_where(models_dir, f, ready_data_dir), f[5])) / 1e9   # the small files only
+     # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
+     # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
+     pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
+@@ -10904,7 +10961,7 @@
+     mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
+     q2_avx = model == "Q2_0" and avx512 and family == "qwen"
+     prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
+-        not prepared_done(model, models_dir) else 0.0
++        not prepared_done(model, models_dir, ready_data_dir) else 0.0
+     margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
+     mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
+     copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
+@@ -10912,11 +10969,15 @@
+         (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
+     need = real + margin
+     free_now = free_gb(models_dir)
+-    problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
+-                                (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
++    if ready and ready_data_dir is not None:
++        problem = ready_disk_problem(model, models_dir, ready_data_dir,
++                                     Path(a.models_dir) / fam.get("mmproj", MMPROJ) if vision != "none" else None)
++    else:
++        problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
++                                    (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
+     if problem:
+         fail(*problem)
+-    if free_now < need:
++    if not (ready and ready_data_dir is not None) and free_now < need:
+         warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
+              "Setup goes on and should fit; free up space if it stops")
+ 
+@@ -10953,7 +11014,7 @@
+         say(f"  The model files go in {models_dir / MODELS[model]['repo'].replace('/', '--')}")
+         if model_source() == "modelscope":
+             warn("these packs are on Hugging Face only: downloading them from " + hf_endpoint())
+-        ready_fetch(model, models_dir)
++        ready_fetch(model, models_dir, ready_data_dir)
+     elif not a.gguf_dir:
+         missing = [s.name for s in shards if not (s.exists() and done(s))]
+         if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
+@@ -11009,17 +11070,18 @@
+     pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
+     env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
+     prepared = bool(ready and MODELS[model].get("prepare"))
+-    if prepared and not prepared_done(model, models_dir):
++    if prepared and not prepared_done(model, models_dir, ready_data_dir):
+         say("  NVIDIA's checkpoint is turned into a Strata pack on this PC (once; 20-40 minutes, reads the 102 GB, writes about")
+         say(f"  {MODELS[model]['prepare_gb']:.0f} GB). Nothing of NVIDIA's weights leaves this PC.")
+         ensure_nvfp4_local_packages()
+         run([sys.executable, str(ROOT / "tools" / "nvfp4_local_pack.py"), "prepare",
+-             "--model", str(ready_where(models_dir, ("src", MODELS[model]["repo"], "", "", 0, ""))),
+-             "--out", str(prepared_dir(model, models_dir))], env=env)
++             "--model", str(ready_where(models_dir, ("src", MODELS[model]["repo"], "", "", 0, ""), ready_data_dir)),
++             "--out", str(prepared_dir(model, models_dir, ready_data_dir)),
++             *(["--gguf-out", str(prepared_dir(model, models_dir))] if ready_data_dir is not None else [])], env=env)
+         ok("prepared; the downloaded checkpoint is no longer needed and can be deleted to get its 102 GB back: "
+-           + str(ready_where(models_dir, ("src", MODELS[model]["repo"], "", "", 0, ""))))
++           + str(ready_where(models_dir, ("src", MODELS[model]["repo"], "", "", 0, ""), ready_data_dir)))
+     if ready:                                          # the downloaded pack folder is the pack, experts.bin included
+-        pack = ready_paths(model, models_dir)["pack"]
++        pack = ready_paths(model, models_dir, ready_data_dir)["pack"]
+     elif model == "Q2_0" and avx512 and family == "qwen":
+         # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
+         if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
+@@ -11040,7 +11102,7 @@
+         run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
+              "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
+     ok(f"model prepared: {pack}")
+-    mtp = ready_paths(model, models_dir)["mtp"] if prepared else \
++    mtp = ready_paths(model, models_dir, ready_data_dir)["mtp"] if prepared else \
+         (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
+     rt = mtp / "rt"
+     corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
+@@ -11074,7 +11136,7 @@
+     sys.path.insert(0, str(ROOT / "tools"))
+     from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
+     if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
+-        rp = ready_paths(model, models_dir)            # the FP8 n-gram table, the BF16 token embedding
++        rp = ready_paths(model, models_dir, ready_data_dir)            # the FP8 n-gram table, the BF16 token embedding
+         ple = rp["ple"]
+         model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
+                       "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
+@@ -11087,7 +11149,7 @@
+                       *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
+     from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
+     _built = setup_config.config_for(setup_config.SetupInputs(
+-        a=a, adopted=adopted, chosen=chosen, cuda_tk=cuda_tk, draft_vocab=draft_vocab, eng=eng, engine_ver=engine_ver, esp=esp, fam=fam, family=family, gpu=gpu, hip=hip, in_budget=in_budget, lib_dirs=lib_dirs, low_ram=low_ram, meta=meta, mmproj=mmproj, model=model, model_args=model_args, models_dir=models_dir, multi=multi, pack=pack, ple=ple, port=port, q4_split=q4_split, ram=ram, reader=reader, ready=ready, rope_scale=rope_scale, rt=rt, scaling=scaling, shards=shards, tag=tag, vision=vision, ctx=ctx, kv=kv, resident=resident, budget=budget, GGUFFile=GGUFFile), sys.modules[__name__])
++        a=a, data_dir=artifacts_dir, adopted=adopted, chosen=chosen, cuda_tk=cuda_tk, draft_vocab=draft_vocab, eng=eng, engine_ver=engine_ver, esp=esp, fam=fam, family=family, gpu=gpu, hip=hip, in_budget=in_budget, lib_dirs=lib_dirs, low_ram=low_ram, meta=meta, mmproj=mmproj, model=model, model_args=model_args, models_dir=models_dir, multi=multi, pack=pack, ple=ple, port=port, q4_split=q4_split, ram=ram, reader=reader, ready=ready, rope_scale=rope_scale, rt=rt, scaling=scaling, shards=shards, tag=tag, vision=vision, ctx=ctx, kv=kv, resident=resident, budget=budget, GGUFFile=GGUFFile), sys.modules[__name__])
+     cfg, cfg_path, cal, args, ctx, kv, resident = (_built.cfg, _built.cfg_path, _built.cal, _built.args, _built.ctx, _built.kv, _built.resident)
+     write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
+                        after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
+diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
+--- a/tools/nvfp4_local_pack.py
++++ b/tools/nvfp4_local_pack.py
+@@ -585,15 +585,18 @@
+ # ------------------------------------------------------------------------------------------------------- prepare (setup)
+ def cmd_prepare(a) -> int:
+     """Everything setup needs from the downloaded checkpoint, each step skipped when its mark is there:
+-        <out>/ple-nvfp4.gguf   the n-gram table      <out>/dense.gguf   the dense weights (no experts)
++        <gguf-out or out>/ple-nvfp4.gguf   the n-gram table; dense.gguf   the dense weights (no experts)
+         <out>/pack/            index.txt, dense.bin, experts.bin, native_experts.txt, tokenizer/
+         <out>/mtp/rt/          the draft layer (a Q2_0 copy of NVIDIA's MTP experts)
+     The checkpoint is read, never changed; it can be deleted afterwards (the pack and the two GGUFs hold everything)."""
+     import subprocess
+     model, out = pathlib.Path(a.model), pathlib.Path(a.out)
+-    if not all((out / m).is_file() for m in MARKS):
++    gguf_out = pathlib.Path(getattr(a, "gguf_out", None) or out)
++    marks = [(gguf_out if m.endswith(".gguf.done") else out) / m for m in MARKS]
++    if not all(m.is_file() for m in marks):
+         require_packages()                          # before the 20 minutes of the n-gram table, not after them (#3227)
+     out.mkdir(parents=True, exist_ok=True)
++    gguf_out.mkdir(parents=True, exist_ok=True)
+     me = [sys.executable, str(pathlib.Path(__file__).resolve())]
+     tools = pathlib.Path(__file__).resolve().parent
+ 
+@@ -611,12 +614,12 @@
+         fn()
+         mark.write_text("done %.0f s\n" % (time.time() - t0))
+ 
+-    step("the n-gram table", out / "ple-nvfp4.gguf.done",
+-         lambda: run(me + ["ple", "--model", str(model), "--out", str(out / "ple-nvfp4.gguf")]))
+-    step("the dense weights", out / "dense.gguf.done",
+-         lambda: run(me + ["convert", "--dense-only", "--model", str(model), "--outfile", str(out / "dense.gguf")]))
++    step("the n-gram table", gguf_out / "ple-nvfp4.gguf.done",
++         lambda: run(me + ["ple", "--model", str(model), "--out", str(gguf_out / "ple-nvfp4.gguf")]))
++    step("the dense weights", gguf_out / "dense.gguf.done",
++         lambda: run(me + ["convert", "--dense-only", "--model", str(model), "--outfile", str(gguf_out / "dense.gguf")]))
+     step("the experts and the pack", out / "pack.done",           # (native_experts.txt is the pack's own marker, not ours)
+-         lambda: run(me + ["pack", "--model", str(model), "--dense-gguf", str(out / "dense.gguf"), "--out", str(out / "pack")]))
++         lambda: run(me + ["pack", "--model", str(model), "--dense-gguf", str(gguf_out / "dense.gguf"), "--out", str(out / "pack")]))
+ 
+     mtp = out / "mtp"
+ 
+@@ -688,6 +691,7 @@
+     pr = sub.add_parser("prepare")
+     pr.add_argument("--model", required=True)
+     pr.add_argument("--out", required=True)
++    pr.add_argument("--gguf-out", help="GGUF output directory (default: --out); packs and drafts stay under --out")
+     sl = sub.add_parser("slim")
+     sl.add_argument("--gguf", required=True)
+     sl.add_argument("--out", required=True)
+diff --git a/strata_control/setup_config.py b/strata_control/setup_config.py
+--- a/strata_control/setup_config.py
++++ b/strata_control/setup_config.py
+@@ -48,6 +48,7 @@
+     model: Any = None
+     model_args: Any = None
+     models_dir: Any = None
++    data_dir: Any = None
+     multi: Any = None
+     pack: Any = None
+     ple: Any = None
+@@ -191,7 +192,6 @@
+     parallel_note = lib.parallel_note
+     ple_ram_platform_ok = lib.ple_ram_platform_ok
+     pool_workers_note = lib.pool_workers_note
+-    ready_paths = lib.ready_paths
+     recommend_pool_workers = lib.recommend_pool_workers
+     recommend_remote_expert_opt = lib.recommend_remote_expert_opt
+     resident_budget_gib = lib.resident_budget_gib
+@@ -549,7 +549,7 @@
+         old_cfg = home() / f"strata-{tag.lower()}.json"
+         vt = vision_tokens(a.vision_tokens, vision, old_cfg if old_cfg.is_file() else adopted)
+         cfg["vision"] = {"exe": str(eng / VEXE), "mmproj": str(mmproj),     # the text model, opened vocab-only:
+-                         "model": str(ready_paths(model, models_dir)["dense"] if ready else shards[0]),
++                         "model": str(model_args[model_args.index("--native") + 1]),
+                          "gpu": vision == "gpu", "max_tokens": vt}
+         if reader is not None:                          # AMD: the HIP reader with the CPU reader behind it, or the CPU reader
+             from strata_control import vision_reader as VR
+@@ -559,7 +559,7 @@
+     elif a.vision_tokens is not None:
+         warn("--vision-tokens: images are off for this model, so it is not used")
+     if a.images:                                       # only when given: else an earlier "images" is carried over
+-        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir))
++        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir), inp.data_dir)
+     cfg_path = home() / f"strata-{tag.lower()}.json"
+     cal = setup_calibration(cfg, hip)                  # #566: Linux HIP too; the tuning is offered on NVIDIA only
+     if cal is not None:

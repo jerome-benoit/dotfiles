@@ -5,6 +5,7 @@
   home-manager,
 }:
 let
+  sourcePatch = ../patches/strata-setup-directory-roles.patch;
   configureWith =
     selectedPkgs: settings:
     home-manager.lib.homeManagerConfiguration {
@@ -103,12 +104,12 @@ pkgs.runCommand "check-strata-workspace"
     nativeBuildInputs = [
       pkgs.git
       pkgs.nix
-      pkgs.python3
+      (pkgs.python3.withPackages (python: [ python.numpy ]))
     ];
   }
   ''
     export HOME=$TMPDIR/home
     mkdir -p "$HOME"
-    python3 ${./strata.py} ${../home-manager/modules/development/strata-workspace.py} ${src} ${launcherFixtures}
+    python3 ${./strata.py} ${../home-manager/modules/development/strata-workspace.py} ${src} ${launcherFixtures} ${sourcePatch}
     touch $out
   ''

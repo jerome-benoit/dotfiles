@@ -258,12 +258,15 @@ Agent of Empires session manager:
 - The default package launches the pinned upstream `x86_64-linux` CUDA development environment; a custom `package` replaces it.
 - `workspaceDirectory` defaults to `${config.xdg.dataHome}/strata` and holds the writable source checkout, virtual environment, engines, build caches and interpreter GC root.
 - Directory values are absolute strings outside `/nix/store`, not Nix paths. Changing paths does not migrate existing files.
-- Nullable `dataDirectory` supplies `--data-dir` for new models, packs and drafts; nullable `modelsDirectory` supplies `--models-dir` to override the GGUF destination without relocating packs or drafts.
+- Nullable `dataDirectory` supplies `--data-dir` for new models, packs and drafts. Non-null `modelsDirectory` supplies `--models-dir` and enables GGUF-only routing: ready dense/PLE/embedding and QAD dense/PLE go there; ready packs, QAD checkpoints/drafts and the image VAE stay under data. Null retains upstream's legacy layout, even with an explicit CLI `--models-dir`.
 - Both defaults apply only during first bootstrap or explicit setup (`--setup`, `--model`, `--family`, `--no-start`). Null preserves upstream and wizard selection.
 - Explicit CLI values take priority independently, including equals syntax and unambiguous upstream abbreviations (`--models` is accepted; `--model` selects a model; `--mod` is ambiguous).
 - Launcher classification reads only literal option names, actions and arities from the pinned upstream parser. It uses argparse without importing setup or running acquisition; unknown or ambiguous argument forms reach upstream unchanged.
 - Installed plain starts do not receive directory defaults or gather files/rewrite folder settings. Updates, checks, calibration and standalone commands retain upstream behavior.
 - Upstream owns model selection, tuning, profiles and explicit data-move confirmation. Existing XDG config/state settings remain unchanged; no Terminal package or service is added.
+- The launcher applies `strata-setup-directory-roles.patch` to the exact pinned checkout under the workspace lock. Its owned diff stays visible; `.git/strata-source.patch` stores the exact patch for revision changes and offline rollback. Conflicting edits are refused, not overwritten.
+- Complete legacy ready installations are reused in place without migration. Partial bundles resume into the selected layout without moving weights. QAD writes directly to both destinations; companion completion marks stay with their outputs.
+- Split ready downloads use pinned remaining sizes and resume parts grouped by destination filesystem. QAD preparation retains its aggregate estimate once on a shared filesystem; separate filesystems retain the data-side expert-arena lower bound while setup warns that the remaining output split is unknown.
 
 - The runtime revision records validated local prerequisites; incomplete updates invalidate it and retry on the next launch.
 - Validation uses upstream component inventory and engine metadata; component manifests do not require `BUILD.json`.
