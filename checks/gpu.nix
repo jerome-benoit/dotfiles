@@ -468,6 +468,32 @@ assert lib.all (condition: condition) [
   (check "AMD snapshot preserves supported hexadecimal targets" (
     rocm.acceleration == "rocm" && rocm.rocmTargets == [ "gfx90a" ]
   ))
+  (check "AMD gfx1201 selects ROCm over Vulkan" (
+    let
+      gpu = evaluate {
+        modules = [ "amdgpu" ];
+        kfd = true;
+        render = true;
+        targets = "gfx1201";
+      };
+    in
+    gpu.acceleration == "rocm" && gpu.rocmTargets == [ "gfx1201" ]
+  ))
+  (check "unsupported AMD targets retain Vulkan and CPU fallbacks" (
+    let
+      amd =
+        render:
+        evaluate {
+          modules = [ "amdgpu" ];
+          kfd = true;
+          targets = "gfx9999";
+          inherit render;
+        };
+    in
+    (amd true).rocmTargets == [ ]
+    && (amd true).acceleration == "vulkan"
+    && (amd false).acceleration == "default"
+  ))
   (check "unsupported ROCm compiler platforms retain Vulkan and CPU fallbacks" (
     let
       arm =
