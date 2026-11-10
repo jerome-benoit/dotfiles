@@ -228,6 +228,7 @@ Hermes Agent configuration:
 - Set `plugins = lib.mkForce { };` when using a Hermes home outside HOME.
 - State setup shell-quotes the Hermes home and working directory, including paths with spaces.
 - Linux creates the stable `.env` link before service reload; `After`/`Requires=sops-nix` gates its secret target. Darwin also gates each gateway/backend launch on secret readability, failing after 60 seconds rather than starting without credentials.
+- Linux gateway starts through the account's non-interactive login shell, resolved through NSS. Nixpkgs `getconf PATH` bootstraps standard tools before login; the final PATH keeps login precedence, then adds the Home Manager profile and original service PATH as fallbacks. Unsupported shells fail explicitly, and login startup must not require a TTY. No PATH entry is added to credentials.
 - Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and applicable CUDA libraries. Linux wrappers include `ld` and `objdump` for Python's PortAudio discovery without a compiler.
 
 ### aoe.nix

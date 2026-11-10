@@ -70,9 +70,14 @@ let
       done
     '';
     # Expose the service launcher without building the application/model closure.
-    passthru = (previousAttrs.passthru or { }) // {
-      integrationSecretGate = secretGate;
-    };
+    passthru =
+      (previousAttrs.passthru or { })
+      // {
+        integrationSecretGate = secretGate;
+      }
+      // lib.optionalAttrs isLinux {
+        integrationGatewayLogin = gatewayLogin;
+      };
   });
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
   hermesDesktopPackage = effectiveHermesAgentPackage.hermesDesktop or null;
@@ -121,7 +126,29 @@ let
     done
     exec "$@"
   '';
-
+  # Workaround: upstream user units expose only package executables to cron scripts.
+  # Remove when upstream supports the account's non-interactive login environment.
+  gatewayLogin = pkgs.writeShellScript "hermes-gateway-login" ''
+    set -euo pipefail
+    loginShell=$(
+      ${pkgs.getent}/bin/getent passwd "$(${pkgs.coreutils}/bin/id -u)" \
+        | ${pkgs.coreutils}/bin/cut -d: -f7
+    )
+    if [[ "$loginShell" != /* || ! -x "$loginShell" ]]; then
+      echo "Hermes gateway requires an executable absolute login shell" >&2
+      exit 1
+    fi
+    case "''${loginShell##*/}" in
+      bash|zsh|sh|dash|ksh|mksh) ;;
+      *) echo "Hermes gateway requires a POSIX-compatible login shell: $loginShell" >&2; exit 1 ;;
+    esac
+    systemPath=$(${pkgs.getconf}/bin/getconf PATH)
+    export PATH="''${PATH:+$PATH:}$systemPath"
+    export SHELL="$loginShell"
+    exec "$loginShell" -lc \
+      'export PATH="''${PATH:+$PATH:}$1"; shift; exec "$@"' \
+      hermes-gateway ${lib.escapeShellArg "${config.home.profileDirectory}/bin"}"''${PATH:+:$PATH}" "$@"
+  '';
 in
 {
   options.modules.development.hermesAgent = {
@@ -233,9 +260,14 @@ in
     systemd.user.services = lib.mkIf isLinux (
       lib.mkMerge [
         (lib.mkIf cfg.enableGateway {
-          hermes-agent.Unit = {
-            After = [ "sops-nix.service" ];
-            Requires = [ "sops-nix.service" ];
+          hermes-agent = {
+            Unit = {
+              After = [ "sops-nix.service" ];
+              Requires = [ "sops-nix.service" ];
+            };
+            Service.ExecStart = lib.mkForce (
+              lib.escapeShellArgs ([ gatewayLogin ] ++ hermesModuleCommon.gatewayArgv serviceCfg)
+            );
           };
         })
         (lib.mkIf cfg.enableDashboard {
