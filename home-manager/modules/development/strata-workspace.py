@@ -7,6 +7,8 @@ Validation does not prove GPU compatibility, model integrity, or successful infe
 """
 
 from contextlib import contextmanager
+import argparse
+import ast
 import fcntl
 import json
 import os
@@ -337,7 +339,40 @@ def retain_interpreter(state, venv):
         raise RuntimeError(f"Interpreter {python} is unavailable; virtual environment preserved at {venv}")
 
 
-def run_workspace(state, revision, args, *, data_directory=None):
+def setup_options(root, args):
+    """Classify argv with upstream's option names and arities, without running setup."""
+    class Parser(argparse.ArgumentParser):
+        def error(self, message):
+            raise ValueError(message)
+
+    parser = Parser(add_help=False, argument_default=argparse.SUPPRESS)
+    parser.add_argument("-h", "--help", action="store_true", dest="--help")
+    source = ast.parse((root / "setup.py").read_text())
+    main = next((node for node in source.body
+                 if isinstance(node, ast.FunctionDef) and node.name == "main"), None)
+    if main is None:
+        raise RuntimeError("Cannot inspect upstream setup's argument parser")
+    for node in ast.walk(main):
+        if (not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute)
+                or not isinstance(node.func.value, ast.Name) or node.func.value.id != "ap"
+                or node.func.attr != "add_argument"):
+            continue
+        flags = [ast.literal_eval(flag) for flag in node.args]
+        shape = {keyword.arg: ast.literal_eval(keyword.value) for keyword in node.keywords
+                 if keyword.arg in {"action", "nargs"}}
+        if shape.get("action", "store") not in {"store", "store_true", "store_false"}:
+            raise RuntimeError("Unsupported upstream setup argument action")
+        parser.add_argument(*flags, dest=flags[0], **shape)
+    if not {"--data-dir", "--models-dir"} <= set(parser._option_string_actions):
+        raise RuntimeError("Upstream setup no longer declares its download-directory options")
+    try:
+        return set(vars(parser.parse_args(args)))
+    except ValueError:
+        # Let upstream report unknown or ambiguous argument forms without refreshing.
+        return {"--help"}
+
+
+def run_workspace(state, revision, args, *, data_directory=None, models_directory=None):
     with workspace_lock(state) as (state, lock):
         root = _prepare_workspace(state, revision, REMOTE)
         venv = root / ".venv"
@@ -353,14 +388,7 @@ def run_workspace(state, revision, args, *, data_directory=None):
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
             retain_interpreter(state, venv)
-        options = [arg.partition("=")[0] for arg in args]
-        requested = {
-            flag for flag in ("--help", "--check", "--inspect", "--rollback-engine", "--update",
-                              "--setup", "--model", "--family", "--no-start", "--calibrate")
-            if any(len(option) > 2 and flag.startswith(option) for option in options)
-        }
-        if any(option.startswith("-h") for option in options):
-            requested.add("--help")
+        requested = setup_options(root, args)
         explicit_update = "--update" in requested
         calibration_requested = (
             "--calibrate" in requested
@@ -372,7 +400,7 @@ def run_workspace(state, revision, args, *, data_directory=None):
             and not calibration_requested
         )
         standalone_requested = (calibration_requested and "--no-start" in requested) or bool(
-            requested & {"--help", "--inspect", "--rollback-engine"}
+            requested & {"--help", "--inspect", "--prepare-pack", "--rollback-engine"}
         ) or (
             "--check" in requested and not explicit_update
         )
@@ -402,16 +430,15 @@ def run_workspace(state, revision, args, *, data_directory=None):
                     refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)
                 else:
                     (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-            # A configured download destination must not turn an installed plain start
-            # into upstream's mutating data-folder acquisition path. CLI values, including
-            # argparse abbreviations and --data-dir=VALUE, remain authoritative.
-            data_dir_given = any(
-                len(option) > 2 and "--data-dir".startswith(option) for option in options
-            )
-            if (data_directory is not None and not data_dir_given
-                    and not standalone_requested and not explicit_update
+            # Defaults apply only to acquisition, never an installed plain start.
+            # Parse actual upstream options so values and ambiguous prefixes do not
+            # override defaults or change command classification.
+            if (not standalone_requested and not explicit_update
                     and (setup_requested or not model_configs(root))):
-                args = [*args, "--data-dir", data_directory]
+                for flag, directory in (("--data-dir", data_directory),
+                                        ("--models-dir", models_directory)):
+                    if directory is not None and flag not in requested:
+                        args = [*args, flag, directory]
         finally:
             # Even a partial updater may have created a new venv interpreter.
             retain_interpreter(state, venv)
@@ -427,8 +454,9 @@ if __name__ == "__main__":
         if sys.argv[1] == "--runtime-status":
             check_runtime(Path(sys.argv[2]).resolve())
         else:
-            run_workspace(sys.argv[1], sys.argv[2], sys.argv[4:],
-                          data_directory=sys.argv[3] or None)
+            run_workspace(sys.argv[1], sys.argv[2], sys.argv[5:],
+                          data_directory=sys.argv[3] or None,
+                          models_directory=sys.argv[4] or None)
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
     except RuntimeError as error:

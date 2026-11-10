@@ -15,6 +15,7 @@ import zipfile
 
 WORKSPACE = sys.argv.pop(1)
 UPSTREAM = sys.argv.pop(1)
+LAUNCHERS = json.loads(Path(sys.argv.pop(1)).read_text())
 RUNNER = """
 import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
@@ -23,7 +24,8 @@ spec.loader.exec_module(module)
 if len(sys.argv) > 5 and sys.argv[5] == "run":
     module.REMOTE = sys.argv[4]
     module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"],
-                         data_directory=__import__("os").environ.get("TEST_DATA_DIRECTORY"))
+                         data_directory=__import__("os").environ.get("TEST_DATA_DIRECTORY"),
+                         models_directory=__import__("os").environ.get("TEST_MODELS_DIRECTORY"))
 elif len(sys.argv) > 5:
     with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
         module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno(), sys.argv[6:])
@@ -63,6 +65,7 @@ class WorkspaceTests(unittest.TestCase):
         self.git("init", "--quiet")
         (self.repo / ".gitignore").write_text(".venv/\nengine/\nbuild/\nstrata-*.json\n")
         (self.repo / "code.py").write_text("old source\n")
+        shutil.copyfile(Path(UPSTREAM) / "setup.py", self.repo / "setup.py")
         (self.repo / "removed.py").write_text("obsolete source\n")
         self.old = self.commit()
         (self.repo / "code.py").write_text("new source\n")
@@ -90,44 +93,155 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip())
 
-    def test_data_directory_only_defaults_acquisition_and_preserves_cli_arguments(self):
-        root = self.prepare(self.old)
-        script = root / "setup.sh"
-        script.write_text(f'''#!{sys.executable}
-import json, pathlib, sys
-root = pathlib.Path(__file__).parent
-(root / "received.json").write_text(json.dumps(sys.argv[1:]))
-''')
-        script.chmod(0o700)
-        destination = str(self.base / "models with spaces")
-        cases = [
-            (False, None, ["--no-browser"], ["--no-browser"]),
-            (False, destination, ["--no-browser"], ["--no-browser", "--data-dir", destination]),
-            (True, destination, ["--setup"], ["--setup", "--data-dir", destination]),
-            (True, destination, ["--set"], ["--set", "--data-dir", destination]),
-            (True, destination, ["--model=Q2_0"], ["--model=Q2_0", "--data-dir", destination]),
-            (False, destination, ["--data-dir", "/cli path"], ["--data-dir", "/cli path"]),
-            (False, destination, ["--data-dir=/cli path"], ["--data-dir=/cli path"]),
-            (False, destination, ["--data-d=/cli path"], ["--data-d=/cli path"]),
-            (False, destination, ["--inspect", "/input with spaces"], ["--inspect", "/input with spaces"]),
-            (False, destination, ["--check"], ["--check"]),
-            (False, destination, ["--help"], ["--help"]),
-        ]
-        config = root / "strata-fixture.json"
-        for installed, default, args, expected in cases:
-            with self.subTest(installed=installed, default=default, args=args):
-                if installed:
-                    config.write_text('{"exe": "engine/strata", "args": []}')
-                else:
-                    config.unlink(missing_ok=True)
-                env = dict(self.env)
-                if default is not None:
-                    env["TEST_DATA_DIRECTORY"] = default
-                result = subprocess.run(self.command(self.old) + ["run", *args], env=env,
+    def test_module_launcher_quotes_all_directories_and_preserves_user_arguments(self):
+        for fixture in LAUNCHERS:
+            with self.subTest(expected=fixture["expected"]):
+                args = ["--models-dir", "/CLI's $(touch injected)", "--api-key=--setup"]
+                result = subprocess.run([fixture["launcher"], *args], env=self.env, cwd=self.base,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads((root / "received.json").read_text()), expected)
-                self.assertFalse(Path(destination).exists())
+                actual = json.loads(result.stdout)
+                self.assertEqual(actual[:2], ["develop", "--no-update-lock-file"])
+                self.assertTrue(actual[2].startswith("path:") and actual[2].endswith("#strata"))
+                self.assertEqual(actual[3:5], ["--command", "python3"])
+                self.assertEqual(actual[6:], fixture["expected"] + args)
+                self.assertFalse((self.base / "injected").exists())
+
+    def make_acquisition_workspace(self):
+        root = self.prepare(self.old)
+        self.make_runtime_source(root)
+        script = root / "setup.sh"
+        script.write_text(f'''#!{sys.executable}
+import inspect, json, sys
+from pathlib import Path
+sys.path.append(r"{UPSTREAM}")
+import setup
+# Keep the real parser, folder resolver, wizard and destination calculations.
+# Replace hardware and acquisition boundaries; never fetch packages, engines or weights.
+card = {{"index": 0, "name": "Test GPU", "vram_gb": 48, "arch": "89", "driver": "600.0"}}
+setup.gpus = lambda: [card]
+setup.gpu_info = lambda index: dict(card)
+setup.amd_gpus = lambda: []
+setup.ram_gb = lambda: 256
+setup.cpu_info = lambda: ("Test CPU", True, False)
+setup.page_file_gb = lambda: None
+setup.pcie_link = lambda index: None
+setup.disk_room_problem = lambda *args, **kwargs: None
+setup.pip_install = lambda *args, **kwargs: None
+setup.engine_step = lambda a, gpu, hip, amd, cuda, vision: (
+    setup.ROOT, setup.ROOT / "engine", {{"version": "0.1.46"}}, [], gpu, vision)
+downloads, pack_commands = [], []
+setup.download = lambda url, destination, *args, **kwargs: downloads.append(str(destination))
+setup.check_shards = lambda shards: None
+setup.run = lambda command, **kwargs: pack_commands.append(command)
+def capture(draft, *args, **kwargs):
+    state = inspect.currentframe().f_back.f_locals
+    a = state["a"]
+    (setup.ROOT / "destinations.json").write_text(json.dumps({{
+        "data": str(state["data"]), "models": str(state["models_dir"]), "pack": str(state["pack"]),
+        "draft": str(draft), "shards": [str(p) for p in state["shards"]],
+        "downloads": downloads, "pack_commands": pack_commands, "api_key": a.api_key,
+    }}))
+    raise SystemExit(0)
+setup.fetch_mtp = capture
+sys.exit(setup.main())
+''')
+        script.chmod(0o700)
+        return root
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_directory_defaults_reach_upstream_acquisition_and_cli_wins(self):
+        original_state = self.state
+        data = self.base / "new data with spaces"
+        models = self.base / "GGUF's $(touch injected) ; models"
+        cli_data = self.base / "CLI data"
+        cli_models = self.base / "CLI models"
+        cases = [
+            (None, None, [], None, None),
+            (str(data), None, [], data, None),
+            (None, str(models), [], None, models),
+            (str(data), str(models), [], data, models),
+            (str(data), str(models), ["--setup"], data, models),
+            (str(data), str(models), ["--setu"], data, models),
+            (str(data), str(models), ["--model=Q2_0"], data, models),
+            (str(data), str(models), ["--family=qwen"], data, models),
+            (str(data), str(models), ["--no-start"], data, models),
+            (str(data), str(models), ["--models-dir", str(cli_models)], data, cli_models),
+            (str(data), str(models), [f"--models-dir={cli_models}"], data, cli_models),
+            (str(data), str(models), ["--models", str(cli_models)], data, cli_models),
+            (str(data), str(models), [f"--models-d={cli_models}"], data, cli_models),
+            (str(data), str(models), ["--data-dir", str(cli_data)], cli_data, models),
+            (str(data), str(models), [f"--data-d={cli_data}"], cli_data, models),
+            (str(data), str(models), [f"--data-dir={cli_data}", f"--models-di={cli_models}"],
+             cli_data, cli_models),
+            (str(data), str(models), ["--api-key=--models-dir"], data, models),
+            (None, None, [f"--models-dir={cli_models}"], None, cli_models),
+        ]
+        for index, (data_default, models_default, args, expected_data, expected_models) in enumerate(cases):
+            with self.subTest(args=args, data=data_default, models=models_default):
+                self.state = original_state / str(index)
+                root = self.make_acquisition_workspace()
+                if any(arg.partition("=")[0] in {"--setup", "--setu", "--model", "--family", "--no-start"}
+                       for arg in args):
+                    self.make_runtime_model(root)
+                env = dict(self.env, XDG_CONFIG_HOME=str(self.base / "config" / str(index)))
+                if data_default is not None:
+                    env["TEST_DATA_DIRECTORY"] = data_default
+                if models_default is not None:
+                    env["TEST_MODELS_DIRECTORY"] = models_default
+                result = subprocess.run(
+                    self.command(self.old) + ["run", "--yes", "--no-browser", "--context", "8192",
+                                             "--vision", "no", "--experimental-speed-projection", "off", *args],
+                    env=env, capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                actual = json.loads((root / "destinations.json").read_text())
+                selected_data = expected_data or root.parent / "Strata-data"
+                selected_models = expected_models or selected_data / "models"
+                self.assertEqual(Path(actual["data"]), selected_data)
+                self.assertEqual(Path(actual["models"]).parent, selected_models)
+                self.assertTrue(actual["shards"])
+                self.assertTrue(all(Path(p).is_relative_to(selected_models) for p in actual["shards"]))
+                self.assertEqual(Path(actual["pack"]).parent, selected_data / "packs")
+                self.assertEqual(Path(actual["draft"]), selected_data / "mtp")
+                self.assertEqual(actual["downloads"], actual["shards"])
+                self.assertTrue(actual["pack_commands"])
+                for command in actual["pack_commands"]:
+                    self.assertEqual(command[command.index("--out") + 1], actual["pack"])
+                    self.assertEqual(command[command.index("--gguf") + 1], actual["shards"][0])
+                self.assertEqual(actual["api_key"], "--models-dir" if "--api-key=--models-dir" in args else None)
+                self.assertFalse(any(selected_models.rglob("*.gguf")))
+                self.assertFalse((root / "injected").exists())
+                self.assertFalse((root / ".git/strata-runtime-revision").exists())
+                settings = Path(env["XDG_CONFIG_HOME"]) / "strata/settings.json"
+                self.assertEqual(json.loads(settings.read_text())["data_dir"], str(selected_data))
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_directory_defaults_preserve_upstream_errors_and_standalone_commands(self):
+        root = self.make_acquisition_workspace()
+        data = self.base / "unused data"
+        models = self.base / "unused models"
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models))
+        script = root / "setup.sh"
+        script.write_text(script.read_text().replace(
+            "sys.exit(setup.main())",
+            '''def standalone(a):
+    assert a.data_dir is None and a.models_dir is None
+    return 0
+setup.prepare_pack_only = standalone
+sys.exit(setup.main())''',
+        ))
+        for args, code in ((["--help"], 0), (["--prepare-pack", "/not downloaded"], 0),
+                           (["--set"], 2), (["--mod=/ambiguous"], 2), (["--models-dir"], 2)):
+            with self.subTest(args=args):
+                result = subprocess.run(self.command(self.old) + ["run", *args], env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, code, result.stderr)
+                if code:
+                    self.assertIn("error:", result.stderr)
+                self.assertFalse(data.exists())
+                self.assertFalse(models.exists())
+                self.assertFalse((root / "destinations.json").exists())
 
     def test_initial_bootstrap_failure_never_certifies_runtime(self):
         root = self.prepare(self.old)
@@ -372,11 +486,12 @@ PY
         return root
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
-    def test_configured_data_directory_does_not_mutate_installed_plain_start(self):
+    def test_configured_directories_do_not_mutate_installed_plain_start(self):
         root = self.make_updater_workspace()
         marker = root / ".git/strata-runtime-revision"
         marker.write_text(self.old + "\n")
         destination = self.base / "new downloads"
+        models_destination = self.base / "new GGUFs"
         remembered = self.base / "existing models"
         remembered.mkdir()
         model = remembered / "keep.bin"
@@ -393,14 +508,50 @@ PY
             'setup.start = lambda *args, **kwargs: 0\n'
             'sys.exit(setup.main())',
         ))
-        result = subprocess.run(self.command(self.old) + ["run", "--no-browser"],
-                                env=dict(self.env, TEST_DATA_DIRECTORY=str(destination)),
-                                capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(destination.exists())
-        self.assertEqual(settings.read_bytes(), expected_settings)
-        self.assertEqual((root / "strata-fixture.json").read_bytes(), expected_config)
-        self.assertEqual(model.read_bytes(), b"existing model")
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(destination),
+                   TEST_MODELS_DIRECTORY=str(models_destination))
+        for args in (["--no-browser"], ["--no-browser", "--api-key=--setup"]):
+            with self.subTest(args=args):
+                result = subprocess.run(self.command(self.old) + ["run", *args],
+                                        env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(destination.exists())
+                self.assertFalse(models_destination.exists())
+                self.assertEqual(settings.read_bytes(), expected_settings)
+                self.assertEqual((root / "strata-fixture.json").read_bytes(), expected_config)
+                self.assertEqual(model.read_bytes(), b"existing model")
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_directory_defaults_leave_check_update_and_calibration_to_upstream(self):
+        root = self.make_updater_workspace()
+        (root / ".git/strata-runtime-revision").write_text(self.old + "\n")
+        script = root / "setup.sh"
+        script.write_text(script.read_text().replace(
+            "sys.exit(setup.main())",
+            '''parse = setup.argparse.ArgumentParser.parse_args
+def parsed(parser, *args, **kwargs):
+    a = parse(parser, *args, **kwargs)
+    assert a.data_dir is None and a.models_dir is None
+    (setup.ROOT / "parsed-command").write_text("ok")
+    return a
+setup.argparse.ArgumentParser.parse_args = parsed
+setup.gpus = lambda: sys.exit(0)
+setup.engine_update_note = lambda: None
+setup.calibrate_config = lambda config: True
+sys.exit(setup.main())''',
+        ))
+        data = self.base / "unused data"
+        models = self.base / "unused models"
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models))
+        for args in (["--check"], ["--update"], ["--calibrate", "--no-start"], ["--rollback-engine"]):
+            with self.subTest(args=args):
+                (root / "parsed-command").unlink(missing_ok=True)
+                result = subprocess.run(self.command(self.old) + ["run", *args], env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "parsed-command").read_text(), "ok")
+                self.assertFalse(data.exists())
+                self.assertFalse(models.exists())
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_refresh_respects_engine_build_and_custom_source(self):
@@ -698,9 +849,9 @@ PY
                     script = root / "setup.sh"
                     original = script.read_text()
                     script.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
-                    flag = "--set" if change == "setup" else "--update"
+                    flag = "--setu" if change == "setup" else "--update"
                     result = subprocess.run(
-                        [sys.executable, WORKSPACE, str(self.state), self.new, "", flag],
+                        [sys.executable, WORKSPACE, str(self.state), self.new, "", "", flag],
                         env=self.env, capture_output=True, text=True, timeout=30,
                     )
                     self.assertEqual(result.returncode, 9, result.stderr)
@@ -1003,7 +1154,7 @@ PY
         marker.write_text(self.new)
         setup = root / "setup.sh"
         setup.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
-        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "--update"],
+        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "", "--update"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 9)
         self.assertFalse(marker.exists())

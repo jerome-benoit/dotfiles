@@ -254,6 +254,17 @@ Agent of Empires session manager:
 
 ### strata.nix
 
+- Options: `enable`, `package`, `workspaceDirectory`, `dataDirectory`, `modelsDirectory`.
+- The default package launches the pinned upstream `x86_64-linux` CUDA development environment; a custom `package` replaces it.
+- `workspaceDirectory` defaults to `${config.xdg.dataHome}/strata` and holds the writable source checkout, virtual environment, engines, build caches and interpreter GC root.
+- Directory values are absolute strings outside `/nix/store`, not Nix paths. Changing paths does not migrate existing files.
+- Nullable `dataDirectory` supplies `--data-dir` for new models, packs and drafts; nullable `modelsDirectory` supplies `--models-dir` to override the GGUF destination without relocating packs or drafts.
+- Both defaults apply only during first bootstrap or explicit setup (`--setup`, `--model`, `--family`, `--no-start`). Null preserves upstream and wizard selection.
+- Explicit CLI values take priority independently, including equals syntax and unambiguous upstream abbreviations (`--models` is accepted; `--model` selects a model; `--mod` is ambiguous).
+- Launcher classification reads only literal option names, actions and arities from the pinned upstream parser. It uses argparse without importing setup or running acquisition; unknown or ambiguous argument forms reach upstream unchanged.
+- Installed plain starts do not receive directory defaults or gather files/rewrite folder settings. Updates, checks, calibration and standalone commands retain upstream behavior.
+- Upstream owns model selection, tuning, profiles and explicit data-move confirmation. Existing XDG config/state settings remain unchanged; no Terminal package or service is added.
+
 - The runtime revision records validated local prerequisites; incomplete updates invalidate it and retry on the next launch.
 - Validation uses upstream component inventory and engine metadata; component manifests do not require `BUILD.json`.
 - Source refs, the workspace lock and Nix interpreter roots support offline rollback and serialized updates.

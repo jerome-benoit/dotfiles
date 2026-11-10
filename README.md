@@ -82,34 +82,6 @@ Recovery requires the repository and identities that can decrypt the SOPS secret
 GPG bundle exports replace the previous bundle only after successful encryption and verification.
 Bundle passphrases preserve leading and trailing whitespace.
 
-### Strata
-
-`modules.development.strata` runs the pinned upstream CUDA development environment on
-`x86_64-linux`. It does not package Strata Terminal or activate a service.
-
-```nix
-modules.development.strata = {
-  enable = true;
-  workspaceDirectory = "${config.xdg.dataHome}/strata"; # default
-  dataDirectory = "/srv/strata models"; # default: null, upstream chooses
-};
-```
-
-Both directory options accept absolute strings outside `/nix/store`, not Nix paths.
-The workspace holds the writable source checkout, `.venv`, engines, builds and
-`.python-root` interpreter GC root. Changing its path starts a separate workspace;
-it does not move the old one.
-
-`dataDirectory` supplies `--data-dir` only for first bootstrap and explicit setup
-(`--setup`, `--model`, `--family`, or `--no-start`). An explicit CLI `--data-dir`
-wins. Installed plain launches never receive this default: upstream reads existing
-model paths without gathering files or rewriting settings. Updates, checks,
-calibration and standalone commands retain upstream folder behavior. Null leaves
-all folder selection to upstream. This option does not request model migration;
-upstream may offer an explicit move confirmation during setup. Model selection,
-tuning and profiles remain owned by the wizard. Existing XDG config/state settings
-remain unchanged.
-
 ### Formatting
 
 ```bash
@@ -134,7 +106,6 @@ nix build .#checks.x86_64-linux.secrets
 nix build .#checks.x86_64-linux.consumers
 nix build .#checks.x86_64-linux.hermes-agent
 nix build .#checks.x86_64-linux.caveman
-nix build .#checks.x86_64-linux.strata
 ```
 
 ### Maintenance
