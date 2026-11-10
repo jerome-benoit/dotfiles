@@ -23,7 +23,6 @@ let
     done
   '';
 
-  # Creates both check and formatter derivations
   mkCheckFormatter =
     {
       checkName ? "check-nix-formatting",

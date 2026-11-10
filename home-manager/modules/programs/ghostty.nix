@@ -13,7 +13,7 @@ let
 in
 {
   options.modules.programs.ghostty = {
-    enable = lib.mkEnableOption "ghostty configuration";
+    enable = lib.mkEnableOption "Ghostty configuration";
   };
 
   config = lib.mkIf cfg.enable {

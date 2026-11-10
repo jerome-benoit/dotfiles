@@ -10,7 +10,7 @@ let
 in
 {
   options.modules.development.claudeCode = {
-    enable = lib.mkEnableOption "claude-code configuration";
+    enable = lib.mkEnableOption "Claude Code configuration";
   };
 
   config = lib.mkIf cfg.enable {

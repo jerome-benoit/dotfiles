@@ -10,7 +10,7 @@ let
 in
 {
   options.modules.programs.himalaya = {
-    enable = lib.mkEnableOption "himalaya configuration";
+    enable = lib.mkEnableOption "Himalaya configuration";
   };
 
   config = lib.mkIf cfg.enable {

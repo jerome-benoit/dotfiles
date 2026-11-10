@@ -132,7 +132,7 @@ in
     theme = lib.mkOption {
       type = lib.types.nullOr (lib.types.enum herdrThemeNames);
       default = null;
-      description = "Built-in Herdr theme. null follows the shared theme system (modules.themes.current).";
+      description = "Initial built-in Herdr theme; null seeds the shared theme (modules.themes.current). Existing config.toml files are preserved.";
       example = "tokyo-night";
     };
   };

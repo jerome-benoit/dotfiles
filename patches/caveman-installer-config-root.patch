@@ -1,6 +1,6 @@
 # base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
 # prerequisites: caveman-nix-installer-paths.patch
-# intent: Keep strict absolute OpenCode root validation after upstream added override precedence.
+# intent: Preserve OpenCode root precedence and require absolute nonempty overrides.
 #   Preserve nonempty override bytes; do not resolve relative roots against the working directory.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js

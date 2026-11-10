@@ -11,7 +11,7 @@ let
 in
 {
   options.modules.programs.zellij = {
-    enable = lib.mkEnableOption "zellij configuration";
+    enable = lib.mkEnableOption "Zellij configuration";
   };
 
   config = lib.mkIf cfg.enable {
@@ -26,7 +26,7 @@ in
 
         simplified_ui = true; # default: false
 
-        session_serialization = true; # default: false
+        session_serialization = true;
         pane_viewport_serialization = true; # default: false
         scrollback_lines_to_serialize = 100; # default: 10000
         serialization_interval = 60; # serialize every 60 seconds

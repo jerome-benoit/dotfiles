@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # (Re)create the age-encrypted GPG keypair bundle.
-# Bundle: subkeys + passphrase, encrypted to the configured SOPS age recipient.
+# Bundle: subkeys + passphrase, encrypted to the recipient derived from the selected age identity.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"

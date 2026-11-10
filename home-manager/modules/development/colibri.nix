@@ -9,10 +9,8 @@ let
   cfg = config.modules.development.colibri;
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
-  # Own derivation built from the flake input source.
   src = inputs.colibri;
 
-  # Real upstream version from c/version.py, tracked by the input rev.
   colibriVersion =
     let
       match = builtins.match ''.*__version__ = "([^"]*)".*'' (builtins.readFile "${src}/c/version.py");

@@ -9,7 +9,7 @@ let
 in
 {
   options.modules.development.bun = {
-    enable = lib.mkEnableOption "bun configuration";
+    enable = lib.mkEnableOption "Bun configuration";
   };
 
   config = lib.mkIf cfg.enable {

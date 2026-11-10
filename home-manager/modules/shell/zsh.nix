@@ -153,7 +153,6 @@ in
               if [ -n "$TMUX" ]; then
                   opencode "$@"
               else
-                  # Create tmux session and run opencode
                   local oc_cmd="opencode ''${(j: :)''${(qq)@}}; exec ''${(qq)SHELL}"
                   if tmux has-session -t "$session_name" 2>/dev/null; then
                       tmux new-window -t "$session_name" -c "$PWD" "$oc_cmd"
@@ -234,7 +233,7 @@ in
 
         export PATH
 
-        # Glob qualifiers: (N)=null glob, (-)=no symlinks, (.)=regular files, (:o)=sorted
+        # Source matching regular files, including symlinks to regular files; N allows no matches.
         if [[ -d "$HOME/.zprofile.d" ]]; then
           for profile_script in "$HOME/.zprofile.d"/*.zsh(N-.:o); do
             [[ -r "$profile_script" ]] && source "$profile_script"

@@ -7,37 +7,40 @@ let
   lib = import "${home-manager}/modules/lib/stdlib-extended.nix" pkgs.lib;
   fixtureHome = "/home/hermes-check";
   plugin = "${inputs.hermes-labs-plugins}/github-copilot";
-  configuration = home-manager.lib.homeManagerConfiguration {
-    inherit pkgs;
-    extraSpecialArgs = { inherit inputs; };
-    modules = [
-      inputs.hermes-agent.homeManagerModules.default
-      inputs.sops-nix.homeManagerModules.sops
-      ../home-manager/modules/core/lib.nix
-      ../home-manager/modules/core/sops.nix
-      ../home-manager/modules/development/hermes-agent.nix
-      ({ lib, ... }: {
-        options = {
-          modules.core.gpu.acceleration = lib.mkOption {
-            type = lib.types.str;
-            default = "none";
+  mkConfiguration =
+    selectedPkgs:
+    home-manager.lib.homeManagerConfiguration {
+      pkgs = selectedPkgs;
+      extraSpecialArgs = { inherit inputs; };
+      modules = [
+        inputs.hermes-agent.homeManagerModules.default
+        inputs.sops-nix.homeManagerModules.sops
+        ../home-manager/modules/core/lib.nix
+        ../home-manager/modules/core/sops.nix
+        ../home-manager/modules/development/hermes-agent.nix
+        ({ lib, ... }: {
+          options = {
+            modules.core.gpu.acceleration = lib.mkOption {
+              type = lib.types.str;
+              default = "none";
+            };
           };
-        };
-        config = {
-          home = {
-            username = "hermes-check";
-            homeDirectory = fixtureHome;
-            stateVersion = "26.05";
+          config = {
+            home = {
+              username = "hermes-check";
+              homeDirectory = fixtureHome;
+              stateVersion = "26.05";
+            };
+            modules.development.hermesAgent = {
+              enable = true;
+              plugins.github-copilot = plugin;
+            };
+            sops.secrets.hermes-env.path = "${fixtureHome}/secret.env";
           };
-          modules.development.hermesAgent = {
-            enable = true;
-            plugins.github-copilot = plugin;
-          };
-          sops.secrets.hermes-env.path = "${fixtureHome}/secret.env";
-        };
-      })
-    ];
-  };
+        })
+      ];
+    };
+  configuration = mkConfiguration pkgs;
   evaluate = settings: configuration.extendModules { modules = [ settings ]; };
   accepts = settings: (builtins.tryEval (evaluate settings).activationPackage.drvPath).success;
   externalHomes = [
@@ -100,6 +103,29 @@ let
         ln -s ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python "$out/bin/python"
         ${configuration.config.services.hermes-agent.package.postFixup}
       '';
+  gatewayHome = pkgs.runCommand "hermes-gateway-home" { } ''
+    mkdir -p "$out/.nix-profile/bin"
+    printf '#!${pkgs.runtimeShell}\nprintf "profile\\n"\n' > "$out/.nix-profile/bin/profile-tool"
+    chmod +x "$out/.nix-profile/bin/profile-tool"
+  '';
+  gatewayConfiguration =
+    (mkConfiguration (
+      pkgs.extend (
+        _: previous: {
+          getent = previous.writeShellScriptBin "getent" ''
+            printf 'hermes-check:x:1000:1000:fixture:%s:%s\n' "$HOME" "$HERMES_TEST_SHELL"
+          '';
+        }
+      )
+    )).extendModules
+      {
+        modules = [
+          ({ lib, ... }: {
+            home.homeDirectory = lib.mkForce (builtins.unsafeDiscardStringContext "${gatewayHome}");
+            sops.age.keyFile = lib.mkForce "${fixtureHome}/.config/sops/age/keys.txt";
+          })
+        ];
+      };
 in
 assert lib.all (condition: condition) [
   (check "external Hermes homes fail before activation" (
@@ -175,7 +201,77 @@ pkgs.runCommand "check-hermes-agent"
       assert sounddevice._lib is not None
       PY
     ''}
-    python3 - ${smokeConfiguration.config.services.hermes-agent.package.integrationSecretGate} <<'PY'
+    python3 - ${gatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} ${gatewayHome} <<'PY'
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    import tempfile
+
+    gateway, profile = sys.argv[1:]
+    arguments = ["two words", "single'quote", "", "$HOME; false", "%literal"]
+    probe = """
+    import json, os, shutil, sys
+    print(json.dumps({
+        "pid": os.getpid(), "argv": sys.argv[1:], "shell": os.environ["SHELL"],
+        "login": os.environ["HERMES_LOGIN_READY"],
+        "tools": {name: shutil.which(name) for name in
+                  ("priority-tool", "profile-tool", "inherited-tool", "sh")},
+    }))
+    """
+    with tempfile.TemporaryDirectory() as temporary:
+        home = Path(temporary)
+        login_bin, inherited_bin = home / "login bin", home / "inherited bin"
+        for directory, names in (
+            (login_bin, ["priority-tool"]),
+            (inherited_bin, ["priority-tool", "inherited-tool"]),
+        ):
+            directory.mkdir()
+            for name in names:
+                executable = directory / name
+                executable.write_text("#!${pkgs.runtimeShell}\nexit 0\n")
+                executable.chmod(0o755)
+        login = (
+            'case "$-" in *i*) exit 91;; esac\n'
+            'command -v sh >/dev/null || exit 92\n'
+            'export HERMES_LOGIN_READY=1\nexport PATH="$HOME/login bin"\n'
+        )
+        for filename in (".zprofile", ".bash_profile"):
+            (home / filename).write_text(login)
+        for shell in ("${pkgs.zsh}/bin/zsh", "${pkgs.bash}/bin/bash"):
+            environment = {
+                "HOME": str(home), "PATH": str(inherited_bin), "LC_ALL": "C",
+                "HERMES_TEST_SHELL": shell, "SHELL": "/not-the-account-shell",
+            }
+            process = subprocess.Popen(
+                [gateway, sys.executable, "-c", probe, *arguments],
+                env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            stdout, stderr = process.communicate(timeout=15)
+            assert process.returncode == 0, (stdout, stderr)
+            result = json.loads(stdout)
+            assert result["pid"] == process.pid, "launcher must exec the gateway"
+            assert result["argv"] == arguments and result["shell"] == shell
+            assert result["login"] == "1"
+            assert result["tools"]["priority-tool"] == str(login_bin / "priority-tool")
+            assert result["tools"]["profile-tool"] == profile + "/.nix-profile/bin/profile-tool"
+            assert result["tools"]["inherited-tool"] == str(inherited_bin / "inherited-tool")
+            assert result["tools"]["sh"], "POSIX tools lost after login reset PATH"
+            status = subprocess.run(
+                [gateway, sys.executable, "-c", "raise SystemExit(37)"],
+                env=environment, timeout=15,
+            )
+            assert status.returncode == 37
+        environment["HERMES_TEST_SHELL"] = "${pkgs.coreutils}/bin/false"
+        rejected = subprocess.run(
+            [gateway, sys.executable, "-c", "raise SystemExit(0)"],
+            env=environment, capture_output=True, text=True, timeout=15,
+        )
+        assert rejected.returncode == 1 and "POSIX-compatible login shell" in rejected.stderr
+    print("gateway login: bash/zsh, PATH precedence, argv, exec and exit status passed")
+    PY
+    python3 - ${smokeConfiguration.config.services.hermes-agent.package.integrationSecretGate} ${gatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} <<'PY'
     import json
     import os
     from pathlib import Path
@@ -190,17 +286,25 @@ pkgs.runCommand "check-hermes-agent"
         gate = root / "gate"
         gate.write_text(Path(sys.argv[1]).read_text().replace("${smokeRoot}", temporary))
         gate.chmod(0o755)
+        login_marker = root / "login-ready"
+        (root / ".zprofile").write_text('printf ready > "$HOME/login-ready"\n')
+        environment = dict(
+            os.environ, HOME=str(root),
+            HERMES_TEST_SHELL="${pkgs.zsh}/bin/zsh", SHELL="/not-the-account-shell",
+        )
         argv = ["two words", "' literal $HOME `false`", ""]
         child = subprocess.Popen(
-            [str(gate), sys.executable, "-c", "import json,sys; print(json.dumps(sys.argv[1:]))", *argv],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            [str(gate), sys.argv[2], sys.executable, "-c",
+             "import json,os,sys; print(json.dumps({'argv':sys.argv[1:],'pid':os.getpid()}))", *argv],
+            env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         time.sleep(0.2)
-        assert child.poll() is None, "service started before secret"
+        assert child.poll() is None and not login_marker.exists(), "login started before secret"
         secret.write_text("SYNTHETIC=ready\n")
         stdout, stderr = child.communicate(timeout=5)
         assert child.returncode == 0, stderr
-        assert json.loads(stdout) == argv, stdout
+        assert json.loads(stdout) == {"argv": argv, "pid": child.pid}, stdout
+        assert login_marker.read_text() == "ready"
     PY
     python3 - "$setupPath" "$environmentPath" <<'PY'
     import os

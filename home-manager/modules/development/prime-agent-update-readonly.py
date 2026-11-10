@@ -1,10 +1,11 @@
-"""Build-time installCheck: prove ``prime-agent update --check`` stays read-only.
+"""Build-time installCheck for prime-agent update --check.
 
-Invoked as ``python3 prime-agent-update-readonly.py <prime-agent-binary>`` from
-the Nix installCheck. Serves a fake release manifest on loopback and asserts
-that, across offline/skip/channel permutations, the wrapper performs only the
-expected read-only HTTP calls, never writes ``~/.prime/agent/settings.json``,
-and never creates ``~/.local``. ``HOME`` and ``TMPDIR`` come from the environment.
+Across the listed offline, skip and channel cases, assert the expected manifest
+requests, unchanged settings.json contents, and no ~/.local directory after each
+invocation. HOME and TMPDIR come from the environment.
+
+Invoked as python3 prime-agent-update-readonly.py <prime-agent-binary> from
+the Nix installCheck.
 """
 
 import http.server

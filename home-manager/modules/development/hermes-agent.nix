@@ -72,6 +72,7 @@ let
     # Expose the service launcher without building the application/model closure.
     passthru = (previousAttrs.passthru or { }) // {
       integrationSecretGate = secretGate;
+      integrationGatewayLogin = gatewayLogin;
     };
   });
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
@@ -121,11 +122,33 @@ let
     done
     exec "$@"
   '';
-
+  # Workaround: upstream service launchers omit the account's login environment.
+  # Remove when upstream supports the account's non-interactive login environment.
+  gatewayLogin = pkgs.writeShellScript "hermes-gateway-login" ''
+    set -euo pipefail
+    loginShell=$(
+      ${pkgs.getent}/bin/getent passwd "$(${pkgs.coreutils}/bin/id -u)" \
+        | ${pkgs.coreutils}/bin/cut -d: -f7
+    )
+    if [[ "$loginShell" != /* || ! -x "$loginShell" ]]; then
+      echo "Hermes gateway requires an executable absolute login shell" >&2
+      exit 1
+    fi
+    case "''${loginShell##*/}" in
+      bash|zsh|sh|dash|ksh|mksh) ;;
+      *) echo "Hermes gateway requires a POSIX-compatible login shell: $loginShell" >&2; exit 1 ;;
+    esac
+    systemPath=$(${pkgs.getconf}/bin/getconf PATH)
+    export PATH="''${PATH:+$PATH:}$systemPath"
+    export SHELL="$loginShell"
+    exec "$loginShell" -lc \
+      'export PATH="''${PATH:+$PATH:}$1"; shift; exec "$@"' \
+      hermes-gateway ${lib.escapeShellArg "${config.home.profileDirectory}/bin"}"''${PATH:+:$PATH}" "$@"
+  '';
 in
 {
   options.modules.development.hermesAgent = {
-    enable = lib.mkEnableOption "hermes-agent configuration";
+    enable = lib.mkEnableOption "Hermes Agent configuration";
 
     enableGateway = lib.mkOption {
       type = lib.types.bool;
@@ -147,7 +170,7 @@ in
 
     desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
       default = hermesDesktopPackage;
-      defaultText = lib.literalExpression "hermesAgentPackage.hermesDesktop";
+      defaultText = lib.literalExpression "effectiveHermesAgentPackage.hermesDesktop or null";
       description = "Hermes Agent desktop package";
     };
 
@@ -233,9 +256,14 @@ in
     systemd.user.services = lib.mkIf isLinux (
       lib.mkMerge [
         (lib.mkIf cfg.enableGateway {
-          hermes-agent.Unit = {
-            After = [ "sops-nix.service" ];
-            Requires = [ "sops-nix.service" ];
+          hermes-agent = {
+            Unit = {
+              After = [ "sops-nix.service" ];
+              Requires = [ "sops-nix.service" ];
+            };
+            Service.ExecStart = lib.mkForce (
+              lib.escapeShellArgs ([ gatewayLogin ] ++ hermesModuleCommon.gatewayArgv serviceCfg)
+            );
           };
         })
         (lib.mkIf cfg.enableDashboard {
@@ -251,7 +279,11 @@ in
       lib.mkMerge [
         (lib.mkIf cfg.enableGateway {
           hermes-agent.config.ProgramArguments = lib.mkForce (
-            [ "${secretGate}" ] ++ hermesModuleCommon.gatewayArgv serviceCfg
+            [
+              "${secretGate}"
+              "${gatewayLogin}"
+            ]
+            ++ hermesModuleCommon.gatewayArgv serviceCfg
           );
         })
         (lib.mkIf cfg.enableDashboard {

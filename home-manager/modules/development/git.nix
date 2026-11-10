@@ -12,14 +12,14 @@ let
 in
 {
   options.modules.development.git = {
-    enable = lib.mkEnableOption "git configuration";
+    enable = lib.mkEnableOption "Git configuration";
   };
 
   config = lib.mkIf cfg.enable {
     assertions = [
       {
         assertion = constants.identity.gpg.keyId != "";
-        message = "git: GPG key ID must be configured (set constants.identity.gpg.keyId in home-manager/constants.nix)";
+        message = "git: configure identity.gpg.keyId in the private configuration loaded by secrets/default.nix";
       }
     ];
 

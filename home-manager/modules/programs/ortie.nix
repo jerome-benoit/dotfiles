@@ -101,7 +101,7 @@ let
 in
 {
   options.modules.programs.ortie = {
-    enable = lib.mkEnableOption "ortie configuration";
+    enable = lib.mkEnableOption "Ortie configuration";
     settings = lib.mkOption {
       type = lib.types.submodule { freeformType = tomlFormat.type; };
       default = { };

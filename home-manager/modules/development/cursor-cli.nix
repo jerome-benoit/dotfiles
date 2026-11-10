@@ -17,7 +17,7 @@ let
 in
 {
   options.modules.development.cursorCli = {
-    enable = lib.mkEnableOption "cursor-cli configuration";
+    enable = lib.mkEnableOption "Cursor CLI configuration";
 
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = pkgs.cursor-cli;
