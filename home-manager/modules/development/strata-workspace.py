@@ -337,7 +337,7 @@ def retain_interpreter(state, venv):
         raise RuntimeError(f"Interpreter {python} is unavailable; virtual environment preserved at {venv}")
 
 
-def run_workspace(state, revision, args):
+def run_workspace(state, revision, args, *, data_directory=None):
     with workspace_lock(state) as (state, lock):
         root = _prepare_workspace(state, revision, REMOTE)
         venv = root / ".venv"
@@ -402,6 +402,16 @@ def run_workspace(state, revision, args):
                     refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)
                 else:
                     (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+            # A configured download destination must not turn an installed plain start
+            # into upstream's mutating data-folder acquisition path. CLI values, including
+            # argparse abbreviations and --data-dir=VALUE, remain authoritative.
+            data_dir_given = any(
+                len(option) > 2 and "--data-dir".startswith(option) for option in options
+            )
+            if (data_directory is not None and not data_dir_given
+                    and not standalone_requested and not explicit_update
+                    and (setup_requested or not model_configs(root))):
+                args = [*args, "--data-dir", data_directory]
         finally:
             # Even a partial updater may have created a new venv interpreter.
             retain_interpreter(state, venv)
@@ -417,7 +427,8 @@ if __name__ == "__main__":
         if sys.argv[1] == "--runtime-status":
             check_runtime(Path(sys.argv[2]).resolve())
         else:
-            run_workspace(sys.argv[1], sys.argv[2], sys.argv[3:])
+            run_workspace(sys.argv[1], sys.argv[2], sys.argv[4:],
+                          data_directory=sys.argv[3] or None)
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
     except RuntimeError as error:

@@ -22,7 +22,8 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 if len(sys.argv) > 5 and sys.argv[5] == "run":
     module.REMOTE = sys.argv[4]
-    module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"])
+    module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"],
+                         data_directory=__import__("os").environ.get("TEST_DATA_DIRECTORY"))
 elif len(sys.argv) > 5:
     with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
         module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno(), sys.argv[6:])
@@ -88,6 +89,45 @@ class WorkspaceTests(unittest.TestCase):
         result = subprocess.run(self.command(revision), env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip())
+
+    def test_data_directory_only_defaults_acquisition_and_preserves_cli_arguments(self):
+        root = self.prepare(self.old)
+        script = root / "setup.sh"
+        script.write_text(f'''#!{sys.executable}
+import json, pathlib, sys
+root = pathlib.Path(__file__).parent
+(root / "received.json").write_text(json.dumps(sys.argv[1:]))
+''')
+        script.chmod(0o700)
+        destination = str(self.base / "models with spaces")
+        cases = [
+            (False, None, ["--no-browser"], ["--no-browser"]),
+            (False, destination, ["--no-browser"], ["--no-browser", "--data-dir", destination]),
+            (True, destination, ["--setup"], ["--setup", "--data-dir", destination]),
+            (True, destination, ["--set"], ["--set", "--data-dir", destination]),
+            (True, destination, ["--model=Q2_0"], ["--model=Q2_0", "--data-dir", destination]),
+            (False, destination, ["--data-dir", "/cli path"], ["--data-dir", "/cli path"]),
+            (False, destination, ["--data-dir=/cli path"], ["--data-dir=/cli path"]),
+            (False, destination, ["--data-d=/cli path"], ["--data-d=/cli path"]),
+            (False, destination, ["--inspect", "/input with spaces"], ["--inspect", "/input with spaces"]),
+            (False, destination, ["--check"], ["--check"]),
+            (False, destination, ["--help"], ["--help"]),
+        ]
+        config = root / "strata-fixture.json"
+        for installed, default, args, expected in cases:
+            with self.subTest(installed=installed, default=default, args=args):
+                if installed:
+                    config.write_text('{"exe": "engine/strata", "args": []}')
+                else:
+                    config.unlink(missing_ok=True)
+                env = dict(self.env)
+                if default is not None:
+                    env["TEST_DATA_DIRECTORY"] = default
+                result = subprocess.run(self.command(self.old) + ["run", *args], env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads((root / "received.json").read_text()), expected)
+                self.assertFalse(Path(destination).exists())
 
     def test_initial_bootstrap_failure_never_certifies_runtime(self):
         root = self.prepare(self.old)
@@ -330,6 +370,37 @@ PY
             (folder / "strata").chmod(0o700)
             (folder / "BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
         return root
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_configured_data_directory_does_not_mutate_installed_plain_start(self):
+        root = self.make_updater_workspace()
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.old + "\n")
+        destination = self.base / "new downloads"
+        remembered = self.base / "existing models"
+        remembered.mkdir()
+        model = remembered / "keep.bin"
+        model.write_bytes(b"existing model")
+        settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps({"data_dir": str(remembered), "custom": "keep"}))
+        expected_settings = settings.read_bytes()
+        expected_config = (root / "strata-fixture.json").read_bytes()
+        script = root / "setup.sh"
+        script.write_text(script.read_text().replace(
+            "sys.exit(setup.main())",
+            'setup.engine_update_note = lambda: None\n'
+            'setup.start = lambda *args, **kwargs: 0\n'
+            'sys.exit(setup.main())',
+        ))
+        result = subprocess.run(self.command(self.old) + ["run", "--no-browser"],
+                                env=dict(self.env, TEST_DATA_DIRECTORY=str(destination)),
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(destination.exists())
+        self.assertEqual(settings.read_bytes(), expected_settings)
+        self.assertEqual((root / "strata-fixture.json").read_bytes(), expected_config)
+        self.assertEqual(model.read_bytes(), b"existing model")
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_refresh_respects_engine_build_and_custom_source(self):
@@ -629,7 +700,7 @@ PY
                     script.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
                     flag = "--set" if change == "setup" else "--update"
                     result = subprocess.run(
-                        [sys.executable, WORKSPACE, str(self.state), self.new, flag],
+                        [sys.executable, WORKSPACE, str(self.state), self.new, "", flag],
                         env=self.env, capture_output=True, text=True, timeout=30,
                     )
                     self.assertEqual(result.returncode, 9, result.stderr)
@@ -932,7 +1003,7 @@ PY
         marker.write_text(self.new)
         setup = root / "setup.sh"
         setup.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
-        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "--update"],
+        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "--update"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 9)
         self.assertFalse(marker.exists())
