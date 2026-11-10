@@ -70,14 +70,10 @@ let
       done
     '';
     # Expose the service launcher without building the application/model closure.
-    passthru =
-      (previousAttrs.passthru or { })
-      // {
-        integrationSecretGate = secretGate;
-      }
-      // lib.optionalAttrs isLinux {
-        integrationGatewayLogin = gatewayLogin;
-      };
+    passthru = (previousAttrs.passthru or { }) // {
+      integrationSecretGate = secretGate;
+      integrationGatewayLogin = gatewayLogin;
+    };
   });
   effectiveHermesAgentPackage = hermesModuleCommon.effectivePackage serviceCfg;
   hermesDesktopPackage = effectiveHermesAgentPackage.hermesDesktop or null;
@@ -126,7 +122,7 @@ let
     done
     exec "$@"
   '';
-  # Workaround: upstream user units expose only package executables to cron scripts.
+  # Workaround: upstream service launchers omit the account's login environment.
   # Remove when upstream supports the account's non-interactive login environment.
   gatewayLogin = pkgs.writeShellScript "hermes-gateway-login" ''
     set -euo pipefail
@@ -283,7 +279,11 @@ in
       lib.mkMerge [
         (lib.mkIf cfg.enableGateway {
           hermes-agent.config.ProgramArguments = lib.mkForce (
-            [ "${secretGate}" ] ++ hermesModuleCommon.gatewayArgv serviceCfg
+            [
+              "${secretGate}"
+              "${gatewayLogin}"
+            ]
+            ++ hermesModuleCommon.gatewayArgv serviceCfg
           );
         })
         (lib.mkIf cfg.enableDashboard {
