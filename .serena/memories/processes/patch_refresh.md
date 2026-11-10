@@ -393,15 +393,17 @@ its actual consumers, not its directory or extension.
   consumes them or the installed runtime requires their changes.
 - Strip unrelated prose, changelog entries, CI changes and unused metadata.
 
+These examples require `filterdiff` from `patchutils` in `PATH`. If needed, enter `nix shell nixpkgs#patchutils` first.
+
 ```bash
 # Note: filterdiff uses fnmatch(3) — '*' matches across '/' (unlike shell globs).
 # So 'packages/opencode/*' matches 'packages/opencode/src/deep/file.ts'.
 
 # Example for opencode:
-/tmp/patchutils/bin/filterdiff -p1 -i 'packages/opencode/*' /tmp/fresh.patch > /tmp/filtered.patch
+filterdiff -p1 -i 'packages/opencode/*' /tmp/fresh.patch > /tmp/filtered.patch
 
 # Example for qmd:
-/tmp/patchutils/bin/filterdiff -p1 -i 'src/llm.ts' /tmp/fresh.patch > /tmp/filtered.patch
+filterdiff -p1 -i 'src/llm.ts' /tmp/fresh.patch > /tmp/filtered.patch
 
 # GUARD: empty output = wrong pattern or PR changed scope
 if [ ! -s /tmp/filtered.patch ]; then
@@ -424,48 +426,63 @@ diff patches/<name>.patch /tmp/filtered.patch
   its prerequisite patches. Preserve local fixes absent from the PR diff and
   retain the provenance headers; update the base when it changes.
 
-### 5. Verify patch applies
+### 5. Verify patch application against the builder's source
+
+Run from the repository worktree being changed. This example checks the Caveman CLI patch sequence, including its declared prerequisites:
 
 ```bash
-# `applyPatches` unpacks src and runs `patch -p1` for each patch — nothing else.
-# Unlike `srcOnly` (which inherits nativeBuildInputs and may trigger npm/cargo fetches),
-# `applyPatches` only needs the source tarball + patch files → near-instant.
-# Unlike --dry-run (evaluation-only, never invokes a builder), this actually executes patches.
-nix build --impure --expr '
-  let home = builtins.getEnv "HOME";
-      flake = builtins.getFlake "git+file://${home}/.nix";
-      system = builtins.currentSystem;
-      pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
-      patchDir = /. + "${home}/.nix/patches";
+nix build --impure --no-link --print-out-paths --expr '
+  let
+    root = builtins.getEnv "PWD";
+    flake = builtins.getFlake ("git+file://" + root);
+    system = builtins.currentSystem;
+    pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
+    package = flake.packages.${system}.caveman;
   in pkgs.applyPatches {
-    src = flake.inputs.<input>.packages.${system}.default.src;
-    patches = [ (patchDir + "/<name>.patch") ];
+    name = "caveman-patch-application";
+    src = package.src;
+    patches = package.patches;
   }'
-# Full build is only needed when:
-# - Conflict resolution changed patched code semantically (not just offsets)
-# - Upstream altered assumptions affecting postFixup/installPhase
-# In that case: nix build --impure ".#homeConfigurations.$(whoami).activationPackage"
 ```
+
+`applyPatches` unpacks the selected source, applies the ordered patches and copies the resulting tree to its output. It does not build the application. Fetching sources and realizing the helper's build dependencies can still take time. `--dry-run` does not execute patch application.
+
+Use the actual builder for each other target:
+
+- Caveman installer: use the CLI package's `installerSource.src` and `installerSource.patches`, not the CLI patch list.
+- Caveman Blocks: instantiate `caveman/blocks.nix` with `pins.caveman.blocks` from `development/pins/default.nix`, then use that derivation's `src` and `patches`. Blocks has its own JSON-pinned source.
+- Prime Agent: use `pins.primeAgent.src` from `development/pins/default.nix` and the complete ordered patch list in `development/prime-agent.nix`.
+- Herdr Desktop: use `pkgs.herdr-desktop.src`; preserve its existing `patches` before appending the local patch, as `development/herdr.nix` does for Darwin.
+
+For other packages, resolve the source and ordered patch list from the selected builder. Preserve prerequisite order and any existing upstream patches. Include new patch files in the flake's Git source snapshot before checking application.
+
+Inspect the applied files and patch log. Application alone does not verify syntax, compilation or runtime behavior. Run the affected syntax and package or behavior checks when patched code or upstream assumptions change; choose checks for the actual package rather than defaulting to the current user's full activation build.
 
 ### 6. Check for offset/fuzz warnings
 
 ```bash
-# A patch that applies with fuzz/offset today will FAIL tomorrow. Treat warnings as errors.
-nix log <drv-path> 2>&1 | grep -E "(offset|fuzz|FAILED)"
+# Treat fuzz or offset warnings as review failures; inspect the result and regenerate against the selected base.
+nix log <output-store-path> 2>&1 | grep -E "(offset|fuzz|FAILED)"
 # If any output → patch line numbers are drifting. Investigate and re-generate patch.
-# The .drv path is printed by step 5's `nix build` output.
+# Use the output store path printed by step 5 with nix log; inspect the applied tree too.
 ```
 
-### 7. Commit, push, and verify
+### 7. Publish only when requested
+
+Commit only when requested. Stage only the intended changes and inspect the staged diff, preserving unrelated working-tree changes:
 
 ```bash
-git add patches/<name>.patch
+git add -- patches/<name>.patch
+git diff --cached
 git commit -m "chore: refresh <project> PR #<N> patch"
-git push
-# MANDATORY: verify
-git status  # must show "nothing to commit, working tree clean"
-git log --oneline -1  # must show the commit just made
+git log --oneline -1
+git show --stat --oneline HEAD
+git status --short
 ```
+
+Include any intended pin or builder updates in the staged review. Confirm the commit contains the intended changes; a globally clean worktree is not required. Do not discard unrelated changes to satisfy this procedure.
+
+Push only when requested, and verify publication to the requested remote and branch. Authorization to commit does not itself authorize a push.
 
 ## Failure Modes
 
@@ -483,6 +500,6 @@ git log --oneline -1  # must show the commit just made
   dependency change is intended. For flake inputs, that can mean
   `nix flake update <input>`; for JSON-pinned sources, update their source pin.
   Verify the resulting patch against the chosen base in either case.
-- Treat fuzz/offset warnings as errors — a patch drifting today breaks tomorrow
-- ALWAYS `git status` after commit to confirm it landed (truncated output can hide failures)
+- Treat fuzz or offset warnings as review failures: inspect the applied code and regenerate against the selected base.
+- Commit or push only when requested. Verify the intended commit and any authorized publication; preserve unrelated working-tree changes.
 - Commit message format: `chore: refresh <project> PR #<N> patch`

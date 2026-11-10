@@ -109,7 +109,7 @@ let
 in
 {
   options.modules.editors.vim = {
-    enable = lib.mkEnableOption "vim configuration";
+    enable = lib.mkEnableOption "Vim configuration";
   };
 
   config = lib.mkIf cfg.enable {

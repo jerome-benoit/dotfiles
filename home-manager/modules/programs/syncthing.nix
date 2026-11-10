@@ -11,7 +11,7 @@ let
 in
 {
   options.modules.programs.syncthing = {
-    enable = lib.mkEnableOption "syncthing configuration";
+    enable = lib.mkEnableOption "Syncthing configuration";
   };
 
   config = lib.mkIf cfg.enable {

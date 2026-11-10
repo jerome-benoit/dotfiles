@@ -555,7 +555,7 @@ let
 in
 {
   options.modules.editors.neovim = {
-    enable = lib.mkEnableOption "neovim configuration";
+    enable = lib.mkEnableOption "Neovim configuration";
     plugins = {
       opencode.enable = lib.mkEnableOption "opencode.nvim integration";
     };

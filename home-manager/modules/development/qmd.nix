@@ -20,7 +20,7 @@ let
 in
 {
   options.modules.development.qmd = {
-    enable = lib.mkEnableOption "qmd configuration";
+    enable = lib.mkEnableOption "QMD configuration";
 
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = qmdPackage;

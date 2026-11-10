@@ -148,7 +148,7 @@ let
 in
 {
   options.modules.development.hermesAgent = {
-    enable = lib.mkEnableOption "hermes-agent configuration";
+    enable = lib.mkEnableOption "Hermes Agent configuration";
 
     enableGateway = lib.mkOption {
       type = lib.types.bool;
@@ -170,7 +170,7 @@ in
 
     desktopPackage = config.modules.core.lib.mkOptionalPackageOption {
       default = hermesDesktopPackage;
-      defaultText = lib.literalExpression "hermesAgentPackage.hermesDesktop";
+      defaultText = lib.literalExpression "effectiveHermesAgentPackage.hermesDesktop or null";
       description = "Hermes Agent desktop package";
     };
 

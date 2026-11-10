@@ -287,7 +287,7 @@ diff --git a/installer/install.js b/installer/install.js
 +  const legacyJournal = OWNED.journalPaths(path.dirname(legacyPluginDir), 'claude-plugin').journalPath;
 +  for (const retainedPath of [legacyPluginDir, legacyJournal]) {
 +    if (fs.existsSync(retainedPath)) {
-+      warn(`  unscoped Claude state retained at ${retainedPath}; no host references were inferred. Detach every referring Claude profile before explicit --prepare-plugin claude --plugin-dir cleanup with --uninstall --plugin-detached`);
++      warn(`  unscoped Claude state retained at ${retainedPath}; no host references were inferred. Detach every referring Claude profile first. Then run caveman-install --prepare-plugin claude --plugin-dir <absolute-payload-directory> --uninstall --plugin-detached. Use the payload directory, not the journal path.`);
 +    }
 +  }
 +

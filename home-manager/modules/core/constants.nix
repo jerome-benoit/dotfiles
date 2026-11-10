@@ -205,11 +205,11 @@ in
           };
           max-line-length = lib.mkOption {
             type = lib.types.ints.unsigned;
-            description = "Maximum line length before wrapping (0 = no limit)";
+            description = "Maximum line length before truncation (0 disables truncation)";
           };
           features = lib.mkOption {
             type = lib.types.str;
-            description = "Delta feature name to enable";
+            description = "Space-separated delta feature names to enable";
           };
           whitespace-error-style = lib.mkOption {
             type = lib.types.str;

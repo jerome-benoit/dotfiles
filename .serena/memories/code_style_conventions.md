@@ -265,8 +265,8 @@ Override settings per specialisation:
 
 ```nix
 specialisation.work.configuration = {
-  programs.ssh.matchBlocks."*.local" = {
-    user = "fraggle";
+  programs.ssh.settings."*.local" = {
+    User = config.modules.core.constants.identity.username;
   };
 };
 ```

@@ -2,7 +2,7 @@
 # upstream: proposed in https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
 # issues: https://github.com/caveman-ai/blocks/issues/18 https://github.com/caveman-ai/blocks/issues/19
 # intent: support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
-# local fixes: hint identity (#18) and workdir resolution (#19), with behavioral regressions.
+# local fixes: hint identity (#18) and workdir resolution (#19), with behavioral regression tests.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
 --- a/internal/hook/profiles.toml
 +++ b/internal/hook/profiles.toml

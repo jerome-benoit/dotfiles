@@ -54,7 +54,7 @@ let
 in
 {
   options.modules.programs.alacritty = {
-    enable = lib.mkEnableOption "alacritty configuration";
+    enable = lib.mkEnableOption "Alacritty configuration";
   };
 
   config = lib.mkIf cfg.enable {

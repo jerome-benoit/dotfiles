@@ -10,7 +10,7 @@ let
 in
 {
   options.modules.development.gh = {
-    enable = lib.mkEnableOption "gh configuration";
+    enable = lib.mkEnableOption "GitHub CLI (gh) configuration";
   };
 
   config = lib.mkIf cfg.enable {

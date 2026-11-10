@@ -93,7 +93,7 @@ let
 in
 {
   options.modules.development.opencode = {
-    enable = lib.mkEnableOption "opencode configuration";
+    enable = lib.mkEnableOption "OpenCode configuration";
 
     enableDesktop = lib.mkOption {
       type = lib.types.bool;

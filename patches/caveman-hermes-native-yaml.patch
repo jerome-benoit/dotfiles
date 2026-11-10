@@ -253,7 +253,7 @@
 +      throw new Error("Hermes YAML mapping key is ambiguous");
 +    }
 +    const key = hermesYamlScalar(mapping.key);
-+    if (typeof key !== "string" || entries.has(key)) throw new Error("Hermes YAML mapping has duplicated keys");
++    if (typeof key !== "string" || entries.has(key)) throw new Error("Hermes YAML mapping requires unique string keys");
 +    if (previous) previous.end = i;
 +    previous = { start: i, end, indent, value: mapping.value };
 +    entries.set(key, previous);
@@ -333,7 +333,7 @@
 +    if (!hermesYamlContent(lines[i]!)) continue;
 +    const item = lines[i]!.match(/^( *)- (.*)$/);
 +    if (!item || item[1]!.length < enabled.indent || (items.length && item[1]!.length !== items[0]!.indent)) {
-+      throw new Error("Hermes plugins.enabled has an ambiguous shape");
++      throw new Error("Hermes plugin list has an ambiguous shape");
 +    }
 +    const indent = item[1]!.length;
 +    let end = i + 1;

@@ -43,7 +43,7 @@ let
 in
 {
   options.modules.development.aoe = {
-    enable = lib.mkEnableOption "agent-of-empires (aoe) configuration";
+    enable = lib.mkEnableOption "Agent of Empires (aoe) configuration";
 
     enableWeb = lib.mkOption {
       type = lib.types.bool;
@@ -53,7 +53,7 @@ in
 
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = aoePackage;
-      defaultText = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default or .aoe-with-web";
+      defaultText = lib.literalExpression "aoePackage";
       description = "Agent of Empires package";
       example = lib.literalExpression "inputs.agent-of-empires.packages.\${system}.default";
     };
@@ -68,7 +68,7 @@ in
         "rose-pine"
       ];
       default = "tokyo-night-storm";
-      description = "TUI theme";
+      description = "Initial TUI theme written only when creating config.toml and defaultTool is non-null.";
     };
 
     defaultTool = lib.mkOption {
@@ -90,7 +90,7 @@ in
         ]
       );
       default = "opencode";
-      description = "Default AI agent for new sessions";
+      description = "Agent used to seed a missing config.toml; null leaves configuration untouched.";
     };
   };
 

@@ -20,7 +20,7 @@ let
 in
 {
   options.modules.development.openspec = {
-    enable = lib.mkEnableOption "openspec configuration";
+    enable = lib.mkEnableOption "OpenSpec configuration";
 
     package = config.modules.core.lib.mkOptionalPackageOption {
       default = openspecPackage;

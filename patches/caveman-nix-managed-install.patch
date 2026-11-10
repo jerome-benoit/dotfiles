@@ -8,7 +8,7 @@
  // runtime even while agents use it.
  async function setupInstall(json: boolean, options: { continuing?: boolean; explicit?: boolean } = {}) {
 +  if (process.env.CAVEMAN_NIX_MANAGED === "1") {
-+    throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++    throw new Error("Caveman is managed by Nix; update the package through the Nix configuration or profile that installed it instead.");
 +  }
    const lock = join(ensureCavemanHome(), ".install.lock");
    const deadline = Date.now() + BINARY_INSTALL_WAIT_MS;
@@ -18,7 +18,7 @@
  // nothing is wired then.
  async function installDurableCli(): Promise<string> {
 +  if (process.env.CAVEMAN_NIX_MANAGED === "1") {
-+    throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++    throw new Error("Caveman is managed by Nix; update the package through the Nix configuration or profile that installed it instead.");
 +  }
    const npm = which("npm");
    if (!npm) throw new Error("npm not found: install the CLI yourself (npm install -g @caveman-ai/cli), then run caveman setup");
@@ -30,7 +30,7 @@
  // `problems`, so the others still install.
  export async function ensureModuleBinaries(ids: ModuleId[], downloading?: (name: string) => void): Promise<{ lock: ModuleLock; problems: string[] }> {
 +  if (process.env.CAVEMAN_NIX_MANAGED === "1") {
-+    throw new Error("Caveman is managed by Nix; update the pinned package and rebuild Home Manager instead.");
++    throw new Error("Caveman is managed by Nix; update the package through the Nix configuration or profile that installed it instead.");
 +  }
    const platform = setupPlatform();
    const index = await loadModuleIndex();

@@ -20,7 +20,7 @@
           meta.mainProgram = mainProgram;
         } "mkdir -p $out";
       description = ''
-        Creates a placeholder package that delegates to system-installed binary.
+        Creates an empty package placeholder for a system-managed program. It installs no executable; callers must resolve the system binary separately.
         Used when the program is managed by the system package manager (e.g., dnf, apt)
         rather than Nix, but Home Manager still needs a package reference for configuration.
 
@@ -141,7 +141,7 @@
         should be reflected here, or the flag silently disappears from lazygit's pager.
 
         Usage:
-          deltaFlags = lib.deltaConfigToCli config.modules.core.constants.deltaConfig;  # "--paging=never --navigate ..."
+          deltaFlags = config.modules.core.lib.deltaConfigToCli config.modules.core.constants.deltaConfig;  # "--paging=never --navigate ..."
       '';
       readOnly = true;
     };
@@ -161,8 +161,8 @@
         }
         // lib.optionalAttrs (example != null) { inherit example; };
       description = ''
-        Creates an optional package option: null when the package is unavailable on the host system.
-        Pair with mkOptionalPackages to install it only when non-null and warn otherwise.
+        Creates a nullOr package option from the supplied default. Callers must provide null for unsupported systems.
+        Pair with mkOptionalPackages to install enabled, non-null packages and optionally warn for enabled null entries.
 
         Usage:
           package = mkOptionalPackageOption {

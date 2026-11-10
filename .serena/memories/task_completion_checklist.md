@@ -119,26 +119,37 @@ make clean            # Remove decrypted plaintext from disk
 
 ## Adding New Themes
 
-Add a new `mkTheme` call in `home-manager/modules/themes/default.nix`:
+Add a `mkTheme` entry to the `imports` list in `home-manager/modules/themes/default.nix`. Start with a supported family and variant. This example uses the existing Tokyo Night Storm integrations with a separate registry key and an editable palette:
 
 ```nix
-(mkTheme "myThemeKey" {
-  family = "mytheme";
-  name = "my-theme";
-  altName = "My Theme";
-  fileName = "my_theme";
-  style = "dark";
+(mkTheme "myTokyoNightStorm" {
+  family = "tokyonight";
+  name = "tokyo-night-storm";
+  altName = "TokyoNight Storm";
+  fileName = "tokyo_night_storm";
+  neovimName = "tokyonight-storm";
+  style = "storm";
   colors = {
-    bg = "#..."; fg = "#...";
-    black = "#..."; red = "#..."; green = "#..."; yellow = "#...";
-    blue = "#..."; magenta = "#..."; cyan = "#..."; white = "#...";
-    brightBlack = "#..."; brightRed = "#..."; brightGreen = "#..."; brightYellow = "#...";
-    brightBlue = "#..."; brightMagenta = "#..."; brightCyan = "#..."; brightWhite = "#...";
+    bg = "#24283b";
+    fg = "#a9b1d6";
+    black = "#414868";
+    red = "#f7768e";
+    green = "#73daca";
+    yellow = "#e0af68";
+    blue = "#7aa2f7";
+    magenta = "#bb9af7";
+    cyan = "#7dcfff";
+    white = "#8089b3";
+    brightWhite = "#a9b1d6";
   };
 })
 ```
 
-Then set `config.modules.themes.active = "myThemeKey"` to use it.
+Every color must use `#RRGGBB`. Omitted `bright*` colors default to the corresponding base color. Palette consumers use these colors; applications that select a built-in theme retain that theme's own palette.
+
+Select the key with `modules.themes.active = "myTokyoNightStorm";` in the Home Manager configuration. Work and personal specialisations force their own active key; update the corresponding `theme` argument in `core/specialisations.nix` when selecting the new entry for those contexts.
+
+A new family also requires consumer support: extend Neovim's plugin and setup tables, tmux's plugin table and the applicable application mappings. Use identifiers actually provided by each application's selected theme package.
 
 ## Platform-Specific Changes
 

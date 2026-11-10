@@ -71,13 +71,13 @@ Tokens use the unlocked system keyring and refresh on demand. The Google project
 
 ### GPG keypair
 
-Subkeys and passphrase are bundled, age-encrypted to the project's age recipient, and committed at `secrets/gpg/keypair.tar.gz.age`. Home-manager activation imports them idempotently on any machine where the configured SOPS age identity is present.
+Subkeys and passphrase are bundled at `secrets/gpg/keypair.tar.gz.age`, encrypted to the recipient derived from the selected age identity. The export script selects `AGE_KEY`, then `SOPS_AGE_KEY_FILE`, then the platform's default SOPS age identity path. It does not read `.sops.yaml`. Home Manager activation decrypts the bundle with the identity at `sops.age.keyFile`. Export using that configured identity for machines that must import the bundle.
 
 ```bash
 make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
 ```
 
-Recovery: with the configured SOPS age identity + the git repo, SOPS secrets and GPG subkeys are recoverable. The GPG primary key is not in the bundle; back it up separately offline.
+Recovery requires the repository and identities that can decrypt the SOPS secrets and the GPG bundle. The GPG primary key is not in the bundle; back it up separately offline.
 
 GPG bundle exports replace the previous bundle only after successful encryption and verification.
 Bundle passphrases preserve leading and trailing whitespace.

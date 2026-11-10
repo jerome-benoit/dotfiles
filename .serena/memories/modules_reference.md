@@ -22,7 +22,7 @@ Private configuration is loaded through the `privateConfig` argument (SOPS-encry
 - `work.jobTitle` - Job title (from privateConfig)
 - `work.gheHostname` - GitHub Enterprise hostname (from privateConfig)
 - `work.username` - Work machine username override (from privateConfig)
-- `hosts` - Known hostnames (from privateConfig)
+- `hosts` - Host aliases defined in `core/constants.nix`; the server address comes from `privateConfig.hosts.server`
 - `historySize` - 50000 (configurable)
 - `timezone` - "Europe/Paris" (configurable)
 - `fontFamily` - "JetBrainsMono Nerd Font" (readonly)
@@ -140,7 +140,7 @@ Profile system defining which modules are enabled per profile:
 
 ### specialisations.nix
 
-Creates work/personal contexts with different git email, signature, shell aliases (hm/hmw/hmp), active theme, SSH matchBlocks, and sops overrides.
+Creates work/personal contexts with distinct Git identities, signatures, shell aliases (`hm`/`hmw`/`hmp`), email account selection, SSH settings and SOPS overrides. Both contexts currently select `tokyoNightStorm`.
 
 Requires: `modules.development.git.enable = true`, `modules.shell.zsh.enable = true`
 
@@ -419,7 +419,7 @@ SSH configuration:
 
 - Forward agent and X11 enabled
 - macOS: UseKeychain
-- SSH matchBlocks defined in specialisations.nix (work: \*.local -> fraggle user)
+- SSH settings are defined in `core/specialisations.nix`; work sets `programs.ssh.settings."*.local".User` to `constants.identity.username`.
 
 ### himalaya.nix
 
@@ -517,7 +517,7 @@ All themes defined in a single file via `mkTheme` factory function. The theme sy
 
 ### Theme Submodule Type
 
-Each theme provides: `family`, `name`, `altName`, `fileName`, `style`, `colors` (attrsOf str with 18 color keys)
+Each theme provides `family`, `name`, `altName`, `fileName`, `neovimName`, `style`, and `colors`. `colors` is a typed submodule: `bg`, `fg`, and eight base ANSI colors are required; eight `bright*` colors default to their corresponding base colors. All colors must match `#RRGGBB`. A new family also needs support in the consuming applications; see `task_completion_checklist`, **Adding New Themes**.
 
 ### Access Pattern
 

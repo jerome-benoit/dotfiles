@@ -56,10 +56,7 @@ Specialisation switching: `hmw` / `hmp` aliases (available only from within a sp
 
 ## Known Hosts
 
-Hostnames are defined in `privateConfig.hosts`. Two profiles exist:
-
-- One desktop host (bun not supported on this specific one)
-- One remote server
+`home-manager/modules/core/constants.nix` defines host aliases in `modules.core.constants.hosts`. Only the server address (`hosts.ns3108029`) comes from `privateConfig.hosts.server`; the other aliases are declared locally. Profiles are `desktop` and `server`, not a host inventory. `home-manager/home.nix` applies host-specific feature flags.
 
 ## Supported Linux Distros
 
@@ -67,96 +64,41 @@ Auto-detected via `/etc/os-release`: `almalinux`, `debian`, `fedora`, `ubuntu`
 
 ## Project Structure
 
-```
-~/.nix/
-├── flake.nix                    # Main flake definition
-├── flake.lock                   # Locked dependencies
-├── constants.nix                # Global constants (systems, profiles, distros — non-secret)
-├── Makefile                     # SOPS workflow (decrypt, encrypt, bootstrap, switch)
-├── .sops.yaml                   # SOPS encryption rules (PGP/age recipients, path patterns)
-├── .editorconfig                # Editor formatting rules
-├── renovate.json                # Renovate bot configuration
-├── README.md                    # Documentation
-├── .gitignore                   # Git ignore rules
+```text
+.
+├── flake.nix                    # Inputs, packages, Home Manager configurations and checks
+├── flake.lock                   # Locked flake inputs
+├── constants.nix                # Non-secret systems, profiles and distro names
+├── Makefile                     # Secret lifecycle, bootstrap and activation commands
+├── README.md                    # User setup and maintenance
 ├── home-manager/
-│   ├── home.nix                 # Main entry point
+│   ├── home.nix                 # Profile wiring and host-specific flags
 │   └── modules/
-│       ├── default.nix          # Imports all categories
-│       ├── core/                # Core modules (12 files)
-│       │   ├── default.nix      # Imports all core modules
-│       │   ├── constants.nix    # User identity, platform and host constants
-│       │   ├── distro.nix       # Linux distro detection
-│       │   ├── email.nix        # Canonical multi-account email model + credentials
-│       │   ├── gpg.nix          # GPG agent and key configuration
-│       │   ├── gpu.nix          # GPU detection and runtime configuration
-│       │   ├── home-manager.nix # Home-manager, nix settings, gc
-│       │   ├── lib.nix          # Shared library functions
-│       │   ├── packages.nix     # Common packages + Homebrew integration
-│       │   ├── profile.nix      # Profile system (desktop/server modules)
-│       │   ├── sops.nix         # Shared SOPS engine and non-domain secrets
-│       │   └── specialisations.nix # Work/personal contexts
-│       ├── shell/               # Shell tools (7 files)
-│       │   ├── direnv.nix       # Directory environment management
-│       │   ├── eza.nix          # Modern ls replacement
-│       │   ├── fd.nix           # Fast file finder
-│       │   ├── fzf.nix          # Fuzzy finder (requires fd)
-│       │   ├── ripgrep.nix      # Fast grep replacement
-│       │   ├── zoxide.nix       # Smart cd command
-│       │   └── zsh.nix          # Shell config with oh-my-zsh
-│       ├── development/         # Dev tools
-│       │   ├── aoe.nix          # Agent of Empires session manager
-│       │   ├── bun.nix          # JavaScript runtime
-│       │   ├── claude-code.nix  # Claude Code AI assistant
-│       │   ├── gh.nix           # GitHub CLI + extensions
-│       │   ├── git.nix          # Git config with delta, mergiraf, GPG signing
-│       │   ├── herdr.nix        # Herdr terminal UI, persistent engine and native Desktop (nixpkgs)
-│       │   ├── lazygit.nix      # Git TUI with conventional commits
-│       │   ├── opencode.nix     # OpenCode AI assistant (TUI/CLI + Electron desktop)
-│       │   ├── openspec.nix     # OpenSpec CLI
-│       │   ├── hermes-agent.nix # Hermes Agent (gateway + dashboard services)
-│       │   ├── pi.nix           # Pi coding agent
-│       │   └── qmd.nix          # QMD CLI
-│       ├── programs/            # Applications (9 files)
-│       │   ├── alacritty.nix    # Terminal emulator with theme
-│       │   ├── btop.nix         # System monitor
-│       │   ├── ghostty.nix      # Terminal emulator
-│       │   ├── glow.nix         # Markdown viewer
-│       │   ├── himalaya.nix     # CLI email client
-│       │   ├── lazydocker.nix   # Docker TUI with theme
-│       │   ├── ssh.nix          # SSH config with specialisation overrides
-│       │   ├── tmux.nix         # Terminal multiplexer with dynamic theme
-│       │   └── zellij.nix       # Terminal multiplexer with zjstatus
-│       ├── editors/             # Editors (2 files)
-│       │   ├── vim.nix          # Vim config (system vim on Linux)
-│       │   └── neovim.nix       # Full IDE setup with LSP, treesitter, opencode
-│       └── themes/              # Color themes (1 file)
-│           └── default.nix      # Theme registry with mkTheme factory (7 themes)
-├── statix.toml                  # Statix linter configuration
+│       ├── core/                # Constants, profiles, secrets, services and shared helpers
+│       ├── shell/               # Shell tools, including mise and Zsh
+│       ├── development/         # Development tools, local builders and JSON source pins
+│       ├── programs/            # Applications, including Ortie, SSHM, Sway and Syncthing
+│       ├── editors/             # Vim and Neovim
+│       └── themes/              # Typed registry and consumer identifiers
+├── patches/                     # Local patches; see processes/patch_refresh
+├── scripts/                     # Secret management and dependency maintenance helpers
 ├── secrets/
-│   ├── default.nix              # Private configuration loader (impure JSON, pure placeholder)
-│   ├── private.enc.yaml         # Private identity, email account metadata, work and hosts
-│   ├── credentials.enc.yaml     # Runtime credentials keyed by owning domain/account
-│   └── ssh/
-│       ├── id_rsa               # Encrypted SSH private key (sops binary format)
-│       └── id_rsa.pub           # SSH public key (plaintext)
-├── checks/                      # Flake checks (8 files)
-│   ├── default.nix              # Check aggregator
-│   ├── ci-contract.nix          # Dependency and packaging contract checks
-│   ├── email.nix                # Multi-account selection, TLS and credential pruning
-│   ├── secrets.nix              # Plaintext lifecycle and signal forwarding
-│   ├── formatting.nix           # Nix formatting check (nixfmt)
-│   ├── symlinks.nix             # Broken symlinks detection (platform-aware)
-│   ├── statix.nix               # Nix linter check
-│   └── deadnix.nix              # Dead code detection check
-└── .github/
-    └── workflows/
-        └── check.yml            # CI workflow (Linux + macOS)
+│   ├── default.nix              # Private configuration loader and pure placeholder
+│   ├── private.enc.yaml         # Encrypted evaluation-time configuration
+│   └── credentials.enc.yaml     # Encrypted runtime credentials
+├── checks/
+│   └── default.nix              # Integration, packaging, formatting and lint aggregation
+└── .github/workflows/
+    ├── check.yml                # CI checks
+    └── fix-nix-hashes.yml        # Dependency hash maintenance
 ```
+
+This map lists entry points, not every file. Category `default.nix` files declare module imports. `checks/default.nix` aggregates focused checks; `flake.nix` adds platform-specific Home Manager and Prime Agent checks. See `suggested_commands` for current validation commands.
 
 ## Configuration Flow
 
 1. `flake.nix` defines inputs and creates `homeConfigurations` per user (dynamic names from `privateConfig`)
-2. `mkHomeConfiguration` passes explicit `arch`, `profile`, `username`, `constants`, `privateConfig`, `inputs`, and `self` via `extraSpecialArgs`
+2. `mkHomeConfiguration` selects `pkgs` from `arch` and passes `profile`, `username`, `constants`, `privateConfig`, `inputs`, and `self` through `extraSpecialArgs`.
 3. `secrets/default.nix` loads private configuration: (a) impure + file exists → decrypted JSON, (b) pure/CI (`HOME=""`) → placeholder, (c) impure + file missing → `builtins.abort` with "Run 'make decrypt-private' first"
 4. `home.nix` uses the explicit target profile and detects hostname only for host-specific feature flags
 5. Profile system (`profile.nix`) defines which modules are enabled per profile
