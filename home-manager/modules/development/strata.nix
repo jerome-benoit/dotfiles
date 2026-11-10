@@ -68,9 +68,10 @@ in
         non-GGUF checkpoints and the image VAE under the data directory. New QAD
         preparations write dense and PLE GGUFs directly here, with packs and drafts
         under the data directory. Complete legacy ready installations are reused
-        in place. Null leaves upstream layout and selection unchanged, normally
-        <data directory>/models. An explicit
-        CLI --models-dir takes priority, including supported abbreviations and equals
+        in place. Existing QAD checkpoints resume in their original directory; new
+        prepared outputs use the selected GGUF and data directories. Null leaves
+        upstream layout and selection unchanged, normally <data directory>/models.
+        An explicit CLI --models-dir takes priority, including supported abbreviations and equals
         syntax. Normal installed launches, updates, checks and standalone commands do
         not receive this default. Existing files are not migrated; the upstream wizard
         retains model selection, tuning and profiles.
