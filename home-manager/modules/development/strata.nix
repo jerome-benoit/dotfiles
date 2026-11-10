@@ -64,11 +64,12 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store passed as --models-dir during
-        first bootstrap or explicit setup. Overrides the upstream GGUF download folder
-        without changing the data directory used for ready packs, drafts, non-GGUF
-        checkpoints or the image VAE. QAD writes its dense and PLE GGUFs directly here;
-        its pack and draft remain under the data directory. Null leaves upstream layout
-        and selection unchanged, normally <data directory>/models. An explicit
+        first bootstrap or explicit setup. New acquisitions keep ready packs, drafts,
+        non-GGUF checkpoints and the image VAE under the data directory. New QAD
+        preparations write dense and PLE GGUFs directly here, with packs and drafts
+        under the data directory. Complete legacy ready installations are reused
+        in place. Null leaves upstream layout and selection unchanged, normally
+        <data directory>/models. An explicit
         CLI --models-dir takes priority, including supported abbreviations and equals
         syntax. Normal installed launches, updates, checks and standalone commands do
         not receive this default. Existing files are not migrated; the upstream wizard

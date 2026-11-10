@@ -49,6 +49,18 @@ with listener.accept()[0] as peer:
     peer.recv(1)
 """
 
+HARDWARE_SETUP = """
+card = {"index": 0, "name": "Test GPU", "vram_gb": 48, "arch": "89", "driver": "600.0"}
+setup.gpus = lambda: [card]
+setup.gpu_info = lambda index: dict(card)
+setup.amd_gpus = lambda: []
+setup.ram_gb = lambda: 256
+setup.cpu_info = lambda: ("Test CPU", True, False)
+setup.page_file_gb = lambda: None
+setup.pcie_link = lambda index: None
+setup.pip_install = lambda *args, **kwargs: None
+"""
+
 
 class WorkspaceTests(unittest.TestCase):
     def setUp(self):
@@ -128,16 +140,8 @@ sys.path.append(r"{UPSTREAM}")
 import setup
 # Keep the real parser, folder resolver, wizard and destination calculations.
 # Replace hardware and acquisition boundaries; never fetch packages, engines or weights.
-card = {{"index": 0, "name": "Test GPU", "vram_gb": 48, "arch": "89", "driver": "600.0"}}
-setup.gpus = lambda: [card]
-setup.gpu_info = lambda index: dict(card)
-setup.amd_gpus = lambda: []
-setup.ram_gb = lambda: 256
-setup.cpu_info = lambda: ("Test CPU", True, False)
-setup.page_file_gb = lambda: None
-setup.pcie_link = lambda index: None
+{HARDWARE_SETUP}
 setup.disk_room_problem = lambda *args, **kwargs: None
-setup.pip_install = lambda *args, **kwargs: None
 setup.engine_step = lambda a, gpu, hip, amd, cuda, vision: (
     setup.ROOT, setup.ROOT / "engine", {{"version": "0.1.46"}}, [], gpu, vision)
 downloads, pack_commands = [], []
@@ -272,21 +276,14 @@ def no_network(*args, **kwargs):
     raise AssertionError("setup attempted a network connection")
 socket.socket.connect = no_network
 socket.create_connection = no_network
-card = {{"index": 0, "count": 1, "name": "Test GPU", "vram_gb": 48, "arch": "89", "driver": "600.0"}}
-setup.gpus = lambda: [card]
-setup.gpu_info = lambda index: dict(card)
-setup.amd_gpus = lambda: []
-setup.ram_gb = lambda: 256
-setup.cpu_info = lambda: ("Test CPU", True, False)
-setup.page_file_gb = lambda: None
-setup.pcie_link = lambda index: None
+{HARDWARE_SETUP}
+card["count"] = 1
 setup.gpu_compute_mode = lambda *args: None
 setup.gpu_drives_display = lambda *args: False
 setup.rotational_disk = lambda *args: None
 setup.free_gb = lambda *args: 1000.0
 setup.cpu_sockets = lambda: []
 setup.setup_calibration = lambda *args: None
-setup.pip_install = lambda *args, **kwargs: None
 setup.ensure_nvfp4_local_packages = lambda: None
 setup.engine_step = lambda a, gpu, hip, amd, cuda, vision: (
     setup.ROOT, setup.ROOT / "engine", {{"version": "99.0.0"}}, [], gpu, vision)
