@@ -50,7 +50,8 @@ with tempfile.TemporaryDirectory(prefix='consumer-terminal-', dir='/tmp') as tem
     recorder.write_text('#!' + sys.executable + '\nimport os,tty\ntty.setraw(0)\nf=open(' + repr(str(log)) + ',"ab",buffering=0)\nprint("CONSUMER_READY",flush=True)\nwhile True:\n b=os.read(0,1)\n if not b:break\n f.write(b)\n')
     recorder.chmod(0o700)
     config = root / 'config.kdl'
-    config.write_text(fixtures['zellij'] + '\ndefault_shell ' + json.dumps(str(recorder)) + '\nshow_startup_tips false\n')
+    # First-run overlays must not take focus from the terminal under test.
+    config.write_text(fixtures['zellij'] + '\ndefault_shell ' + json.dumps(str(recorder)) + '\nshow_startup_tips false\nshow_release_notes false\n')
     for key, suffix in (('XDG_CONFIG_HOME', 'config'), ('XDG_CACHE_HOME', 'cache'), ('XDG_DATA_HOME', 'data'), ('XDG_RUNTIME_DIR', 'run')):
         env[key] = str(root / suffix)
         Path(env[key]).mkdir(mode=0o700)
