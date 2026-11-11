@@ -480,7 +480,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                     refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)
                 else:
                     (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-            # Defaults apply only to acquisition, never an installed plain start.
+            # Directory defaults apply during setup, not when starting an installed model.
             # Parse actual upstream options so values and ambiguous prefixes do not
             # override defaults or change command classification.
             if (not standalone_requested and not explicit_update

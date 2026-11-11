@@ -3,7 +3,7 @@
 ## Context
 
 Local patches live directly under `patches/`. Builders declare their `patches`
-lists directly; Strata declares its runtime source patch at the launcher use site.
+lists; the Strata launcher declares its runtime source patch.
 Prime Agent source pins come from
 `home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
 installer follow the `caveman` input in `flake.lock`; Blocks, release assets
@@ -14,7 +14,7 @@ Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
 Colibri patches follow the `colibri` input in `flake.lock`.
 Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
 The `strata` input sets the base of its runtime setup patch. The `hermes-agent`
-input does not set any current patch base.
+input sets the base of its local terminal shim-priority patch.
 Reassess each patch when its own source changes.
 
 ## Naming
@@ -48,7 +48,8 @@ explaining why it exists and when it can go:
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
 - `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
-- `patches/strata-setup-directory-roles.patch` — opt-in GGUF-only setup routing for ready packs, QAD production/marks, vision and image VAE; base `dbb2d168cffa8cf793d9325358809d5263c7c6b0`, no prerequisite patches. The launcher applies it under its workspace lock and records exact patch text for safe revision transitions.
+- `patches/strata-setup-directory-roles.patch` — separate GGUF files from ready packs, QAD checkpoints/drafts and image VAE; runtime patch declared by the launcher, no prerequisite patches.
+- `patches/hermes-agent-terminal-mise-shims.patch` — restore opted-in gateway mise shims after local login PATH restoration, before snapshots and background commands; patched into the workspace wheel, no prerequisite patches.
 
 ## Local Patch Refresh
 
@@ -75,6 +76,30 @@ explaining why it exists and when it can go:
    code. Exercise affected behavior when code or upstream assumptions change.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
+
+### Hermes local terminal
+
+Keep the `hermes-agent` patch inside `nix/python.nix`'s workspace package overlay:
+the outer package does not unpack the Python code, and pre-patching `pythonSrc`
+would make workspace lock reads depend on a derivation. Preserve the Darwin
+`fetchPnpmDeps` scope and upstream build authorization overlay.
+
+Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
+the configured mise package and returns PATH only; no path comes from the private
+gateway boolean. Preserve the shared helper's default inert behavior and explicit
+background `restore_login_path` opt-in.
+
+Gateway mise mode must not turn a failed post-profile activation into a successful
+non-login fallback. Preserve the local fallback-decision override only for the
+gateway marker, and keep the regression where an explicit init file causes
+activation to fail after a valid gateway launch. Unmarked fallback stays upstream.
+
+After refreshing, run `checks/hermes-mise.py` through the public Hermes check.
+It imports the actual installed wheel with its own interpreter and exercises
+`LocalEnvironment` snapshots and persistent cwd, not extracted helper bodies.
+Keep real mise/Node fixtures, account Bash/Zsh, all directory layouts, runtime
+configuration reload, byte-identical `configFile`, and disabled/null/outside
+gateway cases. A source-only import or a patched test copy is not a substitute.
 
 ### OpenCode dependency hashes
 

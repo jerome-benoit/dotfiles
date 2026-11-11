@@ -1,0 +1,72 @@
+# base: hermes-agent 79fb37f8a9e74ad09f63227ebc069c98e84855ea
+# intent: Restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
+diff --git a/tools/environments/local.py b/tools/environments/local.py
+--- a/tools/environments/local.py
++++ b/tools/environments/local.py
+@@ -874,7 +874,9 @@
+     return "\n".join(prelude) + "\n" + cmd_string
+ 
+ 
+-def _append_dropped_path_entries(cmd_string: str, parent_path: str) -> str:
++def _append_dropped_path_entries(
++    cmd_string: str, parent_path: str, *, restore_mise: bool = False,
++) -> str:
+     """Prepend a line that re-appends *parent_path* dirs the login profile dropped.
+ 
+     A login profile can reset PATH outright (Debian's ``/etc/profile``, so every
+@@ -888,6 +890,14 @@
+     this same prelude so the two paths cannot diverge."""
+     if _IS_WINDOWS:
+         return cmd_string  # native PATH stays ``;``-joined; bash sees a converted copy
++    # Nix gateway shims must follow profiles and parent PATH restoration, even
++    # when no parent entries survive. The resolver runs Bash for any POSIX shell.
++    # Remove when Hermes offers an additive post-login PATH hook.
++    if restore_mise:
++        cmd_string = (
++            'if [ "${HERMES_NIX_MISE_SHIMS-}" = 1 ]; then '
++            'PATH=$(@HERMES_NIX_MISE_PATH@) || exit $?; export PATH; fi\n'
++            + cmd_string)
+     # Relative entries resolve against the shell's cwd, not ours, so only absolute ones are checked.
+     entries = [d for d in dict.fromkeys(parent_path.split(":"))
+                if d and (not os.path.isabs(d) or os.path.isdir(d))]
+@@ -1146,6 +1156,13 @@
+                 self.cwd, safe_cwd)
+         self.cwd = safe_cwd
+ 
++    def _probe_nonlogin_fallback(self, detail: str) -> tuple[bool, str]:
++        # Gateway mise requires profiles and resolver to complete before commands.
++        # A non-login probe cannot validate that contract after bootstrap failure.
++        if os.environ.get("HERMES_NIX_MISE_SHIMS") == "1":
++            return False, detail
++        return super()._probe_nonlogin_fallback(detail)
++
+     def _run_bash(self, cmd_string: str, *, login: bool = False, timeout: int = 120,
+                   stdin_data: str | None = None) -> subprocess.Popen:
+         bash = _find_bash()
+@@ -1154,7 +1171,9 @@
+         # custom init files so nvm/asdf/pyenv land on PATH in the snapshot; then the
+         # spawn env's dirs a resetting profile dropped are re-appended (#56634).
+         if login:
+-            cmd_string = _append_dropped_path_entries(cmd_string, run_env.get("PATH", ""))
++            cmd_string = _append_dropped_path_entries(
++                cmd_string, run_env.get("PATH", ""), restore_mise=True,
++            )
+             cmd_string = _prepend_shell_init(cmd_string, _resolve_shell_init_files())
+         args = [bash, *(["-l"] if login else []), "-c", cmd_string]
+         self._recover_cwd()
+diff --git a/tools/process_registry.py b/tools/process_registry.py
+--- a/tools/process_registry.py
++++ b/tools/process_registry.py
+@@ -1187,7 +1187,11 @@
+         # the rewriter makes it ``A && { B & }`` (#68915). Lazy: terminal_tool imports this module.
+         from tools.terminal_tool_sudo import _rewrite_compound_background as _rewrite_bg
+ 
+-        safe_command = _append_dropped_path_entries(_rewrite_bg(command), self._spawn_env(env_vars).get("PATH", "") if restore_login_path else "")
++        safe_command = _append_dropped_path_entries(
++            _rewrite_bg(command),
++            self._spawn_env(env_vars).get("PATH", "") if restore_login_path else "",
++            restore_mise=restore_login_path,
++        )
+         session = self._new_session(command, task_id, owner_task_id, session_key, _resolve_safe_cwd(cwd or os.getcwd()),
+                                     persist_on_release=persist_on_release)
+         pty_scope_attempted = False
