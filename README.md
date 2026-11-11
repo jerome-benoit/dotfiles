@@ -114,3 +114,16 @@ nix build .#checks.x86_64-linux.caveman
 nix flake update     # Update inputs
 nh clean all --keep 3 --optimise
 ```
+
+Update inputs in a dedicated worktree, without copying unrelated local overrides.
+Audit every patch and workaround against its exact source revision, including
+unchanged integrations that consume updated APIs. Apply patch chains in their
+declared order without fuzz or offsets; refresh base headers when sources change.
+Recalculate OpenCode dependency hashes with the selected Bun and both upstream
+normalizers, calibrating against the previous pin first. Record provenance in
+`home-manager/modules/development/pins/opencode.json`.
+
+Keep heavy checks sequential with `--max-jobs 1 --cores 1`, monitor available
+memory and disk, and stop before exhausting either. These Nix options control
+build scheduling, not hard memory limits. Distinguish source inspection,
+cross-platform dependency calculations and native runtime checks in the PR.
