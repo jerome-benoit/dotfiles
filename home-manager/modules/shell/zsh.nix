@@ -193,8 +193,10 @@ in
           unset _has_gui
         fi
 
-        if [[ -n "$SSH_CONNECTION" && ( -z "$GPG_TTY" || "$GPG_TTY" != "$(tty)" ) ]]; then
-          export GPG_TTY=$(tty)
+        if [[ -n "$SSH_CONNECTION" ]]; then
+          _tty=$(tty)
+          [[ $_tty == /dev/* && "$GPG_TTY" != "$_tty" ]] && export GPG_TTY=$_tty
+          unset _tty
         fi
 
         export DVM_DIR="$HOME/.dvm"
