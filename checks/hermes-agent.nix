@@ -18,6 +18,7 @@ let
         ../home-manager/modules/core/lib.nix
         ../home-manager/modules/core/sops.nix
         ../home-manager/modules/development/hermes-agent.nix
+        ../home-manager/modules/shell/mise.nix
         ({ lib, ... }: {
           options = {
             modules.core.gpu.acceleration = lib.mkOption {
@@ -107,6 +108,8 @@ let
     mkdir -p "$out/.nix-profile/bin"
     printf '#!${pkgs.runtimeShell}\nprintf "profile\\n"\n' > "$out/.nix-profile/bin/profile-tool"
     chmod +x "$out/.nix-profile/bin/profile-tool"
+    printf '#!${pkgs.runtimeShell}\nexit 93\n' > "$out/.nix-profile/bin/node"
+    chmod +x "$out/.nix-profile/bin/node"
   '';
   gatewayConfiguration =
     (mkConfiguration (
@@ -126,6 +129,17 @@ let
           })
         ];
       };
+  miseGatewayConfiguration = gatewayConfiguration.extendModules {
+    modules = [
+      {
+        modules.shell.mise.enable = true;
+        modules.development.hermesAgent.enableGateway = true;
+      }
+    ];
+  };
+  externalMiseGatewayConfiguration = miseGatewayConfiguration.extendModules {
+    modules = [ { programs.mise.package = lib.mkForce null; } ];
+  };
 in
 assert lib.all (condition: condition) [
   (check "external Hermes homes fail before activation" (
@@ -270,6 +284,129 @@ pkgs.runCommand "check-hermes-agent"
         )
         assert rejected.returncode == 1 and "POSIX-compatible login shell" in rejected.stderr
     print("gateway login: bash/zsh, PATH precedence, argv, exec and exit status passed")
+    PY
+    python3 - \
+      ${miseGatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} \
+      ${gatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} \
+      ${externalMiseGatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} \
+      ${gatewayHome} <<'PY'
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    import tempfile
+
+    gateway, disabled_gateway, external_gateway, profile = sys.argv[1:]
+    mise = "${lib.getExe miseGatewayConfiguration.config.programs.mise.package}"
+    versions = {
+        "${pkgs.nodejs_22.version}": "${pkgs.nodejs_22}",
+        "${pkgs.nodejs_24.version}": "${pkgs.nodejs_24}",
+    }
+    probe = """
+    import json, os, subprocess, sys
+    results = []
+    for directory in sys.argv[1:]:
+        os.chdir(directory)
+        results.append(subprocess.check_output(["node", "--version"], text=True).strip())
+    print(json.dumps({"versions": results, "path": os.environ["PATH"]}))
+    """
+    with tempfile.TemporaryDirectory(prefix="hermes-mise-") as temporary:
+        root = Path(temporary)
+        for layout in ("default", "xdg", "data", "settings", "override"):
+            home = root / layout
+            home.mkdir()
+            config = home / "config"
+            config.mkdir()
+            data = home / ".local/share/mise"
+            exports = {"XDG_CONFIG_HOME": str(config)}
+            if layout == "xdg":
+                exports["XDG_DATA_HOME"] = str(home / "xdg data")
+                data = home / "xdg data/mise"
+            elif layout in ("data", "settings", "override"):
+                exports["XDG_DATA_HOME"] = str(home / "unused xdg")
+                exports["MISE_DATA_DIR"] = str(home / "mise data")
+                data = home / "mise data"
+            shims = data / "shims"
+            settings = config / "mise/config.toml"
+            settings.parent.mkdir()
+            if layout in ("settings", "override"):
+                shims = home / "configured shims"
+                settings.write_text("[settings]\nshims_dir = " + json.dumps(str(shims)) + "\n")
+            if layout == "override":
+                exports["MISE_SHIMS_DIR"] = str(home / "override shims")
+                shims = home / "override shims"
+            environment = {
+                "HOME": str(home), "PATH": "${pkgs.coreutils}/bin", "LC_ALL": "C",
+                "MISE_CACHE_DIR": str(home / "cache"), "MISE_STATE_DIR": str(home / "state"),
+                "MISE_NOT_FOUND_AUTO_INSTALL": "false", "MISE_NOT_FOUND_SYSTEM_FALLBACK": "false",
+                "MISE_TRUSTED_CONFIG_PATHS": str(home), "MISE_OFFLINE": "true",
+            }
+            setup_environment = dict(environment, **exports)
+            projects = []
+            for version, installation in versions.items():
+                subprocess.run(
+                    [mise, "link", "node@" + version, installation],
+                    env=setup_environment, cwd=home, check=True, capture_output=True, text=True,
+                )
+                project = home / version
+                project.mkdir()
+                (project / ".tool-versions").write_text("node " + version + "\n")
+                projects.append(str(project))
+            subprocess.run(
+                [mise, "reshim"], env=setup_environment, cwd=home,
+                check=True, capture_output=True, text=True,
+            )
+            assert (shims / "node").exists(), "real mise must create the shim"
+            login_bin = home / "login bin"
+            login_bin.mkdir()
+            inherited_bin = home / "inherited bin"
+            inherited_bin.mkdir()
+            (inherited_bin / "node").write_text("#!${pkgs.runtimeShell}\nexit 94\n")
+            (inherited_bin / "node").chmod(0o755)
+            login = (
+                'case "$-" in *i*) exit 91;; esac\n'
+                'export PATH="$HOME/login bin"\n'
+                + "\n".join("export " + name + "=" + json.dumps(value) for name, value in exports.items())
+                + "\n"
+            )
+            for filename in (".zprofile", ".bash_profile"):
+                (home / filename).write_text(login)
+            for shell in ("${pkgs.bash}/bin/bash", "${pkgs.zsh}/bin/zsh"):
+                runtime_environment = dict(
+                    environment, PATH=str(inherited_bin), HERMES_TEST_SHELL=shell,
+                )
+                result = subprocess.run(
+                    [gateway, sys.executable, "-c", probe, *projects],
+                    env=runtime_environment, cwd=home, check=True,
+                    capture_output=True, text=True, timeout=30,
+                )
+                observed = json.loads(result.stdout)
+                assert observed["versions"] == ["v" + version for version in versions], observed
+                paths = observed["path"].split(":")
+                assert paths.index(str(shims)) < paths.index(str(login_bin))
+                assert paths.index(str(login_bin)) < paths.index(profile + "/.nix-profile/bin")
+                assert paths.index(profile + "/.nix-profile/bin") < paths.index(str(inherited_bin))
+                for inert_gateway in (disabled_gateway, external_gateway):
+                    inert = subprocess.run(
+                        [inert_gateway, sys.executable, "-c",
+                         "import os; print(os.environ['PATH'])"],
+                        env=runtime_environment, cwd=home, check=True,
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    assert str(shims) not in inert.stdout.splitlines()[0].split(":")
+                login_node = login_bin / "node"
+                login_node.write_text("#!${pkgs.runtimeShell}\nprintf 'login-node\\n'\n")
+                login_node.chmod(0o755)
+                priority = subprocess.run(
+                    [gateway, sys.executable, "-c", probe, *projects],
+                    env=runtime_environment, cwd=home, check=True,
+                    capture_output=True, text=True, timeout=30,
+                )
+                assert json.loads(priority.stdout)["versions"] == ["v" + version for version in versions]
+                login_node.unlink()
+    print("gateway mise: bash/zsh, real Node 22/24 shims, cwd selection, directory overrides, "
+          "shim priority and disabled/null-package isolation passed")
     PY
     python3 - ${smokeConfiguration.config.services.hermes-agent.package.integrationSecretGate} ${gatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} <<'PY'
     import json

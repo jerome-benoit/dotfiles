@@ -122,6 +122,19 @@ let
     done
     exec "$@"
   '';
+  # Resolve shims after login so mise owns its directory/settings precedence.
+  # Prepend stable shims, not tool versions frozen to the gateway's startup cwd.
+  gatewayEnvironment = pkgs.writeShellScript "hermes-gateway-environment" ''
+    set -euo pipefail
+    export PATH="''${PATH:+$PATH:}$1"
+    shift
+    ${lib.optionalString (config.programs.mise.enable && config.programs.mise.package != null) ''
+      miseActivation=$(${lib.getExe config.programs.mise.package} activate bash --shims)
+      eval "$miseActivation"
+      unset miseActivation
+    ''}
+    exec "$@"
+  '';
   # Workaround: upstream service launchers omit the account's login environment.
   # Remove when upstream supports the account's non-interactive login environment.
   gatewayLogin = pkgs.writeShellScript "hermes-gateway-login" ''
@@ -141,9 +154,9 @@ let
     systemPath=$(${pkgs.getconf}/bin/getconf PATH)
     export PATH="''${PATH:+$PATH:}$systemPath"
     export SHELL="$loginShell"
-    exec "$loginShell" -lc \
-      'export PATH="''${PATH:+$PATH:}$1"; shift; exec "$@"' \
-      hermes-gateway ${lib.escapeShellArg "${config.home.profileDirectory}/bin"}"''${PATH:+:$PATH}" "$@"
+    exec "$loginShell" -lc 'exec "$@"' hermes-gateway \
+      ${gatewayEnvironment} \
+      ${lib.escapeShellArg "${config.home.profileDirectory}/bin"}"''${PATH:+:$PATH}" "$@"
   '';
 in
 {

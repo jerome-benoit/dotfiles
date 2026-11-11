@@ -229,7 +229,10 @@ Hermes Agent configuration:
 - State setup shell-quotes the Hermes home and working directory, including paths with spaces.
 - Linux creates the stable `.env` link before service reload; `After`/`Requires=sops-nix` gates its secret target. Darwin also gates each gateway/backend launch on secret readability, failing after 60 seconds rather than starting without credentials.
 - Linux/systemd and macOS/launchd gateways share a non-interactive account-login launcher using Nixpkgs `getent` and `getconf`.
-- Login PATH takes priority; the Home Manager profile and original service PATH provide fallbacks. On macOS, secret readiness precedes login initialization. Backend launch policy is unchanged.
+- Login PATH precedes the Home Manager profile and original service PATH fallbacks. On macOS, secret readiness precedes login initialization. Backend launch policy is unchanged.
+- When `programs.mise.enable` is true and `programs.mise.package` is non-null, the gateway runs that package's `mise activate bash --shims` after login. Mise resolves its own `shims_dir`, `MISE_DATA_DIR` and XDG settings; no interactive activation hooks run.
+- Mise's shim paths precede the combined login/profile/service PATH, preserving the relative order of those existing entries. Each shim selects the tool version from the command's current directory, even when login also exposes a same-name tool. Local terminal and cron children inherit these paths; normal mise trust, fallback and auto-install policies still apply.
+- Disabling mise or setting its package to null leaves the gateway's login/profile/service PATH behavior unchanged. The launcher does not provision tools or change backend/container/remote environments.
 - Declare extra service tools with `services.hermes-agent.extraPackages`. Put user-specific PATH exports in non-interactive login files, not interactive-only shell setup.
 - Unsupported shells fail explicitly; login startup must not require a TTY. No PATH entry is added to credentials or the global service-manager environment.
 - Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and applicable CUDA libraries. Linux wrappers include `ld` and `objdump` for Python's PortAudio discovery without a compiler.
