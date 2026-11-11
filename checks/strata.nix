@@ -6,6 +6,7 @@
 }:
 let
   sourcePatch = ../patches/strata-setup-directory-roles.patch;
+  supportedPlatform = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
   configureWith =
     selectedPkgs: settings:
     home-manager.lib.homeManagerConfiguration {
@@ -29,7 +30,7 @@ let
   configure = configureWith pkgs;
   defaults = configure { };
   custom = configure {
-    enable = true;
+    enable = supportedPlatform;
     package = pkgs.hello;
     workspaceDirectory = "/workspace with spaces";
     dataDirectory = "/data with spaces";
@@ -54,7 +55,7 @@ let
           let
             configuration = configureWith launcherPkgs (
               {
-                enable = true;
+                enable = supportedPlatform;
                 workspaceDirectory = "/workspace's $(touch injected)";
               }
               // directories
@@ -86,7 +87,13 @@ assert
   == "/home/strata-check/.local/share/strata";
 assert defaults.config.modules.development.strata.dataDirectory == null;
 assert defaults.config.modules.development.strata.modelsDirectory == null;
-assert pkgs.lib.count (package: package == pkgs.hello) custom.config.home.packages == 1;
+assert
+  pkgs.lib.count (package: package == pkgs.hello) custom.config.home.packages
+  == (if supportedPlatform then 1 else 0);
+assert
+  supportedPlatform
+  || !(builtins.tryEval (builtins.deepSeq (configure { enable = true; }).config.home.packages true))
+  .success;
 assert !(builtins.elem pkgs.hello defaults.config.home.packages);
 assert custom.config.modules.development.strata.modelsDirectory == "/GGUF's $(touch injected)";
 assert builtins.all (
