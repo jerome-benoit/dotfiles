@@ -178,7 +178,7 @@ index cda3580..70da3dc 100644
      ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
                                                             "or its unpacked folder); it is checked and installed instead of being fetched")
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -10864,15 +10917,42 @@ def main() -> int:
+@@ -10864,15 +10917,45 @@ def main() -> int:
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
@@ -195,8 +195,8 @@ index cda3580..70da3dc 100644
 +        if artifacts_dir is not None:
 +            candidates = [(models_dir, artifacts_dir), (models_dir, None), (data / "models", None), *candidates]
 +        for candidate_models, candidate_data in candidates:
-+            if (artifacts_dir is not None and candidate_data is None and MODELS[model].get("prepare")
-+                    and not prepared_done(model, candidate_models)):
++            if (artifacts_dir is not None and MODELS[model].get("prepare")
++                    and not prepared_done(model, candidate_models, candidate_data)):
 +                continue
 +            if all(ready_verified(ready_where(candidate_models, f, candidate_data), f[5])
 +                   for f in ready_needed(model, candidate_models, candidate_data)):
@@ -219,13 +219,16 @@ index cda3580..70da3dc 100644
 +                    present = max((p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part")) if p.is_file()), default=0)
 +                    total += min(f[4], present)
 +                return total
-+            checkpoint_dir = max(checkpoint_roots, key=checkpoint_bytes)
++            # A full-length sparse part is not a verified checkpoint; retain the byte heuristic for other ties.
++            checkpoint_dir = max(checkpoint_roots, key=lambda root: (
++                all(ready_verified(root / f[3], f[5]) for f in source_files),
++                checkpoint_bytes(root)))
 +        shards = [ready_where(models_dir, f, ready_data_dir, checkpoint_dir)
 +                  for f in ready_needed(model, models_dir, ready_data_dir)]
      else:
          models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
          shards = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
-@@ -10888,15 +10968,15 @@ def main() -> int:
+@@ -10888,15 +10971,15 @@ def main() -> int:
                  ok(f"model files found in {models_dir}")
                  break
      mark_whole_unless_pinned([] if ready else shards, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))   # #173: a whole file copied in by hand has no finish mark
@@ -245,7 +248,7 @@ index cda3580..70da3dc 100644
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -10904,7 +10984,7 @@ def main() -> int:
+@@ -10904,7 +10987,7 @@ def main() -> int:
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -254,7 +257,7 @@ index cda3580..70da3dc 100644
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -10912,11 +10992,16 @@ def main() -> int:
+@@ -10912,11 +10995,16 @@ def main() -> int:
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -274,7 +277,7 @@ index cda3580..70da3dc 100644
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -10950,10 +11035,10 @@ def main() -> int:
+@@ -10950,10 +11038,10 @@ def main() -> int:
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -287,7 +290,7 @@ index cda3580..70da3dc 100644
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11009,17 +11094,18 @@ def main() -> int:
+@@ -11009,17 +11097,18 @@ def main() -> int:
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
      env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
      prepared = bool(ready and MODELS[model].get("prepare"))
@@ -311,7 +314,7 @@ index cda3580..70da3dc 100644
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11040,7 +11126,7 @@ def main() -> int:
+@@ -11040,7 +11129,7 @@ def main() -> int:
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -320,7 +323,7 @@ index cda3580..70da3dc 100644
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11074,7 +11160,7 @@ def main() -> int:
+@@ -11074,7 +11163,7 @@ def main() -> int:
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -329,7 +332,7 @@ index cda3580..70da3dc 100644
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11087,7 +11173,7 @@ def main() -> int:
+@@ -11087,7 +11176,7 @@ def main() -> int:
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(

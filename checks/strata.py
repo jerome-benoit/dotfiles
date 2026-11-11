@@ -299,19 +299,27 @@ def pin(url, original_sha):
 for name, repo in setup.NVFP4_REPOS.items():
     repo["files"] = {{path: (role, *pin(f"{{setup.hf_endpoint()}}/{{name}}/resolve/{{repo['revision']}}/{{path}}", sha))
                      for path, (role, _, sha) in repo["files"].items()}}
+    setup.REV_PINS[(name, repo["revision"])] = {{Path(path).name: (size, sha)
+                                            for path, (_, size, sha) in repo["files"].items()}}
 for fam in setup.FAMILIES.values():
     if fam.get("mmproj_sha256"):
         fam["mmproj_sha256"] = pin(fam["mmproj_hf"] + fam["mmproj"], fam["mmproj_sha256"][1])
 qi = setup._qimage()
 qi.FILES = {{name: (repo, path, *pin(qi.file_url(name, setup.hf_endpoint()), sha))
             for name, (repo, path, _, sha) in qi.FILES.items()}}
-downloads, commands = [], []
+downloads, commands, local_checks = [], [], []
+original_download = setup.download
 def write(path, payload=b"x"):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
 def download(url, destination, *args, **kwargs):
     destination = Path(destination)
+    if os.environ.get("FORBID_DOWNLOADS"):
+        raise AssertionError("unexpected download: " + str(destination))
+    if os.environ.get("VERIFY_LOCAL_CHECKPOINT"):
+        local_checks.append(str(destination))
+        return original_download(url, destination, *args, **kwargs)
     if not destination.exists():
         if os.environ.get("FORBID_ACQUISITION"):
             raise AssertionError("unexpected download: " + str(destination))
@@ -355,6 +363,7 @@ def produce(command, **kwargs):
     return subprocess.CompletedProcess(command, 0)
 def run(command, **kwargs):
     if "prepare" in command:
+        commands.append([str(arg) for arg in command])
         if os.environ.get("FORBID_ACQUISITION"):
             raise AssertionError("unexpected prepare")
         args = SimpleNamespace(model=command[command.index("--model") + 1],
@@ -384,9 +393,10 @@ if os.environ.get("LEGACY_READY") or os.environ.get("LEGACY_CHECKPOINT"):
     checkpoint_only = bool(os.environ.get("LEGACY_CHECKPOINT"))
     files = setup.ready_files(model)
     pending = [f[3] for f in files if f[3].startswith("tensors/")][-2:] if os.environ.get("PARTIAL_CHECKPOINT") else []
-    seed = {{"verified": {{}}, "pending": []}}
+    seed = {{"preserved": {{}}, "pending": [], "competitor": {{}}, "unmarked": []}}
     for f in files:
-        if checkpoint_only or not (setup.MODELS[model].get("prepare") and f[3].startswith("tensors/")):
+        if checkpoint_only or os.environ.get("RETAIN_CHECKPOINT") or not (
+                setup.MODELS[model].get("prepare") and f[3].startswith("tensors/")):
             dst = setup.ready_where(models, f)
             payload = payloads_by_sha[f[5]]
             if f[3] in pending:
@@ -395,9 +405,10 @@ if os.environ.get("LEGACY_READY") or os.environ.get("LEGACY_CHECKPOINT"):
                     write(dst.with_name(dst.name + ".part"), payload[:len(payload) // 2])
                 continue
             write(dst, payload)
-            setup.mark(dst, "sha256 " + f[5])
-            seed["verified"][str(dst)] = [dst.stat().st_ino, dst.read_bytes().hex()]
-    (setup.ROOT / "checkpoint-seed.json").write_text(json.dumps(seed))
+            if os.environ.get("VERIFY_LOCAL_CHECKPOINT"):
+                seed["unmarked"].append(str(dst))
+            else:
+                setup.mark(dst, "sha256 " + f[5])
     if os.environ.get("SEED_PLE"):
         ple = setup.ready_paths(model, Path(os.environ["TEST_MODELS_DIRECTORY"]),
                                 Path(os.environ["TEST_DATA_DIRECTORY"]))["ple"]
@@ -414,8 +425,45 @@ if os.environ.get("LEGACY_READY") or os.environ.get("LEGACY_CHECKPOINT"):
                 write(dst / "rt/experts.bin")
         for mark in producer.MARKS:
             write(setup.prepared_dir(model, models) / mark)
+    for path in models.rglob("*"):
+        if path.is_file() and not path.name.endswith(".part"):
+            seed["preserved"][str(path)] = [path.stat().st_ino, path.read_bytes().hex()]
+    competitor = os.environ.get("CHECKPOINT_COMPETITOR")
+    if competitor:
+        assert len(files) == 29 and all(f[0] == "src" for f in files)
+        other_models = Path(os.environ["TEST_DATA_DIRECTORY"]) / "models"
+        for f in files[:-1]:
+            dst = setup.ready_where(other_models, f)
+            write(dst, payloads_by_sha[f[5]])
+            setup.mark(dst, "sha256 " + f[5])
+        last = files[-1]
+        dst = setup.ready_where(other_models, last)
+        part = dst.with_name(dst.name + ".part")
+        payload = payloads_by_sha[last[5]]
+        assert len(payload) == last[4] == 64
+        if competitor == "full-part":
+            part.parent.mkdir(parents=True, exist_ok=True)
+            with part.open("wb") as stream:
+                stream.seek(last[4] - 1)
+                stream.write(payload[-1:])
+        else:
+            assert competitor == "short-part"
+            write(part, payload[:len(payload) // 2])
+        write(part.with_name(part.name + ".chunks"),
+              json.dumps({{"v": 1, "total": last[4], "chunk": setup.DL_CHUNK, "done": []}}).encode())
+        assert not dst.exists() and not setup.ready_verified(dst, last[5])
+        for path in other_models.rglob("*"):
+            if path.is_file():
+                seed["competitor"][str(path)] = [path.stat().st_ino, path.read_bytes().hex()]
+    (setup.ROOT / "checkpoint-seed.json").write_text(json.dumps(seed))
+if os.environ.get("VERIFY_LOCAL_CHECKPOINT"):
+    def no_acquisition(*args, **kwargs):
+        raise AssertionError("unexpected acquisition: " + repr(args))
+    setup.acquisition.require = no_acquisition
 result = setup.main()
 (setup.ROOT / "ready-observed.json").write_text(json.dumps({{"downloads": downloads, "commands": commands}}))
+if os.environ.get("VERIFY_LOCAL_CHECKPOINT"):
+    (setup.ROOT / "checkpoint-local-checks.json").write_text(json.dumps(local_checks))
 sys.exit(result)
 ''')
         script.chmod(0o700)
@@ -524,14 +572,17 @@ sys.exit(result)
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_complete_ready_data_root_survives_new_models_directory(self):
         state = self.state
-        for model in ("NVFP4", "NVFP4-QAD"):
-            with self.subTest(model=model):
-                self.state = state / model
+        for model, retained in (("NVFP4", False), ("NVFP4-QAD", False), ("NVFP4-QAD", True)):
+            with self.subTest(model=model, retained=retained):
+                case = model + ("-retained" if retained else "-deleted")
+                self.state = state / case
                 root = self.make_ready_workspace()
-                data, models = self.base / model / "data", self.base / model / "new GGUF"
+                data, models = self.base / case / "data", self.base / case / "new GGUF"
                 legacy = data / "models"
                 env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models),
                            LEGACY_READY=model, LEGACY_MODELS=str(legacy), FORBID_ACQUISITION="1")
+                if retained:
+                    env["RETAIN_CHECKPOINT"] = "1"
                 command = self.ready_command(model)
                 if model == "NVFP4":
                     command += ["--mtp", "off"]
@@ -545,12 +596,19 @@ sys.exit(result)
                 observed = json.loads((root / "ready-observed.json").read_text())
                 self.assertEqual(observed, {"downloads": [], "commands": []})
                 self.assertFalse(models.exists())
+                seed = json.loads((root / "checkpoint-seed.json").read_text())
+                for name, (inode, content) in seed["preserved"].items():
+                    self.assertEqual(Path(name).stat().st_ino, inode)
+                    self.assertEqual(Path(name).read_bytes().hex(), content)
+                if model == "NVFP4-QAD":
+                    self.assertEqual(bool(list(legacy.rglob("*.safetensors"))), retained)
         self.state = state
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_qad_existing_checkpoint_resumes_with_split_outputs(self):
         state = self.state
-        for phase in ("checkpoint", "partial-download", "partial-preparation"):
+        for phase in ("checkpoint", "partial-download", "partial-preparation",
+                      "verified-versus-full-part", "unmarked-versus-short-part"):
             with self.subTest(phase=phase):
                 self.state = state / phase
                 root = self.make_ready_workspace()
@@ -561,26 +619,39 @@ sys.exit(result)
                     env["PARTIAL_CHECKPOINT"] = "1"
                 if phase == "partial-preparation":
                     env["SEED_PLE"] = "1"
+                if phase == "verified-versus-full-part":
+                    env.update(CHECKPOINT_COMPETITOR="full-part", FORBID_DOWNLOADS="1")
+                elif phase == "unmarked-versus-short-part":
+                    env.update(CHECKPOINT_COMPETITOR="short-part", VERIFY_LOCAL_CHECKPOINT="1")
                 command = self.ready_command("NVFP4-QAD")
                 command[command.index("--vision") + 1] = "no"
                 command[command.index("--images") + 1] = "no"
                 result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
                 seed = json.loads((root / "checkpoint-seed.json").read_text())
-                for name, (inode, content) in seed["verified"].items():
+                for name, (inode, content) in {**seed["preserved"], **seed["competitor"]}.items():
                     self.assertEqual(Path(name).stat().st_ino, inode)
                     self.assertEqual(Path(name).read_bytes().hex(), content)
                 observed = json.loads((root / "ready-observed.json").read_text())
                 self.assertEqual(set(observed["downloads"]), set(seed["pending"]))
+                preparation = next(c for c in observed["commands"] if "prepare" in c)
+                source = models / "nvidia--Qwen3.8-Flash-Next-FP4-Local"
+                self.assertEqual(Path(preparation[preparation.index("--model") + 1]), source)
+                self.assertEqual(Path(preparation[preparation.index("--gguf-out") + 1]),
+                                 source / "prepared")
+                if phase == "unmarked-versus-short-part":
+                    checks = json.loads((root / "checkpoint-local-checks.json").read_text())
+                    self.assertEqual(len(checks), 29)
+                    self.assertEqual(set(checks), set(seed["unmarked"]))
                 args = self.read_ready_config(root)["args"]
                 for flag in ("--native", "--ple-gguf"):
                     self.assertTrue(Path(args[args.index(flag) + 1]).is_relative_to(models))
                     self.assertTrue(Path(args[args.index(flag) + 1]).is_file())
                 for flag in ("--pack", "--mtp"):
                     self.assertTrue(Path(args[args.index(flag) + 1]).is_relative_to(data / "models"))
-                source = models / "nvidia--Qwen3.8-Flash-Next-FP4-Local"
                 self.assertTrue((source / "tensors").is_dir())
-                self.assertFalse((data / "models/nvidia--Qwen3.8-Flash-Next-FP4-Local/tensors").exists())
+                concurrent_tensors = data / "models/nvidia--Qwen3.8-Flash-Next-FP4-Local/tensors"
+                self.assertEqual(concurrent_tensors.exists(), bool(seed["competitor"]))
                 if phase == "partial-preparation":
                     self.assertFalse(any("ple" in command for command in observed["commands"]))
                 shutil.rmtree(source / "tensors")

@@ -64,17 +64,20 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store passed as --models-dir during
-        first bootstrap or explicit setup. New acquisitions keep ready packs, drafts,
-        non-GGUF checkpoints and the image VAE under the data directory. New QAD
-        preparations write dense and PLE GGUFs directly here, with packs and drafts
-        under the data directory. Complete legacy ready installations are reused
-        in place. Existing QAD checkpoints resume in their original directory; new
-        prepared outputs use the selected GGUF and data directories. Null leaves
-        upstream layout and selection unchanged, normally <data directory>/models.
-        An explicit CLI --models-dir takes priority, including supported abbreviations and equals
-        syntax. Normal installed launches, updates, checks and standalone commands do
-        not receive this default. Existing files are not migrated; the upstream wizard
-        retains model selection, tuning and profiles.
+        first bootstrap or explicit setup. New GGUF acquisitions and QAD dense/PLE
+        preparations go here; ready packs, checkpoints, drafts and the image VAE stay
+        under the data directory.
+
+        Complete legacy ready installations take priority over checkpoints and are
+        reused in place. Otherwise, fully verified QAD checkpoints take priority over
+        partial downloads. Checkpoints resume in their original directory; new prepared
+        outputs use the selected GGUF and data directories.
+
+        Null leaves upstream layout and selection unchanged, normally <data directory>/models.
+        An explicit CLI --models-dir takes priority, including supported abbreviations
+        and equals syntax. Normal installed launches, updates, checks and standalone
+        commands do not receive this default. Existing files are not migrated; the
+        upstream wizard retains model selection, tuning and profiles.
       '';
     };
     package = lib.mkOption {
