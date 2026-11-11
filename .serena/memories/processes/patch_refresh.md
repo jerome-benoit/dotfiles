@@ -2,8 +2,9 @@
 
 ## Context
 
-Local patches live directly under `patches/`. Their builders declare
-the `patches` lists directly. Prime Agent source pins come from
+Local patches live directly under `patches/`. Builders declare their `patches`
+lists directly; Strata declares its runtime source patch at the launcher use site.
+Prime Agent source pins come from
 `home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
 installer follow the `caveman` input in `flake.lock`; Blocks, release assets
 and source dependency hashes use `pins/caveman.json`.
@@ -12,7 +13,8 @@ OpenCode Desktop patches follow the selected CLI source, which defaults to the
 Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
 Colibri patches follow the `colibri` input in `flake.lock`.
 Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
-The `hermes-agent` and `strata` inputs do not set these patch bases.
+The `strata` input sets the base of its runtime setup patch. The `hermes-agent`
+input does not set any current patch base.
 Reassess each patch when its own source changes.
 
 ## Naming
@@ -46,6 +48,7 @@ explaining why it exists and when it can go:
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
 - `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
+- `patches/strata-setup-directory-roles.patch` — opt-in GGUF-only setup routing for ready packs, QAD production/marks, vision and image VAE; base `f33c8c30588ff00e24b6b63bad0bf6a14da19081`, no prerequisite patches. The launcher applies it under its workspace lock and records exact patch text for safe revision transitions.
 
 ## Local Patch Refresh
 
