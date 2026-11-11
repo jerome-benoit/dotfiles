@@ -48,7 +48,7 @@ explaining why it exists and when it can go:
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
 - `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
-- `patches/strata-setup-directory-roles.patch` — opt-in GGUF-only setup routing for ready packs, QAD production/marks, vision and image VAE; base `f33c8c30588ff00e24b6b63bad0bf6a14da19081`, no prerequisite patches. The launcher applies it under its workspace lock and records exact patch text for safe revision transitions.
+- `patches/strata-setup-directory-roles.patch` — opt-in GGUF-only setup routing for ready packs, QAD production/marks, vision and image VAE; base `dbb2d168cffa8cf793d9325358809d5263c7c6b0`, no prerequisite patches. The launcher applies it under its workspace lock and records exact patch text for safe revision transitions.
 
 ## Local Patch Refresh
 
