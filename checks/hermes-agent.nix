@@ -18,6 +18,7 @@ let
         ../home-manager/modules/core/lib.nix
         ../home-manager/modules/core/sops.nix
         ../home-manager/modules/development/hermes-agent.nix
+        ../home-manager/modules/shell/mise.nix
         ({ lib, ... }: {
           options = {
             modules.core.gpu.acceleration = lib.mkOption {
@@ -107,6 +108,8 @@ let
     mkdir -p "$out/.nix-profile/bin"
     printf '#!${pkgs.runtimeShell}\nprintf "profile\\n"\n' > "$out/.nix-profile/bin/profile-tool"
     chmod +x "$out/.nix-profile/bin/profile-tool"
+    printf '#!${pkgs.runtimeShell}\nexit 93\n' > "$out/.nix-profile/bin/node"
+    chmod +x "$out/.nix-profile/bin/node"
   '';
   gatewayConfiguration =
     (mkConfiguration (
@@ -126,6 +129,48 @@ let
           })
         ];
       };
+  miseGatewayConfiguration = gatewayConfiguration.extendModules {
+    modules = [
+      {
+        modules.shell.mise.enable = true;
+        modules.development.hermesAgent.enableGateway = true;
+        # A compatible package override must serve both gateway and snapshot activation.
+        programs.mise.package = lib.mkOverride 75 (
+          pkgs.writeShellScriptBin "mise" ''
+            if [ "$1" = activate ]; then
+              printf 'activate\n' >> "$HOME/mise-activations"
+              if [ "''${HERMES_TEST_FAIL_MISE-}" = 1 ]; then
+                exit 43
+              fi
+            fi
+            exec ${lib.getExe pkgs.mise} "$@"
+          ''
+        );
+      }
+    ];
+  };
+  externalMiseGatewayConfiguration = miseGatewayConfiguration.extendModules {
+    modules = [ { programs.mise.package = lib.mkForce null; } ];
+  };
+  miseConfigFile = pkgs.writeText "hermes-mise-config.yaml" ''
+    # Preserve this user file byte-for-byte.
+    terminal:
+      auto_source_bashrc: false
+      shell_init_files: ["~/explicit-first", "~/explicit-last"]
+  '';
+  miseConfigFileConfiguration = miseGatewayConfiguration.extendModules {
+    modules = [
+      {
+        home.homeDirectory = lib.mkOverride 25 "/__hermes_mise_check__/home";
+        services.hermes-agent = {
+          hermesHome = "/__hermes_mise_check__/home/.hermes";
+          configFile = miseConfigFile;
+          settings.terminal.shell_init_files = [ "~/must-not-source" ];
+        };
+      }
+    ];
+  };
+  miseConfigSetup = pkgs.writeText "hermes-mise-config-setup" miseConfigFileConfiguration.config.home.activation.hermesAgentSetup.data;
 in
 assert lib.all (condition: condition) [
   (check "external Hermes homes fail before activation" (
@@ -271,6 +316,29 @@ pkgs.runCommand "check-hermes-agent"
         assert rejected.returncode == 1 and "POSIX-compatible login shell" in rejected.stderr
     print("gateway login: bash/zsh, PATH precedence, argv, exec and exit status passed")
     PY
+    python3 ${./hermes-mise.py} \
+      --gateway ${miseGatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} \
+      --disabled-gateway ${gatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} \
+      --null-gateway ${externalMiseGatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} \
+      --python ${miseGatewayConfiguration.config.services.hermes-agent.package.hermesVenv}/bin/python3 \
+      --mise ${lib.getExe miseGatewayConfiguration.config.programs.mise.package} \
+      --node ${pkgs.nodejs_22.version} ${pkgs.nodejs_22} \
+      --node ${pkgs.nodejs_24.version} ${pkgs.nodejs_24} \
+      --shell ${pkgs.bash}/bin/bash \
+      --shell ${pkgs.zsh}/bin/zsh \
+      --runtime-path ${
+        lib.makeBinPath [
+          pkgs.coreutils
+          pkgs.bash
+          pkgs.gawk
+          pkgs.gnugrep
+        ]
+      } \
+      --runtime-shell ${pkgs.runtimeShell} \
+      --profile ${gatewayHome} \
+      --config-setup ${miseConfigSetup} \
+      --config-file ${miseConfigFile} \
+      --activation-library ${home-manager}/lib/bash/home-manager.sh
     python3 - ${smokeConfiguration.config.services.hermes-agent.package.integrationSecretGate} ${gatewayConfiguration.config.services.hermes-agent.package.integrationGatewayLogin} <<'PY'
     import json
     import os

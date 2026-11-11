@@ -24,24 +24,72 @@ let
   hermesModuleCommon = import "${inputs.hermes-agent}/nix/moduleCommon.nix" {
     inherit lib;
   };
+  miseEnabled = config.programs.mise.enable && config.programs.mise.package != null;
+  # Resolve only stable shims; each command still selects its tool from its cwd.
+  misePath = pkgs.writeShellScript "hermes-mise-path" ''
+    set -euo pipefail
+    miseActivation=$(${lib.getExe config.programs.mise.package} activate bash --shims)
+    eval "$miseActivation"
+    printf '%s' "$PATH"
+  '';
+  # Workaround: pnpm's macOS clone probe leaves an empty directory in the store.
+  # Remove when upstream excludes virtual-store artifacts from the archive.
+  hermesCallPackage =
+    if isDarwin then
+      pkgs.newScope {
+        fetchPnpmDeps =
+          args:
+          (pkgs.fetchPnpmDeps args).overrideAttrs (previousAttrs: {
+            preFixup = (previousAttrs.preFixup or "") + ''
+              if [ -d "$storePath/v11/links" ]; then
+                rmdir "$storePath/v11/links"
+              fi
+            '';
+          });
+      }
+    else
+      pkgs.callPackage;
+  # Workaround: local login profiles can put their tools ahead of inherited shims.
+  # Patch the workspace wheel, not the outer wrapper or its filtered lock source.
+  # Remove when Hermes provides an additive post-login PATH hook.
+  miseOverlay = _final: previous: {
+    hermes-agent = previous.hermes-agent.overrideAttrs (old: {
+      patches = (old.patches or [ ]) ++ [
+        ../../../patches/hermes-agent-terminal-mise-shims.patch
+      ];
+      postPatch = (old.postPatch or "") + ''
+        substituteInPlace tools/environments/local.py \
+          --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
+      '';
+    });
+  };
   baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override {
-    # Workaround: pnpm's macOS clone probe leaves an empty directory in the store.
-    # Remove when upstream excludes virtual-store artifacts from the archive.
     callPackage =
-      if isDarwin then
-        pkgs.newScope {
-          fetchPnpmDeps =
-            args:
-            (pkgs.fetchPnpmDeps args).overrideAttrs (previousAttrs: {
-              preFixup = (previousAttrs.preFixup or "") + ''
-                if [ -d "$storePath/v11/links" ]; then
-                  rmdir "$storePath/v11/links"
-                fi
-              '';
-            });
-        }
-      else
-        pkgs.callPackage;
+      path: args:
+      hermesCallPackage path (
+        if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
+          args
+          // {
+            uv2nix = args.uv2nix // {
+              lib = args.uv2nix.lib // {
+                workspace = args.uv2nix.lib.workspace // {
+                  loadWorkspace =
+                    workspaceArgs:
+                    let
+                      workspace = args.uv2nix.lib.workspace.loadWorkspace workspaceArgs;
+                    in
+                    workspace
+                    // {
+                      mkPyprojectOverlay =
+                        options: lib.composeExtensions (workspace.mkPyprojectOverlay options) miseOverlay;
+                    };
+                };
+              };
+            };
+          }
+        else
+          args
+      );
   };
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
@@ -122,6 +170,17 @@ let
     done
     exec "$@"
   '';
+  # Login profiles run first; the gateway and local snapshots share one resolver.
+  gatewayEnvironment = pkgs.writeShellScript "hermes-gateway-environment" ''
+    set -euo pipefail
+    export PATH="''${PATH:+$PATH:}$1"
+    shift
+    ${lib.optionalString miseEnabled ''
+      PATH=$(${misePath})
+      export PATH HERMES_NIX_MISE_SHIMS=1
+    ''}
+    exec "$@"
+  '';
   # Workaround: upstream service launchers omit the account's login environment.
   # Remove when upstream supports the account's non-interactive login environment.
   gatewayLogin = pkgs.writeShellScript "hermes-gateway-login" ''
@@ -141,9 +200,9 @@ let
     systemPath=$(${pkgs.getconf}/bin/getconf PATH)
     export PATH="''${PATH:+$PATH:}$systemPath"
     export SHELL="$loginShell"
-    exec "$loginShell" -lc \
-      'export PATH="''${PATH:+$PATH:}$1"; shift; exec "$@"' \
-      hermes-gateway ${lib.escapeShellArg "${config.home.profileDirectory}/bin"}"''${PATH:+:$PATH}" "$@"
+    exec "$loginShell" -lc 'exec "$@"' hermes-gateway \
+      ${gatewayEnvironment} \
+      ${lib.escapeShellArg "${config.home.profileDirectory}/bin"}"''${PATH:+:$PATH}" "$@"
   '';
 in
 {
