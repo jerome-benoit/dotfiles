@@ -7,6 +7,8 @@ Validation does not prove GPU compatibility, model integrity, or successful infe
 """
 
 from contextlib import contextmanager
+import argparse
+import ast
 import fcntl
 import json
 import os
@@ -21,6 +23,7 @@ REMOTE = "https://github.com/Niko1221/Strata.git"
 RUNTIME_REVISION = "strata-runtime-revision"
 ENGINE_ROLLBACK = "strata-engine-rollback.json"
 ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
+SOURCE_PATCH = "strata-source.patch"
 
 
 def git(root, *args, check=True):
@@ -41,7 +44,27 @@ def workspace_lock(state):
         yield state, lock
 
 
-def _prepare_workspace(state, revision, remote):
+def patch_check(root, text, *, reverse=False):
+    return subprocess.run(
+        ["git", "-C", str(root), "apply", *(["--reverse"] if reverse else []), "--check", "-"],
+        input=text, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+
+
+def apply_source_patch(root, text, *, reverse=False):
+    subprocess.run(
+        ["git", "-C", str(root), "apply", *(["--reverse"] if reverse else []), "-"],
+        input=text, text=True, check=True,
+    )
+
+
+def publish_source_patch(path, text):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(text)
+    temporary.replace(path)
+
+
+def _prepare_workspace(state, revision, remote, source_patch=None):
     source = state / "source"
     if not source.exists():
         if source.is_symlink():
@@ -72,16 +95,45 @@ def _prepare_workspace(state, revision, remote):
     # Keep visited revisions reachable for GC-safe offline rollback.
     # Remove when upstream supports both revision pinning and GC-safe offline rollback.
     git(root, "update-ref", f"refs/strata/revisions/{current}", current)
-    if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
-        git(root, "fetch", "--quiet", "--depth=1", remote, revision)
-    git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
-    git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
+    ledger = root / ".git" / SOURCE_PATCH
+    previous = ledger.read_text() if ledger.exists() else None
+    desired = Path(source_patch).read_text() if source_patch is not None else None
+    applied = previous is not None and patch_check(root, previous, reverse=True)
+    if previous is not None and not applied and not patch_check(root, previous):
+        raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
+    if previous == desired and current == revision and applied:
+        return root
+    if applied:
+        apply_source_patch(root, previous, reverse=True)
+    ledger.unlink(missing_ok=True)
+    try:
+        if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
+            git(root, "fetch", "--quiet", "--depth=1", remote, revision)
+        git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
+        git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
+    except subprocess.CalledProcessError:
+        try:
+            head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+            if previous is not None:
+                if head != current or not patch_check(root, previous):
+                    print(f"Cannot restore source patch in {root}; original checkout failure is preserved", file=sys.stderr)
+                else:
+                    publish_source_patch(ledger, previous)
+                    apply_source_patch(root, previous)
+        except (OSError, subprocess.CalledProcessError) as restore_error:
+            print(f"Cannot restore source patch in {root}: {restore_error}", file=sys.stderr)
+        raise
+    if desired is not None:
+        if not patch_check(root, desired):
+            raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
+        publish_source_patch(ledger, desired)
+        apply_source_patch(root, desired)
     return root
 
 
-def prepare_workspace(state, revision, remote=REMOTE):
+def prepare_workspace(state, revision, remote=REMOTE, source_patch=None):
     with workspace_lock(state) as (state, _):
-        return _prepare_workspace(state, revision, remote)
+        return _prepare_workspace(state, revision, remote, source_patch)
 
 
 def model_configs(root):
@@ -337,9 +389,42 @@ def retain_interpreter(state, venv):
         raise RuntimeError(f"Interpreter {python} is unavailable; virtual environment preserved at {venv}")
 
 
-def run_workspace(state, revision, args):
+def setup_options(root, args):
+    """Classify argv with upstream's option names and arities, without running setup."""
+    class Parser(argparse.ArgumentParser):
+        def error(self, message):
+            raise ValueError(message)
+
+    parser = Parser(add_help=False, argument_default=argparse.SUPPRESS)
+    parser.add_argument("-h", "--help", action="store_true", dest="--help")
+    source = ast.parse((root / "setup.py").read_text())
+    main = next((node for node in source.body
+                 if isinstance(node, ast.FunctionDef) and node.name == "main"), None)
+    if main is None:
+        raise RuntimeError("Cannot inspect upstream setup's argument parser")
+    for node in ast.walk(main):
+        if (not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute)
+                or not isinstance(node.func.value, ast.Name) or node.func.value.id != "ap"
+                or node.func.attr != "add_argument"):
+            continue
+        flags = [ast.literal_eval(flag) for flag in node.args]
+        shape = {keyword.arg: ast.literal_eval(keyword.value) for keyword in node.keywords
+                 if keyword.arg in {"action", "nargs"}}
+        if shape.get("action", "store") not in {"store", "store_true", "store_false"}:
+            raise RuntimeError("Unsupported upstream setup argument action")
+        parser.add_argument(*flags, dest=flags[0], **shape)
+    if not {"--data-dir", "--models-dir"} <= set(parser._option_string_actions):
+        raise RuntimeError("Upstream setup no longer declares its download-directory options")
+    try:
+        return set(vars(parser.parse_args(args)))
+    except ValueError:
+        # Let upstream report unknown or ambiguous argument forms without refreshing.
+        return {"--help"}
+
+
+def run_workspace(state, revision, args, *, data_directory=None, models_directory=None, source_patch=None):
     with workspace_lock(state) as (state, lock):
-        root = _prepare_workspace(state, revision, REMOTE)
+        root = _prepare_workspace(state, revision, REMOTE, source_patch)
         venv = root / ".venv"
         retain_interpreter(state, venv)
         python = venv / "bin/python"
@@ -353,14 +438,7 @@ def run_workspace(state, revision, args):
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
             retain_interpreter(state, venv)
-        options = [arg.partition("=")[0] for arg in args]
-        requested = {
-            flag for flag in ("--help", "--check", "--inspect", "--rollback-engine", "--update",
-                              "--setup", "--model", "--family", "--no-start", "--calibrate")
-            if any(len(option) > 2 and flag.startswith(option) for option in options)
-        }
-        if any(option.startswith("-h") for option in options):
-            requested.add("--help")
+        requested = setup_options(root, args)
         explicit_update = "--update" in requested
         calibration_requested = (
             "--calibrate" in requested
@@ -372,7 +450,7 @@ def run_workspace(state, revision, args):
             and not calibration_requested
         )
         standalone_requested = (calibration_requested and "--no-start" in requested) or bool(
-            requested & {"--help", "--inspect", "--rollback-engine"}
+            requested & {"--help", "--inspect", "--prepare-pack", "--rollback-engine"}
         ) or (
             "--check" in requested and not explicit_update
         )
@@ -402,6 +480,17 @@ def run_workspace(state, revision, args):
                     refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)
                 else:
                     (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+            # Defaults apply only to acquisition, never an installed plain start.
+            # Parse actual upstream options so values and ambiguous prefixes do not
+            # override defaults or change command classification.
+            if (not standalone_requested and not explicit_update
+                    and (setup_requested or not model_configs(root))):
+                for flag, directory in (("--data-dir", data_directory),
+                                        ("--models-dir", models_directory)):
+                    if directory is not None and flag not in requested:
+                        args = [*args, flag, directory]
+                if models_directory is not None and "--separate-model-artifacts" not in requested:
+                    args = [*args, "--separate-model-artifacts"]
         finally:
             # Even a partial updater may have created a new venv interpreter.
             retain_interpreter(state, venv)
@@ -417,7 +506,10 @@ if __name__ == "__main__":
         if sys.argv[1] == "--runtime-status":
             check_runtime(Path(sys.argv[2]).resolve())
         else:
-            run_workspace(sys.argv[1], sys.argv[2], sys.argv[3:])
+            run_workspace(sys.argv[1], sys.argv[2], sys.argv[6:],
+                          data_directory=sys.argv[3] or None,
+                          models_directory=sys.argv[4] or None,
+                          source_patch=sys.argv[5] or None)
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
     except RuntimeError as error:
