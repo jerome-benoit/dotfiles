@@ -817,7 +817,7 @@ for f in setup.ready_files(model):
     dst.write_bytes(b"x")
     setup.mark(dst, "sha256 " + sha)
 assert not setup.prepared_done(model, models, data)
-# Same filesystem: the existing 110 GB aggregate is valid once, not zero or twice.
+# Count the 110 GB preparation estimate once when both outputs share a filesystem.
 with patch.object(setup, "free_gb", return_value=20):
     assert setup.ready_disk_problem(model, models, data) is not None
 with patch.object(setup, "free_gb", return_value=120):
@@ -1124,9 +1124,8 @@ exit 9
         self.assertEqual((root / "code.py").read_text(), "old source\n")
 
     def make_runtime_source(self, root):
-        # Patch targets were pinned before the first prepare; never replace them here.
-        # The complete control package was committed in setUp. Keep its checkout
-        # and all three patched files intact and writable across later prepares.
+        # Preserve the tracked control package and patch targets across prepares.
+        # Replacing them here would discard the managed source changes.
         # Use a real local distribution, without fetching the pinned production wheels.
         (root / "requirements.txt").write_text("pip\n")
 

@@ -1,7 +1,7 @@
 # base: Niko1221/Strata f33c8c30588ff00e24b6b63bad0bf6a14da19081
 # intent: Keep GGUF model payloads separate from packs, drafts, checkpoints and image VAE artifacts on opt-in setup.
 diff --git i/setup.py w/setup.py
-index cda3580..70da3dc 100644
+index cda3580..f741241 100644
 --- i/setup.py
 +++ w/setup.py
 @@ -3620,41 +3620,47 @@ def ready_files(model: str) -> list:
@@ -88,7 +88,7 @@ index cda3580..70da3dc 100644
 +
 +
 +def ready_disk_problem(model, models_dir, data_dir=None, vision_file=None, checkpoint_dir=None):
-+    """Check pinned download sizes at their real destinations, counting local files and resumable parts."""
++    """Check disk space for remaining downloads and estimated preparation."""
 +    needs = []
 +    for f in ready_needed(model, models_dir, data_dir):
 +        dst = ready_where(models_dir, f, data_dir, checkpoint_dir)
@@ -219,7 +219,7 @@ index cda3580..70da3dc 100644
 +                    present = max((p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part")) if p.is_file()), default=0)
 +                    total += min(f[4], present)
 +                return total
-+            # A full-length sparse part is not a verified checkpoint; retain the byte heuristic for other ties.
++            # Prefer verified checkpoints; use checkpoint byte counts to break ties.
 +            checkpoint_dir = max(checkpoint_roots, key=lambda root: (
 +                all(ready_verified(root / f[3], f[5]) for f in source_files),
 +                checkpoint_bytes(root)))
@@ -282,7 +282,7 @@ index cda3580..70da3dc 100644
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
 -        say(f"  The model files go in {models_dir / MODELS[model]['repo'].replace('/', '--')}")
-+        say(f"  The model files go in {checkpoint_dir if checkpoint_dir is not None else models_dir / MODELS[model]['repo'].replace('/', '--')}")
++        say(f"  GGUF or checkpoint directory: {checkpoint_dir if checkpoint_dir is not None else models_dir / MODELS[model]['repo'].replace('/', '--')}")
          if model_source() == "modelscope":
              warn("these packs are on Hugging Face only: downloading them from " + hf_endpoint())
 -        ready_fetch(model, models_dir)

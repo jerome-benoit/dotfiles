@@ -11,8 +11,8 @@ let
   mutableDirectory = lib.types.addCheck lib.types.str (
     path: lib.hasPrefix "/" path && !(path == "/nix/store" || lib.hasPrefix "/nix/store/" path)
   );
-  # Upstream routes ready packs, QAD drafts and image VAE through --models-dir.
-  # Remove once upstream preserves these artifact roles with a separate GGUF root.
+  # Workaround: upstream stores packs, QAD drafts and image VAE in the GGUF directory.
+  # Remove when upstream supports separate GGUF and auxiliary directories.
   sourcePatch = ../../../patches/strata-setup-directory-roles.patch;
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
@@ -41,43 +41,43 @@ in
       defaultText = lib.literalExpression ''"''${config.xdg.dataHome}/strata"'';
       description = ''
         Absolute writable directory outside /nix/store for the source checkout, virtual
-        environment, engines, build caches and interpreter GC root. A managed source
-        patch preserves setup directory roles under the workspace lock; its diff stays
-        visible and conflicting edits are refused. Other contents remain user-owned and
-        are not copied into the Nix store. Changing this path does not migrate a workspace.
+        environment, engines, build caches and interpreter GC root. The launcher applies
+        its source patch under the workspace lock, leaves the diff visible and refuses
+        conflicting edits. Other contents remain user-owned and outside the Nix store.
+        Changing this path does not migrate the workspace.
       '';
     };
     dataDirectory = lib.mkOption {
       type = lib.types.nullOr mutableDirectory;
       default = null;
       description = ''
-        Optional absolute directory outside /nix/store for new models, packs and drafts
-        during first bootstrap or explicit setup. Null leaves upstream folder selection unchanged.
-        An explicit CLI --data-dir takes priority. Normal installed launches, updates,
-        checks and standalone commands do not receive this default. Existing models are
-        not migrated by this option; upstream retains its explicit move confirmation.
-        Model selection, tuning and profiles remain owned by the upstream wizard.
+        Optional absolute directory outside /nix/store, passed as --data-dir for new
+        models, packs and drafts during initial or explicit setup. Null preserves
+        upstream folder selection; an explicit CLI --data-dir takes priority.
+        Installed launches, updates, checks and standalone commands do not receive this
+        default. Existing models are not moved. Upstream retains explicit move
+        confirmation and owns model selection, tuning and profiles.
       '';
     };
     modelsDirectory = lib.mkOption {
       type = lib.types.nullOr mutableDirectory;
       default = null;
       description = ''
-        Optional absolute directory outside /nix/store passed as --models-dir during
-        first bootstrap or explicit setup. New GGUF acquisitions and QAD dense/PLE
-        preparations go here; ready packs, checkpoints, drafts and the image VAE stay
-        under the data directory.
+        Optional absolute directory outside /nix/store, passed as --models-dir during
+        initial or explicit setup. GGUF downloads and QAD dense/PLE outputs use
+        this directory; NVFP4 packs, QAD checkpoints/drafts and image VAE files use the
+        data directory.
 
-        Complete legacy ready installations take priority over checkpoints and are
-        reused in place. Otherwise, fully verified QAD checkpoints take priority over
-        partial downloads. Checkpoints resume in their original directory; new prepared
-        outputs use the selected GGUF and data directories.
+        Complete NVFP4 installations are reused in place before selecting a QAD
+        checkpoint. Fully verified checkpoints take priority over partial downloads.
+        Checkpoints resume in place; new outputs use the selected GGUF and data directories.
 
-        Null leaves upstream layout and selection unchanged, normally <data directory>/models.
-        An explicit CLI --models-dir takes priority, including supported abbreviations
-        and equals syntax. Normal installed launches, updates, checks and standalone
-        commands do not receive this default. Existing files are not migrated; the
-        upstream wizard retains model selection, tuning and profiles.
+        Null preserves upstream layout, normally <data directory>/models, including
+        when --models-dir is supplied on the CLI. Explicit CLI values take priority,
+        including supported abbreviations and equals syntax. Installed launches,
+        updates, checks and standalone commands do not receive this default.
+        Existing files are not moved; the upstream wizard retains model selection,
+        tuning and profiles.
       '';
     };
     package = lib.mkOption {
