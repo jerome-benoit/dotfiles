@@ -5,7 +5,7 @@
     "aarch64-darwin": "sha256-3n2v8rGXBZTQCZEsI3N/6sBYmnjPcEUwi7KwRBr21SE="
   },
   "provenance": {
-    "sourceRevision": "611cee9d4b667b459f19ca0cbf6e76d8647535fb",
+    "sourceRevision": "2ef38b2172d646c2813aee56192e7f17dd97922a",
     "nixpkgsRevision": "4fe25e12eb9f4c744966dd3de5a05246cf098601",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
@@ -14,15 +14,6 @@
       "x86_64-linux": "Native dependency phases replayed; NAR hash and fixed-output store path verified. CLI and Desktop not built locally.",
       "aarch64-linux": "--cpu=arm64 --os=linux: NAR hash and fixed-output store path verified; no native build.",
       "aarch64-darwin": "--cpu=arm64 --os=darwin: NAR hash and fixed-output store path verified; no native build."
-    },
-    "upstreamReference": {
-      "pullRequest": "https://github.com/anomalyco/opencode/pull/60957",
-      "hashCommit": "aea1965663981506fb3e1734d3fa66275bfd69c0",
-      "dependencyBase": "06cd1a3eda8da7d021efb83cdf858229dab5c60d",
-      "botRun": "https://github.com/anomalyco/opencode/actions/runs/41384204215",
-      "bunVersion": "1.4.2",
-      "compatibility": "Historical Bun 1.4.2 bot reference; the current source is independently recalculated with local Bun 1.4.4.",
-      "targetedCalculationValidation": "At dependencyBase, both ARM-targeted hashes matched native bot hashes with the reference Bun."
     }
   }
 }
