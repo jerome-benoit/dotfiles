@@ -1,4 +1,4 @@
-# base: hermes-agent 79fb37f8a9e74ad09f63227ebc069c98e84855ea
+# base: hermes-agent 5df966a97a2d5fe37a309266ea97acb0c856942d
 # intent: Restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 diff --git a/tools/environments/local.py b/tools/environments/local.py
 --- a/tools/environments/local.py
@@ -57,7 +57,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
 diff --git a/tools/process_registry.py b/tools/process_registry.py
 --- a/tools/process_registry.py
 +++ b/tools/process_registry.py
-@@ -1187,7 +1187,11 @@
+@@ -1192,7 +1192,11 @@
          # the rewriter makes it ``A && { B & }`` (#68915). Lazy: terminal_tool imports this module.
          from tools.terminal_tool_sudo import _rewrite_compound_background as _rewrite_bg
  
