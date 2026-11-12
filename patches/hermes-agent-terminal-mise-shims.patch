@@ -1,4 +1,4 @@
-# base: hermes-agent 67664e236ddcc45824b871d575677287599af152
+# base: hermes-agent 2bfa6b07a14a9675cc6bc85e6bf254c23072fb5f
 # intent: Restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 diff --git a/tools/environments/local.py b/tools/environments/local.py
 --- a/tools/environments/local.py

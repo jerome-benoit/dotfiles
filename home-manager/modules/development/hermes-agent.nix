@@ -63,34 +63,48 @@ let
       '';
     });
   };
-  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override {
-    callPackage =
-      path: args:
-      hermesCallPackage path (
-        if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
-          args
-          // {
-            uv2nix = args.uv2nix // {
-              lib = args.uv2nix.lib // {
-                workspace = args.uv2nix.lib.workspace // {
-                  loadWorkspace =
-                    workspaceArgs:
-                    let
-                      workspace = args.uv2nix.lib.workspace.loadWorkspace workspaceArgs;
-                    in
-                    workspace
-                    // {
-                      mkPyprojectOverlay =
-                        options: lib.composeExtensions (workspace.mkPyprojectOverlay options) miseOverlay;
-                    };
+  baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override (
+    {
+      callPackage =
+        path: args:
+        hermesCallPackage path (
+          if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
+            args
+            // {
+              uv2nix = args.uv2nix // {
+                lib = args.uv2nix.lib // {
+                  workspace = args.uv2nix.lib.workspace // {
+                    loadWorkspace =
+                      workspaceArgs:
+                      let
+                        workspace = args.uv2nix.lib.workspace.loadWorkspace workspaceArgs;
+                      in
+                      workspace
+                      // {
+                        mkPyprojectOverlay =
+                          options: lib.composeExtensions (workspace.mkPyprojectOverlay options) miseOverlay;
+                      };
+                  };
                 };
               };
-            };
-          }
-        else
-          args
-      );
-  };
+            }
+          else
+            args
+        );
+    }
+    // lib.optionalAttrs isLinux {
+      # Workaround: PM applies a 0.19.2 patch to nixpkgs' patchelf 0.15.2.
+      # Remove when upstream selects a compatible patchelf with the header-overlap fix.
+      pmPackages = lib.mapAttrs (
+        _: package:
+        package.overrideAttrs (previousAttrs: {
+          nativeBuildInputs = map (
+            input: if (input.pname or null) == "patchelf" then pkgs.buildPackages.patchelfUnstable else input
+          ) previousAttrs.nativeBuildInputs;
+        })
+      ) (pkgs.callPackage "${inputs.hermes-agent}/nix/pm-packages.nix" { });
+    }
+  );
 
   cudaRuntimeEnabled = isLinux && config.modules.core.gpu.acceleration == "cuda";
   cublasRuntimeEnabled = cudaRuntimeEnabled && pkgs.stdenv.hostPlatform.isx86_64;
