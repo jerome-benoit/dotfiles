@@ -139,6 +139,14 @@
                   })
                 ];
               });
+              # Workaround: mTLS example tests include cold SDK imports in a 15-second subprocess budget.
+              # Remove when upstream budgets subprocess startup adequately on loaded builders.
+              openai = pythonPrev.openai.overridePythonAttrs (previousAttrs: {
+                postPatch = (previousAttrs.postPatch or "") + ''
+                  substituteInPlace tests/test_mtls_http_client.py \
+                    --replace-fail 'timeout=15,' 'timeout=120,'
+                '';
+              });
             })
           ];
         })
