@@ -119,6 +119,14 @@
           ccusage = prev.ccusage.overrideAttrs (previousAttrs: {
             buildInputs = (previousAttrs.buildInputs or [ ]) ++ [ prev.zstd ];
           });
+          # Workaround: ortie omits aws-lc and libgit2 required by Cargo's system-library hook.
+          # Remove when nixpkgs includes both libraries in ortie's build inputs.
+          ortie = prev.ortie.overrideAttrs (previousAttrs: {
+            buildInputs = (previousAttrs.buildInputs or [ ]) ++ [
+              prev.aws-lc
+              prev.libgit2
+            ];
+          });
         })
         (
           _: prev:
