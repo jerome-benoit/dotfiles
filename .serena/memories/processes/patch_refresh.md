@@ -119,6 +119,14 @@ against the previous known pin before trusting new outputs. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose
 NAR hash and fixed-output store path match the selected derivation.
 
+Use `inputs.opencode` from this repository's evaluated flake so its
+`nixpkgs.follows` supplies the actual Bun toolchain. CLI `--override-input`
+does not override inputs loaded by `builtins.getFlake` inside `--expr`.
+Check the evaluated derivation's Bun input before calculating hashes.
+Use a fake output hash or an explicit rebuild to force fresh output:
+a successful build can otherwise reuse an existing fixed-output store path
+without checking the current recipe.
+
 ### Caveman source pin
 
 The Caveman CLI and installer use the `github:JuliusBrussee/caveman/main`

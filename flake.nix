@@ -113,6 +113,13 @@
       );
 
       localOverlays = [
+        (_: prev: {
+          # Workaround: ccusage omits zstd required by Cargo's system-library hook.
+          # Remove when nixpkgs includes zstd in ccusage's build inputs.
+          ccusage = prev.ccusage.overrideAttrs (previousAttrs: {
+            buildInputs = (previousAttrs.buildInputs or [ ]) ++ [ prev.zstd ];
+          });
+        })
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {

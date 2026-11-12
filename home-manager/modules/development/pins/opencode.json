@@ -1,19 +1,19 @@
 {
   "hashes": {
     "x86_64-linux": "sha256-d+WXBzkU1bZnWB+Ws1a2X/PXBZPW/DXQwTAxMWim0jE=",
-    "aarch64-linux": "sha256-DqXfRpGc9AZ9PX2APiAYv2ukbboWm2GaSsQJ/2KfTqM=",
-    "aarch64-darwin": "sha256-2PHl2MX6ZkttUzCTh8bM1vWa1UNiaQp6FjnNiNhxLT8="
+    "aarch64-linux": "sha256-iOSox1EHm4GvIjsAPunfv8k0XVkbvAShAiGRmSXGvaU=",
+    "aarch64-darwin": "sha256-le279IPqPoLFGpzHZMYFK9PjjGR3ui/q5/tQZ1OwQYg="
   },
   "provenance": {
     "sourceRevision": "98def2f90e8596d0734929b9273defe33f74ba74",
     "nixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
-    "calculation": "The pinned upstream OpenCode source's own dependency recipe (nix/node_modules.nix), evaluated with this repository's locked nixpkgs as the OpenCode input follows it, which supplies the Bun 1.4.4 the derivation actually builds with; frozen lock and both upstream normalization scripts. ARM targets use --cpu=arm64 --os=linux/darwin with --ignore-scripts.",
+    "calculation": "Upstream dependency phases with Bun 1.4.4 from the repository's followed nixpkgs, a frozen lockfile and both normalization scripts; ARM targets use --cpu/--os with --ignore-scripts.",
     "verification": {
-      "x86_64-linux": "Native upstream node_modules_updater build on the followed nixpkgs; the replay reproduced the previous pin before the source bump. CLI and Desktop not built locally.",
-      "aarch64-linux": "--cpu=arm64 --os=linux replayed through the same derivation on x86_64-linux: fixed-output hash recorded; no native build.",
-      "aarch64-darwin": "--cpu=arm64 --os=darwin replayed through the same derivation on x86_64-linux: fixed-output hash recorded; no native build."
+      "x86_64-linux": "Native dependency output hash verified. CLI and Desktop not built locally.",
+      "aarch64-linux": "--cpu=arm64 --os=linux replay on x86_64-linux: output hash verified with --rebuild; no native build.",
+      "aarch64-darwin": "--cpu=arm64 --os=darwin replay on x86_64-linux: output hash verified with --rebuild; no native build."
     }
   }
 }
