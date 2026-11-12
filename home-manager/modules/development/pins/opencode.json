@@ -5,7 +5,7 @@
     "aarch64-darwin": "sha256-2PHl2MX6ZkttUzCTh8bM1vWa1UNiaQp6FjnNiNhxLT8="
   },
   "provenance": {
-    "sourceRevision": "3d308eae2e68dc39dfc12aba9dd408f9ce1cc0a1",
+    "sourceRevision": "98def2f90e8596d0734929b9273defe33f74ba74",
     "nixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
     "bunVersion": "1.4.2",
     "buildSystem": "x86_64-linux",
