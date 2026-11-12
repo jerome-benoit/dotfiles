@@ -25,7 +25,24 @@ let
 
   # Python 3.12: beautifulsoup4 pulls in sphinxHook, and nixpkgs disables
   # sphinx below 3.12; the runtime itself accepts >=3.11.
-  py = pkgs.python312;
+  # Keep source-test fixes in Prime's dependency graph, not every Python package set.
+  py = pkgs.python312.override (previousArgs: {
+    self = py;
+    packageOverrides = lib.composeExtensions (previousArgs.packageOverrides or (_: _: { })) (
+      _: pythonPrev: {
+        # Workaround: real-time Trio cancellation tests expire during HTTP/2 initialization on loaded builders.
+        # Remove when pinned nixpkgs carries httpx2#1231 or a release containing its virtual-clock fixture.
+        httpcore2 = pythonPrev.httpcore2.overridePythonAttrs (previousAttrs: {
+          patches = (previousAttrs.patches or [ ]) ++ [
+            (pkgs.fetchurl {
+              url = "https://github.com/pydantic/httpx2/commit/fc32b34daa5e070917979ae36b8dd91913897379.patch";
+              hash = "sha256-3dG2g6WOL/xCXpXr4vz3Wz4sfS1vzeqGV29LGzrnelA=";
+            })
+          ];
+        });
+      }
+    );
+  });
   runtimeRoot = "${src}/prime-agent-runtime";
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";

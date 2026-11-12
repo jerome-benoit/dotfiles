@@ -127,28 +127,6 @@
               prev.libgit2
             ];
           });
-          pythonPackagesExtensions = (prev.pythonPackagesExtensions or [ ]) ++ [
-            (_: pythonPrev: {
-              # Workaround: real-time Trio cancellation tests expire during HTTP/2 initialization on loaded builders.
-              # Remove when nixpkgs carries httpx2#1231 or a release containing its virtual-clock fixture.
-              httpcore2 = pythonPrev.httpcore2.overridePythonAttrs (previousAttrs: {
-                patches = (previousAttrs.patches or [ ]) ++ [
-                  (prev.fetchurl {
-                    url = "https://github.com/pydantic/httpx2/commit/fc32b34daa5e070917979ae36b8dd91913897379.patch";
-                    hash = "sha256-3dG2g6WOL/xCXpXr4vz3Wz4sfS1vzeqGV29LGzrnelA=";
-                  })
-                ];
-              });
-              # Workaround: mTLS example tests include cold SDK imports in a 15-second subprocess budget.
-              # Remove when upstream budgets subprocess startup adequately on loaded builders.
-              openai = pythonPrev.openai.overridePythonAttrs (previousAttrs: {
-                postPatch = (previousAttrs.postPatch or "") + ''
-                  substituteInPlace tests/test_mtls_http_client.py \
-                    --replace-fail 'timeout=15,' 'timeout=120,'
-                '';
-              });
-            })
-          ];
         })
         (
           _: prev:
