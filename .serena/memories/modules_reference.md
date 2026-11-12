@@ -241,6 +241,13 @@ Hermes Agent configuration:
 - Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and applicable CUDA libraries. Linux wrappers include `ld` and `objdump` for Python's PortAudio discovery without a compiler.
 - Linux PM artifacts use the build-platform `patchelfUnstable`, whose pinned source includes the executable-header overlap fix. This replaces only their patchelf build input; other PM inputs and Darwin remain unchanged.
 
+### prime-agent.nix
+
+- Uses a private recursive Python 3.12 package set for the pinned runtime and its build dependencies. The rest of the configuration retains the unmodified nixpkgs Python package sets.
+- Backports [httpx2#1231](https://github.com/pydantic/httpx2/pull/1231) only to that package set's `httpcore2`. Its Trio virtual-clock fixture prevents the cancellation tests' real 10 ms deadline from expiring during HTTP/2 initialization on loaded builders. Assertions, asyncio/Trio coverage and the existing RISC-V exclusions remain unchanged. Remove the patch when the pinned nixpkgs includes that fix or a release containing it.
+- The patched `httpcore2` 2.13.1 is required through Starlette's build checks; the runtime retains its separately pinned 2.12.0 wheel. This test fix does not close the separate initialization-cancellation cleanup gap.
+- OpenAI and LiteLLM use the unmodified nixpkgs recipes. OpenAI's upstream 15-second mTLS test budget remains a cold-build limitation; using the stock recipe does not fix that upstream test.
+
 ### aoe.nix
 
 Agent of Empires session manager:
@@ -558,10 +565,3 @@ theme.colors.blue # "#7aa2f7"
 ```
 
 Used by: alacritty, ghostty, lazygit, lazydocker, tmux, zellij, neovim
-
-## Shared Package Workarounds (`flake.nix`)
-
-### Python dependencies
-
-- The shared Python package extension backports [httpx2#1231](https://github.com/pydantic/httpx2/pull/1231) to `httpcore2`. Its Trio virtual-clock fixture prevents the cancellation tests' real 10 ms deadline from expiring during HTTP/2 initialization on loaded builders. The backport preserves asyncio and Trio coverage, assertions, and the existing nixpkgs RISC-V test exclusions. Remove it when nixpkgs includes that fix or a release containing it. This test fix does not close the separate runtime initialization-cancellation cleanup gap.
-- The shared Python package extension raises the OpenAI mTLS examples' subprocess budget from 15 to 120 seconds because it includes cold SDK imports on loaded builders. All four certificate-chain tests and their assertions remain enabled; runtime network timeouts are unchanged. Remove the workaround when upstream provides an adequate subprocess-startup budget.
