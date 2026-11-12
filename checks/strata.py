@@ -998,6 +998,34 @@ exit 9
         for name, text in expected.items():
             self.assertEqual((root / name).read_text(), text, name)
 
+    def test_setup_resumes_interrupted_initialization_before_inspecting_parser(self):
+        setup = self.repo / "setup.sh"
+        setup.write_text(f'#!{shutil.which("sh")}\nexec "{sys.executable}" "$(dirname "$0")/setup.py" "$@"\n')
+        setup.chmod(0o700)
+        revision = self.commit()
+        for stage in ("directory", "initialized", "fetched"):
+            with self.subTest(stage=stage):
+                self.state = self.base / stage
+                source = self.state / "source"
+                source.mkdir(parents=True)
+                if stage != "directory":
+                    subprocess.run(["git", "-C", str(source), "init", "--quiet"],
+                                   env=self.env, check=True)
+                if stage == "fetched":
+                    subprocess.run(["git", "-C", str(source), "fetch", "--quiet",
+                                    str(self.repo), revision], env=self.env, check=True)
+                owned = source / "user-notes.txt"
+                owned.write_text("keep user data\n")
+                result = subprocess.run(self.command(revision) + ["run", "--setup", "--help"],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--data-dir", result.stdout)
+                self.assertEqual(subprocess.check_output(
+                    ["git", "-C", str(source), "rev-parse", "HEAD"], env=self.env, text=True).strip(),
+                    revision)
+                self.assertEqual(owned.read_text(), "keep user data\n")
+                self.assertFalse((source / ".git/strata-runtime-revision").exists())
+
     def test_concurrent_initialization_and_conflicting_user_edit(self):
         processes = [subprocess.Popen(self.command(self.old), env=self.env,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

@@ -47,7 +47,8 @@ in
         Managed setup, install, launch acquisition and other mutating Terminal commands
         hold this lock; mutating children inherit it. Serving and launch monitoring release
         it after preparation. Status, monitor, logs and connection bypass preparation on
-        an existing checkout, so they remain usable during acquisition and serving.
+        a checkout with a valid HEAD, so they remain usable during acquisition and serving.
+        Interrupted initialization resumes under the lock before the launcher inspects its parser.
         Direct upstream scripts outside this launcher do not participate in this lock.
         Changing this path does not migrate the workspace.
       '';

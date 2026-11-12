@@ -511,10 +511,11 @@ def setup_options(root, args):
 def run_workspace(state, revision, args, *, data_directory=None, models_directory=None, source_patch=None,
                   managed_setup=False):
     state = Path(state).expanduser().resolve()
-    # Observation must not queue behind an acquisition or a running model. An existing checkout is enough;
-    # these commands neither prepare the source nor repair the interpreter.
+    # Observation must not queue behind acquisition or serving. Only a checkout with HEAD can bypass
+    # preparation; interrupted initialization must resume under the lock before importing its parser.
     source = state / "source"
-    if not managed_setup and source.is_dir():
+    if (not managed_setup and (source / ".git").exists()
+            and git(source, "rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode == 0):
         words = cli_doors(source, args)
         if words["terminal"] and (words["command"] in {"status", "monitor", "logs", "connection"}
                                   or words["command"] is None):
