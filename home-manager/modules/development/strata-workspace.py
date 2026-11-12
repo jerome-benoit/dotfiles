@@ -39,11 +39,14 @@ def git(root, *args, check=True):
 
 
 @contextmanager
-def workspace_lock(state):
+def workspace_lock(state, *, inherited=False):
     state = Path(state).expanduser().resolve()
     state.mkdir(parents=True, exist_ok=True)
-    with (state / ".source.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    lock = (os.fdopen(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), "a") if inherited
+            else (state / ".source.lock").open("a"))
+    with lock:
+        if not inherited:
+            fcntl.flock(lock, fcntl.LOCK_EX)
         yield state, lock
 
 
@@ -403,19 +406,38 @@ def _flags(node):
     return [flag.value for flag in node.args if isinstance(flag, ast.Constant) and isinstance(flag.value, str)]
 
 
-def terminal_words(root):
+def terminal_words(root, args=()):
     """The words upstream's Terminal accepts: its subcommands, and the options it takes before one.
 
     Asked of the checkout's own parser, and run rather than read as text: upstream contributes subcommands from
     other modules (`launch_cmd.add_parsers(sp)` in strata_cli/cli.py), which a source scan would miss and then
     silently send `strata launch` to setup. Running it also means a new upstream subcommand routes with no change
     here, and the words cannot drift from upstream."""
-    probe = ("import argparse, json, sys; sys.path.insert(0, sys.argv[1]);"
-             "from strata_cli.cli import parser; p = parser();"
-             "sub = [action for action in p._actions if isinstance(action, argparse._SubParsersAction)];"
-             "print(json.dumps({'commands': sorted(sub[0].choices) if sub else [],"
-             "                 'options': sorted(p._option_string_actions)}))")
-    result = subprocess.run([sys.executable, "-c", probe, str(root)],
+    probe = """import argparse, contextlib, io, json, sys
+sys.path.insert(0, sys.argv[1])
+from strata_cli.cli import parser, _install_argv
+p = parser()
+sub = [action for action in p._actions if isinstance(action, argparse._SubParsersAction)]
+words = {'commands': sorted(sub[0].choices) if sub else [],
+         'options': sorted(p._option_string_actions), 'terminal': False, 'command': None}
+args = sys.argv[2:]
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    try:
+        option = p._parse_optional(args[0]) if args else None
+        # Python 3.14 returns a list of option matches; earlier argparse returns one tuple.
+        if isinstance(option, list):
+            option = option[0] if len(option) == 1 else None
+        candidate = bool(args and (args[0] in words['commands'] or
+                         (option and option[0] and not {'-h', '--help'} & set(option[0].option_strings))))
+        if candidate:
+            words['terminal'] = True
+            parsed, _ = p.parse_known_args(_install_argv(args))
+            words['command'] = parsed.command
+    except SystemExit:
+        pass
+print(json.dumps(words))
+"""
+    result = subprocess.run([sys.executable, "-c", probe, str(root), *args],
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
         raise RuntimeError(f"Cannot read upstream's Terminal arguments in {root}: "
@@ -429,13 +451,13 @@ def terminal_words(root):
     return words
 
 
-def cli_doors(root):
+def cli_doors(root, args=()):
     """One `strata` name, two upstream programs: the Terminal's words, and the shape that keeps them apart.
 
     Upstream invokes its Terminal only by subcommand and its setup only by option. If upstream gives its setup a
     positional argument or subcommands, the two shapes overlap and this says so and stops, rather than guessing
     which program the person meant."""
-    words = terminal_words(root)
+    words = terminal_words(root, args)
     setup_main = _function(ast.parse((root / "setup.py").read_text()), "main")
     if setup_main is None:
         raise RuntimeError("Cannot inspect upstream setup's argument parser")
@@ -452,16 +474,7 @@ def cli_doors(root):
 
 def entry_point(root, args):
     """Which upstream program this argv means: 'terminal' or 'setup'."""
-    doors = cli_doors(root)
-    if not args:
-        return "setup"                        # upstream's bare ./setup.sh: set up, or start what is installed
-    if args[0] in doors["commands"]:
-        return "terminal"
-    if args[0] in doors["options"]:            # an option only the Terminal declares, e.g. `strata --version`
-        rest = [argument for argument in args[1:] if not argument.startswith("-")]
-        if not rest or rest[0] in doors["commands"]:
-            return "terminal"
-    return "setup"                             # an unknown option: upstream's setup reports it in its own words
+    return "terminal" if cli_doors(root, args)["terminal"] else "setup"
 
 
 def setup_options(root, args):
@@ -495,9 +508,27 @@ def setup_options(root, args):
         return {"--help"}
 
 
-def run_workspace(state, revision, args, *, data_directory=None, models_directory=None, source_patch=None):
-    with workspace_lock(state) as (state, lock):
+def run_workspace(state, revision, args, *, data_directory=None, models_directory=None, source_patch=None,
+                  managed_setup=False):
+    state = Path(state).expanduser().resolve()
+    # Observation must not queue behind an acquisition or a running model. An existing checkout is enough;
+    # these commands neither prepare the source nor repair the interpreter.
+    source = state / "source"
+    if not managed_setup and source.is_dir():
+        words = cli_doors(source, args)
+        if words["terminal"] and (words["command"] in {"status", "monitor", "logs", "connection"}
+                                  or words["command"] is None):
+            python = source / ".venv/bin/python"
+            os.execv(str(python), [str(python), str(source / TERMINAL_CLI), *args])
+    with workspace_lock(state, inherited=managed_setup) as (state, lock):
         root = _prepare_workspace(state, revision, REMOTE, source_patch)
+        os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(lock.fileno())
+        os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
+        os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({
+            "state": str(state), "revision": revision, "data_directory": data_directory,
+            "models_directory": models_directory, "source_patch": source_patch, "remote": REMOTE,
+        })
+        os.set_inheritable(lock.fileno(), True)
         venv = root / ".venv"
         retain_interpreter(state, venv)
         python = venv / "bin/python"
@@ -511,17 +542,13 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
             retain_interpreter(state, venv)
-        if entry_point(root, args) == "terminal":
-            # Upstream's Terminal reads the checkout and the runtime; it acquires no model and builds no engine, so
-            # the updater, the download-directory defaults and the setup door stay on the other side of this seam.
+        if not managed_setup and entry_point(root, args) == "terminal":
+            # Install re-enters this helper with the same locked file description. Launch keeps the
+            # lock through acquisition/config writes; upstream releases it at its service boundary.
             if not os.access(python, os.X_OK):
                 raise RuntimeError(
                     f"Strata's Terminal runs in the checkout's environment at {python}, which is not set up yet: "
                     "run `strata --setup` first, then the Terminal again.")
-            os.chdir(root)                     # upstream runs its Terminal from the checkout's own folder
-            # Serving must not hold the workspace lock: `strata status`, `monitor` and `stop` are meant to answer
-            # from another shell while a server runs. The setup door keeps holding it, because it rewrites the checkout.
-            lock.close()
             os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
             return
         requested = setup_options(root, args)
@@ -589,7 +616,11 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1] == "--runtime-status":
+        if sys.argv[1] == "--managed-setup":
+            context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
+            REMOTE = context.pop("remote")
+            run_workspace(**context, args=sys.argv[2:], managed_setup=True)
+        elif sys.argv[1] == "--runtime-status":
             check_runtime(Path(sys.argv[2]).resolve())
         else:
             run_workspace(sys.argv[1], sys.argv[2], sys.argv[6:],

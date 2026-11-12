@@ -11,8 +11,8 @@ let
   mutableDirectory = lib.types.addCheck lib.types.str (
     path: lib.hasPrefix "/" path && !(path == "/nix/store" || lib.hasPrefix "/nix/store/" path)
   );
-  # Workaround: upstream stores packs, QAD drafts and image VAE in the GGUF directory.
-  # Remove when upstream supports separate GGUF and auxiliary directories.
+  # Workaround: upstream mixes GGUF/artifact directories and has no managed workspace lock lifecycle.
+  # Remove when upstream supports separate destinations and inherited acquisition locks released before serving.
   sourcePatch = ../../../patches/strata-setup-directory-roles.patch;
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
@@ -44,6 +44,11 @@ in
         environment, engines, build caches and interpreter GC root. The launcher applies
         its source patch under the workspace lock, leaves the diff visible and refuses
         conflicting edits. Other contents remain user-owned and outside the Nix store.
+        Managed setup, install, launch acquisition and other mutating Terminal commands
+        hold this lock; mutating children inherit it. Serving and launch monitoring release
+        it after preparation. Status, monitor, logs and connection bypass preparation on
+        an existing checkout, so they remain usable during acquisition and serving.
+        Direct upstream scripts outside this launcher do not participate in this lock.
         Changing this path does not migrate the workspace.
       '';
     };
@@ -52,11 +57,11 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store, passed as --data-dir for new
-        models, packs and drafts during initial or explicit setup. Null preserves
-        upstream folder selection; an explicit CLI --data-dir takes priority.
+        models, packs and drafts during initial or explicit setup, including strata install.
+        Null preserves upstream folder selection; an explicit CLI --data-dir takes priority.
         Installed launches, updates, checks and standalone commands do not receive this
-        default, and neither does any Terminal subcommand: their folders are in the model's run
-        configuration. Existing models are not moved. Upstream retains explicit move
+        default. Other Terminal subcommands retain upstream directory selection.
+        Existing models are not moved. Upstream retains explicit move
         confirmation and owns model selection, tuning and profiles.
       '';
     };
@@ -65,7 +70,7 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store, passed as --models-dir during
-        initial or explicit setup. GGUF downloads and QAD dense/PLE outputs use
+        initial or explicit setup, including strata install. GGUF downloads and QAD dense/PLE outputs use
         this directory; NVFP4 packs, QAD checkpoints/drafts and image VAE files use the
         data directory.
 
@@ -76,8 +81,8 @@ in
         Null preserves upstream layout, normally <data directory>/models, including
         when --models-dir is supplied on the CLI. Explicit CLI values take priority,
         including supported abbreviations and equals syntax. Installed launches,
-        updates, checks and standalone commands do not receive this default, nor does
-        any Terminal subcommand.
+        updates, checks and standalone commands do not receive this default, nor do
+        Terminal subcommands other than install.
         Existing files are not moved; the upstream wizard retains model selection,
         tuning and profiles.
       '';
@@ -88,10 +93,12 @@ in
       defaultText = lib.literalExpression "strataPackage";
       description = "Strata's one command in the upstream x86_64-linux CUDA development environment: a subcommand
         (launch, serve, status, monitor, update, doctor, ...) runs upstream's Terminal, and options or nothing run
-        upstream's setup. --version is the Terminal's; --help stays upstream's setup help, because both programs
-        declare it. The shape of the arguments decides, and both shapes are read from the pinned checkout, so a new
-        upstream subcommand needs no change here. If upstream ever makes its setup ambiguous, the command says so
-        instead of guessing which program was meant.";
+        upstream's setup. --version and its upstream abbreviations belong to the Terminal;
+        --help stays upstream's setup help, because both programs declare it. The pinned
+        Terminal parser resolves its options. Terminal commands keep the caller's working
+        directory, including relative --config paths. A new upstream subcommand needs no
+        change here. If upstream ever makes its setup ambiguous, the command says so instead
+        of guessing which program was meant.";
     };
   };
 

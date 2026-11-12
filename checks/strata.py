@@ -14,10 +14,10 @@ import unittest
 import zipfile
 
 
-WORKSPACE = sys.argv.pop(1)
-UPSTREAM = sys.argv.pop(1)
+WORKSPACE = str(Path(sys.argv.pop(1)).resolve())
+UPSTREAM = str(Path(sys.argv.pop(1)).resolve())
 LAUNCHERS = json.loads(Path(sys.argv.pop(1)).read_text())
-SOURCE_PATCH = sys.argv.pop(1)
+SOURCE_PATCH = str(Path(sys.argv.pop(1)).resolve())
 RUNNER = """
 import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
@@ -79,6 +79,7 @@ class WorkspaceTests(unittest.TestCase):
                         NIX_REMOTE="local",
                         NIX_CONFIG="experimental-features = nix-command flakes\nrequire-sigs = false\n")
         self.git("init", "--quiet")
+        self.git("config", "pack.threads", "1")
         (self.repo / ".gitignore").write_text(".venv/\nengine/\nbuild/\nstrata-*.json\n")
         (self.repo / "code.py").write_text("old source\n")
         shutil.copyfile(Path(UPSTREAM) / "setup.py", self.repo / "setup.py")
@@ -90,6 +91,7 @@ class WorkspaceTests(unittest.TestCase):
             Path(directory).chmod(0o700)
         (self.repo / "tools").mkdir()
         shutil.copyfile(Path(UPSTREAM) / "tools/nvfp4_local_pack.py", self.repo / "tools/nvfp4_local_pack.py")
+        shutil.copyfile(Path(UPSTREAM) / "tools/iq_pack.py", self.repo / "tools/iq_pack.py")
         (self.repo / "removed.py").write_text("obsolete source\n")
         self.old = self.commit()
         (self.repo / "code.py").write_text("new source\n")
@@ -1174,6 +1176,8 @@ exit 9
                            (["status"], "terminal"),
                            (["launch", "--stop"], "terminal"),
                            (["--version"], "terminal"),
+                           (["--vers"], "terminal"),
+                           (["--version", "filename.json"], "terminal"),
                            (["--version", "status"], "terminal")):
             with self.subTest(argv=argv):
                 self.assertEqual(module.entry_point(Path(UPSTREAM), argv), door)
@@ -1196,57 +1200,286 @@ exit 9
                         module.cli_doors(root)
                     self.assertIn("positional", str(error.exception))
 
-    def make_door_scripts(self, root):
-        """Stand-ins for upstream's two programs that report their own argv, folder and whether the workspace lock
-        was still held, so one run shows which program the single name chose."""
-        (root / "setup.sh").write_text(f'''#!{sys.executable}
-import json, sys
-print(json.dumps({{"door": "setup", "argv": sys.argv[1:]}}))
-''')
-        (root / "strata.py").write_text(f'''#!{sys.executable}
-import fcntl, json, os, sys
-fd = os.open(os.environ["TEST_LOCK"], os.O_RDWR | os.O_CREAT)
-try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    held = False
-except OSError:
-    held = True
-print(json.dumps({{"door": "terminal", "argv": sys.argv[1:], "cwd": os.getcwd(), "lock_held": held}}))
-''')
-        for name in ("setup.sh", "strata.py"):
-            (root / name).chmod(0o700)
+    def make_terminal(self, root, before=""):
+        if not (root / "serve").exists():
+            shutil.copytree(Path(UPSTREAM) / "serve", root / "serve", copy_function=shutil.copyfile)
+        if not (root / "tools/gguf_reader.py").exists():
+            shutil.copyfile(Path(UPSTREAM) / "tools/gguf_reader.py", root / "tools/gguf_reader.py")
+        (root / "strata.py").write_text(
+            "import sys\nfrom pathlib import Path\nfrom strata_cli import cli\n"
+            + before + "\nraise SystemExit(cli.main())\n")
+        if not (root / ".venv/bin/python").exists():
+            (root / ".venv/bin").mkdir(parents=True, exist_ok=True)
+            (root / ".venv/bin/python").symlink_to(sys.executable)
 
-    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
-    def test_the_single_name_reaches_the_right_program_and_leaves_the_terminal_unlocked(self):
+    def test_terminal_preserves_relative_config_and_upstream_version_action(self):
         root = self.prepare(self.old)
-        self.make_runtime_source(root)
-        (root / ".venv/bin").mkdir(parents=True)
-        (root / ".venv/bin/python").symlink_to(sys.executable)
-        self.make_door_scripts(root)
-        data, models = self.base / "unused data", self.base / "unused models"
-        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models),
-                   TEST_LOCK=str(self.state / ".source.lock"))
-        for argv in (["launch", "--plan", "--family", "qwen", "--model", "iq3_s", "--parallel", "4"],
-                     ["status"], ["monitor", "--once"], ["update"], ["launch", "--stop"], ["--version"]):
-            with self.subTest(argv=argv):
-                result = subprocess.run(self.command(self.old) + ["run", *argv], env=env,
-                                        capture_output=True, text=True, timeout=30)
+        self.make_terminal(root)
+        config = self.make_runtime_model(root)
+        (self.base / "model.json").write_text(json.dumps(config))
+        command = self.command(self.old) + ["run", "serve", "--config", "./model.json",
+                                           "--engine", "mock", "--plan", "--output", "json"]
+        result = subprocess.run(command, cwd=self.base, env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ok"])
+        for args in (["--vers"], ["--version", "filename.json"]):
+            with self.subTest(args=args):
+                result = subprocess.run(self.command(self.old) + ["run", *args], cwd=self.base,
+                                        env=self.env, capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                seen = json.loads(result.stdout)
-                self.assertEqual(seen["door"], "terminal")
-                self.assertEqual(seen["argv"], argv)              # setup's directory defaults never reach it
-                self.assertEqual(Path(seen["cwd"]), root)          # upstream runs its Terminal from the checkout
-                self.assertFalse(seen["lock_held"])                # a serving Terminal never holds the workspace lock
-        self.assertFalse(data.exists() or models.exists())
-        for argv in (["--yes", "--no-browser"], ["--family", "qwen", "--model", "iq3_s", "--no-start"]):
-            with self.subTest(argv=argv):
-                result = subprocess.run(self.command(self.old) + ["run", *argv], env=env,
-                                        capture_output=True, text=True, timeout=30)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                seen = json.loads(result.stdout)
-                self.assertEqual(seen["door"], "setup")
-                self.assertIn("--data-dir", seen["argv"])          # the directory defaults stay on the setup door
-                self.assertEqual(seen["argv"][seen["argv"].index("--data-dir") + 1], str(data))
+                self.assertTrue(result.stdout.startswith("strata "), result.stdout)
+                self.assertIn("python ", result.stdout)
+
+    def assert_observers_answer(self, revision):
+        for args in (["status", "--output", "json"], ["monitor", "--once", "--output", "json"]):
+            result = subprocess.run(self.command(revision) +
+                                    ["run", *args, "--url", "http://127.0.0.1:1", "--timeout", "0.2"],
+                                    env=self.env, capture_output=True, text=True, timeout=30)
+            # A closed local endpoint exercises the real client without a network service.
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertFalse(json.loads(result.stdout)["ok"])
+
+    def test_terminal_service_releases_lock_and_observers_answer(self):
+        root = self.prepare(self.old)
+        self.make_terminal(root, f'''
+from serve import server
+def service(args, **kwargs):
+    exec({GATE!r}, {{}})
+    return 0
+server.main = service
+''')
+        self.make_runtime_model(root)
+        process, pid, peer = self.gated_process(self.command(self.old) +
+            ["run", "serve", "--config", str(root / "strata-fixture.json"), "--engine", "mock"])
+        self.assertEqual(pid, process.pid)
+        self.assert_workspace_unlocked()
+        self.assert_observers_answer(self.old)
+        peer.sendall(b"q")
+        process.wait(timeout=30)
+        self.assertEqual(process.returncode, 0, process.stderr.read())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux installer")
+    def test_install_update_reenters_managed_refresh_and_validates_runtime(self):
+        root = self.make_updater_workspace()
+        self.make_terminal(root)
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.old + "\n")
+        (root / ".git/strata-engine-rollback.json").write_text("{}")
+        command = self.command(self.old) + ["run", "install", "--update", "--build"]
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(marker.read_text(), self.old + "\n")
+        self.assertEqual((root / "update-attempts").read_text(), "1")
+        self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
+        (root / "tokenizer/vocab.json").unlink()
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=90)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux installer")
+    def test_install_setup_preserves_directory_defaults_cli_values_and_option_values(self):
+        root = self.make_acquisition_workspace()
+        self.make_terminal(root)
+        data, models, override = (self.base / name for name in ("install data", "default GGUF", "CLI GGUF"))
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models))
+        result = subprocess.run(self.command(self.old) +
+            ["run", "install", "--yes", "--no-browser", "--context", "8192", "--vision", "no",
+             "--experimental-speed-projection", "off", "--models-dir", str(override), "--api-key=--version"],
+            env=env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actual = json.loads((root / "destinations.json").read_text())
+        self.assertEqual(Path(actual["data"]), data)
+        self.assertEqual(Path(actual["models"]).parent, override)
+        self.assertEqual(actual["api_key"], "--version")
+        self.assertFalse(models.exists())
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
+
+    def assert_mutator_child_keeps_lock(self, command, *, intermediate=None):
+        process, child_pid, peer = self.gated_process(command)
+        self.assertNotEqual(child_pid, process.pid)
+        self.assert_workspace_locked()
+        observer = subprocess.Popen(self.command(self.old), env=self.env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: observer.poll() is None and observer.kill())
+        self.assertRaises(subprocess.TimeoutExpired, observer.wait, timeout=0.2)
+        self.assert_observers_answer(self.old)
+        process.kill()
+        process.wait(timeout=30)
+        if intermediate is not None:
+            os.kill(int(intermediate.read_text()), signal.SIGKILL)
+        self.assert_workspace_locked()
+        peer.sendall(b"q")
+        peer.close()
+        stdout, stderr = observer.communicate(timeout=30)
+        self.assertEqual(observer.returncode, 0, stderr)
+        self.assertEqual(Path(stdout.strip()), (self.state / "source").resolve())
+        self.assert_workspace_unlocked()
+
+    def test_install_mutation_child_keeps_lock_after_helper_dies(self):
+        root = self.prepare(self.old)
+        self.make_terminal(root)
+        self.make_runtime_model(root)
+        gate = self.base / "install-gate.py"
+        gate.write_text(GATE)
+        (root / "setup.sh").write_text(f'exec "{sys.executable}" "{gate}"\n')
+        self.assert_mutator_child_keeps_lock(self.command(self.old) + ["run", "install", "--update"])
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux launcher")
+    def test_launch_model_nested_mutator_keeps_lock_after_parents_die(self):
+        root = self.prepare(self.old)
+        installer = self.base / "launch-installer"
+        installer.mkdir()
+        gate = root / "tools/launch-gate.py"
+        gate.write_text(GATE)
+        intermediate = self.base / "installer-pid"
+        (installer / "setup.py").write_text(f'''
+import importlib.util, os, sys
+from pathlib import Path
+sys.path.insert(0, {str(root)!r})
+Path({str(intermediate)!r}).write_text(str(os.getpid()))
+spec = importlib.util.spec_from_file_location("managed_installer", {str(root / "setup.py")!r})
+setup = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = setup
+spec.loader.exec_module(setup)
+setup.run([sys.executable, {str(gate)!r}])
+''')
+        self.make_terminal(root, f'''
+from types import SimpleNamespace
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+original_run = cli._run
+def run(a):
+    if a.command != "launch":
+        return original_run(a)
+    catalog = SimpleNamespace(src=Path({str(installer)!r}), root=Path({str(root)!r}), rows=lambda: [])
+    catalog.mcp = SimpleNamespace(install_progress=lambda lines: {{}}, combined_progress=lambda progress, job: progress)
+    runner = Runner(LaunchSettings(family="qwen", model="IQ3_S"), catalog=catalog)
+    runner.check_own_files = lambda: None
+    runner.resolved_vision = lambda: None
+    runner.installed_state = lambda: (None, None)
+    runner.intel_chosen = lambda: False
+    runner.beside_refused = lambda: None
+    runner.multi_file = lambda: True
+    runner.setup_args = lambda: ["--setup"]
+    runner.progress_job = lambda: {{}}
+    runner.ensure_model()
+    return 0
+cli._run = run
+''')
+        self.assert_mutator_child_keeps_lock(self.command(self.old) + ["run", "launch"],
+                                             intermediate=intermediate)
+
+    def test_launch_engine_mutator_keeps_lock_after_parent_dies(self):
+        root = self.prepare(self.old)
+        gate = self.base / "engine-gate.py"
+        gate.write_text(GATE)
+        self.make_terminal(root, f'''
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+from strata_control import engine_component
+original_run = cli._run
+def run(a):
+    if a.command != "launch":
+        return original_run(a)
+    engine_component.status = lambda *args: {{"usable": False}}
+    runner = Runner(LaunchSettings(family="qwen", model="IQ3_S"))
+    runner.warn_wsl_amd = lambda: None
+    runner.multi_file = lambda: False
+    runner.model_shape = lambda: None
+    runner._cli = lambda *args: [sys.executable, {str(gate)!r}]
+    runner.ensure_engine()
+    return 0
+cli._run = run
+''')
+        self.assert_mutator_child_keeps_lock(self.command(self.old) + ["run", "launch"])
+
+    def test_launch_monitor_releases_lock_before_monitor_loop(self):
+        root = self.prepare(self.old)
+        self.make_terminal(root, f'''
+import types
+# Replace optional UI rendering only. Import and run upstream's real launch monitor boundary.
+sys.modules["textual"] = types.ModuleType("textual")
+for name in ("textual.app", "textual.binding", "strata_cli.launch.screens",
+             "strata_cli.launch.widgets", "strata_cli.launch.monitor_ext"):
+    sys.modules[name] = types.ModuleType(name)
+sys.modules["textual.app"].App = object
+sys.modules["textual.binding"].Binding = lambda *args, **kwargs: None
+screens = sys.modules["strata_cli.launch.screens"]
+for name in ("AccessScreen", "AdvancedScreen", "CardsScreen", "ConfirmScreen", "ContextScreen",
+             "DraftingScreen", "FolderScreen", "ModelScreen", "ParallelScreen", "PicturesScreen",
+             "RunScreen", "SaveScreen", "SpeedScreen", "StartScreen", "TuningScreen", "flow_for"):
+    setattr(screens, name, object)
+widgets = sys.modules["strata_cli.launch.widgets"]
+widgets.CSS, widgets.Glyphs = "", object
+class Monitor:
+    stop_requested = False
+    def __init__(self, *args, **kwargs):
+        pass
+    def run(self):
+        exec({GATE!r})
+sys.modules["strata_cli.launch.monitor_ext"].LaunchMonitor = Monitor
+original_run = cli._run
+def run(a):
+    if a.command != "launch":
+        return original_run(a)
+    from strata_cli.launch import app
+    return app.run_monitor({{"url": "http://127.0.0.1:1", "port": 1}})
+cli._run = run
+''')
+        process, pid, peer = self.gated_process(self.command(self.old) + ["run", "launch"])
+        self.assertEqual(pid, process.pid)
+        self.assert_workspace_unlocked()
+        self.assert_observers_answer(self.old)
+        peer.sendall(b"q")
+        process.wait(timeout=30)
+        self.assertEqual(process.returncode, 0, process.stderr.read())
+
+    def test_detached_runtime_drops_lock_protocol_without_unlocking_launcher(self):
+        root = self.prepare(self.old)
+        gate = self.base / "runtime-gate.py"
+        gate.write_text('''
+import os
+assert not any(key in os.environ for key in (
+    "STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"))
+''' + GATE)
+        self.make_terminal(root, f'''
+import contextlib, subprocess
+from strata_control import runtime, profiles
+original_run = cli._run
+def run(a):
+    if a.command != "launch":
+        return original_run(a)
+    runtime._repair_config_paths = lambda *args: (None, None)
+    runtime._repair_dsv41_paths = lambda *args: None
+    runtime._check_start_candidate = lambda *args: ({{}}, [])
+    runtime._engine_preflight = lambda *args: None
+    runtime._paths = lambda *args: (None, None, Path({str(self.base / "runtime.log")!r}))
+    profiles._lock = lambda *args: contextlib.nullcontext()
+    runtime.procs.end_leftovers = lambda **kwargs: None
+    children = []
+    runtime._read_state = lambda *args: {{}} if children else None
+    popen = subprocess.Popen
+    def spawn(command, **kwargs):
+        child = popen([sys.executable, {str(gate)!r}], **kwargs)
+        children.append(child)
+        return child
+    subprocess.Popen = spawn
+    try:
+        runtime.start("fixture", wait=0)
+    finally:
+        subprocess.Popen = popen
+    return children[0].wait()
+cli._run = run
+''')
+        process, child_pid, peer = self.gated_process(self.command(self.old) + ["run", "launch"])
+        self.assertNotEqual(child_pid, process.pid)
+        self.assert_workspace_locked()
+        process.kill()
+        process.wait(timeout=30)
+        self.assert_workspace_unlocked()
+        self.assert_observers_answer(self.old)
+        peer.sendall(b"q")
+        peer.close()
 
     def make_updater_workspace(self):
         root = self.prepare(self.old)
@@ -2011,7 +2244,10 @@ PY
             process.communicate(timeout=10)
 
         self.addCleanup(cleanup)
-        readable, _, _ = select.select([descriptor], [], [], 120)
+        for _ in range(600):
+            readable, _, _ = select.select([descriptor], [], [], 0.2)
+            if readable or process.poll() is not None:
+                break
         if not readable:
             process.kill()
             stdout, stderr = process.communicate(timeout=10)
@@ -2217,8 +2453,11 @@ fi
         self.assertEqual(marker.read_text().strip(), self.new)
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux bootstrap; Darwin dispatches to Metal")
-    def test_upstream_server_exec_keeps_pid_and_lock(self):
-        shutil.copytree(UPSTREAM, self.repo, dirs_exist_ok=True)
+    def test_upstream_server_exec_keeps_pid_releases_lock_and_observers_answer(self):
+        # Keep the actual setup/start path, not the unrelated C++ tree, docs or Git metadata.
+        for name in ("setup.sh", "requirements.txt", "requirements-monitor.txt", "CMakeLists.txt"):
+            shutil.copyfile(Path(UPSTREAM) / name, self.repo / name)
+        shutil.copytree(Path(UPSTREAM) / "serve", self.repo / "serve", copy_function=shutil.copyfile)
         for directory, _, _ in os.walk(self.repo):
             Path(directory).chmod(0o700)
         server = self.repo / "serve/server.py"
@@ -2241,12 +2480,16 @@ fi
         config.update(backend="hip", model_name="process-fixture")
         (root / "strata-process.json").write_text(json.dumps(config))
         command = self.command(revision) + ["run"]
+        self.env["PIP_NO_INDEX"] = "1"
+        subprocess.run([sys.executable, "-m", "venv", str(root / ".venv")], env=self.env, check=True)
+        self.make_terminal(root)
         process, server_pid, peer = self.gated_process(command)
         self.assertEqual(server_pid, process.pid)
-        self.assert_workspace_locked()
+        self.assert_workspace_unlocked()
+        self.assert_observers_answer(revision)
         process.terminate()
         self.assertEqual(peer.recv(1), b"t")
-        self.assert_workspace_locked()
+        self.assert_workspace_unlocked()
         process.kill()
         process.wait(timeout=10)
         peer.close()

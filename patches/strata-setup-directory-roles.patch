@@ -1,5 +1,5 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
-# intent: Keep GGUF model payloads separate from packs, drafts, checkpoints and image VAE artifacts on opt-in setup.
+# intent: Separate model artifacts and serialize managed acquisition until each service/monitor boundary.
 diff --git a/setup.py b/setup.py
 --- a/setup.py
 +++ b/setup.py
@@ -431,3 +431,152 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
      sl = sub.add_parser("slim")
      sl.add_argument("--gguf", required=True)
      sl.add_argument("--out", required=True)
+diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
+--- a/strata_control/acquisition.py
++++ b/strata_control/acquisition.py
+@@ -26,5 +26,21 @@
+ ENV = "STRATA_NO_ACQUIRE"
+ 
++def workspace_fds() -> tuple:
++    """Keep the managed workspace locked if a mutating child outlives its parent."""
++    fd = os.environ.get("STRATA_WORKSPACE_LOCK_FD")
++    return (int(fd),) if fd is not None else ()
++
++
++def release_workspace() -> None:
++    """Serving and monitoring do not mutate the managed checkout."""
++    fd = os.environ.pop("STRATA_WORKSPACE_LOCK_FD", None)
++    os.environ.pop("STRATA_WORKSPACE_HELPER", None)
++    os.environ.pop("STRATA_WORKSPACE_CONTEXT", None)
++    if fd is not None:
++        # Do not LOCK_UN: a surviving mutator may share this open file description.
++        os.close(int(fd))
++
++
+ _lock = threading.Lock()
+ _depth = 0
+ 
+diff --git a/setup.py b/setup.py
+--- a/setup.py
++++ b/setup.py
+@@ -1158,7 +1158,7 @@
+     env.setdefault("STRATA_EXIT_WITH_PARENT", "1")     # tools/mtp_fetch.py ends when setup ends (#3257: a cancel left it writing)
+     r = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env,
+                        stdout=subprocess.PIPE if quiet else None, stderr=subprocess.STDOUT if quiet else None,
+-                       text=True, errors="replace")
++                       text=True, errors="replace", pass_fds=acquisition.workspace_fds())
+     if check and r.returncode != 0:
+         if quiet and r.stdout:
+             say(r.stdout[-4000:])
+@@ -5127,7 +5127,8 @@
+     say("  Fetching the ready-made engine from the signed update feed ...")
+     try:
+         run = subprocess.run([sys.executable, str(ROOT / "strata.py"), "update", "--no-control", "--output", "json"],
+-                             env=env, cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=3600)
++                             env=env, cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=3600,
++                             pass_fds=acquisition.workspace_fds())
+     except (OSError, subprocess.SubprocessError) as e:
+         warn(f"the update feed could not be run ({e})")
+         return None
+@@ -8033,6 +8034,7 @@
+     for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
+                                            break_on_hyphens=False)):   # #564: what this start uses
+         say(("  " if n == 0 else "    ") + line)
++    acquisition.release_workspace()
+     if not WIN and os.environ.get("STRATA_EXECV"):
+         # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
+         # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
+diff --git a/strata_cli/cli.py b/strata_cli/cli.py
+--- a/strata_cli/cli.py
++++ b/strata_cli/cli.py
+@@ -941,6 +941,8 @@
+         raise
+     if a.plan:
+         return _success({"plan": plan}, machine=a.output == "json")
++    from strata_control import acquisition
++    acquisition.release_workspace()
+     from serve.server import main as server_main
+     if os.name not in ("posix", "nt"):
+         return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
+@@ -2082,6 +2084,10 @@
+                       "set STRATA_INSTALL_DIR to that folder to run it from here. To update the engine and Control "
+                       "from the signed update feed, run `strata update`", 5)
+     extra = [x for x in a.setup_args if x != "--"]
++    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
++    if helper:
++        os.execv(sys.executable, [sys.executable, helper, "--managed-setup",
++                                 "--update" if a.update else "--setup", *extra])
+     env = dict(os.environ)
+     if (ROOT / "python").is_dir() and (ROOT / "VERSION").is_file():
+         # the Terminal bundle: its installer only downloads and prepares the model (no pip, no engine fetch, no compiler)
+diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
+--- a/strata_cli/launch/runner.py
++++ b/strata_cli/launch/runner.py
+@@ -707,7 +707,9 @@
+         return env
+ 
+     def _spawn(self, argv: list[str], *, env: dict | None = None, cwd: str | None = None) -> subprocess.Popen:
++        from strata_control import acquisition
+         kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
++        kw.update(pass_fds=acquisition.workspace_fds())
+         p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                              encoding="utf-8", errors="replace", env=env or self._env(), cwd=cwd, bufsize=1, **kw)
+         self.children.append(p)
+diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
+--- a/strata_cli/launch/app.py
++++ b/strata_cli/launch/app.py
+@@ -431,6 +431,8 @@
+ 
+ def run_monitor(info: dict, *, keep_default: bool = True, color: str = "auto") -> int:
+     """Open the monitor for a running launch. q asks whether to keep serving or stop."""
++    from strata_control import acquisition
++    acquisition.release_workspace()
+     from strata_cli.client import Endpoint
+     from strata_cli.launch.monitor_ext import LaunchMonitor
+     local = next((u for u in info.get("urls", []) if "127.0.0.1" in u), None) or f"http://127.0.0.1:{info.get('port', S.DEFAULT_PORT)}"
+diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
+--- a/tools/nvfp4_local_pack.py
++++ b/tools/nvfp4_local_pack.py
+@@ -598,7 +598,9 @@
+     tools = pathlib.Path(__file__).resolve().parent
+ 
+     def run(cmd):
+-        r = subprocess.run(cmd)
++        sys.path.insert(0, str(tools.parent))
++        from strata_control import acquisition
++        r = subprocess.run(cmd, pass_fds=acquisition.workspace_fds())
+         if r.returncode:
+             sys.exit("prepare: %s failed (exit %d)" % (cmd[1] if len(cmd) > 1 else cmd[0], r.returncode))
+ 
+diff --git a/strata_control/runtime.py b/strata_control/runtime.py
+--- a/strata_control/runtime.py
++++ b/strata_control/runtime.py
+@@ -644,9 +644,12 @@
+                 command += ["--die-with-pid", str(die_with[0]), "--die-with-token", die_with[1]]
+             detach = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+                       if WINDOWS else {"start_new_session": True})
++            env = {key: value for key, value in os.environ.items()
++                   if key not in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
++                                  "STRATA_WORKSPACE_CONTEXT")}
+             proc = subprocess.Popen(command,
+                                     cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
+-                                    stderr=subprocess.STDOUT, close_fds=True, **detach)
++                                    stderr=subprocess.STDOUT, close_fds=True, env=env, **detach)
+         _STARTED_HOSTS[name] = proc
+         deadline = time.monotonic() + max(5.0, wait)
+         while _read_state(name) is None and proc.poll() is None and time.monotonic() < deadline:
+diff --git a/tools/iq_pack.py b/tools/iq_pack.py
+--- a/tools/iq_pack.py
++++ b/tools/iq_pack.py
+@@ -704,8 +704,10 @@
+     if rc:
+         return rc
+     if not (out / "tokenizer" / "vocab.json").exists() or not (out / "tokenizer" / "chat_template.jinja").exists():
++        sys.path.insert(0, str(HERE.parent))
++        from strata_control import acquisition
+         subprocess.run([sys.executable, str(HERE / "strata_tokenizer.py"), "--gguf", str(src), "--out", str(out)],
+-                       check=True)   # writes <out>/tokenizer/
++                       check=True, pass_fds=acquisition.workspace_fds())   # writes <out>/tokenizer/
+ 
+     # ---- the experts.  native_experts.txt is written to a temporary name and renamed only when every layer is
+     # in: a stop part-way (a layer split across shards, #171) left a partial native_experts.txt that the next setup
