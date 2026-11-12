@@ -23,9 +23,8 @@ let
   version = pins.version;
   src = pins.src;
 
-  # Python 3.12: beautifulsoup4 pulls in sphinxHook, and nixpkgs disables
-  # sphinx below 3.12; the runtime itself accepts >=3.11.
-  # Keep source-test fixes in Prime's dependency graph, not every Python package set.
+  # beautifulsoup4's Sphinx hook requires Python >=3.12.
+  # Isolate test fixes in Prime's Python package set.
   py = pkgs.python312.override (previousArgs: {
     self = py;
     packageOverrides = lib.composeExtensions (previousArgs.packageOverrides or (_: _: { })) (
