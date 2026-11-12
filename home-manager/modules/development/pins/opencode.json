@@ -1,19 +1,19 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-ORhRyEvo5KBziH7Z2tmyPmo3vuVfw5+HnA4CPPYHCug=",
-    "aarch64-linux": "sha256-u8JKuK0UpuO/RqTqb13CDVjGHL3lFQY3L+3dp6D6wog=",
-    "aarch64-darwin": "sha256-3n2v8rGXBZTQCZEsI3N/6sBYmnjPcEUwi7KwRBr21SE="
+    "x86_64-linux": "sha256-aPfy1V0Q5b80/m7H/2OcWwE0sauIvHG6ewEtMn943Es=",
+    "aarch64-linux": "sha256-DqXfRpGc9AZ9PX2APiAYv2ukbboWm2GaSsQJ/2KfTqM=",
+    "aarch64-darwin": "sha256-2PHl2MX6ZkttUzCTh8bM1vWa1UNiaQp6FjnNiNhxLT8="
   },
   "provenance": {
-    "sourceRevision": "99f2bea6dfd77bda4bdc8150cca71cb93ee32194",
-    "nixpkgsRevision": "4fe25e12eb9f4c744966dd3de5a05246cf098601",
-    "bunVersion": "1.4.4",
+    "sourceRevision": "3d308eae2e68dc39dfc12aba9dd408f9ce1cc0a1",
+    "nixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
+    "bunVersion": "1.4.2",
     "buildSystem": "x86_64-linux",
-    "calculation": "Upstream dependency phases with Bun 1.4.4, a frozen lockfile and both upstream normalization scripts; ARM targets use --cpu/--os with --ignore-scripts.",
+    "calculation": "The upstream dependency recipe (nix/node_modules.nix) evaluated from the selected OpenCode source with its own locked nixpkgs, so Bun is the 1.4.2 the derivation uses; frozen lock and both upstream normalization scripts. ARM targets use --cpu=arm64 --os=linux/darwin with --ignore-scripts.",
     "verification": {
-      "x86_64-linux": "Native dependency phases replayed; NAR hash and fixed-output store path verified. CLI and Desktop not built locally.",
-      "aarch64-linux": "--cpu=arm64 --os=linux: NAR hash and fixed-output store path verified; no native build.",
-      "aarch64-darwin": "--cpu=arm64 --os=darwin: NAR hash and fixed-output store path verified; no native build."
+      "x86_64-linux": "Native upstream node_modules_updater build; fixed-output hash recorded. CLI and Desktop not built locally.",
+      "aarch64-linux": "--cpu=arm64 --os=linux replayed through the same derivation on x86_64-linux: fixed-output hash recorded; no native build.",
+      "aarch64-darwin": "--cpu=arm64 --os=darwin replayed through the same derivation on x86_64-linux: fixed-output hash recorded; no native build."
     }
   }
 }
