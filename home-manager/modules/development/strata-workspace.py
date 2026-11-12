@@ -1,6 +1,8 @@
 """Manage Strata's pinned, writable checkout and its runtime under the user's state directory.
 
 Keep revision refs for offline rollback, serialize source/runtime changes, and root Nix Python.
+One `strata` name reaches both upstream programs: a subcommand is upstream's Terminal, options (or nothing)
+are upstream's setup. The shape of argv decides, and both shapes are read from the checkout.
 A runtime revision records validated local prerequisites, not merely an updater's exit status.
 Component references retain upstream compatibility and pins; raw paths use legacy freshness rules.
 Validation does not prove GPU compatibility, model integrity, or successful inference.
@@ -24,6 +26,7 @@ RUNTIME_REVISION = "strata-runtime-revision"
 ENGINE_ROLLBACK = "strata-engine-rollback.json"
 ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
 SOURCE_PATCH = "strata-source.patch"
+TERMINAL_CLI = "strata.py"
 
 
 def git(root, *args, check=True):
@@ -389,6 +392,78 @@ def retain_interpreter(state, venv):
         raise RuntimeError(f"Interpreter {python} is unavailable; virtual environment preserved at {venv}")
 
 
+def _function(tree, name):
+    """A top-level function of a parsed source file, or None."""
+    return next((node for node in tree.body
+                 if isinstance(node, ast.FunctionDef) and node.name == name), None)
+
+
+def _flags(node):
+    """The literal string arguments of a parser call: option strings, or a positional's name."""
+    return [flag.value for flag in node.args if isinstance(flag, ast.Constant) and isinstance(flag.value, str)]
+
+
+def terminal_words(root):
+    """The words upstream's Terminal accepts: its subcommands, and the options it takes before one.
+
+    Asked of the checkout's own parser, and run rather than read as text: upstream contributes subcommands from
+    other modules (`launch_cmd.add_parsers(sp)` in strata_cli/cli.py), which a source scan would miss and then
+    silently send `strata launch` to setup. Running it also means a new upstream subcommand routes with no change
+    here, and the words cannot drift from upstream."""
+    probe = ("import argparse, json, sys; sys.path.insert(0, sys.argv[1]);"
+             "from strata_cli.cli import parser; p = parser();"
+             "sub = [action for action in p._actions if isinstance(action, argparse._SubParsersAction)];"
+             "print(json.dumps({'commands': sorted(sub[0].choices) if sub else [],"
+             "                 'options': sorted(p._option_string_actions)}))")
+    result = subprocess.run([sys.executable, "-c", probe, str(root)],
+                            capture_output=True, text=True, timeout=120)
+    if result.returncode:
+        raise RuntimeError(f"Cannot read upstream's Terminal arguments in {root}: "
+                           f"{result.stderr.strip() or 'its parser did not run'}")
+    words = json.loads(result.stdout)
+    if not words["commands"]:
+        raise RuntimeError("Upstream's Terminal declares no subcommands in strata_cli/cli.py")
+    # Every parser, setup's included, carries -h/--help, so it says nothing about which program was meant: the
+    # person who types `strata --help` in a source checkout gets upstream's setup, who wants the Terminal asks it.
+    words["options"] = [option for option in words["options"] if option not in {"-h", "--help"}]
+    return words
+
+
+def cli_doors(root):
+    """One `strata` name, two upstream programs: the Terminal's words, and the shape that keeps them apart.
+
+    Upstream invokes its Terminal only by subcommand and its setup only by option. If upstream gives its setup a
+    positional argument or subcommands, the two shapes overlap and this says so and stops, rather than guessing
+    which program the person meant."""
+    words = terminal_words(root)
+    setup_main = _function(ast.parse((root / "setup.py").read_text()), "main")
+    if setup_main is None:
+        raise RuntimeError("Cannot inspect upstream setup's argument parser")
+    for node in ast.walk(setup_main):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) \
+                or node.func.attr not in {"add_argument", "add_subparsers"}:
+            continue
+        if node.func.attr == "add_subparsers" or any(not flag.startswith("-") for flag in _flags(node)):
+            raise RuntimeError(
+                "Upstream's setup takes a positional argument or subcommands, so `strata` can no longer tell a "
+                "setup from a Terminal command by shape: give the two doors their own names again.")
+    return words
+
+
+def entry_point(root, args):
+    """Which upstream program this argv means: 'terminal' or 'setup'."""
+    doors = cli_doors(root)
+    if not args:
+        return "setup"                        # upstream's bare ./setup.sh: set up, or start what is installed
+    if args[0] in doors["commands"]:
+        return "terminal"
+    if args[0] in doors["options"]:            # an option only the Terminal declares, e.g. `strata --version`
+        rest = [argument for argument in args[1:] if not argument.startswith("-")]
+        if not rest or rest[0] in doors["commands"]:
+            return "terminal"
+    return "setup"                             # an unknown option: upstream's setup reports it in its own words
+
+
 def setup_options(root, args):
     """Classify argv with upstream's option names and arities, without running setup."""
     class Parser(argparse.ArgumentParser):
@@ -397,9 +472,7 @@ def setup_options(root, args):
 
     parser = Parser(add_help=False, argument_default=argparse.SUPPRESS)
     parser.add_argument("-h", "--help", action="store_true", dest="--help")
-    source = ast.parse((root / "setup.py").read_text())
-    main = next((node for node in source.body
-                 if isinstance(node, ast.FunctionDef) and node.name == "main"), None)
+    main = _function(ast.parse((root / "setup.py").read_text()), "main")
     if main is None:
         raise RuntimeError("Cannot inspect upstream setup's argument parser")
     for node in ast.walk(main):
@@ -438,6 +511,19 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
             shutil.rmtree(venv)
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
             retain_interpreter(state, venv)
+        if entry_point(root, args) == "terminal":
+            # Upstream's Terminal reads the checkout and the runtime; it acquires no model and builds no engine, so
+            # the updater, the download-directory defaults and the setup door stay on the other side of this seam.
+            if not os.access(python, os.X_OK):
+                raise RuntimeError(
+                    f"Strata's Terminal runs in the checkout's environment at {python}, which is not set up yet: "
+                    "run `strata --setup` first, then the Terminal again.")
+            os.chdir(root)                     # upstream runs its Terminal from the checkout's own folder
+            # Serving must not hold the workspace lock: `strata status`, `monitor` and `stop` are meant to answer
+            # from another shell while a server runs. The setup door keeps holding it, because it rewrites the checkout.
+            lock.close()
+            os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
+            return
         requested = setup_options(root, args)
         explicit_update = "--update" in requested
         calibration_requested = (

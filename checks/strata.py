@@ -1,4 +1,5 @@
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -82,6 +83,8 @@ class WorkspaceTests(unittest.TestCase):
         (self.repo / "code.py").write_text("old source\n")
         shutil.copyfile(Path(UPSTREAM) / "setup.py", self.repo / "setup.py")
         shutil.copytree(Path(UPSTREAM) / "strata_control", self.repo / "strata_control",
+                        copy_function=shutil.copyfile)
+        shutil.copytree(Path(UPSTREAM) / "strata_cli", self.repo / "strata_cli",
                         copy_function=shutil.copyfile)
         for directory, _, _ in os.walk(self.repo / "strata_control"):
             Path(directory).chmod(0o700)
@@ -1145,6 +1148,105 @@ exit 9
         }
         (root / f"strata-{name}.json").write_text(json.dumps(config))
         return config
+
+    def workspace_module(self):
+        spec = importlib.util.spec_from_file_location("workspace_under_test", WORKSPACE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_name_reads_upstream_shapes_and_splits_the_two_programs(self):
+        """The routing needs no hand-kept name list: upstream's Terminal is subcommand-shaped, its setup option-shaped."""
+        module = self.workspace_module()
+        doors = module.cli_doors(Path(UPSTREAM))
+        self.assertTrue({"launch", "serve", "status", "monitor", "update", "models", "presets"}
+                        <= set(doors["commands"]), doors["commands"])
+        self.assertTrue(all(option.startswith("-") for option in doors["options"]), doors["options"])
+        for argv, door in (([], "setup"),                                  # upstream's bare ./setup.sh
+                           (["--yes", "--no-browser"], "setup"),
+                           (["--family", "qwen", "--model", "IQ3_S", "--parallel", "4"], "setup"),
+                           (["--update"], "setup"),                        # UPDATE.bat's door
+                           (["--setup", "--help"], "setup"),
+                           (["--help"], "setup"),                          # in a source checkout, setup owns --help
+                           (["-h"], "setup"),
+                           (["update"], "terminal"),                       # the Terminal's own updater
+                           (["launch", "--plan", "--family", "qwen", "--parallel", "4"], "terminal"),
+                           (["status"], "terminal"),
+                           (["launch", "--stop"], "terminal"),
+                           (["--version"], "terminal"),
+                           (["--version", "status"], "terminal")):
+            with self.subTest(argv=argv):
+                self.assertEqual(module.entry_point(Path(UPSTREAM), argv), door)
+
+    def test_the_split_stops_when_upstream_makes_its_setup_ambiguous(self):
+        module = self.workspace_module()
+        original = (Path(UPSTREAM) / "setup.py").read_text()
+        anchor = "    ap = argparse.ArgumentParser(description=__doc__"
+        with tempfile.TemporaryDirectory() as where:
+            root = Path(where)
+            shutil.copytree(Path(UPSTREAM) / "strata_cli", root / "strata_cli", copy_function=shutil.copyfile)
+            shutil.copytree(Path(UPSTREAM) / "strata_control", root / "strata_control",
+                            copy_function=shutil.copyfile)
+            for form in ('    ap.add_argument("model", nargs="?")', "    ap.add_subparsers(dest=\"command\")"):
+                source = original.replace(anchor, f"{form}\n{anchor}", 1)
+                self.assertNotEqual(source, original)
+                (root / "setup.py").write_text(source)
+                with self.subTest(form=form):
+                    with self.assertRaises(RuntimeError) as error:
+                        module.cli_doors(root)
+                    self.assertIn("positional", str(error.exception))
+
+    def make_door_scripts(self, root):
+        """Stand-ins for upstream's two programs that report their own argv, folder and whether the workspace lock
+        was still held, so one run shows which program the single name chose."""
+        (root / "setup.sh").write_text(f'''#!{sys.executable}
+import json, sys
+print(json.dumps({{"door": "setup", "argv": sys.argv[1:]}}))
+''')
+        (root / "strata.py").write_text(f'''#!{sys.executable}
+import fcntl, json, os, sys
+fd = os.open(os.environ["TEST_LOCK"], os.O_RDWR | os.O_CREAT)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    held = False
+except OSError:
+    held = True
+print(json.dumps({{"door": "terminal", "argv": sys.argv[1:], "cwd": os.getcwd(), "lock_held": held}}))
+''')
+        for name in ("setup.sh", "strata.py"):
+            (root / name).chmod(0o700)
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_the_single_name_reaches_the_right_program_and_leaves_the_terminal_unlocked(self):
+        root = self.prepare(self.old)
+        self.make_runtime_source(root)
+        (root / ".venv/bin").mkdir(parents=True)
+        (root / ".venv/bin/python").symlink_to(sys.executable)
+        self.make_door_scripts(root)
+        data, models = self.base / "unused data", self.base / "unused models"
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models),
+                   TEST_LOCK=str(self.state / ".source.lock"))
+        for argv in (["launch", "--plan", "--family", "qwen", "--model", "iq3_s", "--parallel", "4"],
+                     ["status"], ["monitor", "--once"], ["update"], ["launch", "--stop"], ["--version"]):
+            with self.subTest(argv=argv):
+                result = subprocess.run(self.command(self.old) + ["run", *argv], env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                seen = json.loads(result.stdout)
+                self.assertEqual(seen["door"], "terminal")
+                self.assertEqual(seen["argv"], argv)              # setup's directory defaults never reach it
+                self.assertEqual(Path(seen["cwd"]), root)          # upstream runs its Terminal from the checkout
+                self.assertFalse(seen["lock_held"])                # a serving Terminal never holds the workspace lock
+        self.assertFalse(data.exists() or models.exists())
+        for argv in (["--yes", "--no-browser"], ["--family", "qwen", "--model", "iq3_s", "--no-start"]):
+            with self.subTest(argv=argv):
+                result = subprocess.run(self.command(self.old) + ["run", *argv], env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                seen = json.loads(result.stdout)
+                self.assertEqual(seen["door"], "setup")
+                self.assertIn("--data-dir", seen["argv"])          # the directory defaults stay on the setup door
+                self.assertEqual(seen["argv"][seen["argv"].index("--data-dir") + 1], str(data))
 
     def make_updater_workspace(self):
         root = self.prepare(self.old)

@@ -55,7 +55,8 @@ in
         models, packs and drafts during initial or explicit setup. Null preserves
         upstream folder selection; an explicit CLI --data-dir takes priority.
         Installed launches, updates, checks and standalone commands do not receive this
-        default. Existing models are not moved. Upstream retains explicit move
+        default, and neither does any Terminal subcommand: their folders are in the model's run
+        configuration. Existing models are not moved. Upstream retains explicit move
         confirmation and owns model selection, tuning and profiles.
       '';
     };
@@ -75,7 +76,8 @@ in
         Null preserves upstream layout, normally <data directory>/models, including
         when --models-dir is supplied on the CLI. Explicit CLI values take priority,
         including supported abbreviations and equals syntax. Installed launches,
-        updates, checks and standalone commands do not receive this default.
+        updates, checks and standalone commands do not receive this default, nor does
+        any Terminal subcommand.
         Existing files are not moved; the upstream wizard retains model selection,
         tuning and profiles.
       '';
@@ -84,7 +86,12 @@ in
       type = lib.types.package;
       default = strataPackage;
       defaultText = lib.literalExpression "strataPackage";
-      description = "Strata launcher using the upstream x86_64-linux CUDA development environment";
+      description = "Strata's one command in the upstream x86_64-linux CUDA development environment: a subcommand
+        (launch, serve, status, monitor, update, doctor, ...) runs upstream's Terminal, and options or nothing run
+        upstream's setup. --version is the Terminal's; --help stays upstream's setup help, because both programs
+        declare it. The shape of the arguments decides, and both shapes are read from the pinned checkout, so a new
+        upstream subcommand needs no change here. If upstream ever makes its setup ambiguous, the command says so
+        instead of guessing which program was meant.";
     };
   };
 
