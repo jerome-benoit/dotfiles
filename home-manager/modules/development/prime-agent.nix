@@ -181,7 +181,7 @@ let
 
   supported = builtins.elem hp.system platforms;
 
-  primeAgentPackage =
+  nativePackage =
     if !supported then
       null
     else
@@ -234,8 +234,40 @@ let
         checkFlags = [
           "--skip=piped_stdin::tests::a_live_producer_resets_the_window"
         ];
+        strictDeps = true;
+        __darwinAllowLocalNetworking = true;
+
+        postInstall = ''
+          mkdir -p $out/share/prime-agent
+          cp -r prime-agent-runtime docs skills README.md LICENSE CHANGELOG.md $out/share/prime-agent/
+        '';
+
+        meta = {
+          description = "Prime Agent: self-improving RLM coding and research agent";
+          homepage = "https://github.com/PrimeIntellect-ai/prime-agent";
+          license = lib.licenses.mit;
+          mainProgram = "prime-agent";
+          inherit platforms;
+        };
+      };
+
+  primeAgentPackage =
+    if !supported then
+      null
+    else
+      pkgs.stdenv.mkDerivation {
+        pname = "prime-agent";
+        inherit version;
+        dontUnpack = true;
+        dontBuild = true;
+        nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+        strictDeps = true;
+        # The read-only update installCheck serves HTTP on loopback.
+        __darwinAllowLocalNetworking = true;
+
         passthru = {
           inherit
+            nativePackage
             bundledSkills
             pythonRuntimePackages
             kernelPython
@@ -246,23 +278,18 @@ let
             ;
         };
 
-        nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
-        strictDeps = true;
-        # The read-only update installCheck serves HTTP on loopback.
-        __darwinAllowLocalNetworking = true;
-
-        postInstall = ''
-          mkdir -p $out/share/prime-agent
-          cp -r prime-agent-runtime docs skills README.md LICENSE CHANGELOG.md $out/share/prime-agent/
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out/bin $out/libexec $out/share
+          # Copy, not symlink: daemon generation checks compare canonical executable paths.
+          cp ${nativePackage}/bin/prime-agent $out/libexec/prime-agent
+          cp -r ${nativePackage}/share/prime-agent $out/share/prime-agent
+          chmod -R u+w $out/share/prime-agent
           # Git tag archives omit bundled catalogs. Pin production data separately;
           # catalog updates do not change the Rust source pin.
           cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
           cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
-        '';
-        # Keep the payload basename visible to upstream's process ownership census.
-        preFixup = ''
-          mkdir -p $out/libexec
-          mv $out/bin/prime-agent $out/libexec/prime-agent
+          runHook postInstall
         '';
         postFixup = ''
           makeWrapper $out/libexec/prime-agent $out/bin/prime-agent \
@@ -287,7 +314,7 @@ let
           export HOME=$(mktemp -d)
           export DO_NOT_TRACK=1
           export PI_OFFLINE=1
-          ${kernelPython}/bin/python3 scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
+          ${kernelPython}/bin/python3 ${src}/scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
           # Schema validation intentionally accepts upstream fixture catalogs.
           ${kernelPython}/bin/python3 - "$out/share/prime-agent" <<'PY'
           import json
@@ -332,13 +359,7 @@ let
           cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
         '';
 
-        meta = {
-          description = "Prime Agent: self-improving RLM coding and research agent";
-          homepage = "https://github.com/PrimeIntellect-ai/prime-agent";
-          license = lib.licenses.mit;
-          mainProgram = "prime-agent";
-          inherit platforms;
-        };
+        inherit (nativePackage) meta;
       };
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
     {

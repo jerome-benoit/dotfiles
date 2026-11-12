@@ -127,18 +127,17 @@ let
     else
       cpuBuild;
 
-  colibriPackage = pkgs.stdenv.mkDerivation {
-    pname = "colibri";
+  colibriEngines = pkgs.stdenv.mkDerivation {
+    pname = "colibri-engines";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
     patches = build.patches or [ ];
 
-    nativeBuildInputs = [ pkgs.makeWrapper ] ++ build.extraNativeBuildInputs;
+    nativeBuildInputs = build.extraNativeBuildInputs;
     nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
     buildInputs = build.extraBuildInputs;
 
-    # Build and stage every supported engine in $out; compilation belongs in
-    # buildPhase, leaving installPhase to assemble the coli wrapper and GLM alias.
+    # Compile independently of the Python runtime and dashboard.
     buildPhase = ''
       runHook preBuild
       ${build.preMake}
@@ -155,23 +154,67 @@ let
       runHook postCheck
     '';
 
-    # Offline check: all unconditional engines, converter data, and dashboard
-    # assets are staged; the wrapper runs (`coli --version` exits before model
-    # loading); and the serve import surface resolves. Not versionCheckHook: our
-    # unstable package suffix never matches coli's output.
+    dontInstall = true;
+
+    meta = {
+      description = "Run large MoE models in pure C, experts streamed from disk";
+      homepage = "https://github.com/JustVugg/colibri";
+      license = lib.licenses.asl20;
+      platforms = lib.platforms.linux ++ lib.platforms.darwin;
+    };
+  };
+
+  colibriPackage = pkgs.stdenvNoCC.mkDerivation {
+    pname = "colibri";
+    inherit (colibriEngines) version;
+    dontUnpack = true;
+    dontBuild = true;
+    nativeBuildInputs = [
+      pkgs.makeWrapper
+      pkgs.buildPackages.lndir
+    ];
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      lndir -silent ${colibriEngines} "$out"
+      # Python resolves resource paths through __file__; keep scripts in this tree.
+      while IFS= read -r -d "" script; do
+        source=$(readlink -f "$script")
+        rm "$script"
+        cp "$source" "$script"
+      done < <(find "$out/lib/colibri" -type l -name '*.py' -print0)
+      cp "$out/bin/coli" "$out/lib/colibri/coli"
+      rm "$out/bin/coli"
+      # Workaround: upstream omits the iq3_pack data grid from installation.
+      # Remove when the installed tools directory includes iq3xxs_grid.json.
+      [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
+        install -m 644 ${src}/c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
+      install -d "$out/lib/colibri/web"
+      ln -s ${colibriWeb} "$out/lib/colibri/web/dist"
+      ln -s ../lib/colibri/colibri "$out/bin/glm"
+      makeWrapper ${pythonEnv}/bin/python "$out/bin/coli" \
+        --add-flags "$out/lib/colibri/coli" \
+        --set PYTHONPATH "$out/lib/colibri:${pythonEnv}/${pkgs.python3.sitePackages}"
+      runHook postInstall
+    '';
     doInstallCheck = true;
     installCheckPhase = ''
       runHook preInstallCheck
-      # `import openai_server` writes .pyc; keep the check from mutating $out.
       export PYTHONDONTWRITEBYTECODE=1
       for engine in colibri glm53 inkling kimi_k3 olmoe qwen36 qwen38 \
         deepseek_v41 mimo qwenimage laya gliner_decide; do
         test -x "$out/lib/colibri/$engine"
       done
-      test -f $out/lib/colibri/tools/iq3xxs_grid.json
-      test -f $out/lib/colibri/web/dist/index.html
+      test -f "$out/lib/colibri/tools/iq3xxs_grid.json"
+      test -f "$out/lib/colibri/web/dist/index.html"
       $out/bin/coli --version
-      PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python -c 'import openai_server'
+      PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python - "$out/lib/colibri" <<'PY'
+      from pathlib import Path
+      import sys
+      import openai_server
+      assert openai_server.HERE == Path(sys.argv[1]).resolve()
+      assert (openai_server.APIHandler.WEB_DIST / "index.html").is_file()
+      PY
       PYTHONPATH=$out/lib/colibri/tools ${pythonEnv}/bin/python - <<'PY'
       import io
       import numpy
@@ -185,33 +228,11 @@ let
       PY
       runHook postInstallCheck
     '';
-
-    # Exercise the real Python preprocessor without building engines or loading models.
-    passthru.integrationPython = pythonEnv;
-
-    # Wrap the raw `coli` script through pythonEnv. COLI_ENGINE stays unset:
-    # pinning it routes every model to GLM instead of dispatching per config.
-    installPhase = ''
-      runHook preInstall
-      # Workaround: upstream omits the iq3_pack data grid from installation.
-      # Remove when the installed tools directory includes iq3xxs_grid.json.
-      [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
-        install -m 644 c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
-      install -d "$out/lib/colibri/web/dist"
-      cp -R ${colibriWeb}/. "$out/lib/colibri/web/dist/"
-      mv $out/bin/coli $out/lib/colibri/coli
-      ln -s ../lib/colibri/colibri $out/bin/glm
-      makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
-        --add-flags "$out/lib/colibri/coli" \
-        --set PYTHONPATH "$out/lib/colibri:${pythonEnv}/${pkgs.python3.sitePackages}"
-      runHook postInstall
-    '';
-
-    meta = {
-      description = "Run large MoE models in pure C, experts streamed from disk";
-      homepage = "https://github.com/JustVugg/colibri";
-      license = lib.licenses.asl20;
-      platforms = lib.platforms.linux ++ lib.platforms.darwin;
+    passthru = {
+      engines = colibriEngines;
+      integrationPython = pythonEnv;
+    };
+    meta = colibriEngines.meta // {
       mainProgram = "coli";
     };
   };
