@@ -230,7 +230,11 @@
       checks = forAllSystems (
         arch:
         let
-          pkgs = nixpkgs.legacyPackages.${arch};
+          pkgs = nixpkgs.legacyPackages.${arch}.extend (
+            _: _: {
+              ortie = (mkPkgs arch).ortie;
+            }
+          );
           baseChecks = import ./checks {
             inherit
               home-manager

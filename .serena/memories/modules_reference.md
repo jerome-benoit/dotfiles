@@ -240,10 +240,12 @@ Hermes Agent configuration:
 - Unsupported shells fail explicitly; login startup must not require a TTY. No PATH entry is added to credentials or the global service-manager environment.
 - Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and applicable CUDA libraries. Linux wrappers include `ld` and `objdump` for Python's PortAudio discovery without a compiler.
 - Linux PM artifacts use the build-platform `patchelfUnstable`, whose pinned source includes the executable-header overlap fix. This replaces only their patchelf build input; other PM inputs and Darwin remain unchanged.
+- Icon generation uses the unpatched minimal interpreter, so terminal PATH fixes do not invalidate web or Desktop renderer builds.
 
 ### prime-agent.nix
 
 - Uses a private recursive Python 3.12 package set for the pinned runtime and its build dependencies. The rest of the configuration retains the unmodified nixpkgs Python package sets.
+- Rust compilation is separate from Python, catalog and launcher assembly. Python or catalog updates retain the native build; final executable copies preserve daemon-generation identity.
 - Backports [httpx2#1231](https://github.com/pydantic/httpx2/pull/1231) only to that package set's `httpcore2`. Its Trio virtual-clock fixture prevents the cancellation tests' real 10 ms deadline from expiring during HTTP/2 initialization on loaded builders. Assertions, asyncio/Trio coverage and the existing RISC-V exclusions remain unchanged. Remove the patch when the pinned nixpkgs includes that fix or a release containing it.
 - The patched `httpcore2` 2.13.1 is required through Starlette's build checks; the runtime retains its separately pinned 2.12.0 wheel. This test fix does not close the separate initialization-cancellation cleanup gap.
 - OpenAI and LiteLLM use the unmodified nixpkgs recipes. OpenAI's upstream 15-second mTLS test budget remains a cold-build limitation; using the stock recipe does not fix that upstream test.
@@ -304,6 +306,7 @@ OpenCode AI assistant:
 - CLI, Desktop and Neovim use the shared background service by default
 - Custom CLI packages must be upstream-compatible source-built derivations; service and Linux runtime adjustments also apply to overrides
 - Existing build environment and post-fixup hooks are preserved
+- The Linux C++ runtime wrapper is assembled separately from CLI compilation; channel selection remains compile-time. Darwin retains the compiled package directly.
 - Generated Desktop bundles the selected CLI
 - Staged CLI paths include the version, architecture and Nix output identity
 - Cleanup retains all stages of the bundled and adopted versions for the current architecture
@@ -338,6 +341,8 @@ OpenCode AI assistant:
 ### caveman.nix
 
 - All six native companions, including Cavemem, use the `BINARY_RELEASE` asset pins. Blocks retains its separate source and vendor hash.
+- CLI compilation is separate from installer, companion and profile registration assembly. Runtime asset or profile changes retain the compiled CLI.
+- Blocks assembles its wrapper separately from Go compilation. Git and Python remain native check inputs, so their updates can still invalidate the native build.
 - The CLI preserves Cavemem's `supersede-stdin` capability guard. Runtime checks verify byte-exact replacement above the argv limit, history preservation and refusal above 256 KiB without changing current memory.
 - Managed `caveman-install --hook-node` must name the selected profile's private `lib/caveman/node`; bare or foreign interpreters are refused before writes. Unmanaged prepared plugins honor the upstream interpreter override.
 - Caveman CLI, installer, copied OpenCode plugin and Blocks use nonempty `OPENCODE_CONFIG_DIR`, then nonempty `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. An empty override is unset; a nonempty relative `OPENCODE_CONFIG_DIR` is refused. The installer and copied plugin retain upstream `XDG_CONFIG_HOME` handling, including relative values. Changing roots does not move or delete old files.
@@ -349,6 +354,7 @@ OpenCode AI assistant:
 ### colibri.nix
 
 - Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
+- Native compilation excludes the Python environment and dashboard. PythonMinimal remains a native check input. Assembly preserves Python resource paths.
 - CUDA compilation passes the selected scope's `flags.gencodeString` through upstream's `CUDA_GENCODE` and DeepSeek V4's separate `V4_CUDA_GENCODE`, retaining configured SASS/PTX targets without probing a build-time GPU. Do not use `all-major`: CUDA 12.x includes SM 5.0, which cannot compile upstream's unguarded `__hfma2` calls.
 - Linux CUDA builds remove upstream's forced `__THROW` shim: the selected Nixpkgs/NVIDIA math headers already match glibc exception specifications. CPU and Metal sources remain unpatched.
 - `checks.gpu` dry-runs Colibri's Linux CUDA/CPU and Darwin Metal install plans against the upstream Makefiles. It checks selected CUDA targets, the pre-12.8 tensor-core fallback and portable CPU flags; Metal selection must not evaluate CUDA policy. No GPU or toolkit is needed; native build/runtime coverage is separate.
@@ -456,6 +462,7 @@ SSH configuration:
 ### ortie.nix
 
 - Installs the nixpkgs package; a shared overlay supplies `aws-lc` and `libgit2` required by Cargo's system-library hook until the pin includes [the upstream fix](https://github.com/NixOS/nixpkgs/pull/586834).
+- The email check uses the same corrected Ortie package; its other package dependencies remain stock.
 
 ### himalaya.nix
 

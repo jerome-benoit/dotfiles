@@ -68,7 +68,11 @@ let
       callPackage =
         path: args:
         hermesCallPackage path (
-          if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
+          # Workaround: terminal hooks invalidate the icon interpreter and frontend builds.
+          # Remove when upstream separates icon dependencies from the runtime environment.
+          if miseEnabled && toString path == "${inputs.hermes-agent}/nix/icons.nix" then
+            args // { venv = inputs.hermes-agent.packages.${system}.minimal.hermesVenv; }
+          else if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
             args
             // {
               uv2nix = args.uv2nix // {
