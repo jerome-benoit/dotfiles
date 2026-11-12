@@ -1,4 +1,4 @@
-# base: Niko1221/Strata c1ff07f1a1817594811c960039571c6e268fe89a
+# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # intent: Keep GGUF model payloads separate from packs, drafts, checkpoints and image VAE artifacts on opt-in setup.
 diff --git a/setup.py b/setup.py
 --- a/setup.py

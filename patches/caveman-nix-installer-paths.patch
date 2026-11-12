@@ -6,6 +6,7 @@
 #   Keep the upstream shell renderer for prepared-plugin statusline commands.
 #   Nix-managed hooks require the selected profile's private Node.
 #   Preserve the upstream entry-point guard and download-helper exports.
+#   Preserve existing settings permissions during atomic writes.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js

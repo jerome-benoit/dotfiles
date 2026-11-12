@@ -1,19 +1,19 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-ORhRyEvo5KBziH7Z2tmyPmo3vuVfw5+HnA4CPPYHCug=",
-    "aarch64-linux": "sha256-u8JKuK0UpuO/RqTqb13CDVjGHL3lFQY3L+3dp6D6wog=",
-    "aarch64-darwin": "sha256-3n2v8rGXBZTQCZEsI3N/6sBYmnjPcEUwi7KwRBr21SE="
+    "x86_64-linux": "sha256-d+WXBzkU1bZnWB+Ws1a2X/PXBZPW/DXQwTAxMWim0jE=",
+    "aarch64-linux": "sha256-iOSox1EHm4GvIjsAPunfv8k0XVkbvAShAiGRmSXGvaU=",
+    "aarch64-darwin": "sha256-le279IPqPoLFGpzHZMYFK9PjjGR3ui/q5/tQZ1OwQYg="
   },
   "provenance": {
-    "sourceRevision": "99f2bea6dfd77bda4bdc8150cca71cb93ee32194",
-    "nixpkgsRevision": "4fe25e12eb9f4c744966dd3de5a05246cf098601",
+    "sourceRevision": "98def2f90e8596d0734929b9273defe33f74ba74",
+    "nixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
-    "calculation": "Upstream dependency phases with Bun 1.4.4, a frozen lockfile and both upstream normalization scripts; ARM targets use --cpu/--os with --ignore-scripts.",
+    "calculation": "Upstream dependency phases with Bun 1.4.4 from the repository's followed nixpkgs, a frozen lockfile and both normalization scripts; ARM targets use --cpu/--os with --ignore-scripts.",
     "verification": {
-      "x86_64-linux": "Native dependency phases replayed; NAR hash and fixed-output store path verified. CLI and Desktop not built locally.",
-      "aarch64-linux": "--cpu=arm64 --os=linux: NAR hash and fixed-output store path verified; no native build.",
-      "aarch64-darwin": "--cpu=arm64 --os=darwin: NAR hash and fixed-output store path verified; no native build."
+      "x86_64-linux": "Native dependency output hash verified. CLI and Desktop not built locally.",
+      "aarch64-linux": "--cpu=arm64 --os=linux replay on x86_64-linux: output hash verified with --rebuild; no native build.",
+      "aarch64-darwin": "--cpu=arm64 --os=darwin replay on x86_64-linux: output hash verified with --rebuild; no native build."
     }
   }
 }

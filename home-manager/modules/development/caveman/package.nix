@@ -28,11 +28,13 @@ let
     inherit version src;
     # Workaround: installers persist generation paths and share Claude payloads.
     # Upstream --hook-node does not provide private runtimes or profile ownership.
-    # Remove when upstream supports durable private paths and isolated ownership.
+    # Settings writes also reset existing file permissions.
+    # Remove when upstream supports durable private paths, isolated ownership
+    # and permission-preserving settings writes.
     patches = [
       ../../../../patches/caveman-nix-installer-paths.patch
-      # Workaround: the installer and copied plugin accept relative OpenCode root overrides.
-      # Remove when both preserve absolute override bytes and reject relative roots.
+      # Workaround: installer and copied plugin accept relative OPENCODE_CONFIG_DIR values.
+      # Remove when both preserve absolute values verbatim and reject relative overrides.
       ../../../../patches/caveman-installer-config-root.patch
     ];
     dontBuild = true;
