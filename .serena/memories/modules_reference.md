@@ -341,7 +341,7 @@ OpenCode AI assistant:
 ### caveman.nix
 
 - All six native companions, including Cavemem, use the `BINARY_RELEASE` asset pins. Blocks retains its separate source and vendor hash.
-- CLI compilation is separate from installer, companion and profile registration assembly. Runtime asset or profile changes retain the compiled CLI.
+- CLI compilation is separate from installer, companion and profile registration assembly. Artifact/hash or profile changes retain the compiled CLI at unchanged release versions.
 - Blocks assembles its wrapper separately from Go compilation. Git and Python remain native check inputs, so their updates can still invalidate the native build.
 - The CLI preserves Cavemem's `supersede-stdin` capability guard. Runtime checks verify byte-exact replacement above the argv limit, history preservation and refusal above 256 KiB without changing current memory.
 - Managed `caveman-install --hook-node` must name the selected profile's private `lib/caveman/node`; bare or foreign interpreters are refused before writes. Unmanaged prepared plugins honor the upstream interpreter override.
