@@ -27,7 +27,8 @@ buildGoModule {
     # Remove when upstream preserves managed hook launchers and their refresh.
     ../../../../patches/caveman-blocks-nix-hooks.patch
     # Workaround: OpenCode 2 needs a compatible adapter and invocation-scoped hints.
-    # Remove when upstream supports both APIs and location-relative workdirs.
+    # Remove when upstream supports both APIs, invocation-scoped hints
+    # and location-relative workdirs.
     ../../../../patches/caveman-blocks-opencode2.patch
     # Workaround: the OpenCode profile ignores the effective config root.
     # Remove when upstream honors absolute OPENCODE_CONFIG_DIR and XDG fallback roots.

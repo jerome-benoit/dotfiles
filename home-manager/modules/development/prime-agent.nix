@@ -93,7 +93,8 @@ let
   # Remove when its source build checks are reliable there.
   tyro = py.pkgs.tyro.overridePythonAttrs (previousAttrs: {
     doCheck = !pkgs.stdenv.hostPlatform.isDarwin;
-    # Completion tests need compgen, which stdenv's non-interactive Bash omits.
+    # Workaround: completion tests need compgen, absent from non-interactive Bash.
+    # Remove when nixpkgs supplies interactive Bash for tyro's checks.
     nativeCheckInputs = (previousAttrs.nativeCheckInputs or [ ]) ++ [ pkgs.bashInteractive ];
   });
   scipy = py.pkgs.scipy;

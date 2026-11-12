@@ -88,7 +88,7 @@ let
       };
     in
     {
-      # Nixpkgs already matches CUDA math exception specifications to glibc.
+      # Workaround: upstream's __THROW shim conflicts with Nixpkgs CUDA/glibc headers.
       # Remove when upstream stops forcing its conflicting __THROW shim.
       patches = [ ../../../patches/colibri-cuda-glibc.patch ];
       extraBuildInputs = [

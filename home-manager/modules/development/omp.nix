@@ -44,7 +44,8 @@ let
 
         dontUnpack = true;
         dontBuild = true;
-        # otherwise the bundled bun runtime is executed instead of the binary
+        # Workaround: stripping runs the bundled Bun runtime instead of omp.
+        # Remove when stripping preserves Bun's embedded application.
         dontStrip = true;
 
         nativeBuildInputs = [

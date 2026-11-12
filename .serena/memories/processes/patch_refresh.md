@@ -36,12 +36,12 @@ explaining why it exists and when it can go:
 - `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
-- `patches/caveman-nix-installer-paths.patch` — preserve private interpreters and ownership in standalone installers and prepared local plugins.
+- `patches/caveman-nix-installer-paths.patch` — preserve private interpreters, payload ownership and existing settings permissions during atomic writes in standalone installers and prepared local plugins.
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
 - `patches/caveman-hermes-native-yaml.patch` — retain upstream document/list helpers, enforce strict normalized ownership and restore only owned values while preserving later siblings.
 - `patches/caveman-opencode-hermes.patch` — isolate OpenCode factories and served workdirs, validate absolute roots and enforce strict Hermes membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
-- `patches/caveman-installer-config-root.patch` — preserve absolute OpenCode override bytes and reject relative roots in the installer and copied plugin; apply after nix-installer-paths.
+- `patches/caveman-installer-config-root.patch` — preserve `OPENCODE_CONFIG_DIR` bytes and reject relative values in the installer and copied plugin; retain the upstream `XDG_CONFIG_HOME` fallback; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
 - `patches/herdr-desktop-nix-cli-link.patch` — disable automatic macOS CLI-link installation, including copied application bundles; no prerequisite patches.
