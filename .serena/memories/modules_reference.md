@@ -445,6 +445,10 @@ SSH configuration:
 - macOS: UseKeychain
 - SSH settings are defined in `core/specialisations.nix`; work sets `programs.ssh.settings."*.local".User` to `constants.identity.username`.
 
+### ortie.nix
+
+- Installs the nixpkgs package; a shared overlay supplies `aws-lc` and `libgit2` required by Cargo's system-library hook until the pin includes [the upstream fix](https://github.com/NixOS/nixpkgs/pull/586834).
+
 ### himalaya.nix
 
 Himalaya v2 CLI email client:
