@@ -127,6 +127,20 @@
               prev.libgit2
             ];
           });
+          pythonPackagesExtensions = (prev.pythonPackagesExtensions or [ ]) ++ [
+            (_: pythonPrev: {
+              # Workaround: real-time Trio cancellation tests expire during HTTP/2 initialization on loaded builders.
+              # Remove when nixpkgs carries httpx2#1231 or a release containing its virtual-clock fixture.
+              httpcore2 = pythonPrev.httpcore2.overridePythonAttrs (previousAttrs: {
+                patches = (previousAttrs.patches or [ ]) ++ [
+                  (prev.fetchurl {
+                    url = "https://github.com/pydantic/httpx2/commit/fc32b34daa5e070917979ae36b8dd91913897379.patch";
+                    hash = "sha256-3dG2g6WOL/xCXpXr4vz3Wz4sfS1vzeqGV29LGzrnelA=";
+                  })
+                ];
+              });
+            })
+          ];
         })
         (
           _: prev:

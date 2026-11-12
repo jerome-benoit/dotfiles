@@ -558,3 +558,9 @@ theme.colors.blue # "#7aa2f7"
 ```
 
 Used by: alacritty, ghostty, lazygit, lazydocker, tmux, zellij, neovim
+
+## Shared Package Workarounds (`flake.nix`)
+
+### Python dependencies
+
+- The shared Python package extension backports [httpx2#1231](https://github.com/pydantic/httpx2/pull/1231) to `httpcore2`. Its Trio virtual-clock fixture prevents the cancellation tests' real 10 ms deadline from expiring during HTTP/2 initialization on loaded builders. The backport preserves asyncio and Trio coverage, assertions, and the existing nixpkgs RISC-V test exclusions. Remove it when nixpkgs includes that fix or a release containing it. This test fix does not close the separate runtime initialization-cancellation cleanup gap.
