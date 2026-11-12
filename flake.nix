@@ -113,25 +113,19 @@
       );
 
       localOverlays = [
-        (_: prev: {
-          crush = prev.crush.overrideAttrs (previousAttrs: {
-            postPatch =
-              (previousAttrs.postPatch or "")
-              # Workaround: the spawn-race test rebuilds Crush with a five-minute limit.
-              # Remove when upstream supports a prebuilt test binary or a configurable timeout.
-              + ''
-                substituteInPlace internal/cmd/clientserverrace/race_test.go \
-                  --replace-fail 'context.WithTimeout(context.Background(), 5*time.Minute)' \
-                    'context.WithTimeout(context.Background(), 15*time.Minute)'
-              ''
-              # Workaround: crush tests hard-code a shared Darwin temporary path.
-              # Remove when upstream creates an isolated temporary directory.
-              + prev.lib.optionalString prev.stdenv.hostPlatform.isDarwin ''
+        (
+          _: prev:
+          nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+            # Workaround: crush tests hard-code a shared Darwin temporary path.
+            # Remove when upstream creates an isolated temporary directory.
+            crush = prev.crush.overrideAttrs (previousAttrs: {
+              postPatch = (previousAttrs.postPatch or "") + ''
                 substituteInPlace internal/agent/common_test.go \
                   --replace-fail '"/tmp/crush-test/"' 'os.TempDir()'
               '';
-          });
-        })
+            });
+          }
+        )
       ];
 
       mkPkgs =
