@@ -5,15 +5,15 @@
     "aarch64-darwin": "sha256-le279IPqPoLFGpzHZMYFK9PjjGR3ui/q5/tQZ1OwQYg="
   },
   "provenance": {
-    "sourceRevision": "98def2f90e8596d0734929b9273defe33f74ba74",
+    "sourceRevision": "f96b54590db6fd76f1abb0de09edca21c6fda68c",
     "nixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
     "bunVersion": "1.4.4",
     "buildSystem": "x86_64-linux",
     "calculation": "Upstream dependency phases with Bun 1.4.4 from the repository's followed nixpkgs, a frozen lockfile and both normalization scripts; ARM targets use --cpu/--os with --ignore-scripts.",
     "verification": {
       "x86_64-linux": "Native dependency output hash verified. CLI and Desktop not built locally.",
-      "aarch64-linux": "--cpu=arm64 --os=linux replay on x86_64-linux: output hash verified with --rebuild; no native build.",
-      "aarch64-darwin": "--cpu=arm64 --os=darwin replay on x86_64-linux: output hash verified with --rebuild; no native build."
+      "aarch64-linux": "--cpu=arm64 --os=linux replay on x86_64-linux: fresh fixed-output hash verified; no native build.",
+      "aarch64-darwin": "--cpu=arm64 --os=darwin replay on x86_64-linux: fresh fixed-output hash verified; no native build."
     }
   }
 }

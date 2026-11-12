@@ -239,6 +239,7 @@ Hermes Agent configuration:
 - Declare extra service tools with `services.hermes-agent.extraPackages`. Put user-specific PATH exports in non-interactive login files, not interactive-only shell setup.
 - Unsupported shells fail explicitly; login startup must not require a TTY. No PATH entry is added to credentials or the global service-manager environment.
 - Extra dependency groups use upstream package/module merging; runtime wrappers retain PortAudio and applicable CUDA libraries. Linux wrappers include `ld` and `objdump` for Python's PortAudio discovery without a compiler.
+- Linux PM artifacts use the build-platform `patchelfUnstable`, whose pinned source includes the executable-header overlap fix. This replaces only their patchelf build input; other PM inputs and Darwin remain unchanged.
 
 ### aoe.nix
 
