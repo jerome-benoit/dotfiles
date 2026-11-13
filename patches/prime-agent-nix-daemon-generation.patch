@@ -1,10 +1,9 @@
-# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
-# prerequisites: prime-agent-nix-self-update.patch, prime-agent-darwin-tests.patch, prime-agent-daemon-discovery.patch
+# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
 # intent: verify Nix executable identity on probes, session handshakes and reconnects.
 diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/interactive_mode/daemon.rs
 --- a/crates/pa-cli/src/interactive_mode/daemon.rs
 +++ b/crates/pa-cli/src/interactive_mode/daemon.rs
-@@ -27,12 +27,19 @@
+@@ -27,12 +27,19 @@ enum DaemonProbe {
      Stale(Box<pa_tui::daemon_client::DaemonClient>),
  }
  
@@ -28,7 +27,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
      let hello = client.hello();
      let current = hello.get("protocol").and_then(|p| p.get("version"))
          == Some(&serde_json::json!(
-@@ -40,10 +47,10 @@
+@@ -40,10 +47,10 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
          ))
          && hello.get("schemaId") == Some(&serde_json::json!(pa_types::daemon::DAEMON_SCHEMA_ID));
      if current {
@@ -42,7 +41,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
      }
  }
  
-@@ -52,11 +59,11 @@
+@@ -52,11 +59,11 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
  /// shut down, a busy one refuses replacement).
  ///
  /// # Errors
@@ -57,7 +56,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
          DaemonProbe::Current => return Ok(()),
          DaemonProbe::Stale(client) => shutdown_stale_daemon(*client, socket_path).await?,
          DaemonProbe::Absent => {}
-@@ -69,14 +76,14 @@
+@@ -69,14 +76,14 @@ pub async fn ensure_daemon_running(socket_path: &Path, spawn_cwd: &Path) -> Resu
  /// product path uses this process's own binary).
  ///
  /// # Errors
@@ -75,7 +74,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
          DaemonProbe::Current => return Ok(()),
          DaemonProbe::Stale(client) => {
              // A stale daemon appeared between the caller's check and here:
-@@ -88,7 +95,7 @@
+@@ -88,7 +95,7 @@ pub async fn ensure_daemon_running_with(
      spawn_supervisor_detached(socket_path, spawn_cwd, exe)?;
      let deadline = Instant::now() + Duration::from_millis(DAEMON_STARTUP_TIMEOUT_MS);
      loop {
@@ -84,7 +83,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
              DaemonProbe::Current => return Ok(()),
              DaemonProbe::Stale(client) => {
                  // A concurrent launcher won the socket with a build whose protocol matches at
-@@ -110,7 +117,7 @@
+@@ -110,7 +117,7 @@ pub async fn ensure_daemon_running_with(
  /// Shut a stale daemon down when no session is busy; a busy one refuses
  /// replacement.
  async fn shutdown_stale_daemon(
@@ -93,7 +92,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
      socket_path: &Path,
  ) -> Result<()> {
      let sessions = client
-@@ -131,23 +138,21 @@
+@@ -131,23 +138,21 @@ async fn shutdown_stale_daemon(
                      .any(|row| row.get("isSessionActive") == Some(&serde_json::json!(true)))
              })
      });
@@ -129,7 +128,7 @@ diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/in
 diff --git a/crates/pa-cli/src/update_flow/coordinator.rs b/crates/pa-cli/src/update_flow/coordinator.rs
 --- a/crates/pa-cli/src/update_flow/coordinator.rs
 +++ b/crates/pa-cli/src/update_flow/coordinator.rs
-@@ -109,10 +109,11 @@
+@@ -109,10 +109,11 @@ async fn drive(
      let budget = &options.budget;
      // `Preparing`: connect the old supervisor. An unreachable daemon means a
      // daemon-less update: the successor boots without a roster.
@@ -148,7 +147,7 @@ diff --git a/crates/pa-cli/src/update_flow/coordinator.rs b/crates/pa-cli/src/up
 diff --git a/crates/pa-cli/src/update_flow/legacy_restart.rs b/crates/pa-cli/src/update_flow/legacy_restart.rs
 --- a/crates/pa-cli/src/update_flow/legacy_restart.rs
 +++ b/crates/pa-cli/src/update_flow/legacy_restart.rs
-@@ -111,7 +111,7 @@
+@@ -111,7 +111,7 @@ async fn restart(
      let source_path = agent_dir
          .join("daemon-update-restarts")
          .join(format!("{socket_key}.json"));
@@ -157,7 +156,7 @@ diff --git a/crates/pa-cli/src/update_flow/legacy_restart.rs b/crates/pa-cli/src
      let (client, _events) = match connection {
          Ok(connection) => connection,
          Err(error) => {
-@@ -252,7 +252,7 @@
+@@ -252,7 +252,7 @@ async fn restart(
      // A lost prepare reply can also close the connection. Reconnect before
      // shutdown and verify we still address the recorded predecessor.
      drop(client);
@@ -166,7 +165,7 @@ diff --git a/crates/pa-cli/src/update_flow/legacy_restart.rs b/crates/pa-cli/src
      anyhow::ensure!(
          identity_from_hello(client.hello()) == predecessor,
          "predecessor changed before shutdown"
-@@ -402,7 +402,8 @@
+@@ -402,7 +402,8 @@ async fn boot_roster(
          successor.pid == spawned_pid,
          "a different daemon won the socket during migration"
      );
@@ -179,7 +178,7 @@ diff --git a/crates/pa-cli/src/update_flow/legacy_restart.rs b/crates/pa-cli/src
 diff --git a/crates/pa-cli/src/update_flow/phases.rs b/crates/pa-cli/src/update_flow/phases.rs
 --- a/crates/pa-cli/src/update_flow/phases.rs
 +++ b/crates/pa-cli/src/update_flow/phases.rs
-@@ -120,7 +120,7 @@
+@@ -120,7 +120,7 @@ pub(super) async fn restore_report(
          tokio::time::Instant::now() + Duration::from_millis(budget.restore_overall_ms.max(1));
      loop {
          if let Ok((client, _events)) =
@@ -191,7 +190,7 @@ diff --git a/crates/pa-cli/src/update_flow/phases.rs b/crates/pa-cli/src/update_
 diff --git a/crates/pa-cli/src/update_flow/successor.rs b/crates/pa-cli/src/update_flow/successor.rs
 --- a/crates/pa-cli/src/update_flow/successor.rs
 +++ b/crates/pa-cli/src/update_flow/successor.rs
-@@ -75,7 +75,7 @@
+@@ -75,7 +75,7 @@ pub async fn wait_for_hello(socket_path: &Path, budget_ms: u64) -> Option<Update
      let deadline = Instant::now() + Duration::from_millis(budget_ms.max(1));
      loop {
          if let Ok((client, _events)) =
@@ -203,7 +202,7 @@ diff --git a/crates/pa-cli/src/update_flow/successor.rs b/crates/pa-cli/src/upda
 diff --git a/crates/pa-daemon/src/acp/daemon.rs b/crates/pa-daemon/src/acp/daemon.rs
 --- a/crates/pa-daemon/src/acp/daemon.rs
 +++ b/crates/pa-daemon/src/acp/daemon.rs
-@@ -98,7 +98,7 @@
+@@ -98,7 +98,7 @@ impl DaemonLink {
          // The reader only classifies frames; the consumer loop below owns
          // the ordering, so a turn's chunks always precede its boundary
          // frames.
@@ -212,7 +211,7 @@ diff --git a/crates/pa-daemon/src/acp/daemon.rs b/crates/pa-daemon/src/acp/daemo
              let mut reader = BufReader::new(reader_half);
              let mut line = String::new();
              let mut hello_tx = Some(hello_tx);
-@@ -141,8 +141,20 @@
+@@ -141,8 +141,20 @@ impl DaemonLink {
  
          let hello = tokio::time::timeout(std::time::Duration::from_secs(3), hello_rx)
              .await
@@ -238,7 +237,7 @@ diff --git a/crates/pa-daemon/src/acp/daemon.rs b/crates/pa-daemon/src/acp/daemo
 diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_client.rs
 --- a/crates/pa-tui/src/daemon_client.rs
 +++ b/crates/pa-tui/src/daemon_client.rs
-@@ -319,6 +319,7 @@
+@@ -319,6 +319,7 @@ pub struct DaemonClient {
      direct: std::sync::Arc<crate::direct_transport::DirectState>,
      /// The supervisor reader's death watch (see `reader_dead`).
      reader_dead_rx: tokio::sync::watch::Receiver<bool>,
@@ -246,13 +245,14 @@ diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_clien
  }
  
  impl DaemonClient {
-@@ -328,8 +329,25 @@
+@@ -328,9 +329,26 @@ impl DaemonClient {
      ///
      /// # Errors
      ///
+-    /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
 +    /// Returns `Err` on a connect or hello failure, timeout, unknown protocol, or Nix generation mismatch.
-+    pub async fn connect(
-+        socket_path: &Path,
+     pub async fn connect(
+         socket_path: &Path,
 +    ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
 +        let (mut client, events) = Self::connect_unverified(socket_path).await?;
 +        if let Err(error) =
@@ -267,13 +267,13 @@ diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_clien
 +    /// Connect for explicit daemon inspection or update control without session admission.
 +    ///
 +    /// # Errors
-     /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
--    pub async fn connect(
++    /// Returns `Err` on a connect or hello failure, timeout, or unknown protocol.
 +    pub async fn connect_unverified(
-         socket_path: &Path,
++        socket_path: &Path,
      ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
          let connect = tokio::time::timeout(
-@@ -470,6 +488,7 @@
+             Duration::from_millis(CONNECT_TIMEOUT_MS),
+@@ -470,6 +488,7 @@ impl DaemonClient {
                      retained_event_tx,
                  )),
                  reader_dead_rx,
@@ -281,7 +281,7 @@ diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_clien
              },
              event_rx,
          ))
-@@ -500,6 +519,9 @@
+@@ -500,6 +519,9 @@ impl DaemonClient {
          for attempt in 1..=CONNECT_ATTEMPTS {
              match DaemonClient::connect(socket_path).await {
                  Ok(pair) => return Ok(pair),
@@ -291,7 +291,7 @@ diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_clien
                  Err(error) => {
                      if attempt == CONNECT_ATTEMPTS {
                          return Err(error);
-@@ -852,6 +874,9 @@
+@@ -852,6 +874,9 @@ impl DaemonClient {
      pub fn hard_close(&mut self) {
          self.direct.take_event_sender();
          self.drop_direct();
@@ -304,7 +304,7 @@ diff --git a/crates/pa-tui/src/daemon_client.rs b/crates/pa-tui/src/daemon_clien
 diff --git a/crates/pa-tui/src/interactive/run.rs b/crates/pa-tui/src/interactive/run.rs
 --- a/crates/pa-tui/src/interactive/run.rs
 +++ b/crates/pa-tui/src/interactive/run.rs
-@@ -802,6 +802,7 @@
+@@ -827,6 +827,7 @@ async fn run_interactive_surface(
      // Whether the Ctrl+C exit hint painted a frame that the expiry must clear.
      let mut hint_painted = false;
      let mut running = true;
@@ -312,7 +312,7 @@ diff --git a/crates/pa-tui/src/interactive/run.rs b/crates/pa-tui/src/interactiv
      let mut wait_idle_deadline: Option<Instant> = None;
      // The headless `SubmitAndSettle` barrier's target and deadline.
      let mut settle_target: Option<(u64, Instant)> = None;
-@@ -1791,6 +1792,18 @@
+@@ -1816,6 +1817,18 @@ async fn run_interactive_surface(
                              }
                          }
                      }
@@ -331,7 +331,7 @@ diff --git a/crates/pa-tui/src/interactive/run.rs b/crates/pa-tui/src/interactiv
                      Ok(Err(_)) => {
                          if let Some(state) = reconnect.take() {
                              reconnect = Some(state.next_attempt());
-@@ -2139,6 +2152,9 @@
+@@ -2166,6 +2179,9 @@ async fn run_interactive_surface(
      if outcome.return_to_agents_view || outcome.selection_request.is_some() {
          exit_guard.cancel();
      }
@@ -464,7 +464,7 @@ new file mode 100644
 diff --git a/crates/pa-types/src/daemon/mod.rs b/crates/pa-types/src/daemon/mod.rs
 --- a/crates/pa-types/src/daemon/mod.rs
 +++ b/crates/pa-types/src/daemon/mod.rs
-@@ -96,6 +96,7 @@
+@@ -96,6 +96,7 @@ pub struct DaemonEventMeta {
  pub mod agent_roster;
  mod command;
  pub mod framing;
@@ -472,7 +472,7 @@ diff --git a/crates/pa-types/src/daemon/mod.rs b/crates/pa-types/src/daemon/mod.
  pub mod herdr_env;
  pub mod launch_env;
  mod outbound;
-@@ -108,6 +109,7 @@
+@@ -108,6 +109,7 @@ pub use command::{
      DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,
      TranscriptPage,
  };

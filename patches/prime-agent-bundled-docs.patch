@@ -1,9 +1,9 @@
-# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
+# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
 # intent: point provider login guidance at the bundled, version-matched upstream README.
 diff --git a/crates/pa-cli/src/list_models.rs b/crates/pa-cli/src/list_models.rs
 --- a/crates/pa-cli/src/list_models.rs
 +++ b/crates/pa-cli/src/list_models.rs
-@@ -46,13 +46,13 @@
+@@ -46,13 +46,13 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
      Ok(0)
  }
  
@@ -25,7 +25,7 @@ diff --git a/crates/pa-cli/src/list_models.rs b/crates/pa-cli/src/list_models.rs
 diff --git a/crates/pa-daemon/src/agent_engine/turn/model.rs b/crates/pa-daemon/src/agent_engine/turn/model.rs
 --- a/crates/pa-daemon/src/agent_engine/turn/model.rs
 +++ b/crates/pa-daemon/src/agent_engine/turn/model.rs
-@@ -63,12 +63,12 @@
+@@ -61,12 +61,12 @@ impl AgentSessionEngine {
                          preflight_model.provider
                      )
                  } else {

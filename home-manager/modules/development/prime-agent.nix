@@ -198,16 +198,14 @@ let
           # Workaround: Darwin's /bin/ps probe can fail in the Nix sandbox.
           # Remove when upstream skips comparisons without process ground truth.
           ../../../patches/prime-agent-darwin-tests.patch
-          # Workaround: upstream mission-local exclusions hide default UID socket directories.
-          # Remove when discovery relies only on the invocation's state root.
-          ../../../patches/prime-agent-daemon-discovery.patch
           # Workaround: compatible daemons can keep running a previous Nix executable.
           # Remove when upstream checks executable identity without stopping existing work.
           ../../../patches/prime-agent-nix-daemon-generation.patch
           # Workaround: login guidance references documents absent from release sources.
           # Remove when upstream points to documentation included in its releases.
           ../../../patches/prime-agent-bundled-docs.patch
-          # Workaround: name-only skill imports can execute a different selected source.
+          # Workaround: name-only skill imports can execute a different selected user source.
+          # Repository-scoped Python skills remain excluded by upstream.
           # Remove when the kernel binds imports to the resolved skill packages.
           ../../../patches/prime-agent-python-skill-source.patch
         ];
