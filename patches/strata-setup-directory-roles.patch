@@ -1004,10 +1004,10 @@ index 00a3e05..3fd89a6 100644
      if app.stop_requested:
          from strata_control import runtime
 diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
-index 88f0d64..520990b 100644
+index 88f0d64..7556feb 100644
 --- a/strata_cli/launch/catalog.py
 +++ b/strata_cli/launch/catalog.py
-@@ -255,14 +255,49 @@ def intel_arc_cards(root: str = "/sys/class/drm") -> list[dict]:
+@@ -255,14 +255,50 @@ def intel_arc_cards(root: str = "/sys/class/drm") -> list[dict]:
      return cards
  
  
@@ -1032,6 +1032,7 @@ index 88f0d64..520990b 100644
 +    elsewhere: tuple[Path, ...]
 +    layout: tuple | None
 +    download_dir: Path
++    mtp_source_present: bool = False
 +
 +    @property
 +    def data_roots(self) -> tuple[Path, ...]:
@@ -1059,7 +1060,7 @@ index 88f0d64..520990b 100644
          mcp = self.src / "tools" / "strata_mcp.py"
          if not mcp.is_file() or not (self.src / "setup.py").is_file():
              raise CatalogUnavailable(
-@@ -599,19 +634,55 @@ class Catalog:
+@@ -599,19 +635,62 @@ class Catalog:
      def data_dir(self) -> Path:
          return self.data_dir_choice()[0]
  
@@ -1114,6 +1115,12 @@ index 88f0d64..520990b 100644
 +        mod = self.strata.setup_module()
 +        elsewhere = tuple(mod.retained_data_sources(data, requested=data_arg is not None, move=bool(move and data_dir), install_dir=self.root)) \
 +            if mod is not None and hasattr(mod, "retained_data_sources") else ()
++        mtp_source_present = False
++        if model_path and move and data_dir and mod is not None and hasattr(mod, "retained_data_sources"):
++            from strata_control import discovery
++            # Setup either moves this MTP or keeps its source reusable when the destination already exists.
++            sources = mod.retained_data_sources(data, requested=True, install_dir=self.root)
++            mtp_source_present = discovery.mtp_layer_in(*sources) is not None
 +        layout = None
 +        if mod is not None and family in getattr(mod, "FAMILIES", {}) and model in getattr(mod, "MODELS", {}):
 +            own = Path(model_path).expanduser() if model_path else None
@@ -1124,12 +1131,13 @@ index 88f0d64..520990b 100644
 +            selected_models, ready_data, _checkpoint, shards = layout
 +            download_dir = next((path.parent for path, item in zip(shards, mod.ready_needed(model, selected_models, ready_data))
 +                                 if not mod.ready_verified(path, item[5])), selected_models)
-+        return LaunchDirectories(family, model, data_arg, data, models_arg, models, elsewhere, layout, download_dir)
++        return LaunchDirectories(family, model, data_arg, data, models_arg, models, elsewhere, layout, download_dir,
++                                 mtp_source_present=mtp_source_present)
  
      def disk_free(self, path: str | os.PathLike) -> float | None:
          return self.strata.disk_free(Path(path))
 diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
-index c9619aa..a96c8b4 100644
+index c9619aa..8d2ab98 100644
 --- a/strata_cli/launch/modelstate.py
 +++ b/strata_cli/launch/modelstate.py
 @@ -7,7 +7,6 @@ is downloaded again. Nothing here reads more than a run config and file existenc
@@ -1165,9 +1173,10 @@ index c9619aa..a96c8b4 100644
          first = _first_gguf(Path(model_path))
 -        beside = discovery.prepared_beside(first, data_places(catalog, data)) if first else {}     # the model folder's own layout, then --data-dir and the remembered folder (where setup writes the draft layer)
 -        st.folder = beside.get("data_dir")
+-        if beside.get("pack") is not None and beside.get("mtp") is None and mtp != "off":
 +        beside = discovery.prepared_beside(first, homes) if first else {}
 +        st.folder = data
-         if beside.get("pack") is not None and beside.get("mtp") is None and mtp != "off":
++        if beside.get("pack") is not None and beside.get("mtp") is None and mtp != "off" and not directories.mtp_source_present:
              st.parts.append(Part("mtp", "the draft layer", MTP_FETCH_GB))
          if wants_pictures and beside.get("pack") is not None and \
 -                not reader_present(catalog, family, [st.folder, *data_places(catalog, data)], own=first.parent if first else None):
@@ -1347,7 +1356,7 @@ index 35d9171..bce75ea 100644
              text = f"The update did not run: {exc}"
          self.updating = False
 diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
-index 5f07cb8..7061e3a 100644
+index 5f07cb8..2c28c99 100644
 --- a/strata_cli/launch/runner.py
 +++ b/strata_cli/launch/runner.py
 @@ -707,7 +707,9 @@ class Runner:
@@ -1491,18 +1500,19 @@ index 5f07cb8..7061e3a 100644
          st = self.model_state()
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
-@@ -2466,9 +2456,7 @@ class Runner:
+@@ -2466,17 +2456,15 @@ class Runner:
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
 -                data = Path(st.folder) if st.folder else (Path(s.data_dir) if s.data_dir else (self.existing_data_dir() or self.catalog.data_dir()))
 -                # the data folder the model sits in, then --data-dir and the remembered folder: setup writes the draft layer to <data-dir>/mtp/rt even when the model folder is elsewhere
 -                homes = [data, *[d for d in modelstate.data_places(self.catalog, Path(s.data_dir) if s.data_dir else None) if d != data]]
+-                if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
 +                homes = directories.data_roots
-                 if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
++                if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and not directories.mtp_source_present and discovery.mtp_layer_in(*homes) is None:
                      parts.append({"kind": "mtp", "label": "the draft layer", "gb": MTP_FETCH_GB})
                  own = None
-@@ -2476,7 +2464,7 @@ class Runner:
+                 if s.model_path:                             # setup uses a reader that sits with the person's own files (setup.py --gguf-dir)
                      own = Path(s.model_path)
                      own = own if own.is_dir() else own.parent
                  # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)

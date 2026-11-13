@@ -83,6 +83,7 @@ in
         This default is not a remembered CLI choice and does not request a data move.
         Launch plans and folder selection use the same effective destination as setup
         without saving this default in launch settings or presets.
+        Own-file move plans count existing MTP whether setup moves it or reuses it in place.
         Installed starts, updates, checks and standalone commands keep their existing paths.
         Upstream retains explicit move
         confirmation and owns model selection, tuning and profiles.

@@ -4705,6 +4705,104 @@ assert layout.download_directory(part["kind"] for part in plan["parts"] if part[
 assert not native.exists()
 ''')
 
+    def test_own_file_move_plan_reuses_helper_before_and_after_native_move(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os, socket, subprocess
+from pathlib import Path
+from unittest.mock import patch
+from strata_cli import cli
+from strata_cli.launch import catalog as C, cmd
+from strata_cli.launch.runner import Runner
+from strata_control import discovery, drafting, engine_component
+from tests.terminal.test_own_files import gguf_bytes
+root = Path.cwd()
+base = root.parent.parent / "own-move"
+base.mkdir()
+for name in list(os.environ):
+    if name.startswith("STRATA_"):
+        os.environ.pop(name)
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root),
+                  STRATA_COMPONENTS_DIR=str(base / "components"))
+def forbidden(*args, **kwargs):
+    raise AssertionError("plan attempted acquisition or data mutation")
+for scenario, has_helper, collision in (("move", True, False), ("collision", True, True), ("missing", False, False)):
+    home = base / scenario
+    old, new, own = (home / name for name in ("old", "new", "own/IQ3_XXS"))
+    for folder in (old, new, own):
+        folder.mkdir(parents=True)
+    settings = home / "settings.json"
+    settings.write_text(json.dumps({"data_dir": str(old), "unrelated": "preserved"}))
+    os.environ["STRATA_SETTINGS_FILE"] = str(settings)
+    cat = C.Catalog(src=root, root=root, hardware={})
+    mod = cat.strata.setup_module()
+    helper = old / "mtp/rt/experts.bin"
+    payload = b"native MTP presence fixture"
+    if has_helper:
+        helper.parent.mkdir(parents=True)
+        helper.write_bytes(payload)
+    if collision:
+        (new / "mtp").mkdir()
+    pack = new / "packs/iq3_xxs"
+    pack.mkdir(parents=True)
+    (pack / "native_experts.txt").write_bytes(b"prepared pack fixture")
+    for index in range(1, mod.model_shards(mod.FAMILIES["qwen"], "IQ3_XXS") + 1):
+        (own / mod.model_file(mod.FAMILIES["qwen"], "IQ3_XXS", index)).write_bytes(gguf_bytes(["IQ3_XXS"]))
+    assert mod.same_drive(old, new)
+    row = C.ModelRow(family="qwen", family_title="Qwen", model="IQ3_XXS", id="iq3_xxs", about="",
+        download_gb=1.0, need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
+        experimental=False, images=False, installed=False)
+    cat.rows = lambda: [row]
+    command = ["launch", "--family", "qwen", "--model", "IQ3_XXS", "--context", "8192",
+        "--data-dir", str(new), "--model-path", str(own), "--move-data", "--plan", "--output", "json",
+        "--vision", "off", "--mtp", "on", "--drafting", "mtp", "--no-api-key"]
+    def snapshot():
+        return {str(path.relative_to(home)): path.read_bytes() if path.is_file() else None
+                for path in home.rglob("*")}
+    def public_plan():
+        before = snapshot()
+        output = io.StringIO()
+        with patch.object(mod, "data_folder", side_effect=forbidden), \
+                patch.object(mod, "data_folder_for", side_effect=forbidden), \
+                patch.object(mod, "save_settings", side_effect=forbidden), \
+                contextlib.redirect_stdout(output):
+            assert cmd.run_launch(cli.parse_args(command)) == 0
+        plan = json.loads(output.getvalue())["plan"]
+        assert snapshot() == before, scenario
+        assert plan["download"]["gb"] == (0 if has_helper else 5.2), (scenario, plan)
+        assert ("mtp" in {part["kind"] for part in plan["download"]["parts"]}) == (not has_helper), (scenario, plan)
+    with contextlib.ExitStack() as guards:
+        guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
+        guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
+        guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
+        guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
+        guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
+        guards.enter_context(patch.object(Runner, "intel_chosen", return_value=False))
+        guards.enter_context(patch.object(Runner, "preflight_words", return_value=[]))
+        guards.enter_context(patch.object(Runner, "drafting_plan_line", return_value=""))
+        guards.enter_context(patch.object(Runner, "speed_line", return_value=""))
+        guards.enter_context(patch.object(C, "Catalog", return_value=cat))
+        guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
+        public_plan()
+        with contextlib.redirect_stdout(io.StringIO()):
+            dest, elsewhere = mod.data_folder(str(new), move=True, yes=True, set_default=True)
+        assert dest == new
+        if has_helper:
+            expected = helper if collision else new / "mtp/rt/experts.bin"
+            assert expected.read_bytes() == payload, scenario
+            assert discovery.mtp_layer_in(dest, *elsewhere) == expected.parent, scenario
+            assert helper.exists() == collision, scenario
+            if collision:
+                assert old in elsewhere
+        else:
+            assert discovery.mtp_layer_in(dest, *elsewhere) is None
+        saved = json.loads(settings.read_text())
+        assert saved["data_dir"] == str(new) and saved["unrelated"] == "preserved", saved
+        # Collision reuse belongs to this setup call's returned roots, not a later invocation.
+        if not collision:
+            public_plan()
+''')
+
     @unittest.skipUnless(sys.platform == "linux", "Detached benchmark source leases")
     def test_benchmark_child_keeps_only_source_lease_after_controller_dies(self):
         state = self.state
