@@ -14,7 +14,7 @@ let
       inherit lib;
       inherit (pkgs) fetchurl fetchzip;
     }).opencode.hashes;
-  # Workaround: pinned upstream dependency hashes use a different Bun toolchain.
+  # Workaround: upstream dependency hashes are stale for the selected source and Bun.
   # Hash values, toolchain and verification provenance are recorded in pins/opencode.json.
   # Remove when upstream hashes match the selected source and Bun toolchain.
   baseOpencodePackage =

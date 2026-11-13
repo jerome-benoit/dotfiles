@@ -1,6 +1,7 @@
-# base: agent-of-empires/agent-of-empires d4ab424b9a17e789983dddbabf8a882683cd6b9c
+# base: agent-of-empires/agent-of-empires d134cfd8bcba25c06c2006c3c4abc7da368a4621
 # prerequisites: none
 # intent: Detect and launch the packaged cursor-agent executable instead of agent.
+diff --git a/src/agents.rs b/src/agents.rs
 --- a/src/agents.rs
 +++ b/src/agents.rs
 @@ -788,7 +788,7 @@
@@ -12,9 +13,10 @@
      },
      AgentDef {
          oneshot_flag: Some("-p"),
+diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
-@@ -3519,6 +3519,36 @@
+@@ -3562,6 +3562,36 @@
  
  #[cfg(test)]
  mod tests {

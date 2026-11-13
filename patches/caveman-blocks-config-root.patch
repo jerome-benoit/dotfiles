@@ -126,7 +126,7 @@
 +	for _, name := range []string{"unset", "empty", "xdg", "xdg-empty-override", "override", "override-relative-xdg"} {
 +		t.Run(name, func(t *testing.T) {
 +			base := t.TempDir()
-+			home, xdg, override := filepath.Join(base, "home"), filepath.Join(base, "xdg"), filepath.Join(base, "selected ' $ root")
++			home, xdg, override := filepath.Join(base, "home"), filepath.Join(base, "xdg"), filepath.Join(base, "selected ' $ root  ")
 +			t.Setenv("HOME", home)
 +			t.Setenv("USERPROFILE", home)
 +			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))

@@ -39,7 +39,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
 - `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
 - `patches/caveman-hermes-native-yaml.patch` — retain upstream document/list helpers, enforce strict normalized ownership and restore only owned values while preserving later siblings.
-- `patches/caveman-opencode-hermes.patch` — isolate OpenCode factories and served workdirs, validate absolute roots and enforce strict Hermes membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
+- `patches/caveman-opencode-hermes.patch` — isolate OpenCode factories/workdirs, emit Stop through the model-idle hook, preserve absolute roots and enforce strict Hermes membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
 - `patches/caveman-installer-config-root.patch` — preserve `OPENCODE_CONFIG_DIR` bytes and reject relative values in the installer and copied plugin; retain the upstream `XDG_CONFIG_HOME` fallback; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
@@ -114,7 +114,9 @@ verification claims from an older source. Keep hash-only checks serial with
 Use a disk-backed `TMPDIR` for standalone calculations when `/tmp` is tmpfs;
 large dependency trees otherwise count against the memory limit. Replay the
 upstream filters, frozen lock and both normalizers. Calibrate the procedure
-against the previous known pin before trusting new outputs. Limit Bun network
+against the previous known native pin at its exact source and Bun version before
+trusting new outputs. If calibration is performed afterwards, record it as
+retrospective without rewriting the initial execution history. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose
 NAR hash and fixed-output store path match the selected derivation.
 

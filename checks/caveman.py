@@ -17,7 +17,7 @@ import time
 package = Path(sys.argv[1])
 git = sys.argv[2]
 node = sys.argv[3]
-blocks = Path(sys.argv[4])
+native_blocks = Path(sys.argv[4])
 
 with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     root = Path(temporary)
@@ -283,7 +283,6 @@ with tempfile.TemporaryDirectory(prefix="caveman-check-") as temporary:
     assert_recorded_calls(1)
 
     # Seed upstream's same-version raw copy, then refresh through the wrapper.
-    native_blocks = blocks.resolve().with_name(".caveman-blocks-wrapped")
     stable_hook.unlink()
     run(str(native_blocks), "hooks", "install", "--harness", "claude-code", cwd=repo)
     assert not stable_hook.is_symlink()

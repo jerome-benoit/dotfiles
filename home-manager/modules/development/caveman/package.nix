@@ -101,8 +101,10 @@ let
       # Workaround: Hermes ownership readers accept ambiguous YAML and remove later siblings.
       # Remove when upstream validates owned values strictly and restores only those values.
       ../../../../patches/caveman-hermes-native-yaml.patch
-      # Workaround: OpenCode factories share state; Hermes membership checks accept ambiguous YAML.
-      # Remove when factories isolate state and cwd, roots stay absolute, and membership fails closed.
+      # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event;
+      # Hermes membership checks accept ambiguous YAML.
+      # Remove when factories isolate state/cwd, model-idle drives Stop, roots stay absolute
+      # and membership fails closed.
       ../../../../patches/caveman-opencode-hermes.patch
     ];
 

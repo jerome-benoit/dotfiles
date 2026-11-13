@@ -113,21 +113,6 @@
       );
 
       localOverlays = [
-        (_: prev: {
-          # Workaround: ccusage omits zstd required by Cargo's system-library hook.
-          # Remove when nixpkgs includes zstd in ccusage's build inputs.
-          ccusage = prev.ccusage.overrideAttrs (previousAttrs: {
-            buildInputs = (previousAttrs.buildInputs or [ ]) ++ [ prev.zstd ];
-          });
-          # Workaround: ortie omits aws-lc and libgit2 required by Cargo's system-library hook.
-          # Remove when nixpkgs includes both libraries in ortie's build inputs.
-          ortie = prev.ortie.overrideAttrs (previousAttrs: {
-            buildInputs = (previousAttrs.buildInputs or [ ]) ++ [
-              prev.aws-lc
-              prev.libgit2
-            ];
-          });
-        })
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
@@ -230,11 +215,7 @@
       checks = forAllSystems (
         arch:
         let
-          pkgs = nixpkgs.legacyPackages.${arch}.extend (
-            _: _: {
-              ortie = (mkPkgs arch).ortie;
-            }
-          );
+          pkgs = nixpkgs.legacyPackages.${arch};
           baseChecks = import ./checks {
             inherit
               home-manager
