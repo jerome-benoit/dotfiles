@@ -19,22 +19,27 @@ UPSTREAM = str(Path(sys.argv.pop(1)).resolve())
 LAUNCHERS = json.loads(Path(sys.argv.pop(1)).read_text())
 SOURCE_PATCH = str(Path(sys.argv.pop(1)).resolve())
 RUNNER = """
-import importlib.util, pathlib, sys
+import importlib.util, pathlib, subprocess, sys
 spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-if len(sys.argv) > 5 and sys.argv[5] == "run":
-    module.REMOTE = sys.argv[4]
-    module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:] or ["--build", "--no-browser"],
-                         data_directory=__import__("os").environ.get("TEST_DATA_DIRECTORY"),
-                         models_directory=__import__("os").environ.get("TEST_MODELS_DIRECTORY"),
-                         source_patch=__import__("os").environ.get("TEST_SOURCE_PATCH", @SOURCE_PATCH@) or None)
-elif len(sys.argv) > 5:
-    with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
-        module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno(), sys.argv[6:])
-else:
-    print(module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4],
-          source_patch=__import__("os").environ.get("TEST_SOURCE_PATCH", @SOURCE_PATCH@) or None))
+try:
+    if len(sys.argv) > 5 and sys.argv[5] == "run":
+        module.REMOTE = sys.argv[4]
+        sys.exit(module.run_workspace(sys.argv[2], sys.argv[3], sys.argv[6:],
+                             data_directory=__import__("os").environ.get("TEST_DATA_DIRECTORY"),
+                             models_directory=__import__("os").environ.get("TEST_MODELS_DIRECTORY"),
+                             source_patch=__import__("os").environ.get("TEST_SOURCE_PATCH", @SOURCE_PATCH@) or None))
+    elif len(sys.argv) > 5:
+        with module.workspace_lock(pathlib.Path(sys.argv[2]).parent) as (_, lock):
+            module.refresh_runtime(pathlib.Path(sys.argv[2]), sys.argv[3], lock.fileno(), sys.argv[6:])
+    else:
+        print(module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4],
+              source_patch=__import__("os").environ.get("TEST_SOURCE_PATCH", @SOURCE_PATCH@) or None))
+except subprocess.CalledProcessError as error:
+    sys.exit(error.returncode)
+except RuntimeError as error:
+    sys.exit(str(error))
 """.replace("@SOURCE_PATCH@", repr(SOURCE_PATCH))
 
 GATE = """
@@ -77,6 +82,7 @@ class WorkspaceTests(unittest.TestCase):
                         NIX_LOG_DIR=str(self.base / "nix-log"),
                         NIX_CONF_DIR=str(self.base / "nix-conf"),
                         NIX_REMOTE="local",
+                        GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="pack.threads", GIT_CONFIG_VALUE_0="1",
                         NIX_CONFIG="experimental-features = nix-command flakes\nrequire-sigs = false\n")
         self.git("init", "--quiet")
         self.git("config", "pack.threads", "1")
@@ -87,11 +93,17 @@ class WorkspaceTests(unittest.TestCase):
                         copy_function=shutil.copyfile)
         shutil.copytree(Path(UPSTREAM) / "strata_cli", self.repo / "strata_cli",
                         copy_function=shutil.copyfile)
+        shutil.copytree(Path(UPSTREAM) / "serve", self.repo / "serve",
+                        copy_function=shutil.copyfile)
+        shutil.copyfile(Path(UPSTREAM) / "strata.py", self.repo / "strata.py")
+        shutil.copyfile(Path(UPSTREAM) / "setup.sh", self.repo / "setup.sh")
         for directory, _, _ in os.walk(self.repo / "strata_control"):
             Path(directory).chmod(0o700)
         (self.repo / "tools").mkdir()
         shutil.copyfile(Path(UPSTREAM) / "tools/nvfp4_local_pack.py", self.repo / "tools/nvfp4_local_pack.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/iq_pack.py", self.repo / "tools/iq_pack.py")
+        shutil.copyfile(Path(UPSTREAM) / "tools/strata_mcp.py", self.repo / "tools/strata_mcp.py")
+        shutil.copyfile(Path(UPSTREAM) / "tools/gguf_reader.py", self.repo / "tools/gguf_reader.py")
         (self.repo / "sycl").mkdir()
         shutil.copyfile(Path(UPSTREAM) / "sycl/setup_intel.py", self.repo / "sycl/setup_intel.py")
         (self.repo / "removed.py").write_text("obsolete source\n")
@@ -124,7 +136,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_module_launcher_quotes_all_directories_and_preserves_user_arguments(self):
         for fixture in LAUNCHERS:
             with self.subTest(expected=fixture["expected"]):
-                args = ["--models-dir", "/CLI's $(touch injected)", "--api-key=--setup"]
+                args = ["source", "--models-dir", "/CLI's $(touch injected)", "--api-key=--setup"]
                 result = subprocess.run([fixture["launcher"], *args], env=self.env, cwd=self.base,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -139,7 +151,9 @@ class WorkspaceTests(unittest.TestCase):
     def make_acquisition_workspace(self):
         root = self.prepare(self.old)
         self.make_runtime_source(root)
-        script = root / "setup.sh"
+        (root / ".venv/bin").mkdir(parents=True)
+        (root / ".venv/bin/python").symlink_to(sys.executable)
+        script = root / "setup-fixture.py"
         script.write_text(f'''#!{sys.executable}
 import inspect, json, sys
 from pathlib import Path
@@ -211,7 +225,7 @@ sys.exit(setup.main())
                 if models_default is not None:
                     env["TEST_MODELS_DIRECTORY"] = models_default
                 result = subprocess.run(
-                    self.command(self.old) + ["run", "--yes", "--no-browser", "--context", "8192",
+                    self.command(self.old) + ["run", "source", "--yes", "--no-browser", "--context", "8192",
                                              "--vision", "no", "--experimental-speed-projection", "off", *args],
                     env=env, capture_output=True, text=True, timeout=30,
                 )
@@ -243,7 +257,7 @@ sys.exit(setup.main())
         data = self.base / "unused data"
         models = self.base / "unused models"
         env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models))
-        script = root / "setup.sh"
+        script = root / "setup-fixture.py"
         script.write_text(script.read_text().replace(
             "sys.exit(setup.main())",
             '''def standalone(a):
@@ -255,7 +269,7 @@ sys.exit(setup.main())''',
         for args, code in ((["--help"], 0), (["--prepare-pack", "/not downloaded"], 0),
                            (["--set"], 2), (["--mod=/ambiguous"], 2), (["--models-dir"], 2)):
             with self.subTest(args=args):
-                result = subprocess.run(self.command(self.old) + ["run", *args], env=env,
+                result = subprocess.run(self.command(self.old) + ["run", "source", *args], env=env,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, code, result.stderr)
                 if code:
@@ -267,11 +281,13 @@ sys.exit(setup.main())''',
     def make_ready_workspace(self):
         root = self.prepare(self.old)
         self.make_runtime_source(root)
+        (root / ".venv/bin").mkdir(parents=True)
+        (root / ".venv/bin/python").symlink_to(sys.executable)
         for name in ("gguf_reader.py", "image/qimage.py"):
             destination = root / "tools" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(UPSTREAM) / "tools" / name, destination)
-        script = root / "setup.sh"
+        script = root / "setup-fixture.py"
         script.write_text(f'''#!{sys.executable}
 import hashlib, importlib.util, inspect, json, os, socket, subprocess, sys
 from pathlib import Path
@@ -477,7 +493,7 @@ sys.exit(result)
         return root
 
     def ready_command(self, model, *, wizard=False):
-        args = ["run", "--yes", "--no-start", "--no-browser", "--context", "8192",
+        args = ["run", "source", "--yes", "--no-start", "--no-browser", "--context", "8192",
                 "--vision", "gpu", "--images", "qwen-image",
                 "--experimental-speed-projection", "off"]
         if not wizard:
@@ -691,7 +707,7 @@ producer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(producer)
 producer.require_packages = lambda: None
 commands = []
-def run(command):
+def run(command, **kwargs):
     commands.append(command)
     flag = "--outfile" if "convert" in command else "--out"
     out = Path(command[command.index(flag) + 1])
@@ -957,7 +973,7 @@ exit 9
 ''')
         setup.chmod(0o700)
         for attempt in (1, 2):
-            result = subprocess.run(self.command(self.old) + ["run"], env=self.env,
+            result = subprocess.run(self.command(self.old) + ["run", "source"], env=self.env,
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 9)
             self.assertFalse(marker.exists())
@@ -1018,7 +1034,7 @@ exit 9
                                     str(self.repo), revision], env=self.env, check=True)
                 owned = source / "user-notes.txt"
                 owned.write_text("keep user data\n")
-                result = subprocess.run(self.command(revision) + ["run", "--setup", "--help"],
+                result = subprocess.run(self.command(revision) + ["run", "source", "--setup", "--help"],
                                         env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("--data-dir", result.stdout)
@@ -1159,10 +1175,33 @@ exit 9
         self.assertEqual((root / "code.py").read_text(), "old source\n")
 
     def make_runtime_source(self, root):
-        # Preserve the tracked control package and patch targets across prepares.
-        # Replacing them here would discard the managed source changes.
-        # Use a real local distribution, without fetching the pinned production wheels.
+        # Keep the actual setup parser and lifecycle; replace only external acquisition boundaries.
         (root / "requirements.txt").write_text("pip\n")
+        script = root / "setup.sh"
+        script.write_text(f'''#!/bin/sh
+cd "$(dirname "$0")" || exit 8
+exec "{sys.executable}" -c 'import os,setup,sys; sys.exit(setup.bootstrap_runtime() if os.environ.get("STRATA_BOOTSTRAP_ONLY") == "1" else setup.main())' "$@"
+''')
+        script.chmod(0o700)
+        source = root / "setup.py"
+        source.write_text(source.read_text() + '''
+
+# Test fixture: inject hardware/acquisition boundaries after the real setup module loads.
+if __name__ != "__main__" and (ROOT / "setup-fixture.py").exists():
+    _fixture = (ROOT / "setup-fixture.py").read_text()
+    _prefix, _separator, _tail = _fixture.partition("sys.exit(setup.main())")
+    if not _separator:
+        _prefix, _separator, _tail = _fixture.partition("result = setup.main()")
+    if not _separator:
+        raise RuntimeError("Fixture has no real setup.main boundary")
+    _scope = {}
+    exec(_prefix, _scope)
+    _real_main = main
+    def main(argv=None, *, after_parse=None):
+        result = _real_main(argv, after_parse=after_parse)
+        exec(_tail.replace("sys.exit(result)", ""), dict(_scope, result=result))
+        return result
+''')
 
     def make_runtime_model(self, root, name="fixture"):
         tokenizer = root / "tokenizer"
@@ -1187,48 +1226,43 @@ exit 9
         spec.loader.exec_module(module)
         return module
 
-    def test_one_name_reads_upstream_shapes_and_splits_the_two_programs(self):
-        """The routing needs no hand-kept name list: upstream's Terminal is subcommand-shaped, its setup option-shaped."""
-        module = self.workspace_module()
-        doors = module.cli_doors(Path(UPSTREAM))
-        self.assertTrue({"launch", "serve", "status", "monitor", "update", "models", "presets"}
-                        <= set(doors["commands"]), doors["commands"])
-        self.assertTrue(all(option.startswith("-") for option in doors["options"]), doors["options"])
-        for argv, door in (([], "setup"),                                  # upstream's bare ./setup.sh
-                           (["--yes", "--no-browser"], "setup"),
-                           (["--family", "qwen", "--model", "IQ3_S", "--parallel", "4"], "setup"),
-                           (["--update"], "setup"),                        # UPDATE.bat's door
-                           (["--setup", "--help"], "setup"),
-                           (["--help"], "setup"),                          # in a source checkout, setup owns --help
-                           (["-h"], "setup"),
-                           (["update"], "terminal"),                       # the Terminal's own updater
-                           (["launch", "--plan", "--family", "qwen", "--parallel", "4"], "terminal"),
-                           (["status"], "terminal"),
-                           (["launch", "--stop"], "terminal"),
-                           (["--version"], "terminal"),
-                           (["--vers"], "terminal"),
-                           (["--version", "filename.json"], "terminal"),
-                           (["--version", "status"], "terminal")):
+    def test_native_root_help_errors_and_source_passthrough(self):
+        root = self.prepare(self.old)
+        command = self.command(self.old) + ["run"]
+        for argv, code in ((["--help"], 0), ([], 2), (["unknown-command"], 2),
+                           (["--setup"], 2), (["--family", "qwen"], 2), (["--update"], 2),
+                           (["--version"], 0), (["install", "--help"], 0),
+                           (["source", "--help"], 0)):
             with self.subTest(argv=argv):
-                self.assertEqual(module.entry_point(Path(UPSTREAM), argv), door)
-
-    def test_the_split_stops_when_upstream_makes_its_setup_ambiguous(self):
-        module = self.workspace_module()
-        original = (Path(UPSTREAM) / "setup.py").read_text()
-        anchor = "    ap = argparse.ArgumentParser(description=__doc__"
-        with tempfile.TemporaryDirectory() as where:
-            root = Path(where)
-            shutil.copytree(Path(UPSTREAM) / "strata_cli", root / "strata_cli", copy_function=shutil.copyfile)
-            shutil.copytree(Path(UPSTREAM) / "strata_control", root / "strata_control",
-                            copy_function=shutil.copyfile)
-            for form in ('    ap.add_argument("model", nargs="?")', "    ap.add_subparsers(dest=\"command\")"):
-                source = original.replace(anchor, f"{form}\n{anchor}", 1)
-                self.assertNotEqual(source, original)
-                (root / "setup.py").write_text(source)
-                with self.subTest(form=form):
-                    with self.assertRaises(RuntimeError) as error:
-                        module.cli_doors(root)
-                    self.assertIn("positional", str(error.exception))
+                result = subprocess.run(command + argv, env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                if argv == ["--help"]:
+                    for word in ("source", "launch", "serve", "status", "monitor", "update", "models"):
+                        self.assertIn(word, result.stdout)
+                if argv == ["source", "--help"]:
+                    self.assertIn("--family", result.stdout)
+                    self.assertIn("usage: strata source", result.stdout)
+                self.assertFalse((root / ".venv").exists())
+                self.assertFalse((root / ".git/strata-runtime-revision").exists())
+        self.run_source_script(root, '''
+from strata_cli.cli import parse_args, _run
+import setup
+raw = ["--api-key", "--version", "--inspect", "status", "--", "kept"]
+a = parse_args(["source", *raw])
+assert a.setup_args == raw
+setup.main = lambda argv: 37 if argv == raw else 99
+assert _run(a) == 37
+assert parse_args(["serve", "--config", "status", "--port", "123"]).port == 123
+for argv in (["source", "--context", "not-an-int"], ["source", "--backend", "unknown"]):
+    try:
+        setup.main = __import__("importlib").reload(setup).main
+        setup.main(argv[1:], after_parse=lambda a, argv: 0)
+    except SystemExit as error:
+        assert error.code == 2
+    else:
+        raise AssertionError("the real setup parser accepted invalid argv")
+''')
 
     def make_terminal(self, root, before=""):
         if not (root / "serve").exists():
@@ -1241,6 +1275,12 @@ exit 9
         if not (root / ".venv/bin/python").exists():
             (root / ".venv/bin").mkdir(parents=True, exist_ok=True)
             (root / ".venv/bin/python").symlink_to(sys.executable)
+        script = root / "setup.sh"
+        if script.read_text() == (Path(UPSTREAM) / "setup.sh").read_text():
+            self.make_runtime_source(root)
+            (root / "setup-fixture.py").write_text(
+                "import setup,sys\nsetup.pip_install = lambda *a, **kw: None\n"
+                "setup.update_installed_engine = lambda *a: None\nsys.exit(setup.main())\n")
 
     def test_terminal_preserves_relative_config_and_upstream_version_action(self):
         root = self.prepare(self.old)
@@ -1555,8 +1595,10 @@ class MonitorBase:
             profiles._atomic = atomic
             # A later update still works after the failed one and its model restart.
             updater.run_update = lambda ctx, **kwargs: {{"exit_code": 0, "results": []}}
+            peer.sendall(b"f")
+            assert peer.recv(1) == b"u"
             self._update_worker()
-            assert self.selection_notice == "Nothing needed updating."
+            assert self.selection_notice == "Nothing needed updating.", self.selection_notice
             peer.sendall(b"d")
             assert peer.recv(1) == b"q"
 sys.modules["strata_cli.monitor"].MonitorApp = MonitorBase
@@ -1595,12 +1637,15 @@ cli._run = run
                 self.assert_observers_answer(self.old)
                 peer.sendall(b"p")
                 response = peer.recv(1)
-                if response != b"d":
+                if response != b"f":
                     stdout, stderr = process.communicate(timeout=30)
                     self.fail(f"Monitor worker stopped before completion: {stdout}\n{stderr}")
                 stdout, stderr = contender.communicate(timeout=30)
                 self.assertEqual(contender.returncode, 0, stderr)
                 self.assertEqual(Path(stdout.strip()), root)
+                # Let the queued prepare finish before testing a later successful monitor update.
+                peer.sendall(b"u")
+                self.assertEqual(peer.recv(1), b"d")
                 self.assert_workspace_unlocked()
                 from importlib.util import module_from_spec, spec_from_file_location
                 spec = spec_from_file_location("test_workspace", WORKSPACE)
@@ -1816,27 +1861,25 @@ cli._run = run
         root = self.prepare(self.old)
         self.make_runtime_source(root)
         subprocess.run([sys.executable, "-m", "venv", str(root / ".venv")], env=self.env, check=True)
-        setup = root / "setup.sh"
-        setup.write_text(f'''#!{shutil.which("sh")}
-cd "$(dirname "$0")" || exit 8
-exec "{sys.executable}" - "$@" <<'PY'
+        setup = root / "setup-fixture.py"
+        setup.write_text(f'''
 import sys
-sys.path.append(r"{UPSTREAM}")
 from pathlib import Path
 import setup
-if "--update" in sys.argv:
+setup.pip_install = lambda *args, **kwargs: None
+original_update = setup.update_install
+def update(have, a):
     attempts = setup.ROOT / "update-attempts"
     attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
-setup.pip_install = lambda *args, **kwargs: None
+    return original_update(have, a)
+setup.update_install = update
 def install(url):
     candidate = setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
     if (candidate / "strata").exists():
         setup.install_unpacked(candidate, setup.engine_dir())
 setup.update_installed_engine = install
 sys.exit(setup.main())
-PY
 ''')
-        setup.chmod(0o700)
         self.make_runtime_model(root)
         for name, version in ((".previous", "A"), ("default", "C"), ("custom", "D")):
             folder = root / "engine" / name
@@ -1862,7 +1905,7 @@ PY
         settings.write_text(json.dumps({"data_dir": str(remembered), "custom": "keep"}))
         expected_settings = settings.read_bytes()
         expected_config = (root / "strata-fixture.json").read_bytes()
-        script = root / "setup.sh"
+        script = root / "setup-fixture.py"
         script.write_text(script.read_text().replace(
             "sys.exit(setup.main())",
             'setup.engine_update_note = lambda: None\n'
@@ -1873,7 +1916,7 @@ PY
                    TEST_MODELS_DIRECTORY=str(models_destination))
         for args in (["--no-browser"], ["--no-browser", "--api-key=--setup"]):
             with self.subTest(args=args):
-                result = subprocess.run(self.command(self.old) + ["run", *args],
+                result = subprocess.run(self.command(self.old) + ["run", "source", *args],
                                         env=env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertFalse(destination.exists())
@@ -1886,7 +1929,7 @@ PY
     def test_directory_defaults_leave_check_update_and_calibration_to_upstream(self):
         root = self.make_updater_workspace()
         (root / ".git/strata-runtime-revision").write_text(self.old + "\n")
-        script = root / "setup.sh"
+        script = root / "setup-fixture.py"
         script.write_text(script.read_text().replace(
             "sys.exit(setup.main())",
             '''parse = setup.argparse.ArgumentParser.parse_args
@@ -1908,7 +1951,7 @@ sys.exit(setup.main())''',
         for args in (["--check"], ["--update"], ["--calibrate", "--no-start"], ["--rollback-engine"]):
             with self.subTest(args=args):
                 (root / "parsed-command").unlink(missing_ok=True)
-                result = subprocess.run(self.command(self.old) + ["run", *args], env=env,
+                result = subprocess.run(self.command(self.old) + ["run", "source", *args], env=env,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((root / "parsed-command").read_text(), "ok")
@@ -1929,7 +1972,7 @@ sys.exit(setup.main())''',
                 args = ["--up", "--check", f"--prebuilt={source}"]
                 if build:
                     args.append("--buil")
-                result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                result = subprocess.run(self.command(self.new) + ["run", "source", *args], env=self.env,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((root / "engine/strata").read_text(), "B" if build else "D")
@@ -1941,7 +1984,7 @@ sys.exit(setup.main())''',
                     (candidate / "strata").write_text("E")
                     (candidate / "strata").chmod(0o700)
                     (candidate / "BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
-                    result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                    result = subprocess.run(self.command(self.new) + ["run", "source", *args], env=self.env,
                                             capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual((root / "engine/strata").read_text(), "E")
@@ -1956,7 +1999,7 @@ sys.exit(setup.main())''',
                 root = self.make_updater_workspace()
                 (root / ".git/strata-runtime-revision").write_text(self.old)
                 config = (root / "strata-fixture.json").read_bytes()
-                result = subprocess.run(self.command(self.new) + ["run", flag], env=self.env,
+                result = subprocess.run(self.command(self.new) + ["run", "source", flag], env=self.env,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((root / "engine/strata").read_text(), "B")
@@ -1996,7 +2039,7 @@ PY
                     (folder / "BUILD.json").write_text(json.dumps({"version": version}))
                 marker = root / ".git/strata-runtime-revision"
                 marker.write_text(self.old)
-                command = self.command(self.new) + ["run", flag]
+                command = self.command(self.new) + ["run", "source", flag]
                 for current, saved in (("A", "B"), ("B", "A")):
                     result = subprocess.run(command, env=self.env, capture_output=True,
                                             text=True, timeout=30)
@@ -2019,7 +2062,6 @@ PY
         values = json.loads(config.read_text())
         values.update(backend="hip", open_browser=False)
         config.write_text(json.dumps(values))
-        (root / "serve").mkdir()
         (root / "serve/server.py").write_text(GATE)
         script = root / "setup.sh"
         script.write_text(script.read_text().replace(
@@ -2029,10 +2071,10 @@ PY
 
     def start_rollback_workspace(self, root, *args):
         process, pid, peer = self.gated_process(
-            self.command(self.new) + ["run", "--no-browser", *args],
+            self.command(self.new) + ["run", "source", "--no-browser", *args],
         )
         self.assertEqual(pid, process.pid)
-        self.assert_workspace_locked()
+        self.assert_workspace_unlocked()
         peer.sendall(b"q")
         process.wait(timeout=10)
         self.assertEqual(process.returncode, 0)
@@ -2047,7 +2089,7 @@ PY
                 self.state = state / certificate
                 root = self.make_rollback_workspace()
                 (root / "strata-fixture.json").rename(root / "strata-Q2_0.json")
-                script = root / "setup.sh"
+                script = root / "setup-fixture.py"
                 script.write_text(script.read_text().replace(
                     "sys.exit(setup.main())",
                     'def calibrate(config):\n'
@@ -2056,7 +2098,7 @@ PY
                     'setup.calibrate_config = calibrate\n'
                     'sys.exit(setup.main())',
                 ))
-                result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                         env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 approval = root / ".git/strata-engine-rollback.json"
@@ -2071,7 +2113,7 @@ PY
                     ["--calibrate", "--no-start"],
                     ["--cal", "--no-st", "--model=Q2_0", "--family=qwen"],
                 ):
-                    result = subprocess.run(self.command(self.new) + ["run", *args, "--yes"],
+                    result = subprocess.run(self.command(self.new) + ["run", "source", *args, "--yes"],
                                             env=self.env, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual((root / "calibrated-model").read_text(), "strata-Q2_0.json")
@@ -2081,16 +2123,19 @@ PY
                     self.assertFalse((root / "update-attempts").exists())
                 self.start_rollback_workspace(root, "--calibrate", "--model=Q2_0", "--family=qwen")
                 self.assertEqual((root / "engine/strata").read_text(), "A")
-                self.assertFalse((root / "update-attempts").exists())
+                if certificate == "current":
+                    self.assertFalse((root / "update-attempts").exists())
+                else:
+                    self.assertEqual((root / "update-attempts").read_text(), "1")
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_explicit_update_takes_precedence_over_calibration(self):
         root = self.make_rollback_workspace()
-        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         result = subprocess.run(
-            self.command(self.new) + ["run", "--calibrate", "--update",
+            self.command(self.new) + ["run", "source", "--calibrate", "--update",
                                       "--prebuilt=" + str(root / "engine/custom")],
             env=self.env, capture_output=True, text=True, timeout=30,
         )
@@ -2113,23 +2158,27 @@ PY
                     marker.unlink()
                 if not available:
                     shutil.rmtree(root / "engine/default")
-                result = subprocess.run(self.command(self.new) + ["run", "--rollback-eng"],
+                result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-eng"],
                                         env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                refreshes = 0 if certificate == "current" else 1
                 for _ in range(2):
                     self.start_rollback_workspace(root)
                     self.assertEqual((root / "engine/strata").read_text(), "A")
-                    self.assertFalse((root / "update-attempts").exists())
+                    if refreshes:
+                        self.assertEqual((root / "update-attempts").read_text(), str(refreshes))
+                    else:
+                        self.assertFalse((root / "update-attempts").exists())
                     self.assertEqual(marker.read_text().strip(), self.new)
                 result = subprocess.run(
-                    self.command(self.new) + ["run", "--update", "--prebuilt=" + str(root / "engine/custom")],
+                    self.command(self.new) + ["run", "source", "--update", "--prebuilt=" + str(root / "engine/custom")],
                     env=self.env, capture_output=True, text=True, timeout=30,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((root / "engine/strata").read_text(), "D")
                 self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
                 self.start_rollback_workspace(root)
-                self.assertEqual((root / "update-attempts").read_text(), "1")
+                self.assertEqual((root / "update-attempts").read_text(), str(refreshes + 1))
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_rollback_approval_does_not_mask_missing_prerequisites(self):
@@ -2138,7 +2187,7 @@ PY
             with self.subTest(missing=missing):
                 self.state = state / missing
                 root = self.make_rollback_workspace()
-                result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                         env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 if missing == "tokenizer":
@@ -2155,7 +2204,7 @@ PY
                     config["exe"] = str(other / "strata")
                     (root / "strata-other.json").write_text(json.dumps(config))
                 for args in ([], ["--calibrate"]):
-                    result = subprocess.run(self.command(self.new) + ["run", "--no-browser", *args],
+                    result = subprocess.run(self.command(self.new) + ["run", "source", "--no-browser", *args],
                                             env=self.env, capture_output=True, text=True, timeout=30)
                     self.assertNotEqual(result.returncode, 0)
                 self.assertEqual((root / "engine/strata").read_text(), "A")
@@ -2179,7 +2228,7 @@ PY
                 args = ["--rollback-engine", "--help"] if noop else ["--rollback-engine"]
                 if not noop:
                     shutil.rmtree(root / "engine/.previous")
-                result = subprocess.run(self.command(self.new) + ["run", *args],
+                result = subprocess.run(self.command(self.new) + ["run", "source", *args],
                                         env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0 if noop else 1)
                 self.assertFalse((root / ".git/strata-engine-rollback.json").exists())
@@ -2193,12 +2242,12 @@ PY
             with self.subTest(change=change):
                 self.state = state / change
                 root = self.make_rollback_workspace()
-                result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+                result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                         env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 if change == "source":
                     for revision in (self.old, self.new):
-                        result = subprocess.run(self.command(revision) + ["run", "--help"],
+                        result = subprocess.run(self.command(revision) + ["run", "source", "--help"],
                                                 env=self.env, capture_output=True, text=True, timeout=30)
                         self.assertEqual(result.returncode, 0, result.stderr)
                 elif change == "payload":
@@ -2212,7 +2261,7 @@ PY
                     script.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
                     flag = "--setu" if change == "setup" else "--update"
                     result = subprocess.run(
-                        [sys.executable, WORKSPACE, str(self.state), self.new, "", "", SOURCE_PATCH, flag],
+                        [sys.executable, WORKSPACE, str(self.state), self.new, "", "", SOURCE_PATCH, "source", flag],
                         env=self.env, capture_output=True, text=True, timeout=30,
                     )
                     self.assertEqual(result.returncode, 9, result.stderr)
@@ -2240,21 +2289,22 @@ PY
                 archive.writestr(name, content)
         self.env.update(PIP_NO_INDEX="1", PIP_FIND_LINKS=str(self.base))
         (root / "requirements.txt").write_text("pip\nrollback-probe==1.0\n")
-        script = root / "setup.sh"
+        script = root / "setup-fixture.py"
         script.write_text(script.read_text().replace(
             "setup.pip_install = lambda *args, **kwargs: None\n", "",
         ))
         (root / "serve/server.py").write_text("import rollback_probe\n" + GATE)
-        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.start_rollback_workspace(root)
         self.assertEqual((root / "engine/strata").read_text(), "A")
-        self.assertEqual((root / "update-attempts").read_text(), "1")
+        self.assertFalse((root / "update-attempts").exists())
+        self.assertIn("rollback-probe==1.0", json.loads((root / ".venv/.strata-pip.json").read_text()))
         self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.new)
         self.start_rollback_workspace(root)
         self.assertEqual((root / "engine/strata").read_text(), "A")
-        self.assertEqual((root / "update-attempts").read_text(), "1")
+        self.assertFalse((root / "update-attempts").exists())
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_rollback_approvals_are_per_toolkit(self):
@@ -2264,7 +2314,7 @@ PY
         config["exe"] = str(root / "engine-cuda12/strata")
         (root / "strata-cuda12.json").write_text(json.dumps(config))
         for args in (["--rollback-engine"], ["--rollback-engine", "--cuda=12"]):
-            result = subprocess.run(self.command(self.new) + ["run", *args],
+            result = subprocess.run(self.command(self.new) + ["run", "source", *args],
                                     env=self.env, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
         self.start_rollback_workspace(root, "--yes")
@@ -2277,7 +2327,7 @@ PY
         root = self.make_rollback_workspace()
         (root / "engine/.previous/BUILD.json").write_text('{"source": "prebuilt"}')
         shutil.rmtree(root / "engine/default")
-        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         status = subprocess.run(
@@ -2285,7 +2335,7 @@ PY
             env=self.env, cwd=root, capture_output=True, text=True, timeout=30,
         )
         self.assertNotEqual(status.returncode, 0)
-        result = subprocess.run(self.command(self.new) + ["run", "--no-browser"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--no-browser"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((root / "engine/strata").read_text(), "A")
@@ -2298,7 +2348,7 @@ PY
         (root / "engine/.previous/BUILD.json").write_text(json.dumps({
             "version": "0.1.45", "source": "local", "src": "previous-source", "vision": "none",
         }))
-        result = subprocess.run(self.command(self.new) + ["run", "--rollback-engine"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--rollback-engine"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.start_rollback_workspace(root)
@@ -2315,7 +2365,7 @@ PY
         marker = root / ".git/strata-runtime-revision"
         (root / "engine/BUILD.json").write_text(json.dumps({"version": "0.1.12", "source": "prebuilt"}))
         # Missing update source leaves the installed engine unchanged; upstream still returns zero.
-        command = self.command(self.new) + ["run", "--prebuilt=missing"]
+        command = self.command(self.new) + ["run", "source", "--prebuilt=missing"]
         config = (root / "strata-fixture.json").read_bytes()
         for attempt in (1, 2):
             result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=30)
@@ -2323,7 +2373,7 @@ PY
             self.assertFalse(marker.exists())
             self.assertEqual((root / "update-attempts").read_text(), str(attempt))
             self.assertEqual((root / "strata-fixture.json").read_bytes(), config)
-        valid = self.command(self.new) + ["run", "--update", "--prebuilt=" + str(root / "engine/custom")]
+        valid = self.command(self.new) + ["run", "source", "--update", "--prebuilt=" + str(root / "engine/custom")]
         result = subprocess.run(valid, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(marker.read_text().strip(), self.new)
@@ -2356,9 +2406,8 @@ PY
                 missing.chmod(mode)
         (root / "strata-fixture.json").unlink()
         result = subprocess.run(refresh, env=self.env, capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("run strata --setup", result.stderr)
-        self.assertFalse(marker.exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(marker.read_text().strip(), self.new)
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_every_installed_model_engine_must_satisfy_runtime_contract(self):
@@ -2371,7 +2420,7 @@ PY
         config = json.loads((root / "strata-fixture.json").read_text())
         config["exe"] = str(other / "strata")
         (root / "strata-second.json").write_text(json.dumps(config))
-        result = subprocess.run(self.command(self.new) + ["run", "--update", "--build"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--update", "--build"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(other / "strata"), result.stderr)
@@ -2515,7 +2564,7 @@ PY
         marker.write_text(self.new)
         setup = root / "setup.sh"
         setup.write_text(f"#!{shutil.which('sh')}\nexit 9\n")
-        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "", SOURCE_PATCH, "--update"],
+        result = subprocess.run([sys.executable, WORKSPACE, str(self.state), self.new, "", "", SOURCE_PATCH, "source", "--update"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 9)
         self.assertFalse(marker.exists())
@@ -2523,7 +2572,7 @@ PY
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_runtime_validation_rejects_missing_and_stale_python_distribution(self):
         root = self.make_updater_workspace()
-        command = self.command(self.new) + ["run", "--update", "--build"]
+        command = self.command(self.new) + ["run", "source", "--update", "--build"]
         marker = root / ".git/strata-runtime-revision"
         for requirement, diagnostic in (("strata-missing-runtime==1", "Python package missing"),
                                         ("pip==0", "requires ==0")):
@@ -2547,7 +2596,7 @@ PY
                        env=self.env, check=True)
         # BUILD.json claims the new source; the binary still carries the older compiled-in version.
         (root / "engine/strata").write_text("engine=0.1.46\n")
-        result = subprocess.run(self.command(self.new) + ["run", "--update", "--build"],
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--update", "--build"],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("compiled engine does not match this source", result.stderr)
@@ -2608,7 +2657,7 @@ PY
         gate.write_text(GATE)
         (root / "setup.sh").write_text(f'exec "{sys.executable}" "{gate}"\n')
         marker = root / ".git/strata-runtime-revision"
-        command = self.command(self.new) + ["run"]
+        command = self.command(self.new) + ["run", "source"]
         process, child_pid, peer = self.gated_process(command)
         self.assertNotEqual(child_pid, process.pid)
         self.assert_workspace_locked()
@@ -2689,12 +2738,16 @@ PY
         setup = root / "setup.sh"
         setup.write_text(f'#!{shutil.which("sh")}\nexec "{probe}"\n')
         setup.chmod(0o700)
+        (root / "strata.py").write_text(
+            "import subprocess,sys\nfrom strata_cli import cli\n"
+            + f"cli._run = lambda a: subprocess.call([{str(probe)!r}])\n"
+            + "raise SystemExit(cli.main())\n")
         cache = self.base / "binary-cache"
         run("nix", "copy", "--to", f"file://{cache}", store)
         run("nix-store", "--delete", store)
         self.assertFalse(os.access(python, os.X_OK))
         self.env["NIX_CONFIG"] += f"substituters = file://{cache}\n"
-        result = subprocess.run(self.command(self.new) + ["run"], env=self.env,
+        result = subprocess.run(self.command(self.new) + ["run", "launch"], env=self.env,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "83")
@@ -2712,7 +2765,7 @@ PY
         self.env["NIX_CONFIG"] += f"substituters = file://{empty}\n"
         marker = root / ".git/strata-runtime-revision"
         marker.unlink(missing_ok=True)
-        failed = subprocess.run(self.command(self.new) + ["run"], env=self.env,
+        failed = subprocess.run(self.command(self.new) + ["run", "launch"], env=self.env,
                                 capture_output=True, text=True, timeout=60)
         self.assertNotEqual(failed.returncode, 0)
         self.assertFalse(marker.exists())
@@ -2735,7 +2788,7 @@ PY
         setup = root / "setup.sh"
         setup.write_text(f'#!{shutil.which("sh")}\nexec "{sys.executable}" "{gate}"\n')
         setup.chmod(0o700)
-        process, child_pid, peer = self.gated_process(self.command(self.new) + ["run"])
+        process, child_pid, peer = self.gated_process(self.command(self.new) + ["run", "source"])
         self.assertFalse(venv.exists())
         self.assertFalse(marker.exists())
         self.assertNotEqual(child_pid, process.pid)
@@ -2752,19 +2805,25 @@ PY
         venv = self.make_venv_without_pip(root)
         self.make_runtime_source(root)
         expected_config = self.make_runtime_model(root, "user")
+        (root / "setup-fixture.py").write_text(
+            "import setup,sys\nsetup.start = lambda *a, **kw: 0\n"
+            "setup.engine_update_note = lambda: None\nsys.exit(setup.main())\n")
         marker = root / ".git/strata-runtime-revision"
         config = root / "strata-user.json"
         allow_success = self.base / "allow-success"
         setup = root / "setup.sh"
         setup.write_text(f'''#!{shutil.which("sh")}
 cd "$(dirname "$0")" || exit 8
-if [ "${{1:-}}" = --update ]; then
+if [ "${{STRATA_BOOTSTRAP_ONLY:-}}" = 1 ] && .venv/bin/python -m pip --version >/dev/null 2>&1; then
+    exit 0
+fi
+if [ "${{STRATA_BOOTSTRAP_ONLY:-}}" = 1 ] || [ "${{1:-}}" = --update ]; then
     "{sys.executable}" -m venv .venv || exit 8
     test -f "{allow_success}" || exit 7
 fi
 ''')
         setup.chmod(0o700)
-        command = self.command(self.new) + ["run"]
+        command = self.command(self.new) + ["run", "source", "--build", "--no-browser"]
         for _ in range(2):
             result = subprocess.run(command, env=self.env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
@@ -2788,12 +2847,15 @@ fi
         # Keep the actual setup/start path, not the unrelated C++ tree, docs or Git metadata.
         for name in ("setup.sh", "requirements.txt", "requirements-monitor.txt", "CMakeLists.txt"):
             shutil.copyfile(Path(UPSTREAM) / name, self.repo / name)
-        shutil.copytree(Path(UPSTREAM) / "serve", self.repo / "serve", copy_function=shutil.copyfile)
         for directory, _, _ in os.walk(self.repo):
             Path(directory).chmod(0o700)
         server = self.repo / "serve/server.py"
         server.unlink()
-        server.write_text(GATE)
+        server.write_text(
+            "import os,sys\nfrom pathlib import Path\n"
+            "assert 'STRATA_RUNTIME_READY' not in os.environ\n"
+            "assert Path(sys.executable).parent.parent == Path(__file__).resolve().parents[1] / '.venv'\n"
+            + GATE)
         setup = self.repo / "setup.sh"
         content = setup.read_text()
         setup.unlink()
@@ -2810,8 +2872,9 @@ fi
         (root / "engine/strata").symlink_to(sys.executable)
         config.update(backend="hip", model_name="process-fixture")
         (root / "strata-process.json").write_text(json.dumps(config))
-        command = self.command(revision) + ["run"]
+        command = self.command(revision) + ["run", "source", "--build", "--no-browser"]
         self.env["PIP_NO_INDEX"] = "1"
+        self.env["STRATA_RUNTIME_READY"] = str(root)
         subprocess.run([sys.executable, "-m", "venv", str(root / ".venv")], env=self.env, check=True)
         self.make_terminal(root)
         process, server_pid, peer = self.gated_process(command)
@@ -2825,6 +2888,269 @@ fi
         process.wait(timeout=10)
         peer.close()
         self.assert_workspace_unlocked()
+
+    def test_cold_metadata_and_plans_never_bootstrap(self):
+        root = self.prepare(self.old)
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.old + "\n")
+        self.env.update(PIP_NO_INDEX="1", PYTHONNOUSERSITE="1", STRATA_NO_ACQUIRE="1")
+        cases = [
+            (["status", "--url", "http://127.0.0.1:1", "--timeout", "0.1", "--output", "json"], 3),
+            (["monitor", "--once", "--url", "http://127.0.0.1:1", "--timeout", "0.1", "--output", "json"], 3),
+            (["components", "backends"], 0),
+            (["models", "list"], 0),
+            (["profile", "list"], 0),
+            (["launch", "--status"], 0),
+            (["launch", "--list-presets"], 0),
+            (["launch", "--plan", "--family", "qwen", "--model", "Q2_0", "--output", "json"], 0),
+            (["serve", "--config", "missing.json", "--plan"], 5),
+        ]
+        for argv, expected in cases:
+            with self.subTest(argv=argv):
+                result = subprocess.run(self.command(self.new) + ["run", *argv], env=self.env,
+                                        capture_output=True, text=True, timeout=90)
+                self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse((root / ".venv").exists())
+                self.assertFalse((self.state / ".python-root").exists())
+                self.assertEqual(marker.read_text().strip(), self.old)
+
+    def make_native_lifecycle_workspace(self):
+        root = self.prepare(self.old)
+        self.make_runtime_source(root)
+        # Use upstream's actual environment creation and pip implementation, without external wheels.
+        shell = (Path(UPSTREAM) / "setup.sh").read_text()
+        shell = shell.replace('exec .venv/bin/python setup.py "$@"',
+                              """exec .venv/bin/python -c 'import os,setup,sys; sys.exit(setup.bootstrap_runtime() if os.environ.get("STRATA_BOOTSTRAP_ONLY") == "1" else setup.main())' "$@" """)
+        (root / "setup.sh").write_text(shell)
+        (root / "setup-fixture.py").write_text('''
+import json, sys
+from pathlib import Path
+import setup
+def engine(url):
+    attempts = setup.ROOT / "update-attempts"
+    attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
+    if (setup.ROOT / "allow-update").exists():
+        (setup.ROOT / "engine/BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
+setup.update_installed_engine = engine
+original_upgrade = setup.upgrade_config
+def upgrade(path, cfg):
+    cfg = original_upgrade(path, cfg)
+    cfg["managed_source"] = (setup.ROOT / "code.py").read_text().strip()
+    setup.write_config(path, cfg)
+    return cfg
+setup.upgrade_config = upgrade
+sys.exit(setup.main())
+''')
+        (root / "strata.py").write_text('''
+import json, os, sys
+from pathlib import Path
+from types import SimpleNamespace
+from strata_cli import cli
+from strata_cli.launch import cmd
+from strata_cli.launch.runner import Runner
+ROOT = Path(__file__).resolve().parent
+cmd.apply_defaults = lambda s, catalog: (s, [])
+def run(self):
+    assert self.catalog.root == ROOT, (self.catalog.root, ROOT)
+    config = self.catalog.root / "strata-Q2_0.json"
+    if config.exists():
+        assert (ROOT / ".git/strata-runtime-revision").read_text().strip() == os.environ["EXPECTED_REVISION"]
+        assert json.loads(config.read_text())["managed_source"] == "new source"
+    else:
+        engine = self.catalog.root / "engine"
+        engine.mkdir()
+        (engine / "strata").write_text("local fixture engine")
+        (engine / "strata").chmod(0o700)
+        (engine / "BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
+        tokenizer = self.catalog.root / "tokenizer"
+        tokenizer.mkdir()
+        for name in ("vocab.json", "merges.txt", "token_type.json"):
+            (tokenizer / name).write_text("{}")
+        config.write_text(json.dumps({"exe": str(engine / "strata"), "args": [], "backend": "cuda",
+                                      "tokenizer": str(tokenizer), "custom": "preserved"}))
+    (ROOT / "action-reached").write_text("Runner.run")
+    return SimpleNamespace(serving=False, profile=None, engine_problem=None, final_text="prepared")
+Runner.run = run
+raise SystemExit(cli.main())
+''')
+        (root / "serve").mkdir(exist_ok=True)
+        (root / "serve/server.py").write_text('''
+import json, os
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+assert (ROOT / ".git/strata-runtime-revision").read_text().strip() == os.environ["EXPECTED_REVISION"]
+assert json.loads((ROOT / "strata-Q2_0.json").read_text())["managed_source"] == "new source"
+(ROOT / "action-reached").write_text("serve import")
+api_key_of = lambda key: key
+explicit_no_key = lambda key: not key
+key_list = lambda key: [key]
+engine_args = lambda cfg: cfg["args"]
+def main(argv, **kwargs):
+    (ROOT / "action-reached").write_text("serve main")
+    return 0
+''')
+        return root
+
+    def test_native_pin_refresh_precedes_launch(self):
+        self.assert_native_lifecycle("launch")
+
+    def test_native_pin_refresh_precedes_serve(self):
+        self.assert_native_lifecycle("serve")
+
+    def assert_native_lifecycle(self, door):
+        state = self.state
+        self.state = state / door
+        root = self.make_native_lifecycle_workspace()
+        env = dict(self.env, PIP_NO_INDEX="1", PYTHONNOUSERSITE="1", EXPECTED_REVISION=self.new)
+        launch = ["run", "launch", "--family", "qwen", "--model", "Q2_0", "--no-tui", "--output", "json"]
+        first = subprocess.run(self.command(self.old) + launch, env=env,
+                               capture_output=True, text=True, timeout=240)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.assertTrue((root / ".venv/bin/python").exists())
+        self.assertTrue((root / ".venv/.strata-pip.json").exists())
+        self.assertTrue((root / "strata-Q2_0.json").exists())
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
+        action = root / "action-reached"
+        action.unlink()
+        argv = launch if door == "launch" else [
+            "run", "serve", "--config", str(root / "strata-Q2_0.json"), "--engine", "mock"]
+        # Upstream can return zero after a partial update. Block the requested real action and retry.
+        (root / "engine/BUILD.json").write_text('{"version":"0.1.12","source":"prebuilt"}')
+        for attempt in (1, 2):
+            failed = subprocess.run(self.command(self.new) + argv, env=env,
+                                    capture_output=True, text=True, timeout=120)
+            self.assertNotEqual(failed.returncode, 0, failed.stdout)
+            self.assertIn("No runtime revision was certified", failed.stderr)
+            self.assertFalse(action.exists())
+            self.assertFalse((root / ".git/strata-runtime-revision").exists())
+            self.assertEqual((root / "update-attempts").read_text(), str(attempt))
+        (root / "allow-update").touch()
+        succeeded = subprocess.run(self.command(self.new) + argv, env=env,
+                                   capture_output=True, text=True, timeout=120)
+        self.assertEqual(succeeded.returncode, 0, succeeded.stderr + succeeded.stdout)
+        self.assertEqual((root / "update-attempts").read_text(), "3")
+        self.assertEqual(action.read_text(), "Runner.run" if door == "launch" else "serve main")
+        self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.new)
+        self.assertEqual(json.loads((root / "strata-Q2_0.json").read_text())["custom"], "preserved")
+
+    def test_previous_overlay_is_replaced_before_native_parser_import(self):
+        self.env["TEST_SOURCE_PATCH"] = ""
+        root = self.prepare(self.old)
+        del self.env["TEST_SOURCE_PATCH"]
+        result = subprocess.run(self.command(self.new) + [
+            "run", "status", "--url", "http://127.0.0.1:1", "--timeout", "0.1", "--output", "json"],
+            env=self.env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual((root / ".git/strata-source.patch").read_text(), Path(SOURCE_PATCH).read_text())
+        self.assertFalse((root / ".venv").exists())
+
+    def test_launch_runner_defaults_and_source_sycl_defaults_use_real_parsers(self):
+        root = self.make_acquisition_workspace()
+        self.run_source_script(root, '''
+import json, os
+from pathlib import Path
+from strata_cli.launch import settings
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(Path.cwd().parent),
+    "data_directory": "/nix-data", "models_directory": "/nix-models"})
+cat = Catalog()
+assert cat.root == Path.cwd()
+runner = Runner(settings.LaunchSettings(family="qwen", model="Q2_0"), catalog=cat)
+runner.existing_data_dir = lambda: Path("/old-remembered")
+runner.resolved_drafting = lambda *a: "off"
+runner.vision_word = lambda: "off"
+runner.installed_card_args = lambda: []
+argv = runner.setup_args()
+assert argv[argv.index("--data-dir") + 1] == "/nix-data"
+assert argv[argv.index("--models-dir") + 1] == "/nix-models"
+assert "--set-default-data-dir" not in argv and "--move-data" not in argv
+runner.s.data_dir = "/cli-data"
+argv = runner.setup_args()
+assert argv[argv.index("--data-dir") + 1] == "/cli-data"
+assert "--set-default-data-dir" in argv
+''')
+        script = root / "setup-fixture.py"
+        script.write_text(script.read_text().replace("sys.exit(setup.main())", '''
+original_sycl = setup.sycl_setup
+def sycl(argv):
+    def capture(executable, command):
+        (setup.ROOT / "sycl-defaults.json").write_text(json.dumps(command[2:]))
+        raise SystemExit(0)
+    setup.os.execv = capture
+    return original_sycl(argv)
+setup.sycl_setup = sycl
+sys.exit(setup.main())
+'''))
+        # The actual setup parser hook must forward injected defaults to SYCL's delegated argv.
+        env = dict(self.env, TEST_DATA_DIRECTORY="/nix-data", TEST_MODELS_DIRECTORY="/nix-models")
+        result = subprocess.run(self.command(self.old) + ["run", "source", "--setup", "--backend", "sycl"],
+                                env=env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        argv = json.loads((root / "sycl-defaults.json").read_text())
+        self.assertEqual(argv[argv.index("--data-dir") + 1], "/nix-data")
+        self.assertEqual(argv[argv.index("--models-dir") + 1], "/nix-models")
+        self.assertIn("--separate-model-artifacts", argv)
+
+    def test_real_setup_hook_accepts_signed_feed_and_help_never_fetches(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os, socket
+from pathlib import Path
+import setup
+from strata_control import feed as feedmod, signing
+sys.path.append(str(Path(''' + repr(UPSTREAM) + ''') / "tools"))
+from test_setup_feed_models import flash_next
+directory = Path.cwd() / "local-feed"
+directory.mkdir()
+key = signing.generate_key()
+keys = directory / "keys.json"
+keys.write_text(json.dumps({"keys": [signing.public_part(key)]}))
+os.environ["STRATA_UPDATE_TRUSTED_KEYS"] = str(keys)
+os.environ["STRATA_COMPONENTS_DIR"] = str(directory / "components")
+payload = json.dumps({"schema_version": 1, "feed": "strata-updates", "channel": "stable",
+    "sequence": 1, "generated_at": "2026-11-06T00:00:00Z", "expires_at": None,
+    "models": {"packages": [flash_next()]}}).encode()
+(directory / feedmod.FEED_NAME).write_bytes(payload)
+(directory / (feedmod.FEED_NAME + ".sig")).write_text(json.dumps(signing.sign_bytes(key, payload)))
+setup.feed_engine_families = lambda: {"qwen4exp"}
+setup.own_files_in = lambda *args: (_ for _ in ()).throw(AssertionError("hook ran too late"))
+def no_network(*args, **kwargs):
+    raise AssertionError("help or local feed opened a network connection")
+socket.socket.connect = no_network
+socket.create_connection = no_network
+with contextlib.redirect_stdout(io.StringIO()):
+    try:
+        setup.main(["--help", "--family", "not-built-in", "--feed", "https://forbidden.invalid"])
+    except SystemExit as error:
+        assert error.code == 0
+    else:
+        raise AssertionError("help did not exit")
+def after(a, argv):
+    assert a.family == "qwen4-test" and a.model == "Q4_K_M" and a.context == 8192
+    assert argv[-2:] == ["--cont", "8192"]
+    return 37
+assert setup.main(["--family", "qwen4-test", "--model", "Q4_K_M", "--feed", str(directory),
+                   "--gguf-dir", "/must-not-touch", "--cont", "8192"], after_parse=after) == 37
+''')
+
+    def test_new_pin_parser_is_loaded_before_new_native_command(self):
+        root = self.prepare(self.old)
+        cli = self.repo / "strata_cli/cli.py"
+        anchor = '    sp = ap.add_subparsers(dest="command", required=True)'
+        cli.write_text(cli.read_text().replace(anchor, anchor + '\n    sp.add_parser("new-native-command")'))
+        revision = self.commit()
+        (root / "strata.py").write_text(
+            "from pathlib import Path\nfrom strata_cli import cli\n"
+            "cli._run = lambda a: 0 if a.command == 'new-native-command' else 99\n"
+            "raise SystemExit(cli.main())\n")
+        result = subprocess.run(self.command(revision) + ["run", "new-native-command"],
+                                env=self.env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), revision)
+        self.assertFalse((root / ".venv").exists())
 
 
 unittest.main()

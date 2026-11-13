@@ -1,16 +1,14 @@
 """Manage Strata's pinned, writable checkout and its runtime under the user's state directory.
 
 Keep revision refs for offline rollback, serialize source/runtime changes, and root Nix Python.
-One `strata` name reaches both upstream programs: a subcommand is upstream's Terminal, options (or nothing)
-are upstream's setup. The shape of argv decides, and both shapes are read from the checkout.
+The public Terminal grammar owns the root; `source` delegates raw arguments to setup's real parser.
+Only real actions bootstrap Python or reconcile an installed runtime after a pin change.
 A runtime revision records validated local prerequisites, not merely an updater's exit status.
 Component references retain upstream compatibility and pins; raw paths use legacy freshness rules.
 Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
 
 from contextlib import contextmanager
-import argparse
-import ast
 import fcntl
 import json
 import os
@@ -129,6 +127,8 @@ def _prepare_workspace(state, revision, remote, source_patch=None):
         except (OSError, subprocess.CalledProcessError) as restore_error:
             print(f"Cannot restore source patch in {root}: {restore_error}", file=sys.stderr)
         raise
+    if current != revision:
+        (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
     if desired is not None:
         if not patch_check(root, desired):
             raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
@@ -252,8 +252,6 @@ def check_runtime(root):
         revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         rollbacks = engine_rollbacks(root, revision)
     configs = setup.installed_configs()
-    if not configs:
-        raise RuntimeError("No Strata model is installed; run strata --setup before strata --update")
 
     # Match pip_install's intentional compatibility policy for legacy bare-name stamps.
     stamp = Path(sys.prefix) / ".strata-pip.json"
@@ -324,7 +322,7 @@ def check_runtime(root):
         raise RuntimeError(
             "Strata runtime is incomplete:\n  " + "\n  ".join(problems)
             + f"\nRepair the named files/packages (Python: {sys.executable} -m pip install -r "
-              f"{setup.REQUIREMENTS}), close the model, check the updater's errors, then run strata --update."
+              f"{setup.REQUIREMENTS}), close the model, check the updater's errors, then run strata source --update."
               "\nNo runtime revision was certified; the next normal launch will retry."
         )
 
@@ -335,7 +333,7 @@ def runtime_status(root, lock_fd):
         python = root / ".venv/bin/python"
     if not os.access(python, os.X_OK):
         return subprocess.CompletedProcess(
-            [], 1, "", f"Runtime interpreter {python} is unavailable; run strata --setup, then retry strata --update"
+            [], 1, "", f"Runtime interpreter {python} is unavailable; run strata source --setup, then retry strata source --update"
         )
     return subprocess.run(
         [str(python), str(Path(__file__).resolve()), "--runtime-status", str(root)],
@@ -355,12 +353,11 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False):
         status = runtime_status(root, lock_fd)
         if status.returncode == 0 and current:
             return
-    if status is None or status.returncode:
-        marker.unlink(missing_ok=True)
-        if not rollbacks:
-            rollback_path.unlink(missing_ok=True)
-        # Upstream --build skips engine acquisition during --update;
-        # Python/config repair still runs without replacing rolled-back engines.
+    marker.unlink(missing_ok=True)
+    if not rollbacks:
+        rollback_path.unlink(missing_ok=True)
+    if force or not current or status is None or status.returncode:
+        # Upstream --build preserves approved rolled-back engines while repairing Python and configs.
         repair_args = [*args, "--build"] if rollbacks else args
         subprocess.run(
             ["sh", str(root / "setup.sh"), "--update", *repair_args],
@@ -369,7 +366,7 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False):
         status = runtime_status(root, lock_fd)
         if status.returncode:
             raise RuntimeError(status.stderr.strip() or status.stdout.strip() or
-                               "Strata runtime validation failed; run strata --update after repairing the runtime")
+                               "Strata runtime validation failed; run strata source --update after repairing the runtime")
     temporary = marker.with_suffix(".tmp")
     temporary.write_text(revision + "\n")
     temporary.replace(marker)
@@ -395,246 +392,205 @@ def retain_interpreter(state, venv):
         raise RuntimeError(f"Interpreter {python} is unavailable; virtual environment preserved at {venv}")
 
 
-def _function(tree, name):
-    """A top-level function of a parsed source file, or None."""
-    return next((node for node in tree.body
-                 if isinstance(node, ast.FunctionDef) and node.name == name), None)
+def runtime_python(root):
+    bundled = root / "python/bin/python3"
+    return bundled if os.access(bundled, os.X_OK) else root / ".venv/bin/python"
 
 
-def _flags(node):
-    """The literal string arguments of a parser call: option strings, or a positional's name."""
-    return [flag.value for flag in node.args if isinstance(flag, ast.Constant) and isinstance(flag.value, str)]
-
-
-def terminal_words(root, args=()):
-    """The words upstream's Terminal accepts: its subcommands, and the options it takes before one.
-
-    Asked of the checkout's own parser, and run rather than read as text: upstream contributes subcommands from
-    other modules (`launch_cmd.add_parsers(sp)` in strata_cli/cli.py), which a source scan would miss and then
-    silently send `strata launch` to setup. Running it also means a new upstream subcommand routes with no change
-    here, and the words cannot drift from upstream."""
-    probe = """import argparse, contextlib, io, json, sys
-sys.path.insert(0, sys.argv[1])
-from strata_cli.cli import parser, _install_argv
-p = parser()
-sub = [action for action in p._actions if isinstance(action, argparse._SubParsersAction)]
-words = {'commands': sorted(sub[0].choices) if sub else [],
-         'options': sorted(p._option_string_actions), 'terminal': False, 'command': None}
-args = sys.argv[2:]
-with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+def bootstrap_runtime(state, root, lock_fd):
+    """Let upstream create its environment and install its own runtime requirements, without a model."""
+    retain_interpreter(state, root / ".venv")
+    venv = root / ".venv"
+    python = runtime_python(root)
+    if venv.is_dir() and python == venv / "bin/python" and subprocess.run(
+        [str(python), "-m", "pip", "--version"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode:
+        shutil.rmtree(venv)
+        (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        retain_interpreter(state, venv)
     try:
-        option = p._parse_optional(args[0]) if args else None
-        # Python 3.14 returns a list of option matches; earlier argparse returns one tuple.
-        if isinstance(option, list):
-            option = option[0] if len(option) == 1 else None
-        candidate = bool(args and (args[0] in words['commands'] or
-                         (option and option[0] and not {'-h', '--help'} & set(option[0].option_strings))))
-        if candidate:
-            words['terminal'] = True
-            parsed, _ = p.parse_known_args(_install_argv(args))
-            words['command'] = parsed.command
-    except SystemExit:
-        pass
-print(json.dumps(words))
-"""
-    result = subprocess.run([sys.executable, "-c", probe, str(root), *args],
-                            capture_output=True, text=True, timeout=120)
-    if result.returncode:
-        raise RuntimeError(f"Cannot read upstream's Terminal arguments in {root}: "
-                           f"{result.stderr.strip() or 'its parser did not run'}")
-    words = json.loads(result.stdout)
-    if not words["commands"]:
-        raise RuntimeError("Upstream's Terminal declares no subcommands in strata_cli/cli.py")
-    # Every parser, setup's included, carries -h/--help, so it says nothing about which program was meant: the
-    # person who types `strata --help` in a source checkout gets upstream's setup, who wants the Terminal asks it.
-    words["options"] = [option for option in words["options"] if option not in {"-h", "--help"}]
-    return words
+        subprocess.run(
+            ["sh", str(root / "setup.sh")], check=True, stdout=sys.stderr,
+            env=dict(os.environ, STRATA_BOOTSTRAP_ONLY="1"), pass_fds=(lock_fd,),
+        )
+    except BaseException:
+        (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        raise
+    finally:
+        retain_interpreter(state, root / ".venv")
+    python = runtime_python(root)
+    if not os.access(python, os.X_OK):
+        raise RuntimeError(f"Strata bootstrap did not provide a runtime interpreter at {python}")
+    return python
 
 
-def cli_doors(root, args=()):
-    """One `strata` name, two upstream programs: the Terminal's words, and the shape that keeps them apart.
-
-    Upstream invokes its Terminal only by subcommand and its setup only by option. If upstream gives its setup a
-    positional argument or subcommands, the two shapes overlap and this says so and stops, rather than guessing
-    which program the person meant."""
-    words = terminal_words(root, args)
-    setup_main = _function(ast.parse((root / "setup.py").read_text()), "main")
-    if setup_main is None:
-        raise RuntimeError("Cannot inspect upstream setup's argument parser")
-    for node in ast.walk(setup_main):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) \
-                or node.func.attr not in {"add_argument", "add_subparsers"}:
-            continue
-        if node.func.attr == "add_subparsers" or any(not flag.startswith("-") for flag in _flags(node)):
-            raise RuntimeError(
-                "Upstream's setup takes a positional argument or subcommands, so `strata` can no longer tell a "
-                "setup from a Terminal command by shape: give the two doors their own names again.")
-    return words
+def terminal_args(root, args):
+    sys.path.insert(0, str(root))
+    from strata_cli.cli import parse_args
+    return parse_args(args)
 
 
-def entry_point(root, args):
-    """Which upstream program this argv means: 'terminal' or 'setup'."""
-    return "terminal" if cli_doors(root, args)["terminal"] else "setup"
+def runtime_action(a):
+    """Opt in only actions whose execution needs Python runtime or screen dependencies."""
+    if a.command == "launch":
+        return not (a.plan or any(getattr(a, key, False)
+                                 for key in ("status", "list_presets", "show_key", "stop", "delete_preset")))
+    if a.command == "serve":
+        return not a.plan
+    if a.command == "monitor":
+        return not a.once
+    return a.command == "bench" and a.bench_command == "run" and not getattr(a, "plan", False)
 
 
-def setup_options(root, args):
-    """Classify argv with upstream's option names and arities, without running setup."""
-    class Parser(argparse.ArgumentParser):
-        def error(self, message):
-            raise ValueError(message)
+def source_exec(context, args):
+    """Apply managed policy after setup's real parser, before its filesystem or acquisition work."""
+    state = Path(context["state"])
+    root = (state / "source").resolve()
+    revision = context["revision"]
+    lock_fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+    os.chdir(root)
+    sys.path.insert(0, str(root))
+    import setup
 
-    parser = Parser(add_help=False, argument_default=argparse.SUPPRESS)
-    parser.add_argument("-h", "--help", action="store_true", dest="--help")
-    main = _function(ast.parse((root / "setup.py").read_text()), "main")
-    if main is None:
-        raise RuntimeError("Cannot inspect upstream setup's argument parser")
-    for node in ast.walk(main):
-        if (not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute)
-                or not isinstance(node.func.value, ast.Name) or node.func.value.id != "ap"
-                or node.func.attr != "add_argument"):
-            continue
-        flags = [ast.literal_eval(flag) for flag in node.args]
-        shape = {keyword.arg: ast.literal_eval(keyword.value) for keyword in node.keywords
-                 if keyword.arg in {"action", "nargs"}}
-        if shape.get("action", "store") not in {"store", "store_true", "store_false"}:
-            raise RuntimeError("Unsupported upstream setup argument action")
-        parser.add_argument(*flags, dest=flags[0], **shape)
-    if not {"--data-dir", "--models-dir"} <= set(parser._option_string_actions):
-        raise RuntimeError("Upstream setup no longer declares its download-directory options")
+    def after_parse(a, argv):
+        python = runtime_python(root)
+        runtime_ready = (os.environ.pop("STRATA_RUNTIME_READY", None) == str(root)
+                         and Path(sys.executable).absolute() == python)
+        have = bool(model_configs(root))
+        calibration = a.calibrate and not (a.update or a.setup or a.check) and have
+        installing = bool(a.setup or a.model or a.family or a.no_start) and not calibration
+        standalone = bool(a.inspect or a.prepare_pack or a.rollback_engine
+                          or (a.check and not a.update) or (calibration and a.no_start))
+        if standalone and os.access(python, os.X_OK) and Path(sys.executable).absolute() != python:
+            os.execv(str(python), [str(python), str(Path(__file__).resolve()), "--source-exec", *argv])
+        if not standalone and not a.update and (installing or not have):
+            for name, flag, key in (("data_dir", "--data-dir", "data_directory"),
+                                    ("models_dir", "--models-dir", "models_directory")):
+                if getattr(a, name) is None and context.get(key) is not None:
+                    setattr(a, name, context[key])
+                    argv.extend([flag, context[key]])
+            if context.get("models_directory") is not None and not a.separate_model_artifacts:
+                a.separate_model_artifacts = True
+                argv.append("--separate-model-artifacts")
+        rollback = root / ".git" / ENGINE_ROLLBACK
+        if rollback.exists() and not engine_rollbacks(root, revision):
+            rollback.unlink()
+        if not standalone and (a.update or installing):
+            rollback.unlink(missing_ok=True)
+        if a.update and not standalone:
+            (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        if not standalone and not runtime_ready:
+            python = bootstrap_runtime(state, root, lock_fd)
+            os.environ["STRATA_RUNTIME_READY"] = str(root)
+            os.execv(str(python), [str(python), str(Path(__file__).resolve()), "--source-exec", *argv])
+        if a.rollback_engine:
+            before = {
+                name: (engine_identity(root / name).get("strata"),
+                       engine_identity(root / name / ".previous").get("strata"))
+                for name in ENGINE_DIRECTORIES
+            }
+            try:
+                subprocess.run(["sh", str(root / "setup.sh"), *argv],
+                               check=True, pass_fds=(lock_fd,))
+            finally:
+                retain_interpreter(state, root / ".venv")
+            record_engine_rollback(root, revision, before)
+            return 0
+        if not standalone:
+            if a.update or (not installing and have):
+                refresh_runtime(root, revision, lock_fd, argv, force=a.update)
+            else:
+                (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        if a.update and not standalone:
+            return 0
+        os.environ["STRATA_EXECV"] = "1"
+        return None
+
     try:
-        return set(vars(parser.parse_args(args)))
-    except ValueError:
-        # Let upstream report unknown or ambiguous argument forms without refreshing.
-        return {"--help"}
+        return setup.main(args, after_parse=after_parse)
+    except setup.acquisition.AcquisitionRefused as error:
+        setup.say(f"\n  [X]  {error}")
+        return error.exit_code
+    except KeyboardInterrupt:
+        setup.say("\nstopped.")
+        return 1
 
 
 def run_workspace(state, revision, args, *, data_directory=None, models_directory=None, source_patch=None,
                   managed_setup=False):
     state = Path(state).expanduser().resolve()
-    # Observation must not queue behind acquisition or serving. Only a checkout with HEAD can bypass
-    # preparation; interrupted initialization must resume under the lock before importing its parser.
     source = state / "source"
-    if (not managed_setup and (source / ".git").exists()
+    ledger = source / ".git" / SOURCE_PATCH
+    # Observers must not queue behind acquisition. Import the already prepared public parser only.
+    if (not managed_setup and args and args[0] in {"status", "monitor", "logs", "connection"}
+            and (source / ".git").exists() and source_patch is not None
+            and ledger.is_file() and ledger.read_text() == Path(source_patch).read_text()
             and git(source, "rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode == 0):
-        words = cli_doors(source, args)
-        if words["terminal"] and (words["command"] in {"status", "monitor", "logs", "connection"}
-                                  or words["command"] is None):
-            if words["command"] == "monitor":
-                # Observation owns no lock; its opt-in update worker reacquires one.
-                os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
-            python = source / ".venv/bin/python"
-            os.execv(str(python), [str(python), str(source / TERMINAL_CLI), *args])
+        a = terminal_args(source, args)
+        if a.command in {"status", "monitor", "logs", "connection"}:
+            if a.command == "monitor" and runtime_action(a):
+                # Cold monitor UI needs its screen packages; observation itself owns no lock.
+                if not os.access(runtime_python(source), os.X_OK):
+                    pass
+                else:
+                    os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
+                    python = runtime_python(source)
+                    os.execv(str(python), [str(python), str(source / TERMINAL_CLI), *args])
+            else:
+                python = runtime_python(source)
+                if not os.access(python, os.X_OK):
+                    python = Path(sys.executable)
+                os.execv(str(python), [str(python), str(source / TERMINAL_CLI), *args])
     with workspace_lock(state, inherited=managed_setup) as (state, lock):
         root = _prepare_workspace(state, revision, REMOTE, source_patch)
-        os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(lock.fileno())
-        os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
-        os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({
+        context = {
             "state": str(state), "revision": revision, "data_directory": data_directory,
             "models_directory": models_directory, "source_patch": source_patch, "remote": REMOTE,
-        })
+        }
+        os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(lock.fileno())
+        os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
+        os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps(context)
         os.set_inheritable(lock.fileno(), True)
-        venv = root / ".venv"
-        retain_interpreter(state, venv)
-        python = venv / "bin/python"
-        # The runtime marker is ours; invalidate it after dropping a pip-less venv.
-        # Upstream recreates the venv, but --update must restore its dependencies before start.
-        if venv.is_dir() and subprocess.run(
-            [str(python), "-m", "pip", "--version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode != 0:
-            shutil.rmtree(venv)
-            (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-            retain_interpreter(state, venv)
-        if not managed_setup and entry_point(root, args) == "terminal":
-            # Install re-enters this helper with the same locked file description. Launch keeps the
-            # lock through acquisition/config writes; upstream releases it at its service boundary.
-            if not os.access(python, os.X_OK):
-                raise RuntimeError(
-                    f"Strata's Terminal runs in the checkout's environment at {python}, which is not set up yet: "
-                    "run `strata --setup` first, then the Terminal again.")
-            os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
-            return
-        requested = setup_options(root, args)
-        explicit_update = "--update" in requested
-        calibration_requested = (
-            "--calibrate" in requested
-            and not requested & {"--update", "--setup", "--check"}
-            and bool(model_configs(root))
-        )
-        setup_requested = (
-            bool(requested & {"--setup", "--model", "--family", "--no-start"})
-            and not calibration_requested
-        )
-        standalone_requested = (calibration_requested and "--no-start" in requested) or bool(
-            requested & {"--help", "--inspect", "--prepare-pack", "--rollback-engine"}
-        ) or (
-            "--check" in requested and not explicit_update
-        )
-        rollback_requested = "--rollback-engine" in requested
-        rollback_path = root / ".git" / ENGINE_ROLLBACK
-        if rollback_path.exists() and not engine_rollbacks(root, revision):
-            rollback_path.unlink()
-        if not standalone_requested and (explicit_update or setup_requested):
-            rollback_path.unlink(missing_ok=True)
-        # A new install or explicit setup must reach upstream's acquisition path.
-        # Do not certify it here: the next launch validates the resulting runtime.
-        try:
-            if rollback_requested:
-                before = {
-                    name: (engine_identity(root / name).get("strata"),
-                           engine_identity(root / name / ".previous").get("strata"))
-                    for name in ENGINE_DIRECTORIES
-                }
-                subprocess.run(
-                    [str(root / "setup.sh"), *args],
-                    check=True, pass_fds=(lock.fileno(),),
-                )
-                record_engine_rollback(root, revision, before)
-                return
-            if not standalone_requested:
-                if explicit_update or (not setup_requested and model_configs(root)):
-                    refresh_runtime(root, revision, lock.fileno(), args, force=explicit_update)
-                else:
-                    (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-            # Directory defaults apply during setup, not when starting an installed model.
-            # Parse actual upstream options so values and ambiguous prefixes do not
-            # override defaults or change command classification.
-            if (not standalone_requested and not explicit_update
-                    and (setup_requested or not model_configs(root))):
-                for flag, directory in (("--data-dir", data_directory),
-                                        ("--models-dir", models_directory)):
-                    if directory is not None and flag not in requested:
-                        args = [*args, flag, directory]
-                if models_directory is not None and "--separate-model-artifacts" not in requested:
-                    args = [*args, "--separate-model-artifacts"]
-        finally:
-            # Even a partial updater may have created a new venv interpreter.
-            retain_interpreter(state, venv)
-        if explicit_update and not standalone_requested:
-            return
-        os.environ["STRATA_EXECV"] = "1"
-        os.set_inheritable(lock.fileno(), True)
-        os.execv(root / "setup.sh", [str(root / "setup.sh"), *args])
+        if managed_setup:
+            return source_exec(context, args)
+        a = terminal_args(root, args)
+        if a.command == "source":
+            return source_exec(context, a.setup_args)
+        python = runtime_python(root)
+        if runtime_action(a):
+            python = bootstrap_runtime(state, root, lock.fileno())
+            if a.command in {"launch", "serve"} and model_configs(root):
+                refresh_runtime(root, revision, lock.fileno(), [])
+        elif not os.access(python, os.X_OK):
+            python = Path(sys.executable)
+        if a.command == "monitor":
+            from strata_control import acquisition
+            acquisition.release_workspace()
+            os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
+        os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
 
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1] == "--managed-setup":
+        if sys.argv[1] in {"--managed-setup", "--source-exec"}:
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
-            REMOTE = context.pop("remote")
-            run_workspace(**context, args=sys.argv[2:], managed_setup=True)
+            REMOTE = context["remote"]
+            if sys.argv[1] == "--source-exec":
+                sys.exit(source_exec(context, sys.argv[2:]))
+            context.pop("remote")
+            sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--runtime-status":
             check_runtime(Path(sys.argv[2]).resolve())
         else:
-            run_workspace(sys.argv[1], sys.argv[2], sys.argv[6:],
-                          data_directory=sys.argv[3] or None,
-                          models_directory=sys.argv[4] or None,
-                          source_patch=sys.argv[5] or None)
+            sys.exit(run_workspace(sys.argv[1], sys.argv[2], sys.argv[6:],
+                                   data_directory=sys.argv[3] or None,
+                                   models_directory=sys.argv[4] or None,
+                                   source_patch=sys.argv[5] or None))
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
     except RuntimeError as error:
         sys.exit(str(error))
     except (OSError, ValueError, ImportError) as error:
         sys.exit(f"Cannot validate or prepare Strata runtime: {error}. "
-                 "Repair the named file/package, or run strata --setup; then retry strata --update.")
+                 "Repair the named file/package, or run strata source --setup; then retry strata source --update.")

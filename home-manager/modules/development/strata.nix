@@ -51,7 +51,9 @@ in
         a busy workspace refuses that update without blocking observation.
         Status, monitor, logs and connection bypass preparation on a checkout with a valid
         HEAD, so they remain usable during acquisition and serving.
-        Interrupted initialization resumes under the lock before the launcher inspects its parser.
+        Interrupted initialization resumes under the lock before the launcher imports its parser.
+        A real launch or serve after a source pin change refreshes and validates installed runtimes
+        before running the requested action. Failure leaves refresh pending for the next attempt.
         Direct upstream scripts outside this launcher do not participate in this lock.
         Changing this path does not migrate the workspace.
       '';
@@ -60,11 +62,11 @@ in
       type = lib.types.nullOr mutableDirectory;
       default = null;
       description = ''
-        Optional absolute directory outside /nix/store, passed as --data-dir for new
-        models, packs and drafts during initial or explicit setup, including strata install.
+        Optional absolute directory outside /nix/store, used as --data-dir for new
+        models, packs and drafts through strata source, strata install and launch acquisition.
         Null preserves upstream folder selection; an explicit CLI --data-dir takes priority.
-        Installed launches, updates, checks and standalone commands do not receive this
-        default. Other Terminal subcommands retain upstream directory selection.
+        This default is not a remembered CLI choice and does not request a data move.
+        Installed starts, updates, checks and standalone commands keep their existing paths.
         Existing models are not moved. Upstream retains explicit move
         confirmation and owns model selection, tuning and profiles.
       '';
@@ -74,9 +76,9 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store, passed as --models-dir during
-        initial or explicit setup, including strata install. GGUF downloads and QAD dense/PLE outputs use
-        this directory; NVFP4 packs, QAD checkpoints/drafts and image VAE files use the
-        data directory.
+        initial or explicit setup through strata source, strata install and launch acquisition.
+        GGUF downloads and QAD dense/PLE outputs use this directory; NVFP4 packs,
+        QAD checkpoints/drafts and image VAE files use the data directory.
 
         Complete NVFP4 installations are reused in place before selecting a QAD
         checkpoint. Fully verified checkpoints take priority over partial downloads.
@@ -84,25 +86,33 @@ in
 
         Null preserves upstream layout, normally <data directory>/models, including
         when --models-dir is supplied on the CLI. Explicit CLI values take priority,
-        including supported abbreviations and equals syntax. Installed launches,
-        updates, checks and standalone commands do not receive this default, nor do
-        Terminal subcommands other than install.
-        Existing files are not moved; the upstream wizard retains model selection,
-        tuning and profiles.
+        including supported abbreviations and equals syntax. Installed starts,
+        updates, checks and standalone commands keep their existing paths.
+        Acquisition through the launch runner receives these same defaults.
+        Existing files are not moved; upstream retains model selection, tuning and profiles.
       '';
     };
     package = lib.mkOption {
       type = lib.types.package;
       default = strataPackage;
       defaultText = lib.literalExpression "strataPackage";
-      description = "Strata's one command in the upstream x86_64-linux CUDA development environment: a subcommand
-        (launch, serve, status, monitor, update, doctor, ...) runs upstream's Terminal, and options or nothing run
-        upstream's setup. --version and its upstream abbreviations belong to the Terminal;
-        --help stays upstream's setup help, because both programs declare it. The pinned
-        Terminal parser resolves its options. Terminal commands keep the caller's working
-        directory, including relative --config paths. A new upstream subcommand needs no
-        change here. If upstream ever makes its setup ambiguous, the command says so instead
-        of guessing which program was meant.";
+      description = ''
+        Strata's public Terminal command in the upstream x86_64-linux CUDA development environment.
+        Root help, version, bare usage and errors use the pinned Terminal parser.
+        The source subcommand passes raw arguments to source setup: source --help shows setup help,
+        source starts or calibrates installed models without forcing setup, and source --update
+        explicitly refreshes the pinned source runtime. Install forces setup or --update as requested.
+        Update remains the upstream engine/Control feed command; it does not change the Nix source pin.
+        A real launch, serve, install or cold monitor UI can bootstrap Python without installing a model.
+        Help, version, status, monitor --once and plans do not acquire Python packages, models or engines.
+        Source and Nix environment realization can still require network access.
+        A cold serve plan reports upstream's typed missing-dependency error until runtime is available.
+        New source pins refresh installed runtimes automatically before real launch or serve.
+        Managed launch configs share the source workspace. Source-built engines stay there;
+        component engines keep upstream's shared store and explicit pins. Model data is reused
+        in place. An explicitly selected external installation stays caller-owned.
+        Terminal commands preserve caller arguments and working directory, including relative config paths.
+      '';
     };
   };
 

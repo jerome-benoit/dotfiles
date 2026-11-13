@@ -1,8 +1,17 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
-# intent: Separate model artifacts and serialize managed acquisition until each service/monitor boundary.
+# intent: Native Terminal/source CLI, Python-only bootstrap, managed runtime lifecycle and separate model artifacts.
 diff --git a/setup.py b/setup.py
 --- a/setup.py
 +++ b/setup.py
+@@ -1158,7 +1158,7 @@
+     env.setdefault("STRATA_EXIT_WITH_PARENT", "1")     # tools/mtp_fetch.py ends when setup ends (#3257: a cancel left it writing)
+     r = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env,
+                        stdout=subprocess.PIPE if quiet else None, stderr=subprocess.STDOUT if quiet else None,
+-                       text=True, errors="replace")
++                       text=True, errors="replace", pass_fds=acquisition.workspace_fds())
+     if check and r.returncode != 0:
+         if quiet and r.stdout:
+             say(r.stdout[-4000:])
 @@ -3772,46 +3772,95 @@
      return [(role, repo, t["revision"], path, size, sha) for path, (role, size, sha) in t["files"].items()]
  
@@ -139,7 +148,17 @@ diff --git a/setup.py b/setup.py
          if ready_verified(dst, sha):
              ok(f"{f[3]} already downloaded")
              continue
-@@ -5650,7 +5699,7 @@
+@@ -5127,7 +5176,8 @@
+     say("  Fetching the ready-made engine from the signed update feed ...")
+     try:
+         run = subprocess.run([sys.executable, str(ROOT / "strata.py"), "update", "--no-control", "--output", "json"],
+-                             env=env, cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=3600)
++                             env=env, cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=3600,
++                             pass_fds=acquisition.workspace_fds())
+     except (OSError, subprocess.SubprocessError) as e:
+         warn(f"the update feed could not be run ({e})")
+         return None
+@@ -5650,7 +5700,7 @@
      return backend, quant, gb
  
  
@@ -148,7 +167,7 @@ diff --git a/setup.py b/setup.py
      """--images qwen-image: sd-cli for this GPU and Qwen-Image-2.1-Turbo's three files -> the run config's "images"
      section (serve/images.py); None for --images no, or when not wanted after all."""
      if not a.images or a.images == "no":
-@@ -5662,17 +5711,20 @@
+@@ -5662,17 +5712,20 @@
      need = sum(QI.FILES[k][2] for k in (quant, "vae", "llm")) / 1e9
      if ask(f"Download the image model ({need:.1f} GB) and set up image generation?", ["y", "n"], "y", a.yes) != "y":
          return None
@@ -173,7 +192,59 @@ diff --git a/setup.py b/setup.py
      ok(f"image generation: {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
      return cfg
  
-@@ -10483,6 +10535,7 @@
+@@ -8033,6 +8086,7 @@
+     for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
+                                            break_on_hyphens=False)):   # #564: what this start uses
+         say(("  " if n == 0 else "    ") + line)
++    acquisition.release_workspace()
+     if not WIN and os.environ.get("STRATA_EXECV"):
+         # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
+         # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
+@@ -8551,7 +8605,7 @@
+     script = ROOT / "sycl" / "setup_intel.py"
+     if not script.exists():
+         fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
+-    return subprocess.call([sys.executable, str(script), *rest])
++    os.execv(sys.executable, [sys.executable, str(script), *rest])
+ 
+ 
+ def intel_control_setup(a) -> int:
+@@ -10392,7 +10446,8 @@
+     return install_dsv41(a, a.family, gpu, False, False, 0, False, a.port or 8080, ram, None, [gpu])
+ 
+ 
+-def main() -> int:
++def main(argv=None, *, after_parse=None) -> int:
++    argv = list(sys.argv[1:] if argv is None else argv)
+     try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
+         from strata_control.childenv import quiet_crash_env
+         quiet_crash_env()
+@@ -10404,16 +10459,18 @@
+     except Exception:
+         pass
+     if sys.platform == "darwin" and not CONTROL:       # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below
+-        return mac_setup(sys.argv[1:])
+-    _peek = lambda flag: next((v.split("=", 1)[1] if v.startswith(flag + "=") else sys.argv[i + 2] if i + 2 < len(sys.argv) else None   # noqa: E731
+-                               for i, v in enumerate(sys.argv[1:]) if v == flag or v.startswith(flag + "=")), None)
+-    if (_peek("--family") and _peek("--family") not in {**FAMILIES, **OWN_PATH_FAMILIES, **MULTI_FILE_FAMILIES}) \
++        return mac_setup(argv)
++    _peek = lambda flag: next((v.split("=", 1)[1] if v.startswith(flag + "=") else argv[i + 1] if i + 1 < len(argv) else None   # noqa: E731
++                               for i, v in enumerate(argv) if v == flag or v.startswith(flag + "=")), None)
++    wants_help = any(v == "-h" or (v.startswith("--") and "--help".startswith(v)) for v in argv)
++    if not wants_help and ((_peek("--family") and _peek("--family") not in {**FAMILIES, **OWN_PATH_FAMILIES, **MULTI_FILE_FAMILIES}) \
+             or (_peek("--model") and not _peek("--family") and model_alias(_peek("--model")) not in MODELS
+-                and not any(model_alias(_peek("--model")) in f["models"] for f in (*OWN_PATH_FAMILIES.values(), *MULTI_FILE_FAMILIES.values()))):
++                and not any(model_alias(_peek("--model")) in f["models"] for f in (*OWN_PATH_FAMILIES.values(), *MULTI_FILE_FAMILIES.values())))):
+         feed_models_setup(_peek("--feed"))             # a name the built-in tables do not know may be a model of the signed feed
+         if _peek("--family") in FEED_UNAVAILABLE:
+             fail(f"{FEED_UNAVAILABLE[_peek('--family')]['title']} is {FEED_UNAVAILABLE[_peek('--family')]['reason']}")
+-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap = argparse.ArgumentParser(prog="strata source" if os.environ.get("STRATA_WORKSPACE_CONTEXT") else None,
++                                 description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+     ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES),
+                     help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
+                          "several requests at once with --parallel; docs/QWEN36.md), deepseek41 = DeepSeek-V4.1-Flash "
+@@ -10483,6 +10540,7 @@
      ap.add_argument("--set-default-data-dir", action="store_true",
                      help="with --data-dir: remember the new folder as the data folder without moving anything")
      ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
@@ -181,7 +252,29 @@ diff --git a/setup.py b/setup.py
      ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
                                                             "or its unpacked folder); it is checked and installed instead of being fetched")
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -11231,15 +11284,45 @@
+@@ -10562,7 +10620,11 @@
+                          "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
+                          "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
+     ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
+-    a = ap.parse_args()
++    a = ap.parse_args(argv)
++    if after_parse is not None:
++        result = after_parse(a, argv)
++        if result is not None:
++            return result
+     if getattr(a, "gguf_dir", None):                   # the person's own files: their finish marks go to Strata's marks/, never beside them
+         own_files_in(a.gguf_dir)
+     if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES:
+@@ -10581,7 +10643,7 @@
+     if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
+         if CONTROL:
+             return intel_control_setup(a)
+-        return sycl_setup(sys.argv[1:])
++        return sycl_setup(argv)
+     if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
+         ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
+     if a.vision_tokens is not None and a.vision_tokens < 1:
+@@ -11231,15 +11293,45 @@
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
@@ -231,7 +324,7 @@ diff --git a/setup.py b/setup.py
      else:
          models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
          shards = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
-@@ -11255,15 +11338,15 @@
+@@ -11255,15 +11347,15 @@
                  ok(f"model files found in {models_dir}")
                  break
      mark_whole_unless_pinned([] if ready else shards, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))   # #173: a whole file copied in by hand has no finish mark
@@ -251,7 +344,7 @@ diff --git a/setup.py b/setup.py
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -11271,7 +11354,7 @@
+@@ -11271,7 +11363,7 @@
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -260,7 +353,7 @@ diff --git a/setup.py b/setup.py
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -11279,11 +11362,16 @@
+@@ -11279,11 +11371,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -280,7 +373,7 @@ diff --git a/setup.py b/setup.py
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11317,10 +11405,10 @@
+@@ -11317,10 +11414,10 @@
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -293,7 +386,7 @@ diff --git a/setup.py b/setup.py
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11377,17 +11465,18 @@
+@@ -11377,17 +11474,18 @@
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
      env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
      prepared = bool(ready and MODELS[model].get("prepare"))
@@ -317,7 +410,7 @@ diff --git a/setup.py b/setup.py
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11408,7 +11497,7 @@
+@@ -11408,7 +11506,7 @@
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -326,7 +419,7 @@ diff --git a/setup.py b/setup.py
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11442,7 +11531,7 @@
+@@ -11442,7 +11540,7 @@
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -335,7 +428,7 @@ diff --git a/setup.py b/setup.py
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11455,7 +11544,7 @@
+@@ -11455,7 +11553,7 @@
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(
@@ -344,6 +437,181 @@ diff --git a/setup.py b/setup.py
      cfg, cfg_path, cal, args, ctx, kv, resident = (_built.cfg, _built.cfg_path, _built.cal, _built.args, _built.ctx, _built.kv, _built.resident)
      write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
                         after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
+@@ -11498,9 +11596,15 @@
+     return start(cfg_path, port)
+ 
+ 
++def bootstrap_runtime() -> int:
++    """Prepare Python and screen dependencies only; never select or acquire a model or engine."""
++    pip_install(runtime_packages(), "Strata runtime and terminal screens")
++    return 0
++
++
+ if __name__ == "__main__":
+     try:
+-        sys.exit(main())
++        sys.exit(bootstrap_runtime() if os.environ.get("STRATA_BOOTSTRAP_ONLY") == "1" else main())
+     except acquisition.AcquisitionRefused as e:         # a start that would have installed something: said, not done
+         say(f"\n  [X]  {e}")
+         sys.exit(e.exit_code)
+diff --git a/strata_cli/cli.py b/strata_cli/cli.py
+--- a/strata_cli/cli.py
++++ b/strata_cli/cli.py
+@@ -188,9 +188,12 @@
+     calibrate.add_argument("--out", metavar="REPORT.json", help="new report path for --measure")
+     calibrate.add_argument("--exclusive", action="store_true", help="assert all model instances using these devices are stopped")
+     calibrate.add_argument("--output", choices=("human", "json"), default="human")
++    source = sp.add_parser("source", add_help=False,
++                           help="run the pinned source setup, calibration or updater")
++    source.add_argument("setup_args", nargs=argparse.REMAINDER)
+     install = sp.add_parser(
+         "install",
+-        help="the explicit installer: engine, models, Python packages (starting and serving never do this)")
++        help="install a model or explicitly refresh the pinned source runtime")
+     install.add_argument("--update", action="store_true",
+                          help="update an existing install (what UPDATE.bat / update.sh run) instead of setting one up")
+     install.add_argument("setup_args", nargs=argparse.REMAINDER,
+@@ -941,6 +944,8 @@
+         raise
+     if a.plan:
+         return _success({"plan": plan}, machine=a.output == "json")
++    from strata_control import acquisition
++    acquisition.release_workspace()
+     from serve.server import main as server_main
+     if os.name not in ("posix", "nt"):
+         return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
+@@ -2081,7 +2086,11 @@
+                       "full Strata folder with SETUP.bat / ./setup.sh and UPDATE.bat / ./update.sh; "
+                       "set STRATA_INSTALL_DIR to that folder to run it from here. To update the engine and Control "
+                       "from the signed update feed, run `strata update`", 5)
+-    extra = [x for x in a.setup_args if x != "--"]
++    extra = list(a.setup_args)
++    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
++    if helper:
++        os.execv(sys.executable, [sys.executable, helper, "--managed-setup",
++                                 "--update" if a.update else "--setup", *extra])
+     env = dict(os.environ)
+     if (ROOT / "python").is_dir() and (ROOT / "VERSION").is_file():
+         # the Terminal bundle: its installer only downloads and prepares the model (no pip, no engine fetch, no compiler)
+@@ -2090,6 +2099,20 @@
+         env.setdefault("STRATA_INSTALL_DIR", str(install_root()))
+     return subprocess.call([sys.executable, str(installer), "--update" if a.update else "--setup", *extra],
+                            cwd=str(installer.parent), env=env)
++
++
++def _source_command(a: argparse.Namespace) -> int:
++    """Run source setup unchanged; unlike install, a bare source command starts an installed model."""
++    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
++    if helper:
++        os.execv(sys.executable, [sys.executable, helper, "--managed-setup", *a.setup_args])
++    import setup
++    try:
++        return setup.main(a.setup_args)
++    except setup.acquisition.AcquisitionRefused as error:
++        return _error(str(error), error.exit_code)
++    except KeyboardInterrupt:
++        return _error("stopped.", 1)
+ 
+ 
+ def _access_retry(a: argparse.Namespace, error: BaseException) -> int | None:
+@@ -2132,6 +2155,8 @@
+             return _serve(a)
+         if a.command == "install":
+             return _install(a)
++        if a.command == "source":
++            return _source_command(a)
+         if a.command == "repair-access":
+             return _repair_access(a)
+         if a.command == "profile":
+@@ -2227,10 +2252,10 @@
+         return self.text
+ 
+ 
+-def _install_argv(argv: list[str]) -> list[str]:
+-    """`strata install` hands everything after it to setup.py (`strata install --family qwen --model IQ3_XXS --yes`). argparse cannot do that
+-    by itself: an option it does not know ahead of the first plain word (--source, --family) was refused as "unrecognized arguments", or
+-    split from its value (#4188). So the options of setup.py go behind a `--`, and only `--update` and --help stay strata's own."""
++def _installer_argv(argv: list[str]) -> list[str]:
++    """Protect raw setup arguments with exactly one parser separator."""
++    if argv and argv[0] == "source":
++        return ["source", "--", *argv[1:]]
+     if not argv or argv[0] != "install":
+         return argv
+     rest = list(argv[1:])
+@@ -2240,6 +2265,22 @@
+     if update:
+         rest.remove("--update")
+     return ["install", *(["--update"] if update else []), "--", *rest]
++
++
++def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
++    """Parse the public Terminal grammar, including raw source setup arguments."""
++    ap = parser()
++    raw = list(sys.argv[1:] if argv is None else argv)
++    a, extras = ap.parse_known_args(_installer_argv(raw))
++    a.raw_argv = raw
++    if extras:
++        if a.command in ("launch", "connect"):
++            from strata_cli.launch import cmd as launch_cmd
++            ap.exit(2, "strata: " + launch_cmd.unknown_option_message(a.command, extras, ap) + "\n")
++        ap.error("unrecognized arguments: " + " ".join(extras))
++    if a.command in ("source", "install") and a.setup_args[:1] == ["--"]:
++        a.setup_args = a.setup_args[1:]
++    return a
+ 
+ 
+ def main(argv: list[str] | None = None) -> int:
+@@ -2253,16 +2294,7 @@
+         private_files.adopt_user_defaults()      # what this process creates belongs to the user even when it runs as administrator
+     except ImportError:                          # a thin bundle ships without strata_control
+         pass
+-    ap = parser()
+-    raw = list(sys.argv[1:] if argv is None else argv)
+-    a, extras = ap.parse_known_args(_install_argv(raw))
+-    a.raw_argv = raw
+-    if extras:
+-        if getattr(a, "command", None) in ("launch", "connect"):
+-            from strata_cli.launch import cmd as launch_cmd
+-            print("strata: " + launch_cmd.unknown_option_message(a.command, extras, ap), file=sys.stderr)
+-            return 2
+-        ap.error("unrecognized arguments: " + " ".join(extras))
++    a = parse_args(argv)
+     if getattr(a, "json", False) and a.command not in ("status", "monitor", "logs", "connection", "config"):
+         if a.output == "jsonl":
+             return _serve_error(a, "--json is one-shot only; use --output jsonl for foreground events")
+diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
+--- a/strata_cli/launch/runner.py
++++ b/strata_cli/launch/runner.py
+@@ -707,7 +707,9 @@
+         return env
+ 
+     def _spawn(self, argv: list[str], *, env: dict | None = None, cwd: str | None = None) -> subprocess.Popen:
++        from strata_control import acquisition
+         kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
++        kw.update(pass_fds=acquisition.workspace_fds())
+         p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                              encoding="utf-8", errors="replace", env=env or self._env(), cwd=cwd, bufsize=1, **kw)
+         self.children.append(p)
+@@ -1010,13 +1012,18 @@
+             args += ["--mtp", mtp_word]                      # round 8, N3: "--mtp off" never reached setup, which then fetched the 5.2 GB draft layer
+         if resolved == "dflash2" and fam in modelstate.HELPER_FAMILIES and mtp_word != "off":
+             args += ["--drafter", "dflash2"]                 # one drafter per run: a new install fetches DFlash2's pack (below), not the MTP layer
+-        data = s.data_dir or self.existing_data_dir()
++        context = json.loads(os.environ.get("STRATA_WORKSPACE_CONTEXT", "{}"))
++        installed = cat.installed_config(cat.tag_of(fam, model)) if fam and model else None
++        default_data = context.get("data_directory") if installed is None and not s.model_path else None
++        data = s.data_dir or default_data or self.existing_data_dir()
+         if data:
+             args += ["--data-dir", str(data)]
+             if self.move_data and s.data_dir:             # only when the person said so: setup moves nothing otherwise
+                 args.append("--move-data")
+             if s.data_dir:                                # a folder the person chose is remembered for the next start and for the app
+                 args.append("--set-default-data-dir")
++        if context.get("models_directory"):
++            args += ["--models-dir", context["models_directory"], "--separate-model-artifacts"]
+         if s.model_path:
+             p = Path(s.model_path)
+             args += ["--gguf-dir", str(p if p.is_dir() else p.parent)]
 diff --git a/strata_control/setup_config.py b/strata_control/setup_config.py
 --- a/strata_control/setup_config.py
 +++ b/strata_control/setup_config.py
@@ -384,7 +652,7 @@ diff --git a/strata_control/setup_config.py b/strata_control/setup_config.py
 diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
 --- a/tools/nvfp4_local_pack.py
 +++ b/tools/nvfp4_local_pack.py
-@@ -585,15 +585,18 @@
+@@ -585,20 +585,25 @@
  # ------------------------------------------------------------------------------------------------------- prepare (setup)
  def cmd_prepare(a) -> int:
      """Everything setup needs from the downloaded checkpoint, each step skipped when its mark is there:
@@ -405,7 +673,15 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
      me = [sys.executable, str(pathlib.Path(__file__).resolve())]
      tools = pathlib.Path(__file__).resolve().parent
  
-@@ -611,12 +614,12 @@
+     def run(cmd):
+-        r = subprocess.run(cmd)
++        sys.path.insert(0, str(tools.parent))
++        from strata_control import acquisition
++        r = subprocess.run(cmd, pass_fds=acquisition.workspace_fds())
+         if r.returncode:
+             sys.exit("prepare: %s failed (exit %d)" % (cmd[1] if len(cmd) > 1 else cmd[0], r.returncode))
+ 
+@@ -611,12 +616,12 @@
          fn()
          mark.write_text("done %.0f s\n" % (time.time() - t0))
  
@@ -423,7 +699,7 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
  
      mtp = out / "mtp"
  
-@@ -688,6 +691,7 @@
+@@ -688,6 +693,7 @@
      pr = sub.add_parser("prepare")
      pr.add_argument("--model", required=True)
      pr.add_argument("--out", required=True)
@@ -434,9 +710,11 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
 diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
 --- a/strata_control/acquisition.py
 +++ b/strata_control/acquisition.py
-@@ -26,5 +26,57 @@
- ENV = "STRATA_NO_ACQUIRE"
+@@ -24,6 +24,58 @@
+ import threading
  
+ ENV = "STRATA_NO_ACQUIRE"
++
 +def workspace_fds() -> tuple:
 +    """Keep the managed workspace locked if a mutating child outlives its parent."""
 +    fd = os.environ.get("STRATA_WORKSPACE_LOCK_FD")
@@ -488,76 +766,9 @@ diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
 +    finally:
 +        _workspace_mutation_lock.release()
 +
-+
+ 
  _lock = threading.Lock()
  _depth = 0
- 
-diff --git a/setup.py b/setup.py
---- a/setup.py
-+++ b/setup.py
-@@ -1158,7 +1158,7 @@
-     env.setdefault("STRATA_EXIT_WITH_PARENT", "1")     # tools/mtp_fetch.py ends when setup ends (#3257: a cancel left it writing)
-     r = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env,
-                        stdout=subprocess.PIPE if quiet else None, stderr=subprocess.STDOUT if quiet else None,
--                       text=True, errors="replace")
-+                       text=True, errors="replace", pass_fds=acquisition.workspace_fds())
-     if check and r.returncode != 0:
-         if quiet and r.stdout:
-             say(r.stdout[-4000:])
-@@ -5127,7 +5127,8 @@
-     say("  Fetching the ready-made engine from the signed update feed ...")
-     try:
-         run = subprocess.run([sys.executable, str(ROOT / "strata.py"), "update", "--no-control", "--output", "json"],
--                             env=env, cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=3600)
-+                             env=env, cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=3600,
-+                             pass_fds=acquisition.workspace_fds())
-     except (OSError, subprocess.SubprocessError) as e:
-         warn(f"the update feed could not be run ({e})")
-         return None
-@@ -8033,6 +8034,7 @@
-     for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
-                                            break_on_hyphens=False)):   # #564: what this start uses
-         say(("  " if n == 0 else "    ") + line)
-+    acquisition.release_workspace()
-     if not WIN and os.environ.get("STRATA_EXECV"):
-         # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
-         # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
-diff --git a/strata_cli/cli.py b/strata_cli/cli.py
---- a/strata_cli/cli.py
-+++ b/strata_cli/cli.py
-@@ -941,6 +941,8 @@
-         raise
-     if a.plan:
-         return _success({"plan": plan}, machine=a.output == "json")
-+    from strata_control import acquisition
-+    acquisition.release_workspace()
-     from serve.server import main as server_main
-     if os.name not in ("posix", "nt"):
-         return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
-@@ -2082,6 +2084,10 @@
-                       "set STRATA_INSTALL_DIR to that folder to run it from here. To update the engine and Control "
-                       "from the signed update feed, run `strata update`", 5)
-     extra = [x for x in a.setup_args if x != "--"]
-+    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
-+    if helper:
-+        os.execv(sys.executable, [sys.executable, helper, "--managed-setup",
-+                                 "--update" if a.update else "--setup", *extra])
-     env = dict(os.environ)
-     if (ROOT / "python").is_dir() and (ROOT / "VERSION").is_file():
-         # the Terminal bundle: its installer only downloads and prepares the model (no pip, no engine fetch, no compiler)
-diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
---- a/strata_cli/launch/runner.py
-+++ b/strata_cli/launch/runner.py
-@@ -707,7 +707,9 @@
-         return env
- 
-     def _spawn(self, argv: list[str], *, env: dict | None = None, cwd: str | None = None) -> subprocess.Popen:
-+        from strata_control import acquisition
-         kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
-+        kw.update(pass_fds=acquisition.workspace_fds())
-         p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                              encoding="utf-8", errors="replace", env=env or self._env(), cwd=cwd, bufsize=1, **kw)
-         self.children.append(p)
 diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
 --- a/strata_cli/launch/app.py
 +++ b/strata_cli/launch/app.py
@@ -577,20 +788,6 @@ diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
      app.run()
      if app.stop_requested:
          from strata_control import runtime
-diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
---- a/tools/nvfp4_local_pack.py
-+++ b/tools/nvfp4_local_pack.py
-@@ -598,7 +598,9 @@
-     tools = pathlib.Path(__file__).resolve().parent
- 
-     def run(cmd):
--        r = subprocess.run(cmd)
-+        sys.path.insert(0, str(tools.parent))
-+        from strata_control import acquisition
-+        r = subprocess.run(cmd, pass_fds=acquisition.workspace_fds())
-         if r.returncode:
-             sys.exit("prepare: %s failed (exit %d)" % (cmd[1] if len(cmd) > 1 else cmd[0], r.returncode))
- 
 diff --git a/strata_control/runtime.py b/strata_control/runtime.py
 --- a/strata_control/runtime.py
 +++ b/strata_control/runtime.py
@@ -626,7 +823,9 @@ diff --git a/tools/iq_pack.py b/tools/iq_pack.py
 diff --git a/strata_cli/launch/monitor_ext.py b/strata_cli/launch/monitor_ext.py
 --- a/strata_cli/launch/monitor_ext.py
 +++ b/strata_cli/launch/monitor_ext.py
-@@ -38,6 +38,9 @@
+@@ -36,7 +36,10 @@
+ 
+ 
  class LaunchMonitor(MonitorApp):
 -    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, **kw) -> None:
 +    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, workspace_state=None, **kw) -> None:
@@ -636,8 +835,9 @@ diff --git a/strata_cli/launch/monitor_ext.py b/strata_cli/launch/monitor_ext.py
          super().__init__(endpoint, snapshot, **kw)
          self.info = info
          self.ask_quit = ask_quit                  # False: plain `strata monitor` (q detaches, nothing to stop)
-         self.connect_enabled = True
-@@ -109,9 +112,10 @@
+@@ -107,10 +110,11 @@
+         return bool(box.get("yes", default))
+ 
      def _update_worker(self) -> None:
 -        from strata_control import engine_update, updater
 +        from strata_control import acquisition, engine_update, updater
@@ -649,23 +849,28 @@ diff --git a/strata_cli/launch/monitor_ext.py b/strata_cli/launch/monitor_ext.py
              text = engine_update.summary(out)
          except updater.UpdateError as exc:
              text = str(exc)
-         except Exception as exc:                 # noqa: BLE001 - a sentence, never a trace
-diff --git a/setup.py b/setup.py
---- a/setup.py
-+++ b/setup.py
-@@ -8551,7 +8551,7 @@
-     script = ROOT / "sycl" / "setup_intel.py"
-     if not script.exists():
-         fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
--    return subprocess.call([sys.executable, str(script), *rest])
-+    os.execv(sys.executable, [sys.executable, str(script), *rest])
- 
- 
- def intel_control_setup(a) -> int:
 diff --git a/sycl/setup_intel.py b/sycl/setup_intel.py
 --- a/sycl/setup_intel.py
 +++ b/sycl/setup_intel.py
-@@ -543,2 +543,3 @@
+@@ -541,6 +541,7 @@
+             return start(cfg_path, *a, **k)
+         script = ROOT / f"run-{Path(cfg_path).stem[len('strata-'):]}.sh"
          S.say(f"\nstarting {script.name} ...")
 +        S.acquisition.release_workspace()
          os.execv("/bin/sh", ["/bin/sh", str(script)])
+     S.start = start_sycl
+ 
+diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
+--- a/strata_cli/launch/catalog.py
++++ b/strata_cli/launch/catalog.py
+@@ -262,6 +262,10 @@
+                  hardware: dict | None = None):
+         self.src = installer_folder(src)
+         self.places = install_places(root, self.src)
++        # Managed installs share the source workspace unless the caller explicitly selects another root.
++        if root is None and os.environ.get("STRATA_WORKSPACE_CONTEXT") and not os.environ.get("STRATA_INSTALL_DIR"):
++            root = self.src
++            self.places = install_places(root, self.src)
+         self.root = Path(root) if root else (self.places[0].path if self.places else install_root(None, self.src))
+         mcp = self.src / "tools" / "strata_mcp.py"
+         if not mcp.is_file() or not (self.src / "setup.py").is_file():
