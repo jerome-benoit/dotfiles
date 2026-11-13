@@ -64,7 +64,8 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store, used as --data-dir for new
-        models, packs and drafts through strata source, strata install and launch acquisition.
+        models, packs and drafts during managed source setup, install and launch acquisition.
+        External acquisitions keep upstream folder selection.
         Null preserves upstream folder selection; an explicit CLI --data-dir takes priority.
         This default is not a remembered CLI choice and does not request a data move.
         Installed starts, updates, checks and standalone commands keep their existing paths.
@@ -77,7 +78,8 @@ in
       default = null;
       description = ''
         Optional absolute directory outside /nix/store, passed as --models-dir during
-        initial or explicit setup through strata source, strata install and launch acquisition.
+        initial or explicit managed setup and launch acquisition.
+        External acquisitions keep upstream folder selection.
         GGUF downloads and QAD dense/PLE outputs use this directory; NVFP4 packs,
         QAD checkpoints/drafts and image VAE files use the data directory.
 
@@ -89,7 +91,7 @@ in
         when --models-dir is supplied on the CLI. Explicit CLI values take priority,
         including supported abbreviations and equals syntax. Installed starts,
         updates, checks and standalone commands keep their existing paths.
-        Acquisition through the launch runner receives these same defaults.
+        Managed acquisition through the launch runner receives these same defaults.
         Existing files are not moved; upstream retains model selection, tuning and profiles.
       '';
     };
@@ -115,9 +117,9 @@ in
         New source pins refresh installed runtimes automatically before real launch or serve.
         Managed launch configs share the source workspace. Source-built engines stay there;
         component engines keep upstream's shared store and explicit pins. Model data is reused
-        in place. An explicitly selected external installation uses its own installer and runtime,
-        without managed directory defaults or private workspace state. Canonical aliases of the
-        managed checkout retain managed setup and locking.
+        in place. Explicit external launch targets keep upstream directory and runtime selection.
+        External install targets use their own installer and runtime without private workspace state.
+        Canonical aliases of the managed checkout retain managed setup and locking.
         Terminal commands preserve caller arguments and working directory, including relative config paths.
       '';
     };

@@ -3340,6 +3340,85 @@ helper.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
         self.assertEqual((root / ".git/strata-source.patch").read_text(), Path(SOURCE_PATCH).read_text())
         self.assertFalse((root / ".venv").exists())
 
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux launch acquisition")
+    def test_launch_defaults_follow_canonical_installation_ownership(self):
+        root = self.make_acquisition_workspace()
+        external = self.base / "external installation"
+        external.mkdir()
+        external_alias = self.base / "external alias"
+        external_alias.symlink_to(external, target_is_directory=True)
+        managed_alias = self.base / "managed alias"
+        managed_alias.symlink_to(root, target_is_directory=True)
+        caller_data = external / "caller data"
+        cli_data = self.base / "CLI data"
+        nix_data, nix_models = self.base / "Nix data", self.base / "Nix GGUF"
+        remembered = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
+        remembered.parent.mkdir(parents=True)
+        remembered.write_text(json.dumps({"data_dir": str(caller_data)}))
+        context = json.dumps({"state": str(self.state), "data_directory": str(nix_data),
+                              "models_directory": str(nix_models)})
+        producer = '''
+import json, os
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+runner = Runner(LaunchSettings(family="qwen", model="Q2_0", context=8192, mtp="on",
+                              data_dir=os.environ.get("TEST_CLI_DATA")), catalog=Catalog())
+runner.resolved_drafting = lambda *_: "mtp"
+runner.vision_word = lambda: "no"
+runner.installed_card_args = lambda: []
+print(json.dumps(runner.setup_args()))
+'''
+        consumer = '''
+import inspect, json, socket, sys
+import setup
+def no_network(*args, **kwargs):
+    raise AssertionError("unexpected network acquisition")
+socket.socket.connect = no_network
+socket.create_connection = no_network
+def capture(url, destination, *args, **kwargs):
+    scope = inspect.currentframe().f_back.f_locals
+    print("DESTINATION=" + json.dumps({"home": str(setup.home()), "data": str(scope["data"]),
+        "models": str(scope["models_dir"]), "download": str(destination)}), flush=True)
+    raise SystemExit(37)
+setup.download = capture
+raise SystemExit(setup.main(sys.argv[1:]))
+'''
+        cases = (
+            ("external", external, True, None, False),
+            ("external-alias", external_alias, True, None, False),
+            ("managed", root, True, None, True),
+            ("managed-alias", managed_alias, True, None, True),
+            ("no-context", external, False, None, False),
+            ("external-cli", external, True, cli_data, False),
+            ("managed-cli", root, True, cli_data, True),
+        )
+        for name, target, with_context, explicit_data, managed in cases:
+            with self.subTest(case=name):
+                env = dict(self.env, STRATA_INSTALL_DIR=str(target), PIP_NO_INDEX="1")
+                env.pop("STRATA_WORKSPACE_CONTEXT", None)
+                env.pop("TEST_CLI_DATA", None)
+                if with_context:
+                    env["STRATA_WORKSPACE_CONTEXT"] = context
+                if explicit_data is not None:
+                    env["TEST_CLI_DATA"] = str(explicit_data)
+                result = subprocess.run([sys.executable, "-c", producer], cwd=root, env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                argv = json.loads(result.stdout)
+                result = subprocess.run([sys.executable, "-c", consumer, *argv], cwd=root,
+                                        env=dict(env, STRATA_CONTROL_INSTALL="1", PYTHONNOUSERSITE="1"),
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 37, result.stderr + result.stdout)
+                actual = next(json.loads(line.partition("=")[2]) for line in result.stdout.splitlines()
+                              if line.startswith("DESTINATION="))
+                expected_data = explicit_data or (nix_data if managed else caller_data)
+                expected_models = nix_models if managed else expected_data / "models"
+                self.assertEqual(Path(actual["home"]).resolve(), target.resolve())
+                self.assertEqual(Path(actual["data"]), expected_data)
+                self.assertEqual(Path(actual["models"]), expected_models / "Q2_0")
+                self.assertTrue(Path(actual["download"]).is_relative_to(expected_models))
+
     def test_launch_runner_defaults_and_source_sycl_defaults_use_real_parsers(self):
         root = self.make_acquisition_workspace()
         self.run_source_script(root, '''
