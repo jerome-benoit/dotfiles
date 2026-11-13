@@ -3,7 +3,7 @@
 Keep revision refs for offline rollback, serialize source/runtime changes, and root Nix Python.
 The public Terminal grammar owns the root; `source` delegates raw arguments to setup's real parser.
 Only real actions bootstrap Python or reconcile an installed runtime after a pin change.
-A runtime revision records validated local prerequisites, not merely an updater's exit status.
+A source-refresh receipt records updater success and Python readiness; only complete inventory earns a runtime revision.
 Component references retain upstream compatibility and pins; raw paths use legacy freshness rules.
 Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
@@ -21,6 +21,7 @@ import sys
 
 REMOTE = "https://github.com/Niko1221/Strata.git"
 RUNTIME_REVISION = "strata-runtime-revision"
+SOURCE_REFRESH_REVISION = "strata-source-refresh-revision"
 ENGINE_ROLLBACK = "strata-engine-rollback.json"
 ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
 SOURCE_PATCH = "strata-source.patch"
@@ -248,23 +249,28 @@ def record_engine_rollback(root, revision, before):
         temporary.replace(path)
 
 
-def check_runtime(root, selected=()):
-    """Run in the runtime interpreter; inspect local state without acquisition or engine execution."""
+class RuntimeIncomplete(RuntimeError):
+    """Expected local inventory incompleteness, distinct from a broken validator."""
+
+
+def check_runtime(root, selected=(), *, inventory=True):
+    """Inspect Python and selected or complete local inventory without acquiring or executing engines."""
     from importlib import metadata
     from pip._vendor.packaging.requirements import Requirement
 
     sys.path.insert(0, str(root))
     import setup
     from strata_control import doctor, engine_component
-    from strata_control.profiles import read_run_config
+    from strata_control.profiles import ProfileError, read_run_config
 
     problems = []
     rollbacks = {}
-    if (root / ".git" / ENGINE_ROLLBACK).exists():
+    if (inventory or selected) and (root / ".git" / ENGINE_ROLLBACK).exists():
         revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         rollbacks = engine_rollbacks(root, revision)
     selected = {Path(path).resolve() for path in selected}
-    configs = list(dict.fromkeys([*(path.resolve() for path in setup.installed_configs()), *sorted(selected)]))
+    installed = setup.installed_configs() if inventory else ()
+    configs = list(dict.fromkeys([*(path.resolve() for path in installed), *sorted(selected)]))
 
     # Match pip_install's intentional compatibility policy for legacy bare-name stamps.
     stamp = Path(sys.prefix) / ".strata-pip.json"
@@ -288,14 +294,19 @@ def check_runtime(root, selected=()):
 
     checked = set()
     for config in configs:
-        report = doctor.inspect(config, cwd=os.getcwd() if config in selected else None)
+        try:
+            report = doctor.inspect(config, cwd=os.getcwd() if config in selected else None)
+            cfg = read_run_config(config)
+        except (ProfileError, engine_component.ComponentProblem) as error:
+            problems.append(f"{config.name}: {error}")
+            continue
         for component in report["components"]:
             if component["required"] and component["status"] in {"missing", "invalid"}:
                 problems.append(f"{config.name}: {component['name']} {component['status']}: "
                                 f"{component.get('path', component.get('reason', ''))}")
         # Component references use upstream compatibility checks and explicit pins,
         # not the legacy flat-engine version floor.
-        if engine_component.is_reference(read_run_config(config)["exe"]):
+        if engine_component.is_reference(cfg["exe"]):
             continue
         engine = next(component for component in report["components"] if component["name"] == "engine")
         exe = Path(engine["path"])
@@ -312,14 +323,19 @@ def check_runtime(root, selected=()):
         meta = json.loads(info.read_text()) if info.exists() else {}
         manifest = exe.parent / engine_component.MANIFEST
         if manifest.exists():
-            component = engine_component.read_manifest(exe.parent)
-            if component.exe.resolve() != exe.resolve():
-                problems.append(f"{exe}: component manifest names a different entrypoint")
+            try:
+                component = engine_component.read_manifest(exe.parent)
+                relative = exe.relative_to(component.root).as_posix()
+                engine_component.verify_signature(component)
+                engine_component.verify(component, executable=relative)
+            except engine_component.ComponentProblem as error:
+                problems.append(f"{exe}: {error}")
                 continue
             version = tuple(int(part) if part.isdigit() else 0
                             for part in re.split(r"[.\-+]", component.version))
         else:
-            value = meta.get("version") or setup.binary_engine_version(exe) or ""
+            value = (setup.binary_engine_version(exe) if Path(cfg["exe"]).name == "strata-sycl.sh"
+                     else meta.get("version") or setup.binary_engine_version(exe)) or ""
             version = tuple(int(part) for part in str(value).split(".")[:4] if part.isdigit())
         if not any(version) or (version < setup.MIN_ENGINE and not preserved):
             problems.append(f"{exe}: engine version {'.'.join(map(str, version)) or 'unknown'}; "
@@ -332,7 +348,7 @@ def check_runtime(root, selected=()):
                     meta.get("vision_src") != setup.source_hash(setup.VISION_SOURCES):
                 problems.append(f"{exe}: vision engine does not match this source")
     if problems:
-        raise RuntimeError(
+        raise RuntimeIncomplete(
             "Strata runtime is incomplete:\n  " + "\n  ".join(problems)
             + f"\nRepair the named files/packages (Python: {sys.executable} -m pip install -r "
               f"{setup.REQUIREMENTS}), close the model, check the updater's errors, then run strata source --update."
@@ -358,7 +374,7 @@ def reconcile_configs(root, configs):
         os.chdir(caller)
 
 
-def runtime_status(root, lock_fd, configs=(), *, reconcile=False):
+def runtime_status(root, lock_fd, configs=(), *, reconcile=False, mode=None):
     python = root / "python/bin/python3"
     if not os.access(python, os.X_OK):
         python = root / ".venv/bin/python"
@@ -368,16 +384,63 @@ def runtime_status(root, lock_fd, configs=(), *, reconcile=False):
         )
     return subprocess.run(
         [str(python), str(Path(__file__).resolve()),
-         "--reconcile-runtime" if reconcile else "--runtime-status", str(root), *map(str, configs)],
+         mode or ("--reconcile-runtime" if reconcile else "--runtime-status"), str(root), *map(str, configs)],
         cwd=Path.cwd() if configs else root, capture_output=True, text=True, pass_fds=(lock_fd,),
     )
 
 
+
+def publish_revision(marker, revision):
+    temporary = marker.with_suffix(".tmp")
+    temporary.write_text(revision + "\n")
+    temporary.replace(marker)
+
+
+def prepare_launch_runtime(root, revision, lock_fd):
+    """Refresh source/Python once per pin, leaving engine and model acquisition to native launch."""
+    receipt = root / ".git" / SOURCE_REFRESH_REVISION
+    current = receipt.exists() and receipt.read_text().strip() == revision
+    status = runtime_status(root, lock_fd, mode="--python-status")
+    if current and status.returncode == 0:
+        return
+    receipt.unlink(missing_ok=True)
+    (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+    rollbacks = engine_rollbacks(root, revision)
+    subprocess.run(
+        ["sh", str(root / "setup.sh"), "--update", *(["--build"] if rollbacks else [])],
+        check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
+    )
+    status = runtime_status(root, lock_fd, mode="--python-status")
+    if status.returncode:
+        raise RuntimeError(status.stderr.strip() or status.stdout.strip() or "Strata Python validation failed")
+    publish_revision(receipt, revision)
+
+
+def validate_selected_runtime(root, revision, lock_fd, configs):
+    """Validate the derived launch after native acquisition; certify only complete installed inventory."""
+    marker = root / ".git" / RUNTIME_REVISION
+    receipt = root / ".git" / SOURCE_REFRESH_REVISION
+    status = runtime_status(root, lock_fd, configs, mode="--selected-runtime")
+    if status.returncode:
+        marker.unlink(missing_ok=True)
+        receipt.unlink(missing_ok=True)
+        raise RuntimeError(status.stderr.strip() or status.stdout.strip() or "Selected runtime validation failed")
+    status = runtime_status(root, lock_fd)
+    if status.returncode == 0:
+        publish_revision(marker, revision)
+    elif status.returncode == 75:
+        marker.unlink(missing_ok=True)
+    else:
+        marker.unlink(missing_ok=True)
+        raise RuntimeError(status.stderr.strip() or status.stdout.strip() or "Runtime inventory validation failed")
+
 def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
     marker = root / ".git" / RUNTIME_REVISION
+    receipt = root / ".git" / SOURCE_REFRESH_REVISION
     rollback_path = root / ".git" / ENGINE_ROLLBACK
     if force:
         rollback_path.unlink(missing_ok=True)
+        receipt.unlink(missing_ok=True)
     rollbacks = engine_rollbacks(root, revision) if not force else {}
     current = marker.exists() and marker.read_text().strip() == revision
     status = None
@@ -386,6 +449,7 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
         if status.returncode == 0 and current:
             return
     marker.unlink(missing_ok=True)
+    receipt.unlink(missing_ok=True)
     if not rollbacks:
         rollback_path.unlink(missing_ok=True)
     if force or not current or status is None or status.returncode:
@@ -399,9 +463,8 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
         if status.returncode:
             raise RuntimeError(status.stderr.strip() or status.stdout.strip() or
                                "Strata runtime validation failed; run strata source --update after repairing the runtime")
-    temporary = marker.with_suffix(".tmp")
-    temporary.write_text(revision + "\n")
-    temporary.replace(marker)
+    publish_revision(marker, revision)
+    publish_revision(receipt, revision)
 
 
 # Workaround: upstream's ambient-Python venv can depend on a collectable Nix store path.
@@ -440,6 +503,7 @@ def bootstrap_runtime(state, root, lock_fd):
     ).returncode:
         shutil.rmtree(venv)
         (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         retain_interpreter(state, venv)
     try:
         subprocess.run(
@@ -448,11 +512,14 @@ def bootstrap_runtime(state, root, lock_fd):
         )
     except BaseException:
         (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         raise
     finally:
         retain_interpreter(state, root / ".venv")
     python = runtime_python(root)
     if not os.access(python, os.X_OK):
+        (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         raise RuntimeError(f"Strata bootstrap did not provide a runtime interpreter at {python}")
     return python
 
@@ -499,7 +566,8 @@ def runtime_action(a):
     if a.command == "serve":
         return not (a.plan or a.json)
     if a.command == "monitor":
-        return not a.once
+        from strata_cli.monitor_commands import monitor_validation_error
+        return not a.once and monitor_validation_error(a, terminal=sys.stdout.isatty()) is None
     return a.command == "bench" and a.bench_command == "run" and not getattr(a, "plan", False)
 
 
@@ -562,8 +630,8 @@ def source_exec(context, args):
             rollback.unlink()
         if not standalone and (a.update or installing):
             rollback.unlink(missing_ok=True)
-        if a.update and not standalone:
             (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+            (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         if not standalone and not runtime_ready:
             python = bootstrap_runtime(state, root, lock_fd)
             os.environ["STRATA_RUNTIME_READY"] = str(root)
@@ -645,8 +713,11 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         if runtime_action(a):
             python = bootstrap_runtime(state, root, lock.fileno())
             configs = managed_runtime_configs(root, a)
-            if configs is not None and (configs or model_configs(root)):
-                refresh_runtime(root, revision, lock.fileno(), [], configs=configs)
+            if configs is not None:
+                if a.command == "launch":
+                    prepare_launch_runtime(root, revision, lock.fileno())
+                elif configs or model_configs(root):
+                    refresh_runtime(root, revision, lock.fileno(), [], configs=configs)
         elif not os.access(python, os.X_OK):
             python = Path(sys.executable)
         if a.command in {"status", "monitor", "logs", "connection"}:
@@ -668,11 +739,16 @@ if __name__ == "__main__":
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--observer-probe":
             sys.exit(observer_probe(Path(sys.argv[2]).resolve(), sys.argv[3:]))
-        elif sys.argv[1] in {"--runtime-status", "--reconcile-runtime"}:
+        elif sys.argv[1] == "--validate-selected":
+            context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
+            root = (Path(context["state"]) / "source").resolve()
+            validate_selected_runtime(root, context["revision"], int(os.environ["STRATA_WORKSPACE_LOCK_FD"]),
+                                      sys.argv[2:])
+        elif sys.argv[1] in {"--runtime-status", "--reconcile-runtime", "--python-status", "--selected-runtime"}:
             root = Path(sys.argv[2]).resolve()
-            if sys.argv[1] == "--reconcile-runtime":
+            if sys.argv[1] in {"--reconcile-runtime", "--selected-runtime"}:
                 reconcile_configs(root, sys.argv[3:])
-            check_runtime(root, sys.argv[3:])
+            check_runtime(root, sys.argv[3:], inventory=sys.argv[1] not in {"--python-status", "--selected-runtime"})
         else:
             sys.exit(run_workspace(sys.argv[1], sys.argv[2], sys.argv[6:],
                                    data_directory=sys.argv[3] or None,
@@ -680,6 +756,9 @@ if __name__ == "__main__":
                                    source_patch=sys.argv[5] or None))
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
+    except RuntimeIncomplete as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(75)
     except RuntimeError as error:
         sys.exit(str(error))
     except (OSError, ValueError, ImportError) as error:

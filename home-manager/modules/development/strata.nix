@@ -52,13 +52,18 @@ in
 
         A separate publication lease protects source checks, native parsing, exec and
         consumer initialization. One-shot observers keep a read lease until completion;
-        logs and monitors release it before polling. Services release it at native
-        readiness after caching deferred helpers. Fetching does not hold the publication lock.
+        logs and monitors release it before polling. Asynchronous runtime starts hand a
+        short read lease through the owner host to each backend, including later restarts.
+        Services release it at native readiness after caching deferred helpers; hosts
+        release their copy after handoff. Fetching does not hold the publication lock.
         Warm observations require the complete applied overlay and a valid HEAD.
         Interrupted initialization and publication resume before parser inspection.
-        Managed launch and serve refresh and validate their runtimes after source pin
-        changes; failed repairs remain pending. Independent external runtimes skip this
-        reconciliation. Direct upstream scripts outside this launcher do not participate
+        Managed launch refreshes source and Python after pin changes, then lets native
+        launch acquire missing engines, models and drafters before validating the derived
+        selected config. Unrelated incomplete installations do not block that launch.
+        Source starts, explicit updates and managed serve retain complete validation.
+        Failed repairs remain pending. Independent external runtimes skip reconciliation.
+        Direct upstream scripts outside this launcher do not participate
         in these leases.
         Changing this path does not migrate the workspace.
       '';
@@ -116,12 +121,19 @@ in
         Update remains the upstream engine/Control feed command; it does not change the Nix source pin.
         Real launch, serve, install, bench run and cold monitor UI commands can bootstrap
         Python without installing a model. Interactive monitoring checks its real UI consumer
-        in the selected runtime and resumes incomplete bootstrap.
+        in the selected runtime and resumes incomplete bootstrap. Invalid monitor requests,
+        including JSON without --once or interactive use without a terminal, return native
+        errors before optional UI imports or Python bootstrap.
         Help, including signed-feed family help in either argument order, does not discover feeds.
         Help, version, status, monitor --once and plans do not acquire Python packages, models or engines.
         Source and Nix environment realization can still require network access.
         A cold serve plan reports upstream's typed missing-dependency error until runtime is available.
         New source pins refresh installed runtimes automatically before real managed launch or serve.
+        A source-refresh receipt records a successful updater and validated Python at the pin;
+        it does not certify engines or model files. Launch validates its actual derived config
+        after acquisition and before tuning or start. A complete runtime revision is recorded
+        atomically only when every installed config also validates. Healthy selected launches
+        reuse the source-refresh receipt even when unrelated inventory remains incomplete.
         Launch ownership follows the native catalog. Serve follows its canonical config
         or the original raw executable when that executable belongs to the workspace,
         independently of STRATA_INSTALL_DIR. Component references retain upstream pins.
@@ -129,6 +141,10 @@ in
         Installed base configs and source-built engines stay in the workspace. Derived
         launch configs remain in upstream's state directory and receive native argument
         migrations before serving, including when the runtime is already certified.
+        SYCL validation reads the real engine behind its launcher and translates only engine
+        argument paths through the effective wrapper mount; tokenizer and vision paths stay
+        on the host. Manifest-listed auxiliary engines retain native signatures, payload
+        checks and version policy, with hashes for the main and selected executable.
         Component engines keep upstream's shared store. Explicit external launch targets
         keep upstream directory and runtime selection.
         External install targets use their own installer and runtime without private workspace state.

@@ -2,7 +2,7 @@
 # intent: Native Terminal/source CLI, Python-only bootstrap, managed runtime lifecycle and separate model artifacts.
 
 diff --git a/serve/server.py b/serve/server.py
-index fbd5354..b8f8653 100644
+index fbd5354..2a2058b 100644
 --- a/serve/server.py
 +++ b/serve/server.py
 @@ -61,6 +61,10 @@ from urllib.parse import parse_qs, urlsplit
@@ -16,7 +16,34 @@ index fbd5354..b8f8653 100644
  from serve.frontend import (THINK_END, ChatTemplate, Event, OutputParser, parser_for_template, anthropic_to_messages, anthropic_tools,  # noqa: E402
                              forced_call, images_of, literal_tags, mark_think_literals, openai_to_messages, require_messages,
                              tool_choice_of, unmark_think_literals)
-@@ -10004,6 +10008,12 @@ def tool_call_recovery_setting(cfg: dict) -> bool:
+@@ -3779,18 +3783,6 @@ def card_roles_lines(cfg: dict) -> list[str]:
+     return out
+ 
+ 
+-def engine_binary(exe: str, cfg: dict | None = None) -> str:
+-    """The file that holds the engine's own option strings, for a feature check that reads it.  The Intel launcher
+-    (sycl/serve/strata-sycl.sh) is a shell script that runs its repo's STRATA_SYCL_BIN (default build-sycl-aot/strata)
+-    in a container, so the check reads that binary, not the script.  Any other `exe` is the engine itself."""
+-    p = Path(exe)
+-    if p.name == "strata-sycl.sh":
+-        rel = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_BIN") or os.environ.get("STRATA_SYCL_BIN") \
+-            or "build-sycl-aot/strata"
+-        b = p.resolve().parents[2] / rel
+-        if b.is_file():
+-            return str(b)
+-    return exe
+ 
+ 
+ def effort_end_args(cfg: dict, exe: str, tok) -> list[str] | None:
+@@ -3804,6 +3796,7 @@ def effort_end_args(cfg: dict, exe: str, tok) -> list[str] | None:
+     if pos == "start":
+         return None
+     try:
++        from strata_control.cfg_paths import engine_binary
+         with open(engine_binary(exe, cfg), "rb") as f:
+             known = b"--tail-role-token" in f.read()
+     except OSError:
+@@ -10004,6 +9997,12 @@ def tool_call_recovery_setting(cfg: dict) -> bool:
  
  
  def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> int:
@@ -29,7 +56,7 @@ index fbd5354..b8f8653 100644
      """Serve until stopped. For as long as it runs this server holds the shared activity lease of the runtime folder (the same one `strata serve` and
      a runtime host take), so `strata update` and a calibration run see an engine that was started by running this file directly - the desktop app's
      source install does - and wait for it or refuse, instead of test-starting a second copy of the model beside it (#4463). A lease that cannot be
-@@ -10609,6 +10619,8 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
+@@ -10609,6 +10608,8 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
      try:
          # inside the try: a SIGTERM that arrives the moment the ready file is visible (a supervisor that reads it and
          # stops the server at once) takes the clean stop below, not an uncaught KeyboardInterrupt with the file left behind
@@ -38,7 +65,7 @@ index fbd5354..b8f8653 100644
          if ready_path is not None:
              try:
                  ready_file.publish(ready_path, record)
-@@ -10665,7 +10677,3 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
+@@ -10665,7 +10666,3 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
                                   "drained": drained, "cancelled_requests": cancelled,
                                   "exit_code": exit_code})
      return exit_code
@@ -996,7 +1023,7 @@ index 35d9171..bce75ea 100644
              text = f"The update did not run: {exc}"
          self.updating = False
 diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
-index 5f07cb8..cc1ced5 100644
+index 5f07cb8..31ca61b 100644
 --- a/strata_cli/launch/runner.py
 +++ b/strata_cli/launch/runner.py
 @@ -707,7 +707,9 @@ class Runner:
@@ -1080,8 +1107,41 @@ index 5f07cb8..cc1ced5 100644
                  first = next((f for f in job["files"] if f.get("role") == "model"), None)
                  if first:                                    # the folder setup names it (Q2_0), not the lower-case run-config tag (q2_0)
                      job["folder"] = str(Path(first["path"]).parent)
+@@ -2879,10 +2910,17 @@ class Runner:
+             self.ensure_profile(cfg)
+             self.emit("config", "Settings are saved.", 100)
+             if self.engine_problem:
++                from strata_control import acquisition
++                acquisition.runtime_failed(installation=self.catalog.root)
+                 text = no_engine_final(self.engine_problem, self.s.name or self.name)
+                 self.emit("done", text, 100, level="warn")
+                 return Result(self.profile, [], self.s.api_key, None, self.notices + [text], str(cfg), serving=False,
+                               engine_problem=self.engine_problem, final_text=text)
++            from strata_control import acquisition
++            try:
++                acquisition.validate_selected(cfg, installation=self.catalog.root)
++            except RuntimeError as exc:
++                raise LaunchError(str(exc)) from exc
+             self.tune()
+             self.check_cancel()
+             if not start:
+@@ -2894,10 +2932,10 @@ class Runner:
+             res = Result(self.profile, urls, self.s.api_key, self.tune_word, self.notices, str(cfg), tunnel)
+             self.emit("done", "Strata is serving.", 100, urls=urls)
+             return res
+-        except Cancelled:
+-            self._stop_children()
+-            raise
+-        except LaunchError:
++        except (Cancelled, LaunchError):
++            from strata_control import acquisition
++            if self._catalog is not None:
++                acquisition.runtime_failed(installation=self._catalog.root)
+             self._stop_children()
+             raise
+ 
 diff --git a/strata_cli/monitor_commands.py b/strata_cli/monitor_commands.py
-index 7db98a1..b5637fb 100644
+index 7db98a1..20e629e 100644
 --- a/strata_cli/monitor_commands.py
 +++ b/strata_cli/monitor_commands.py
 @@ -16,6 +16,11 @@ import sys
@@ -1096,7 +1156,43 @@ index 7db98a1..b5637fb 100644
  
  def _connection(p: argparse.ArgumentParser) -> None:
      p.add_argument("--url", help="Strata server root; remote connections require HTTPS")
-@@ -199,6 +204,10 @@ def run(a: argparse.Namespace) -> int:
+@@ -164,6 +169,19 @@ def _local_command(a: argparse.Namespace, machine: bool) -> int:
+     return 0
+ 
+ 
++def monitor_validation_error(a: argparse.Namespace, *, terminal: bool) -> str | None:
++    """Validate monitor semantics before importing any optional terminal UI."""
++    if a.command != "monitor":
++        return None
++    if a.interval < 0.5 or a.interval > 30 or not 1 <= a.requests <= 50:
++        return "--interval must be 0.5–30 seconds and --requests must be 1–50"
++    if (a.json or a.output == "json") and not a.once:
++        return "JSON monitor output requires --once; interactive monitor uses a terminal"
++    if not a.once and not terminal:
++        return "interactive monitor needs a terminal; use --once or strata status --json"
++    return None
++
++
+ def run(a: argparse.Namespace) -> int:
+     machine = a.output in ("json", "jsonl") or getattr(a, "json", False)
+     quiet = bool(getattr(a, "quiet", False) and not machine)
+@@ -186,12 +204,9 @@ def run(a: argparse.Namespace) -> int:
+                 return _error("jsonl output requires --follow", 2, machine)
+             if a.source == "harness":
+                 return _error("shared local harness activity is unavailable; use --source runtime", 5, machine)
+-        if a.command == "monitor" and (a.interval < 0.5 or a.interval > 30 or not 1 <= a.requests <= 50):
+-            return _error("--interval must be 0.5–30 seconds and --requests must be 1–50", 2, machine)
+-        if a.command == "monitor" and (a.json or a.output == "json") and not a.once:
+-            return _error("JSON monitor output requires --once; interactive monitor uses a terminal", 2, machine)
+-        if a.command == "monitor" and not a.once and not sys.stdout.isatty():
+-            return _error("interactive monitor needs a terminal; use --once or strata status --json", 2, machine)
++        monitor_error = monitor_validation_error(a, terminal=sys.stdout.isatty())
++        if monitor_error is not None:
++            return _error(monitor_error, 2, machine)
+         found = running_launch() if a.command in ("monitor", "status", "logs") and not (a.url or a.connection) else None
+         resolved = connections.resolve(url=found["url"] if found else a.url, connection=a.connection,
+                                        credential_env=a.credential_env, timeout=a.timeout)
+@@ -199,6 +214,10 @@ def run(a: argparse.Namespace) -> int:
                              resolved["timeout_s"], resolved["prefix"])
          if a.command == "logs":
              from strata_cli.logs import run as run_logs
@@ -1107,7 +1203,7 @@ index 7db98a1..b5637fb 100644
              return run_logs(endpoint, follow=a.follow, output=a.output, interval=a.interval, quiet=quiet)
          if machine or a.command == "status" or a.once:
              snapshot = endpoint.snapshot()
-@@ -219,8 +228,12 @@ def run(a: argparse.Namespace) -> int:
+@@ -219,8 +238,12 @@ def run(a: argparse.Namespace) -> int:
                  from strata_cli.monitor import MonitorApp
              except ImportError:
                  return _error("monitor component missing; install the optional terminal UI dependency", 5, machine)
@@ -1123,10 +1219,10 @@ index 7db98a1..b5637fb 100644
          # the one monitor, with the same seven views as the one `strata launch` opens (Connect is key 7 and works against this --url
          # server); q just detaches here: nothing was started by this command, so there is nothing to stop
 diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
-index a61e6b4..9d60034 100644
+index a61e6b4..23de050 100644
 --- a/strata_control/acquisition.py
 +++ b/strata_control/acquisition.py
-@@ -25,6 +25,139 @@ import threading
+@@ -25,6 +25,198 @@ import threading
  
  ENV = "STRATA_NO_ACQUIRE"
  
@@ -1143,6 +1239,41 @@ index a61e6b4..9d60034 100644
 +    return json.loads(context)["state"] if context is not None else None
 +
 +
++
++
++def open_source_lease(state=None):
++    """Own one short source reader independently of service and acquisition ownership."""
++    inherited = os.environ.pop("STRATA_SOURCE_LOCK_FD", None)
++    if inherited is not None:
++        fd = int(inherited)
++        if _source_file is not None and fd == _source_file.fileno():
++            fd = os.dup(fd)
++        lock = os.fdopen(fd, "a")
++    elif _source_file is not None:
++        lock = os.fdopen(os.dup(_source_file.fileno()), "a")
++    elif state is not None:
++        import fcntl
++        from pathlib import Path
++        lock = (Path(state) / ".source-publication.lock").open("a")
++        fcntl.flock(lock, fcntl.LOCK_SH)
++    else:
++        return None
++    os.set_inheritable(lock.fileno(), False)
++    return lock
++
++
++@contextlib.contextmanager
++def source_lease(state=None):
++    lock = open_source_lease(state)
++    try:
++        yield lock
++    finally:
++        if lock is not None:
++            if os.environ.get("STRATA_SOURCE_LOCK_FD") == str(lock.fileno()):
++                os.environ.pop("STRATA_SOURCE_LOCK_FD", None)
++            lock.close()
++
++
 +_source_file = None
 +
 +
@@ -1155,13 +1286,15 @@ index a61e6b4..9d60034 100644
 +        _source_file = None
 +
 +
-+def source_handoff():
-+    """Pass a short source read lease through a service exec, never acquisition ownership."""
-+    if _source_file is None:
++def source_handoff(lease=None, *, environ=None):
++    """Pass a source reader through exec, using a private child environment when supplied."""
++    lock = lease if lease is not None else _source_file
++    if lock is None:
 +        return ()
-+    fd = _source_file.fileno()
++    fd = lock.fileno()
 +    os.set_inheritable(fd, True)
-+    os.environ["STRATA_SOURCE_LOCK_FD"] = str(fd)
++    target = os.environ if environ is None else environ
++    target["STRATA_SOURCE_LOCK_FD"] = str(fd)
 +    return (fd,)
 +
 +
@@ -1182,19 +1315,11 @@ index a61e6b4..9d60034 100644
 +    if _source_file is not None:
 +        yield
 +        return
-+    inherited = os.environ.pop("STRATA_SOURCE_LOCK_FD", None)
-+    if inherited is not None:
-+        lock = os.fdopen(int(inherited), "a")
-+    elif state is not None:
-+        import fcntl
-+        from pathlib import Path
-+        lock = (Path(state) / ".source-publication.lock").open("a")
-+        fcntl.flock(lock, fcntl.LOCK_SH)
-+    else:
++    lock = open_source_lease(state)
++    if lock is None:
 +        yield
 +        return
 +    _source_file = lock
-+    os.set_inheritable(lock.fileno(), False)
 +    try:
 +        yield
 +    finally:
@@ -1227,6 +1352,36 @@ index a61e6b4..9d60034 100644
 +        # Do not LOCK_UN: a surviving mutator may share this open file description.
 +        os.close(int(fd))
 +    return json.loads(context)["state"] if context is not None else None
++
++
++def validate_selected(config, *, installation):
++    """Validate a native launch after acquisition, under its existing managed workspace lease."""
++    import json
++    import subprocess
++    from pathlib import Path
++    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
++    context = json.loads(os.environ.get("STRATA_WORKSPACE_CONTEXT", "{}"))
++    if not helper or not context.get("state") or not context.get("revision"):
++        return
++    if Path(installation).resolve() != (Path(context["state"]) / "source").resolve():
++        return
++    result = subprocess.run([sys.executable, helper, "--validate-selected", str(config)],
++                            capture_output=True, text=True, pass_fds=workspace_fds())
++    if result.returncode:
++        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Selected runtime validation failed")
++
++
++def runtime_failed(*, installation):
++    """Leave failed managed acquisition pending without changing an external installation."""
++    import json
++    from pathlib import Path
++    context = json.loads(os.environ.get("STRATA_WORKSPACE_CONTEXT", "{}"))
++    if not workspace_fds() or not context.get("state") or not context.get("revision"):
++        return
++    root = (Path(context["state"]) / "source").resolve()
++    if Path(installation).resolve() == root:
++        for name in ("strata-runtime-revision", "strata-source-refresh-revision"):
++            (root / ".git" / name).unlink(missing_ok=True)
 +
 +
 +_workspace_mutation_lock = threading.Lock()
@@ -1266,8 +1421,46 @@ index a61e6b4..9d60034 100644
  _lock = threading.Lock()
  _depth = 0
  
+diff --git a/strata_control/cfg_paths.py b/strata_control/cfg_paths.py
+index 19b0ffe..ce621ea 100644
+--- a/strata_control/cfg_paths.py
++++ b/strata_control/cfg_paths.py
+@@ -32,6 +32,33 @@ SKIP_KEYS = ("log",)                      # paths the engine writes, not reads
+ SKIP_FLAGS = ("--expert-profile-save",)
+ 
+ 
++def engine_binary(exe: str, cfg: dict | None = None) -> str:
++    """Resolve the engine behind the Intel container launcher without importing the server."""
++    p = Path(exe)
++    if p.name == "strata-sycl.sh":
++        rel = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_BIN", os.environ.get("STRATA_SYCL_BIN")) \
++            or "build-sycl-aot/strata"
++        return str(p.resolve().parents[2] / rel)
++    return exe
++
++
++def engine_argument_path(raw: str, exe: str, cfg: dict) -> Path:
++    """Map only container engine arguments back to the wrapper's host mount."""
++    value = Path(raw).expanduser()
++    if Path(exe).name != "strata-sycl.sh":
++        return value
++    repo = Path(exe).resolve().parents[2]
++    mount = Path((cfg.get("env") or {}).get("STRATA_SYCL_ROOT", os.environ.get("STRATA_SYCL_ROOT"))
++                 or repo.parent).expanduser()
++    if value == Path("/work"):
++        return mount
++    if value.is_relative_to("/work"):
++        return mount / value.relative_to("/work")
++    if not value.is_absolute():
++        return mount / repo.name / value
++    return value
++
++
+ def _key(name: str) -> tuple:
+     head = str(name).split("-")[0]
+     return tuple(int(x) for x in head.split(".") if x.isdigit()), str(name)
 diff --git a/strata_control/doctor.py b/strata_control/doctor.py
-index c1c5575..57ba69e 100644
+index c1c5575..1748824 100644
 --- a/strata_control/doctor.py
 +++ b/strata_control/doctor.py
 @@ -156,7 +156,7 @@ def _live_probe(cfg: dict, backend: str) -> tuple[dict, list[dict]]:
@@ -1279,7 +1472,7 @@ index c1c5575..57ba69e 100644
      report = {"schema_version": 1, "profile": profile_id, "source_config": str(config_path) if config_path else None,
                "components": [], "issues": [], "backend": None, "devices_selected": None,
                "live_gpu_probe": None}
-@@ -173,6 +173,8 @@ def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bo
+@@ -173,9 +173,18 @@ def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bo
          return report
  
      cfg = read_run_config(config_path)
@@ -1287,25 +1480,202 @@ index c1c5575..57ba69e 100644
 +        cfg = dict(cfg, cwd=cwd)
      report["backend"] = cfg.get("backend") or "cuda_or_cpu_unverified"
      report["devices_selected"] = cfg.get("gpu")
-     exe = _location(cfg["exe"], cfg, config_path)
+-    exe = _location(cfg["exe"], cfg, config_path)
++    from strata_control.cfg_paths import engine_argument_path, engine_binary
++    launcher = _location(cfg["exe"], cfg, config_path)
++    exe = Path(engine_binary(str(launcher), cfg))
++    if launcher != exe:
++        components.append(_item("engine_launcher", launcher, "file"))
++        if components[-1]["status"] == "ok" and os.name != "nt" and not os.access(launcher, os.X_OK):
++            components[-1]["status"] = "invalid"
++            components[-1]["reason"] = "engine launcher is not executable"
+     components.append(_item("engine", exe, "file"))
+     if components[-1]["status"] == "ok" and os.name != "nt" and not os.access(exe, os.X_OK):
+         components[-1]["status"] = "invalid"
+@@ -218,7 +227,9 @@ def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bo
+             kind = "file"
+         # The MTP layer is one of two drafters, never both: a model whose drafter is DFlash2 has no layer on disk, and the run config keeps `--mtp <folder>` for a
+         # later switch to the MTP. Its absence then does not make the model unusable (strata_control/drafting.py loads the drafter that is there).
+-        components.append(_item(arg.lstrip("-"), _location(raw, cfg, config_path), kind, required=not (arg == "--mtp" and _drafter_is_dflash2(cfg))))
++        argument = engine_argument_path(raw, str(launcher), cfg)
++        components.append(_item(arg.lstrip("-"), _location(str(argument), cfg, config_path), kind,
++                                required=not (arg == "--mtp" and _drafter_is_dflash2(cfg))))
+ 
+     vision = cfg.get("vision")
+     if isinstance(vision, dict):
+diff --git a/strata_control/engine_component.py b/strata_control/engine_component.py
+index 09de18d..6837d5b 100644
+--- a/strata_control/engine_component.py
++++ b/strata_control/engine_component.py
+@@ -453,9 +453,12 @@ def _hash_settled(path: Path, digest: str) -> str | None:
+     return actual
+ 
+ 
+-def verify(component: EngineComponent, *, full: bool = False) -> None:
+-    """Raise IntegrityProblem unless the files are what the manifest says. `full` hashes every file; without it only
+-    the entrypoint is hashed (sizes are always checked)."""
++def verify(component: EngineComponent, *, full: bool = False, executable: str | None = None) -> None:
++    """Check all payload sizes and hash the entrypoint and selected executable, or every file with `full`."""
++    if executable is not None:
++        executable = _plain_relative(executable)
++        if executable not in {rel for rel, _, _ in component.files}:
++            raise IntegrityProblem(f"{executable} is not listed in the component manifest")
+     # extended-length paths: under a long user name an AMD engine's files pass 259 characters, which Windows (long paths off)
+     # reports as "missing" for an ordinary path
+     folder = longpath.long_path(component.root)
+@@ -472,13 +475,15 @@ def verify(component: EngineComponent, *, full: bool = False) -> None:
+             raise IntegrityProblem(f"{rel} resolves outside the component folder")
+         if info.st_size != size:
+             raise IntegrityProblem(f"{rel} is {info.st_size} bytes, the manifest says {size}")
+-        if full or rel == component.entrypoint:
++        if full or rel == component.entrypoint or rel == executable:
+             actual = _hash_settled(target, digest)
+             if actual != digest:
+                 raise IntegrityProblem(f"{rel} does not match its recorded SHA-256 (expected {digest[:12]}, "
+                                        f"found {actual[:12] if actual else 'unreadable'})")
+     if os.name != "nt" and not os.access(component.exe, os.X_OK):
+         raise IntegrityProblem(f"{component.entrypoint} is not executable")
++    if executable is not None and os.name != "nt" and not os.access(folder / executable, os.X_OK):
++        raise IntegrityProblem(f"{executable} is not executable")
+ 
+ 
+ def runtime_version() -> str | None:
 diff --git a/strata_control/runtime.py b/strata_control/runtime.py
-index 988ba80..1159e51 100644
+index 988ba80..9ee5108 100644
 --- a/strata_control/runtime.py
 +++ b/strata_control/runtime.py
-@@ -644,9 +644,12 @@ def start(name: str, *, wait: float = 300, shutdown_timeout: float = 30,
+@@ -39,7 +39,7 @@ try:
+ except ImportError:  # Windows has no qualified owner transport yet.
+     fcntl = None
+ 
+-from strata_control import owner_transport, paths, posix_owner, private_files, procs, profiles, readiness, winproc
++from strata_control import acquisition, owner_transport, paths, posix_owner, private_files, procs, profiles, readiness, winproc
+ from serve import launch_identity
+ from strata_control.profiles import ProfileError
+ 
+@@ -644,9 +644,18 @@ def start(name: str, *, wait: float = 300, shutdown_timeout: float = 30,
                  command += ["--die-with-pid", str(die_with[0]), "--die-with-token", die_with[1]]
              detach = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
                        if WINDOWS else {"start_new_session": True})
-+            env = {key: value for key, value in os.environ.items()
-+                   if key not in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
-+                                  "STRATA_WORKSPACE_CONTEXT", "STRATA_SOURCE_LOCK_FD")}
-             proc = subprocess.Popen(command,
-                                     cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
+-            proc = subprocess.Popen(command,
+-                                    cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
 -                                    stderr=subprocess.STDOUT, close_fds=True, **detach)
-+                                    stderr=subprocess.STDOUT, close_fds=True, env=env, **detach)
++            with acquisition.source_lease(acquisition.workspace_state()) as source_lease:
++                env = {key: value for key, value in os.environ.items()
++                       if key not in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
++                                      "STRATA_WORKSPACE_CONTEXT", "STRATA_SOURCE_LOCK_FD")}
++                source_fds = acquisition.source_handoff(source_lease, environ=env)
++                state = acquisition.workspace_state()
++                if state is not None:
++                    command += ["--workspace-state", state]
++                proc = subprocess.Popen(command,
++                                        cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
++                                        stderr=subprocess.STDOUT, close_fds=True, env=env,
++                                        pass_fds=source_fds, **detach)
          _STARTED_HOSTS[name] = proc
          deadline = time.monotonic() + max(5.0, wait)
          while _read_state(name) is None and proc.poll() is None and time.monotonic() < deadline:
+@@ -860,8 +869,10 @@ class Host:
+     def __init__(self, name: str, shutdown_timeout: float, startup_wait: float = 300,
+                  expected_profile_revision: str | None = None,
+                  expected_source_sha256: str | None = None,
+-                 die_with: tuple[int, str] | None = None):
++                 die_with: tuple[int, str] | None = None, *, workspace_state=None, startup_source=None):
+         self.name = _name(name)
++        self.workspace_state = workspace_state
++        self.startup_source = startup_source
+         self.die_with = die_with           # (pid, start token): stop the server when that process is gone
+         self.shutdown_timeout = shutdown_timeout
+         self.expected_profile_revision = expected_profile_revision
+@@ -907,10 +918,11 @@ class Host:
+         profiles._atomic(_child_marker(self.name, self.token), (json.dumps(payload) + "\n").encode())
+ 
+     def _plan(self) -> tuple[dict, list[str], Path, bytes]:
+-        from strata_cli.cli import _launch_plan
+-        plan, args = _launch_plan(self.name)
+-        source = Path(plan["source_config"])
+-        return plan, args, source, source.read_bytes()
++        with acquisition.source_lease(self.workspace_state):
++            from strata_cli.cli import _launch_plan
++            plan, args = _launch_plan(self.name)
++            source = Path(plan["source_config"])
++            return plan, args, source, source.read_bytes()
+ 
+     def _source_change_check(self, source: Path, source_bytes: bytes,
+                              allow_source_switch: bool,
+@@ -961,6 +973,11 @@ class Host:
+ 
+     def _launch(self, args: list[str], source: Path, source_bytes: bytes,
+                 revision: str | None) -> None:
++        with acquisition.source_lease(self.workspace_state) as source_lease:
++            self._launch_observed(args, source, source_bytes, revision, source_lease)
++
++    def _launch_observed(self, args: list[str], source: Path, source_bytes: bytes,
++                         revision: str | None, source_lease) -> None:
+         ready = self.state_path.parent / f"{self.name}-{uuid.uuid4().hex}.ready.json"
+         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+         if hasattr(os, "O_NOFOLLOW"):
+@@ -976,6 +993,7 @@ class Host:
+         attestation_key = secrets.token_bytes(32)
+         expected_attestation = launch_identity.attestation(attestation_key, source_bytes, server_args)
+         child_env = quiet_crash_env(os.environ.copy())   # the server's engine and reader start no debugger on a user's machine
++        source_fds = acquisition.source_handoff(source_lease, environ=child_env)
+         child_env["STRATA_OWNER_ATTEST_KEY"] = attestation_key.hex()
+         child_env["STRATA_NO_ACQUIRE"] = "1"      # a managed server never installs or downloads (acquisition.py)
+         child_env["STRATA_RUNTIME_PROFILE"] = self.name   # the records of its engine say which profile they belong to
+@@ -993,7 +1011,7 @@ class Host:
+                     self.child = subprocess.Popen([sys.executable, "-m", "serve.server", *server_args],
+                                                   cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
+                                                   stderr=subprocess.STDOUT, close_fds=True,
+-                                                  pass_fds=(reader,), start_new_session=True, env=child_env)
++                                                  pass_fds=(reader, *source_fds), start_new_session=True, env=child_env)
+         except BaseException:
+             if writer is not None:
+                 os.close(writer)
+@@ -1449,6 +1467,9 @@ class Host:
+         except BaseException as exc:               # noqa: BLE001 - a thread that dies silently would leave "preparing" forever
+             self.last_error = type(exc).__name__
+         finally:
++            if self.startup_source is not None:
++                self.startup_source.close()
++                self.startup_source = None
+             self.starting = False
+             self.phase = None
+ 
+@@ -1559,6 +1580,15 @@ class Host:
+ 
+ 
+ def main(argv: list[str] | None = None) -> int:
++    source_lease = acquisition.open_source_lease()
++    try:
++        return _host_main(argv, source_lease)
++    finally:
++        if source_lease is not None:
++            source_lease.close()
++
++
++def _host_main(argv, source_lease) -> int:
+     quiet_crash_env()                                   # the host's children inherit it (strata_control/childenv.py)
+     parser = argparse.ArgumentParser(prog="strata-runtime-host")
+     parser.add_argument("--host", required=True)
+@@ -1568,6 +1598,7 @@ def main(argv: list[str] | None = None) -> int:
+     parser.add_argument("--expected-source-sha256")
+     parser.add_argument("--die-with-pid", type=int)
+     parser.add_argument("--die-with-token")
++    parser.add_argument("--workspace-state", help=argparse.SUPPRESS)
+     args = parser.parse_args(argv)
+     if not 0 <= args.shutdown_timeout <= 300 or not 1 <= args.startup_wait <= MAX_START_WAIT:
+         parser.error("shutdown timeout must be 0..300")
+@@ -1578,7 +1609,8 @@ def main(argv: list[str] | None = None) -> int:
+     try:
+         die_with = (args.die_with_pid, args.die_with_token) if args.die_with_pid and args.die_with_token else None
+         return Host(args.host, args.shutdown_timeout, args.startup_wait,
+-                    args.expected_profile_revision, args.expected_source_sha256, die_with).serve()
++                    args.expected_profile_revision, args.expected_source_sha256, die_with,
++                    workspace_state=args.workspace_state, startup_source=source_lease).serve()
+     except (ProfileError, OSError) as exc:
+         print(f"[strata runtime] host failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+         return 6
 diff --git a/strata_control/setup_config.py b/strata_control/setup_config.py
 index aacc11b..208d299 100644
 --- a/strata_control/setup_config.py
