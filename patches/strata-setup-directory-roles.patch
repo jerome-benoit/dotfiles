@@ -1,9 +1,56 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # intent: Native Terminal/source CLI, Python-only bootstrap, managed runtime lifecycle and separate model artifacts.
+
+diff --git a/serve/server.py b/serve/server.py
+index fbd5354..b8f8653 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -61,6 +61,10 @@ from urllib.parse import parse_qs, urlsplit
+ ROOT = Path(__file__).resolve().parents[1]
+ sys.path.insert(0, str(ROOT / "tools"))
+ sys.path.insert(0, str(ROOT))   # run as a script (run-<model>.bat) as well as a module
++if __name__ == "__main__":
++    from serve.server import main
++    raise SystemExit(main())
++
+ from serve.frontend import (THINK_END, ChatTemplate, Event, OutputParser, parser_for_template, anthropic_to_messages, anthropic_tools,  # noqa: E402
+                             forced_call, images_of, literal_tags, mark_think_literals, openai_to_messages, require_messages,
+                             tool_choice_of, unmark_think_literals)
+@@ -10004,6 +10008,12 @@ def tool_call_recovery_setting(cfg: dict) -> bool:
+ 
+ 
+ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> int:
++    from strata_control import acquisition
++    with acquisition.source_observation():
++        return _serve_main(argv, lifecycle_event=lifecycle_event, interrupt_exit_code=interrupt_exit_code)
++
++
++def _serve_main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> int:
+     """Serve until stopped. For as long as it runs this server holds the shared activity lease of the runtime folder (the same one `strata serve` and
+     a runtime host take), so `strata update` and a calibration run see an engine that was started by running this file directly - the desktop app's
+     source install does - and wait for it or refuse, instead of test-starting a second copy of the model beside it (#4463). A lease that cannot be
+@@ -10609,6 +10619,8 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
+     try:
+         # inside the try: a SIGTERM that arrives the moment the ready file is visible (a supervisor that reads it and
+         # stops the server at once) takes the clean stop below, not an uncaught KeyboardInterrupt with the file left behind
++        from strata_control import acquisition
++        acquisition.service_ready()
+         if ready_path is not None:
+             try:
+                 ready_file.publish(ready_path, record)
+@@ -10665,7 +10677,3 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
+                                  "drained": drained, "cancelled_requests": cancelled,
+                                  "exit_code": exit_code})
+     return exit_code
+-
+-
+-if __name__ == "__main__":
+-    sys.exit(main())
 diff --git a/setup.py b/setup.py
+index a99e9df..1386b4a 100644
 --- a/setup.py
 +++ b/setup.py
-@@ -1158,7 +1158,7 @@
+@@ -1158,7 +1158,7 @@ def run(cmd, cwd=None, env=None, check=True, quiet=False):
      env.setdefault("STRATA_EXIT_WITH_PARENT", "1")     # tools/mtp_fetch.py ends when setup ends (#3257: a cancel left it writing)
      r = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env,
                         stdout=subprocess.PIPE if quiet else None, stderr=subprocess.STDOUT if quiet else None,
@@ -12,7 +59,7 @@ diff --git a/setup.py b/setup.py
      if check and r.returncode != 0:
          if quiet and r.stdout:
              say(r.stdout[-4000:])
-@@ -3772,46 +3772,95 @@
+@@ -3772,41 +3772,47 @@ def ready_files(model: str) -> list:
      return [(role, repo, t["revision"], path, size, sha) for path, (role, size, sha) in t["files"].items()]
  
  
@@ -31,41 +78,35 @@ diff --git a/setup.py b/setup.py
 -    """Where one of them goes: <models>/<owner>--<repo>/<its path in the repository> (the repository's layout, so the
 -    pack folder is whole as the engine reads it)."""
 -    return Path(models_dir) / f[1].replace("/", "--") / f[3]
--
--
--def prepared_dir(model: str, models_dir: Path) -> Path:
--    """Where a model that is prepared on this PC (MODELS[..]["prepare"]) keeps what it prepared."""
--    return Path(models_dir) / MODELS[model]["repo"].replace("/", "--") / FP4LOCAL_PREPARED
--
--
--def prepared_done(model: str, models_dir: Path) -> bool:
 +def ready_where(models_dir: Path, f, data_dir=None, checkpoint_dir=None) -> Path:
 +    """Keep GGUF and auxiliary destinations separate while resuming an existing checkpoint in place."""
 +    if checkpoint_dir is not None and f[0] == "src":
 +        return Path(checkpoint_dir) / f[3]
 +    root = Path(data_dir) / "models" if data_dir is not None and f[0] not in ("dense", "ple", "embd") else Path(models_dir)
 +    return root / f[1].replace("/", "--") / f[3]
-+
-+
+ 
+ 
+-def prepared_dir(model: str, models_dir: Path) -> Path:
+-    """Where a model that is prepared on this PC (MODELS[..]["prepare"]) keeps what it prepared."""
+-    return Path(models_dir) / MODELS[model]["repo"].replace("/", "--") / FP4LOCAL_PREPARED
 +def prepared_dir(model: str, models_dir: Path, data_dir=None) -> Path:
 +    """Pack/draft output directory; omit data_dir for the GGUF output directory or the legacy layout."""
 +    root = Path(data_dir) / "models" if data_dir is not None else Path(models_dir)
 +    return root / MODELS[model]["repo"].replace("/", "--") / FP4LOCAL_PREPARED
-+
-+
+ 
+ 
+-def prepared_done(model: str, models_dir: Path) -> bool:
 +def prepared_done(model: str, models_dir: Path, data_dir=None) -> bool:
      """Every step of tools/nvfp4_local_pack.py prepare is marked done (its marks, written when each step is whole)."""
 -    d = prepared_dir(model, models_dir)
 -    return all((d / m).is_file() for m in ("ple-nvfp4.gguf.done", "dense.gguf.done", "pack.done", "draft.done"))
--
--
--def ready_paths(model: str, models_dir: Path) -> dict:
 +    paths = ready_paths(model, models_dir, data_dir)
 +    return all(p.is_file() for p in (paths["ple"].with_name("ple-nvfp4.gguf.done"),
 +                                    paths["dense"].with_name("dense.gguf.done"),
 +                                    paths["pack"].parent / "pack.done", paths["mtp"].parent / "draft.done"))
-+
-+
+ 
+ 
+-def ready_paths(model: str, models_dir: Path) -> dict:
 +def ready_paths(model: str, models_dir: Path, data_dir=None) -> dict:
      """What the engine is given: the pack folder and the dense, PLE and embedding GGUFs (a prepared model also has its
      own draft layer, "mtp", and no separate embedding: the token embedding is in its dense GGUF)."""
@@ -82,10 +123,10 @@ diff --git a/setup.py b/setup.py
          if f[0] == "pack" and p.name == "index.txt":
              out["pack"] = p.parent
          elif f[0] in ("dense", "ple", "embd"):
-             out[f[0]] = p
+@@ -3814,6 +3820,49 @@ def ready_paths(model: str, models_dir: Path) -> dict:
      return out
-+
-+
+ 
+ 
 +def destination_budgets(needs):
 +    """Group known remaining GB by the filesystem of each destination's nearest existing parent."""
 +    groups = {}
@@ -127,14 +168,70 @@ diff --git a/setup.py b/setup.py
 +            return (f"not enough free disk space in {parent}: need ~{gb:.0f} GB, {free:.0f} GB free",
 +                    "use --data-dir or --models-dir on a bigger drive for the files stored there")
 +    return None
- 
- 
++
++
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -3822,13 +3871,13 @@
+     """Downloaded whole and checked: its finish mark holds the pinned SHA-256 (verify_sha256)."""
+     try:
+@@ -3822,13 +3871,67 @@ def ready_verified(p: Path, sha: str) -> bool:
          return False
  
  
 -def ready_fetch(model: str, models_dir: Path) -> None:
++def model_download_layout(family, model, requested_models, *, data_dir=None, elsewhere=(), gguf_dir=None):
++    """Select existing downloads and resume checkpoints without creating or moving anything."""
++    fam = FAMILIES[family]
++    requested_models = Path(requested_models)
++    models_dir, ready_data_dir, checkpoint_dir = requested_models, data_dir, None
++    if fam.get("ready"):
++        candidates = [(Path(root) / "models", None) for root in elsewhere]
++        if data_dir is not None:
++            candidates = [(models_dir, data_dir), (models_dir, None),
++                          (Path(data_dir) / "models", None), *candidates]
++        for candidate_models, candidate_data in candidates:
++            if (data_dir is not None and MODELS[model].get("prepare")
++                    and not prepared_done(model, candidate_models, candidate_data)):
++                continue
++            if all(ready_verified(ready_where(candidate_models, f, candidate_data), f[5])
++                   for f in ready_needed(model, candidate_models, candidate_data)):
++                models_dir, ready_data_dir = candidate_models, candidate_data
++                break
++        if ready_data_dir is not None and MODELS[model].get("prepare"):
++            repo = MODELS[model]["repo"].replace("/", "--")
++            checkpoint_roots = list(dict.fromkeys([
++                Path(ready_data_dir) / "models" / repo,
++                requested_models / repo,
++                *(Path(root) / "models" / repo for root in elsewhere),
++            ]))
++            source_files = [f for f in ready_files(model) if f[0] == "src"]
++
++            def checkpoint_bytes(root):
++                total = 0
++                for f in source_files:
++                    dst = root / f[3]
++                    present = max((p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part"))
++                                   if p.is_file()), default=0)
++                    total += min(f[4], present)
++                return total
++
++            checkpoint_dir = max(checkpoint_roots, key=lambda root: (
++                all(ready_verified(root / f[3], f[5]) for f in source_files), checkpoint_bytes(root)))
++        shards = [ready_where(models_dir, f, ready_data_dir, checkpoint_dir)
++                  for f in ready_needed(model, models_dir, ready_data_dir)]
++    else:
++        tag = fam.get("tag", "") + model
++        models_dir = Path(gguf_dir) if gguf_dir else requested_models / tag
++        shards = gguf_dir_shards(models_dir, fam, model) if gguf_dir else [
++            models_dir / model_file(fam, model, i) for i in range(1, model_shards(fam, model) + 1)]
++        if not gguf_dir and not all(sh.exists() and done(sh) for sh in shards):
++            for root in elsewhere:
++                candidate = [Path(root) / "models" / tag / shard.name for shard in shards]
++                if all(path.exists() and done(path) for path in candidate):
++                    models_dir, shards = candidate[0].parent, candidate
++                    break
++    return models_dir, ready_data_dir, checkpoint_dir, shards
++
++
 +def ready_fetch(model: str, models_dir: Path, data_dir=None, checkpoint_dir=None) -> None:
      """Every file of a ready-made pack: already here and checked; the same file (by SHA-256) checked for another
      ready-made pack, linked instead of downloaded (the PLE table and the embedding); or downloaded from its pinned
@@ -148,7 +245,7 @@ diff --git a/setup.py b/setup.py
          if ready_verified(dst, sha):
              ok(f"{f[3]} already downloaded")
              continue
-@@ -5127,7 +5176,8 @@
+@@ -5127,7 +5230,8 @@ def engine_from_feed(eng: Path, updating: bool = False) -> Path | None:
      say("  Fetching the ready-made engine from the signed update feed ...")
      try:
          run = subprocess.run([sys.executable, str(ROOT / "strata.py"), "update", "--no-control", "--output", "json"],
@@ -158,7 +255,7 @@ diff --git a/setup.py b/setup.py
      except (OSError, subprocess.SubprocessError) as e:
          warn(f"the update feed could not be run ({e})")
          return None
-@@ -5650,7 +5700,7 @@
+@@ -5650,7 +5754,7 @@ def image_backend_choice(a, gpu: dict | None, hip: bool) -> tuple[str, str, floa
      return backend, quant, gb
  
  
@@ -167,7 +264,7 @@ diff --git a/setup.py b/setup.py
      """--images qwen-image: sd-cli for this GPU and Qwen-Image-2.1-Turbo's three files -> the run config's "images"
      section (serve/images.py); None for --images no, or when not wanted after all."""
      if not a.images or a.images == "no":
-@@ -5662,17 +5712,20 @@
+@@ -5662,17 +5766,20 @@ def setup_images(a, gpu: dict, hip: bool, models_dir: Path) -> dict | None:
      need = sum(QI.FILES[k][2] for k in (quant, "vae", "llm")) / 1e9
      if ask(f"Download the image model ({need:.1f} GB) and set up image generation?", ["y", "n"], "y", a.yes) != "y":
          return None
@@ -192,15 +289,90 @@ diff --git a/setup.py b/setup.py
      ok(f"image generation: {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
      return cfg
  
-@@ -8033,6 +8086,7 @@
+@@ -7019,6 +7126,35 @@ def same_folder(a: Path, b: Path) -> bool:
+         return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+ 
+ 
++def data_sources(dest, settings, *, requested=False):
++    """Discover possible model roots without creating folders or changing settings."""
++    sources = [home(), *other_installs(settings)]
++    if settings.get("data_dir") and not same_folder(Path(settings["data_dir"]), dest):
++        sources.append(Path(settings["data_dir"]))
++    sources += [folder / "Strata-data" for folder in list(sources)
++                if not same_folder(folder / "Strata-data", dest)]
++    remembered = Path(settings["data_dir"]) if settings.get("data_dir") else home().parent / "Strata-data"
++    if requested and not same_folder(dest, remembered):
++        sources.append(remembered)
++    return sources
++
++
++def retained_data_sources(dest, *, requested=False, move=False):
++    """Predict roots setup keeps in place; progress must not perform data_folder's moves."""
++    settings = load_settings()
++    held = []
++    for folder in data_sources(dest, settings, requested=requested):
++        if not same_folder(folder, dest) and has_data(folder) and not any(same_folder(folder, h) for h in held):
++            held.append(folder)
++    remembered = Path(settings["data_dir"]) if settings.get("data_dir") else home().parent / "Strata-data"
++    if requested and not same_folder(dest, remembered) and not move:
++        return held
++    existing = dest
++    while not existing.exists() and existing != existing.parent:
++        existing = existing.parent
++    return [folder for folder in held if not same_drive(folder, existing)]
++
++
+ def data_folder(requested: str | None, move: bool = False, yes: bool = True, set_default: bool = False) -> tuple:
+     """(the data folder, folders that still hold model files and are used where they are).
+ 
+@@ -7047,12 +7183,8 @@ def data_folder(requested: str | None, move: bool = False, yes: bool = True, set
+     elsewhere = []
+     # #198: the data folder remembered before (a --data-dir to a new place) is a source too, and so is a Strata-data
+     # folder nested in any of them (an install that kept its models one level down)
+-    sources = [home(), *other_installs(settings)]
+-    if settings.get("data_dir") and not same_folder(Path(settings["data_dir"]), dest):
+-        sources.append(Path(settings["data_dir"]))
+-    sources += [f / "Strata-data" for f in list(sources) if not same_folder(f / "Strata-data", dest)]
++    sources = data_sources(dest, settings, requested=bool(requested))
+     if requested and not same_folder(dest, remembered):
+-        sources.append(remembered)
+         # a different folder than the one in use: nothing is moved unless the person says so
+         held = []
+         for folder in dict.fromkeys(sources):
+@@ -8033,13 +8165,25 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
      for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
                                             break_on_hyphens=False)):   # #564: what this start uses
          say(("  " if n == 0 else "    ") + line)
-+    acquisition.release_workspace()
-     if not WIN and os.environ.get("STRATA_EXECV"):
-         # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
-         # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
-@@ -8551,7 +8605,7 @@
+-    if not WIN and os.environ.get("STRATA_EXECV"):
+-        # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
+-        # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
+-        # answer the engine with QUIT. Normal Linux starts keep spawning the server as a child.
+-        os.execve(cmd[0], cmd, {**os.environ, acquisition.ENV: "1"})
+-    # the server and everything it starts are told, too: nothing in a running model installs or downloads
+-    return subprocess.call(cmd, env={**os.environ, acquisition.ENV: "1"})
++    with acquisition.source_observation(acquisition.workspace_state()):
++        source_fds = acquisition.source_handoff()
++        acquisition.release_workspace()
++        if not WIN and os.environ.get("STRATA_EXECV"):
++            # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
++            # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
++            # answer the engine with QUIT. Normal Linux starts keep spawning the server as a child.
++            os.execve(cmd[0], cmd, {**os.environ, acquisition.ENV: "1"})
++        # A parent waiting on its service must not retain the child's source read lease.
++        if source_fds:
++            with subprocess.Popen(cmd, env={**os.environ, acquisition.ENV: "1"}, pass_fds=source_fds) as process:
++                acquisition.source_ready()
++                try:
++                    return process.wait()
++                except BaseException:
++                    process.kill()
++                    raise
++        # the server and everything it starts are told, too: nothing in a running model installs or downloads
++        return subprocess.call(cmd, env={**os.environ, acquisition.ENV: "1"})
+ 
+ 
+ # the draft subsets setup copied before (sha256): replaced by the current one, a subset made by hand is kept
+@@ -8551,7 +8695,7 @@ def sycl_setup(argv) -> int:
      script = ROOT / "sycl" / "setup_intel.py"
      if not script.exists():
          fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
@@ -209,7 +381,7 @@ diff --git a/setup.py b/setup.py
  
  
  def intel_control_setup(a) -> int:
-@@ -10392,7 +10446,8 @@
+@@ -10392,7 +10536,8 @@ def mac_dsv41_setup(a) -> int:
      return install_dsv41(a, a.family, gpu, False, False, 0, False, a.port or 8080, ram, None, [gpu])
  
  
@@ -219,7 +391,7 @@ diff --git a/setup.py b/setup.py
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -10404,16 +10459,21 @@
+@@ -10404,16 +10549,21 @@ def main() -> int:
      except Exception:
          pass
      if sys.platform == "darwin" and not CONTROL:       # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below
@@ -247,7 +419,7 @@ diff --git a/setup.py b/setup.py
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md), deepseek41 = DeepSeek-V4.1-Flash "
-@@ -10483,6 +10543,7 @@
+@@ -10483,6 +10633,7 @@ def main() -> int:
      ap.add_argument("--set-default-data-dir", action="store_true",
                      help="with --data-dir: remember the new folder as the data folder without moving anything")
      ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
@@ -255,7 +427,7 @@ diff --git a/setup.py b/setup.py
      ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
                                                             "or its unpacked folder); it is checked and installed instead of being fetched")
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -10562,7 +10623,14 @@
+@@ -10562,7 +10713,14 @@ def main() -> int:
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
@@ -271,7 +443,7 @@ diff --git a/setup.py b/setup.py
      if getattr(a, "gguf_dir", None):                   # the person's own files: their finish marks go to Strata's marks/, never beside them
          own_files_in(a.gguf_dir)
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES:
-@@ -10581,7 +10649,7 @@
+@@ -10581,7 +10739,7 @@ def main() -> int:
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -280,59 +452,39 @@ diff --git a/setup.py b/setup.py
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -11231,15 +11299,45 @@
+@@ -11231,39 +11389,26 @@ def main() -> int:
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
 +    artifacts_dir = data if a.separate_model_artifacts else None
-+    ready_data_dir = artifacts_dir
-+    checkpoint_dir = None
      ready = bool(fam.get("ready"))                     # NVFP4: ready-made packs (NVFP4_REPOS), no GGUF shards
-     if ready:
-         models_dir = Path(a.models_dir)
+-    if ready:
+-        models_dir = Path(a.models_dir)
 -        for r in elsewhere:                            # already downloaded and checked in a Strata folder elsewhere
 -            if all(ready_verified(ready_where(r / "models", f), f[5]) for f in ready_needed(model, r / "models")):
 -                models_dir = r / "models"
-+        candidates = [(r / "models", None) for r in elsewhere]
-+        if artifacts_dir is not None:
-+            candidates = [(models_dir, artifacts_dir), (models_dir, None), (data / "models", None), *candidates]
-+        for candidate_models, candidate_data in candidates:
-+            if (artifacts_dir is not None and MODELS[model].get("prepare")
-+                    and not prepared_done(model, candidate_models, candidate_data)):
-+                continue
-+            if all(ready_verified(ready_where(candidate_models, f, candidate_data), f[5])
-+                   for f in ready_needed(model, candidate_models, candidate_data)):
-+                models_dir, ready_data_dir = candidate_models, candidate_data
-                 ok(f"model files found in {models_dir}")
-                 break
+-                ok(f"model files found in {models_dir}")
+-                break
 -        shards = [ready_where(models_dir, f) for f in ready_files(model)]
-+        if ready_data_dir is not None and MODELS[model].get("prepare"):
-+            repo = MODELS[model]["repo"].replace("/", "--")
-+            checkpoint_roots = list(dict.fromkeys([
-+                Path(ready_data_dir) / "models" / repo,
-+                Path(a.models_dir) / repo,
-+                *(r / "models" / repo for r in elsewhere),
-+            ]))
-+            source_files = [f for f in ready_files(model) if f[0] == "src"]
-+            def checkpoint_bytes(root):
-+                total = 0
-+                for f in source_files:
-+                    dst = root / f[3]
-+                    present = max((p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part")) if p.is_file()), default=0)
-+                    total += min(f[4], present)
-+                return total
-+            # Prefer verified checkpoints; use checkpoint byte counts to break ties.
-+            checkpoint_dir = max(checkpoint_roots, key=lambda root: (
-+                all(ready_verified(root / f[3], f[5]) for f in source_files),
-+                checkpoint_bytes(root)))
-+        shards = [ready_where(models_dir, f, ready_data_dir, checkpoint_dir)
-+                  for f in ready_needed(model, models_dir, ready_data_dir)]
-     else:
-         models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
-         shards = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
-@@ -11255,15 +11353,15 @@
-                 ok(f"model files found in {models_dir}")
-                 break
+-    else:
+-        models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
+-        shards = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
+-            [models_dir / model_file(fam, model, i) for i in range(1, model_shards(fam, model) + 1)]
++    models_dir, ready_data_dir, checkpoint_dir, shards = model_download_layout(
++        family, model, a.models_dir, data_dir=artifacts_dir, elsewhere=elsewhere, gguf_dir=a.gguf_dir)
++    expected_dir = Path(a.models_dir) if ready else Path(a.models_dir) / tag
++    if not a.gguf_dir and (models_dir != expected_dir or ready_data_dir != artifacts_dir):
++        ok(f"model files found in {models_dir}")
+     problem = gguf_dir_problem(models_dir, shards[0], fam, model) if a.gguf_dir else None
+     if problem:                                        # #444: files Strata cannot run, or another choice's files
+         fail(*problem)
+-    if not ready and not a.gguf_dir and not all(sh.exists() and done(sh) for sh in shards):
+-        for r in elsewhere:                            # already downloaded in a Strata folder on another drive
+-            cand = [r / "models" / tag / sh.name for sh in shards]
+-            if all(c.exists() and done(c) for c in cand):
+-                models_dir, shards = cand[0].parent, cand
+-                ok(f"model files found in {models_dir}")
+-                break
      mark_whole_unless_pinned([] if ready else shards, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))   # #173: a whole file copied in by hand has no finish mark
 -    have_model = all(ready_verified(ready_where(models_dir, f), f[5]) for f in ready_needed(model, models_dir)) if ready else \
 +    have_model = all(ready_verified(ready_where(models_dir, f, ready_data_dir, checkpoint_dir), f[5]) for f in ready_needed(model, models_dir, ready_data_dir)) if ready else \
@@ -350,7 +502,7 @@ diff --git a/setup.py b/setup.py
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -11271,7 +11369,7 @@
+@@ -11271,7 +11416,7 @@ def main() -> int:
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -359,7 +511,7 @@ diff --git a/setup.py b/setup.py
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -11279,11 +11377,16 @@
+@@ -11279,11 +11424,16 @@ def main() -> int:
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -379,7 +531,7 @@ diff --git a/setup.py b/setup.py
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11317,10 +11420,10 @@
+@@ -11317,10 +11467,10 @@ def main() -> int:
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -392,7 +544,7 @@ diff --git a/setup.py b/setup.py
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11377,17 +11480,18 @@
+@@ -11377,17 +11527,18 @@ def main() -> int:
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
      env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
      prepared = bool(ready and MODELS[model].get("prepare"))
@@ -416,7 +568,7 @@ diff --git a/setup.py b/setup.py
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11408,7 +11512,7 @@
+@@ -11408,7 +11559,7 @@ def main() -> int:
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -425,7 +577,7 @@ diff --git a/setup.py b/setup.py
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11442,7 +11546,7 @@
+@@ -11442,7 +11593,7 @@ def main() -> int:
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -434,7 +586,7 @@ diff --git a/setup.py b/setup.py
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11455,7 +11559,7 @@
+@@ -11455,7 +11606,7 @@ def main() -> int:
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(
@@ -443,7 +595,7 @@ diff --git a/setup.py b/setup.py
      cfg, cfg_path, cal, args, ctx, kv, resident = (_built.cfg, _built.cfg_path, _built.cal, _built.args, _built.ctx, _built.kv, _built.resident)
      write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
                         after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
-@@ -11498,9 +11602,15 @@
+@@ -11498,9 +11649,15 @@ def main() -> int:
      return start(cfg_path, port)
  
  
@@ -460,10 +612,28 @@ diff --git a/setup.py b/setup.py
      except acquisition.AcquisitionRefused as e:         # a start that would have installed something: said, not done
          say(f"\n  [X]  {e}")
          sys.exit(e.exit_code)
+diff --git a/strata_cli/bench_standard.py b/strata_cli/bench_standard.py
+index b768807..3576a27 100644
+--- a/strata_cli/bench_standard.py
++++ b/strata_cli/bench_standard.py
+@@ -681,7 +681,11 @@ def start_engine(ref: str, target: Target, log_path: Path, log, timeout_s: float
+         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+     else:
+         kwargs["start_new_session"] = True
+-    proc = subprocess.Popen(command, cwd=str(root), stdout=handle, stderr=subprocess.STDOUT, **kwargs)
++    env = {key: value for key, value in os.environ.items()
++           if key not in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
++                          "STRATA_WORKSPACE_CONTEXT", "STRATA_SOURCE_LOCK_FD")}
++    proc = subprocess.Popen(command, cwd=str(root), stdout=handle, stderr=subprocess.STDOUT,
++                            env=env, close_fds=True, **kwargs)
+     proc._strata_log = handle                              # closed by stop_engine
+     if os.name == "nt":
+         # Windows has no process group to signal: the engine tree is put in a job object this run owns, which ends every process in it in one call
 diff --git a/strata_cli/cli.py b/strata_cli/cli.py
+index 5927ddc..46fbaf7 100644
 --- a/strata_cli/cli.py
 +++ b/strata_cli/cli.py
-@@ -188,9 +188,12 @@
+@@ -188,9 +188,12 @@ def parser() -> argparse.ArgumentParser:
      calibrate.add_argument("--out", metavar="REPORT.json", help="new report path for --measure")
      calibrate.add_argument("--exclusive", action="store_true", help="assert all model instances using these devices are stopped")
      calibrate.add_argument("--output", choices=("human", "json"), default="human")
@@ -477,16 +647,45 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
      install.add_argument("--update", action="store_true",
                           help="update an existing install (what UPDATE.bat / update.sh run) instead of setting one up")
      install.add_argument("setup_args", nargs=argparse.REMAINDER,
-@@ -941,6 +944,8 @@
+@@ -941,20 +944,23 @@ def _serve(a: argparse.Namespace) -> int:
          raise
      if a.plan:
          return _success({"plan": plan}, machine=a.output == "json")
+-    from serve.server import main as server_main
+-    if os.name not in ("posix", "nt"):
+-        return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
+-    from strata_control import runtime
+-    try:
+-        lease = runtime.acquire_activity_lease(shared=True)
+-    except ValueError as exc:
+-        if a.output == "jsonl":
+-            return _serve_error(a, str(exc), getattr(exc, "exit_code", 6))
+-        raise
+-    try:
+-        return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
+-    finally:
+-        os.close(lease)
 +    from strata_control import acquisition
-+    acquisition.release_workspace()
-     from serve.server import main as server_main
-     if os.name not in ("posix", "nt"):
-         return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
-@@ -2075,21 +2080,59 @@
++    with acquisition.source_observation(acquisition.workspace_state()):
++        acquisition.release_workspace()
++        from serve.server import main as server_main
++        if os.name not in ("posix", "nt"):
++            return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
++        from strata_control import runtime
++        try:
++            lease = runtime.acquire_activity_lease(shared=True)
++        except ValueError as exc:
++            if a.output == "jsonl":
++                return _serve_error(a, str(exc), getattr(exc, "exit_code", 6))
++            raise
++        try:
++            return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
++        finally:
++            os.close(lease)
+ 
+ 
+ def _profile_command(a: argparse.Namespace) -> int:
+@@ -2075,21 +2081,59 @@ def _install(a: argparse.Namespace) -> int:
      """The one place the terminal acquires anything: it hands over to the installer (setup.py) of a full Strata
      folder, which is where pip, the engine and the models are fetched. A folder without it (the terminal archive)
      says so and names what to do instead."""
@@ -509,7 +708,7 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
 +    external = target != ROOT.resolve()
 +    if external:
 +        for key in ("STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT", "STRATA_WORKSPACE_LOCK_FD",
-+                    "STRATA_BOOTSTRAP_ONLY", "STRATA_RUNTIME_READY"):
++                    "STRATA_SOURCE_LOCK_FD", "STRATA_BOOTSTRAP_ONLY", "STRATA_RUNTIME_READY"):
 +            env.pop(key, None)
 +        if "STRATA_INSTALL_DIR" in env:
 +            env["STRATA_INSTALL_DIR"] = str(target)
@@ -551,7 +750,7 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
  
  
  def _access_retry(a: argparse.Namespace, error: BaseException) -> int | None:
-@@ -2132,6 +2175,8 @@
+@@ -2132,6 +2176,8 @@ def _run(a: argparse.Namespace) -> int:
              return _serve(a)
          if a.command == "install":
              return _install(a)
@@ -560,7 +759,7 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
          if a.command == "repair-access":
              return _repair_access(a)
          if a.command == "profile":
-@@ -2227,19 +2272,43 @@
+@@ -2227,56 +2273,76 @@ class _QuietCapture:
          return self.text
  
  
@@ -591,47 +790,216 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
      if update:
          rest.remove("--update")
      return ["install", *(["--update"] if update else []), "--", *rest]
-+
-+
+ 
+ 
+-def main(argv: list[str] | None = None) -> int:
+-    try:
+-        from strata_control.childenv import quiet_crash_env
+-        quiet_crash_env()                        # every program Strata starts inherits it: ggml never starts gdb on a user's machine
+-    except ImportError:                          # a thin bundle ships without strata_control
+-        pass
+-    try:
+-        from strata_control import private_files
+-        private_files.adopt_user_defaults()      # what this process creates belongs to the user even when it runs as administrator
+-    except ImportError:                          # a thin bundle ships without strata_control
+-        pass
 +def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 +    """Parse the public Terminal grammar, including raw source setup arguments."""
-+    ap = parser()
-+    raw = list(sys.argv[1:] if argv is None else argv)
+     ap = parser()
+     raw = list(sys.argv[1:] if argv is None else argv)
+-    a, extras = ap.parse_known_args(_install_argv(raw))
 +    a, extras = ap.parse_known_args(_installer_argv(raw))
-+    a.raw_argv = raw
-+    if extras:
+     a.raw_argv = raw
+     if extras:
+-        if getattr(a, "command", None) in ("launch", "connect"):
 +        if a.command in ("launch", "connect"):
-+            from strata_cli.launch import cmd as launch_cmd
+             from strata_cli.launch import cmd as launch_cmd
+-            print("strata: " + launch_cmd.unknown_option_message(a.command, extras, ap), file=sys.stderr)
+-            return 2
 +            ap.exit(2, "strata: " + launch_cmd.unknown_option_message(a.command, extras, ap) + "\n")
-+        ap.error("unrecognized arguments: " + " ".join(extras))
+         ap.error("unrecognized arguments: " + " ".join(extras))
+-    if getattr(a, "json", False) and a.command not in ("status", "monitor", "logs", "connection", "config"):
+-        if a.output == "jsonl":
+-            return _serve_error(a, "--json is one-shot only; use --output jsonl for foreground events")
+-        a.output = "json"
+-    if not getattr(a, "quiet", False) or getattr(a, "output", "human") in ("json", "jsonl"):
+-        return _run(a)
+-    if a.command in ("status", "monitor", "logs", "connection", "config") or \
+-            (a.command == "serve" and not a.plan):
+-        return _run(a)
+-    captured = _QuietCapture()
+-    with contextlib.redirect_stdout(captured):
+-        code = _run(a)
+-    if code and captured.getvalue():
+-        if captured.truncated:
+-            sys.stderr.write("strata: earlier human output omitted in quiet mode\n")
+-        sys.stderr.write(captured.getvalue())
+-    return code
 +    if a.command in ("source", "install") and a.setup_args[:1] == ["--"]:
 +        a.setup_args = a.setup_args[1:]
 +    return a
++
++
++def main(argv: list[str] | None = None) -> int:
++    try:
++        from strata_control import acquisition
++    except ImportError:                          # a thin bundle ships without strata_control
++        acquisition = None
++    with acquisition.source_observation() if acquisition is not None else contextlib.nullcontext():
++        try:
++            from strata_control.childenv import quiet_crash_env
++            quiet_crash_env()                        # every program Strata starts inherits it: ggml never starts gdb on a user's machine
++        except ImportError:                          # a thin bundle ships without strata_control
++            pass
++        try:
++            from strata_control import private_files
++            private_files.adopt_user_defaults()      # what this process creates belongs to the user even when it runs as administrator
++        except ImportError:                          # a thin bundle ships without strata_control
++            pass
++        a = parse_args(argv)
++        if getattr(a, "json", False) and a.command not in ("status", "monitor", "logs", "connection", "config"):
++            if a.output == "jsonl":
++                return _serve_error(a, "--json is one-shot only; use --output jsonl for foreground events")
++            a.output = "json"
++        if not getattr(a, "quiet", False) or getattr(a, "output", "human") in ("json", "jsonl"):
++            return _run(a)
++        if a.command in ("status", "monitor", "logs", "connection", "config") or \
++                (a.command == "serve" and not a.plan):
++            return _run(a)
++        captured = _QuietCapture()
++        with contextlib.redirect_stdout(captured):
++            code = _run(a)
++        if code and captured.getvalue():
++            if captured.truncated:
++                sys.stderr.write("strata: earlier human output omitted in quiet mode\n")
++            sys.stderr.write(captured.getvalue())
++        return code
+diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
+index 00a3e05..b5cfd06 100644
+--- a/strata_cli/launch/app.py
++++ b/strata_cli/launch/app.py
+@@ -431,11 +431,13 @@ def _info_for(result: Result, s: S.LaunchSettings) -> dict:
+ 
+ def run_monitor(info: dict, *, keep_default: bool = True, color: str = "auto") -> int:
+     """Open the monitor for a running launch. q asks whether to keep serving or stop."""
+-    from strata_cli.client import Endpoint
+-    from strata_cli.launch.monitor_ext import LaunchMonitor
+-    local = next((u for u in info.get("urls", []) if "127.0.0.1" in u), None) or f"http://127.0.0.1:{info.get('port', S.DEFAULT_PORT)}"
+-    endpoint = Endpoint(local, info.get("key"), 3.0, "")
+-    app = LaunchMonitor(endpoint, None, info={**info, "daily_check": True}, color=color)     # (the quiet once-a-day check for a newer engine: this monitor only)
++    from strata_control import acquisition
++    with acquisition.source_observation(acquisition.workspace_state()):
++        from strata_cli.client import Endpoint
++        from strata_cli.launch.monitor_ext import LaunchMonitor
++        local = next((u for u in info.get("urls", []) if "127.0.0.1" in u), None) or f"http://127.0.0.1:{info.get('port', S.DEFAULT_PORT)}"
++        endpoint = Endpoint(local, info.get("key"), 3.0, "")
++        app = LaunchMonitor(endpoint, None, info={**info, "daily_check": True}, color=color)     # (the quiet once-a-day check for a newer engine: this monitor only)
+     app.run()
+     if app.stop_requested:
+         from strata_control import runtime
+diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
+index 88f0d64..a466d7f 100644
+--- a/strata_cli/launch/catalog.py
++++ b/strata_cli/launch/catalog.py
+@@ -255,14 +255,23 @@ def intel_arc_cards(root: str = "/sys/class/drm") -> list[dict]:
+     return cards
  
  
- def main(argv: list[str] | None = None) -> int:
-@@ -2253,16 +2322,7 @@
-         private_files.adopt_user_defaults()      # what this process creates belongs to the user even when it runs as administrator
-     except ImportError:                          # a thin bundle ships without strata_control
-         pass
--    ap = parser()
--    raw = list(sys.argv[1:] if argv is None else argv)
--    a, extras = ap.parse_known_args(_install_argv(raw))
--    a.raw_argv = raw
--    if extras:
--        if getattr(a, "command", None) in ("launch", "connect"):
--            from strata_cli.launch import cmd as launch_cmd
--            print("strata: " + launch_cmd.unknown_option_message(a.command, extras, ap), file=sys.stderr)
--            return 2
--        ap.error("unrecognized arguments: " + " ".join(extras))
-+    a = parse_args(argv)
-     if getattr(a, "json", False) and a.command not in ("status", "monitor", "logs", "connection", "config"):
-         if a.output == "jsonl":
-             return _serve_error(a, "--json is one-shot only; use --output jsonl for foreground events")
++def resolve_installation(root=None, src=None) -> tuple[Path, list]:
++    """Resolve the launch installation without creating it or loading its catalog."""
++    src = installer_folder(src)
++    if root is None and os.environ.get("STRATA_WORKSPACE_CONTEXT") and not os.environ.get("STRATA_INSTALL_DIR"):
++        root = src
++    places = install_places(root, src)
++    target = Path(root) if root else (places[0].path if places else install_root(None, src))
++    return target, places
++
++
+ class Catalog:
+     """setup.py's tables through strata_mcp's `Strata` object (the app's own catalog code)."""
+ 
+     def __init__(self, src: str | os.PathLike | None = None, root: str | os.PathLike | None = None,
+                  hardware: dict | None = None):
+         self.src = installer_folder(src)
+-        self.places = install_places(root, self.src)
+-        self.root = Path(root) if root else (self.places[0].path if self.places else install_root(None, self.src))
++        self.root, self.places = resolve_installation(root, self.src)
+         mcp = self.src / "tools" / "strata_mcp.py"
+         if not mcp.is_file() or not (self.src / "setup.py").is_file():
+             raise CatalogUnavailable(
+diff --git a/strata_cli/launch/monitor_ext.py b/strata_cli/launch/monitor_ext.py
+index 35d9171..bce75ea 100644
+--- a/strata_cli/launch/monitor_ext.py
++++ b/strata_cli/launch/monitor_ext.py
+@@ -36,20 +36,27 @@ def connect_palette(theme: str, color: bool):
+ 
+ 
+ class LaunchMonitor(MonitorApp):
+-    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, **kw) -> None:
+-        super().__init__(endpoint, snapshot, **kw)
+-        self.info = info
+-        self.ask_quit = ask_quit                  # False: plain `strata monitor` (q detaches, nothing to stop)
+-        self.connect_enabled = True
+-        self.connect_index = 0
+-        self.show_key = False
+-        self.check_results: dict[str, list[check.Check] | str] = {}
+-        self.glyphs = Glyphs()
+-        self.stop_requested = False
+-        self.notice = ""
+-        self.view_before_connect = 0
+-        self.quiet_note: str | None = None        # "New engine X is available. Press u to update." (from the last check; local file only)
+-        self.updating = False
++    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, workspace_state=None, **kw) -> None:
++        from strata_control import acquisition
++        state = workspace_state if workspace_state is not None else acquisition.workspace_state()
++        with acquisition.source_observation(state):
++            inherited_state = acquisition.release_workspace()
++            self.workspace_state = workspace_state if workspace_state is not None else inherited_state
++            super().__init__(endpoint, snapshot, **kw)
++            self.info = info
++            self.ask_quit = ask_quit                  # False: plain `strata monitor` (q detaches, nothing to stop)
++            self.connect_enabled = True
++            self.connect_index = 0
++            self.show_key = False
++            self.check_results: dict[str, list[check.Check] | str] = {}
++            self.glyphs = Glyphs()
++            self.stop_requested = False
++            self.notice = ""
++            self.view_before_connect = 0
++            self.quiet_note: str | None = None        # "New engine X is available. Press u to update." (from the last check; local file only)
++            self.updating = False
++            acquisition.prepare_observer()
++            acquisition.source_ready()
+ 
+     # ---- a newer engine: one quiet line, and u to update (strata_control/engine_update.py)
+     def on_mount(self) -> None:
+@@ -107,13 +114,16 @@ class LaunchMonitor(MonitorApp):
+         return bool(box.get("yes", default))
+ 
+     def _update_worker(self) -> None:
+-        from strata_control import engine_update, updater
++        from strata_control import acquisition
+         try:
+             self._say_line("Checking for a newer engine...")
+-            out = engine_update.run_flow(ask=self._ask_from_thread, say=self._say_line)
+-            text = engine_update.summary(out)
+-        except updater.UpdateError as exc:
+-            text = str(exc)
++            with acquisition.workspace_mutation(self.workspace_state):
++                from strata_control import engine_update, updater
++                try:
++                    out = engine_update.run_flow(ask=self._ask_from_thread, say=self._say_line)
++                    text = engine_update.summary(out)
++                except updater.UpdateError as exc:
++                    text = str(exc)
+         except Exception as exc:                 # noqa: BLE001 - a sentence, never a trace
+             text = f"The update did not run: {exc}"
+         self.updating = False
 diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
+index 5f07cb8..cc1ced5 100644
 --- a/strata_cli/launch/runner.py
 +++ b/strata_cli/launch/runner.py
-@@ -707,7 +707,9 @@
+@@ -707,7 +707,9 @@ class Runner:
          return env
  
      def _spawn(self, argv: list[str], *, env: dict | None = None, cwd: str | None = None) -> subprocess.Popen:
@@ -641,136 +1009,212 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
          p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                               encoding="utf-8", errors="replace", env=env or self._env(), cwd=cwd, bufsize=1, **kw)
          self.children.append(p)
-@@ -1010,13 +1012,21 @@
+@@ -988,6 +990,19 @@ class Runner:
+             self.notices.append(note)
+             self.emit("model", note, 100, level="warn")
+ 
++    def setup_directories(self, family, model):
++        """Use one destination policy for setup arguments and download progress."""
++        context = json.loads(os.environ.get("STRATA_WORKSPACE_CONTEXT", "{}"))
++        if (not context.get("state")
++                or self.catalog.root.resolve() != (Path(context["state"]) / "source").resolve()):
++            context = {}
++        installed = self.catalog.installed_config(self.catalog.tag_of(family, model)) if family and model else None
++        default_data = context.get("data_directory") if installed is None and not self.s.model_path else None
++        data = self.s.data_dir or default_data or self.existing_data_dir()
++        # Native macOS setup consumes its own model placement rather than --models-dir.
++        models = context.get("models_directory") if sys.platform != "darwin" else None
++        return data, models
++
+     def setup_args(self) -> list[str]:
+         cat, s = self.catalog, self.s
+         fam, model = s.family, s.model
+@@ -1010,13 +1025,15 @@ class Runner:
              args += ["--mtp", mtp_word]                      # round 8, N3: "--mtp off" never reached setup, which then fetched the 5.2 GB draft layer
          if resolved == "dflash2" and fam in modelstate.HELPER_FAMILIES and mtp_word != "off":
              args += ["--drafter", "dflash2"]                 # one drafter per run: a new install fetches DFlash2's pack (below), not the MTP layer
 -        data = s.data_dir or self.existing_data_dir()
-+        context = json.loads(os.environ.get("STRATA_WORKSPACE_CONTEXT", "{}"))
-+        if (not context.get("state")
-+                or cat.root.resolve() != (Path(context["state"]) / "source").resolve()):
-+            context = {}
-+        installed = cat.installed_config(cat.tag_of(fam, model)) if fam and model else None
-+        default_data = context.get("data_directory") if installed is None and not s.model_path else None
-+        data = s.data_dir or default_data or self.existing_data_dir()
++        data, models = self.setup_directories(fam, model)
          if data:
              args += ["--data-dir", str(data)]
              if self.move_data and s.data_dir:             # only when the person said so: setup moves nothing otherwise
                  args.append("--move-data")
              if s.data_dir:                                # a folder the person chose is remembered for the next start and for the app
                  args.append("--set-default-data-dir")
-+        if context.get("models_directory"):
-+            args += ["--models-dir", context["models_directory"], "--separate-model-artifacts"]
++        if models:
++            args += ["--models-dir", str(models), "--separate-model-artifacts"]
          if s.model_path:
              p = Path(s.model_path)
              args += ["--gguf-dir", str(p if p.is_dir() else p.parent)]
-diff --git a/strata_control/setup_config.py b/strata_control/setup_config.py
---- a/strata_control/setup_config.py
-+++ b/strata_control/setup_config.py
-@@ -48,6 +48,7 @@
-     model: Any = None
-     model_args: Any = None
-     models_dir: Any = None
-+    data_dir: Any = None
-     multi: Any = None
-     pack: Any = None
-     ple: Any = None
-@@ -191,7 +192,6 @@
-     parallel_note = lib.parallel_note
-     ple_ram_platform_ok = lib.ple_ram_platform_ok
-     pool_workers_note = lib.pool_workers_note
--    ready_paths = lib.ready_paths
-     recommend_pool_workers = lib.recommend_pool_workers
-     recommend_remote_expert_opt = lib.recommend_remote_expert_opt
-     resident_budget_gib = lib.resident_budget_gib
-@@ -551,7 +551,7 @@
-         old_cfg = home() / f"strata-{tag.lower()}.json"
-         vt = vision_tokens(a.vision_tokens, vision, old_cfg if old_cfg.is_file() else adopted)
-         cfg["vision"] = {"exe": str(eng / VEXE), "mmproj": str(mmproj),     # the text model, opened vocab-only:
--                         "model": str(ready_paths(model, models_dir)["dense"] if ready else shards[0]),
-+                         "model": str(model_args[model_args.index("--native") + 1]),
-                          "gpu": vision == "gpu", "max_tokens": vt}
-         if reader is not None:                          # AMD: the HIP reader with the CPU reader behind it, or the CPU reader
-             from strata_control import vision_reader as VR
-@@ -561,7 +561,7 @@
-     elif a.vision_tokens is not None:
-         warn("--vision-tokens: images are off for this model, so it is not used")
-     if a.images:                                       # only when given: else an earlier "images" is carried over
--        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir))
-+        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir), inp.data_dir)
-     cfg_path = home() / f"strata-{tag.lower()}.json"
-     cal = setup_calibration(cfg, hip)                  # #566: Linux HIP too; the tuning is offered on NVIDIA only
-     if cal is not None:
-diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
---- a/tools/nvfp4_local_pack.py
-+++ b/tools/nvfp4_local_pack.py
-@@ -585,20 +585,25 @@
- # ------------------------------------------------------------------------------------------------------- prepare (setup)
- def cmd_prepare(a) -> int:
-     """Everything setup needs from the downloaded checkpoint, each step skipped when its mark is there:
--        <out>/ple-nvfp4.gguf   the n-gram table      <out>/dense.gguf   the dense weights (no experts)
-+        <gguf-out or out>/ple-nvfp4.gguf   the n-gram table; dense.gguf   the dense weights (no experts)
-         <out>/pack/            index.txt, dense.bin, experts.bin, native_experts.txt, tokenizer/
-         <out>/mtp/rt/          the draft layer (a Q2_0 copy of NVIDIA's MTP experts)
-     The checkpoint is read, never changed; it can be deleted afterwards (the pack and the two GGUFs hold everything)."""
-     import subprocess
-     model, out = pathlib.Path(a.model), pathlib.Path(a.out)
--    if not all((out / m).is_file() for m in MARKS):
-+    gguf_out = pathlib.Path(getattr(a, "gguf_out", None) or out)
-+    marks = [(gguf_out if m.endswith(".gguf.done") else out) / m for m in MARKS]
-+    if not all(m.is_file() for m in marks):
-         require_packages()                          # before the 20 minutes of the n-gram table, not after them (#3227)
-     out.mkdir(parents=True, exist_ok=True)
-+    gguf_out.mkdir(parents=True, exist_ok=True)
-     me = [sys.executable, str(pathlib.Path(__file__).resolve())]
-     tools = pathlib.Path(__file__).resolve().parent
+@@ -1254,14 +1271,28 @@ class Runner:
+         person's --data-dir and not the default one) and every file of the install with the catalog's total, so a model in several shards
+         shows 'of 66.4 GB' from the start and not the size of the file being fetched."""
+         s, cat = self.s, self.catalog
+-        data = Path(s.data_dir) if s.data_dir else (self.existing_data_dir() or cat.data_dir())
+-        models_dir = data / "models"
+-        job = {"folder": str(cat.model_folder(data, s.family, s.model)),
+-               "total_gb": float(next((r.download_gb for r in cat.rows() if r.family == s.family and r.model == s.model), 0) or 0)}
++        family, model = s.family, s.model
++        try:
++            family, model = cat.resolve(str(model), None if family is None else str(family))
++        except Exception:                                    # noqa: BLE001 - setup reports an unknown selection
++            pass
++        data_arg, models_arg = self.setup_directories(family, model)
++        data = Path(data_arg).expanduser().resolve() if data_arg else cat.data_dir()
++        models_dir = Path(models_arg) if models_arg else data / "models"
++        folder = models_dir / Path(cat.model_folder(data, family, model)).name
++        if s.model_path:
++            own = Path(s.model_path)
++            folder = own if own.is_dir() else own.parent
++        job = {"folder": str(folder),
++               "total_gb": float(next((r.download_gb for r in cat.rows() if r.family == family and r.model == model), 0) or 0)}
+         try:
+             setup_module = cat.strata.setup_module()
+             if setup_module is not None and not s.model_path:
+-                job["files"] = cat.mcp.expected_files(setup_module, str(s.family), str(s.model), models_dir, self.vision_word() != "no")
++                sources = getattr(setup_module, "retained_data_sources", None)
++                elsewhere = sources(data, requested=bool(data_arg), move=bool(self.move_data and s.data_dir)) if sources else ()
++                job["files"] = cat.mcp.expected_files(
++                    setup_module, str(family), str(model), models_dir, self.vision_word() != "no",
++                    data_dir=data if models_arg else None, elsewhere=elsewhere)
+                 first = next((f for f in job["files"] if f.get("role") == "model"), None)
+                 if first:                                    # the folder setup names it (Q2_0), not the lower-case run-config tag (q2_0)
+                     job["folder"] = str(Path(first["path"]).parent)
+diff --git a/strata_cli/monitor_commands.py b/strata_cli/monitor_commands.py
+index 7db98a1..b5637fb 100644
+--- a/strata_cli/monitor_commands.py
++++ b/strata_cli/monitor_commands.py
+@@ -16,6 +16,11 @@ import sys
+ from strata_cli.client import ClientError, Endpoint
+ from strata_cli import connections
  
-     def run(cmd):
--        r = subprocess.run(cmd)
-+        sys.path.insert(0, str(tools.parent))
-+        from strata_control import acquisition
-+        r = subprocess.run(cmd, pass_fds=acquisition.workspace_fds())
-         if r.returncode:
-             sys.exit("prepare: %s failed (exit %d)" % (cmd[1] if len(cmd) > 1 else cmd[0], r.returncode))
++try:
++    from strata_control import acquisition
++except ImportError:                              # portable monitor bundles carry only the read-only client
++    acquisition = None
++
  
-@@ -611,12 +616,12 @@
-         fn()
-         mark.write_text("done %.0f s\n" % (time.time() - t0))
- 
--    step("the n-gram table", out / "ple-nvfp4.gguf.done",
--         lambda: run(me + ["ple", "--model", str(model), "--out", str(out / "ple-nvfp4.gguf")]))
--    step("the dense weights", out / "dense.gguf.done",
--         lambda: run(me + ["convert", "--dense-only", "--model", str(model), "--outfile", str(out / "dense.gguf")]))
-+    step("the n-gram table", gguf_out / "ple-nvfp4.gguf.done",
-+         lambda: run(me + ["ple", "--model", str(model), "--out", str(gguf_out / "ple-nvfp4.gguf")]))
-+    step("the dense weights", gguf_out / "dense.gguf.done",
-+         lambda: run(me + ["convert", "--dense-only", "--model", str(model), "--outfile", str(gguf_out / "dense.gguf")]))
-     step("the experts and the pack", out / "pack.done",           # (native_experts.txt is the pack's own marker, not ours)
--         lambda: run(me + ["pack", "--model", str(model), "--dense-gguf", str(out / "dense.gguf"), "--out", str(out / "pack")]))
-+         lambda: run(me + ["pack", "--model", str(model), "--dense-gguf", str(gguf_out / "dense.gguf"), "--out", str(out / "pack")]))
- 
-     mtp = out / "mtp"
- 
-@@ -688,6 +693,7 @@
-     pr = sub.add_parser("prepare")
-     pr.add_argument("--model", required=True)
-     pr.add_argument("--out", required=True)
-+    pr.add_argument("--gguf-out", help="GGUF output directory (default: --out); packs and drafts stay under --out")
-     sl = sub.add_parser("slim")
-     sl.add_argument("--gguf", required=True)
-     sl.add_argument("--out", required=True)
+ def _connection(p: argparse.ArgumentParser) -> None:
+     p.add_argument("--url", help="Strata server root; remote connections require HTTPS")
+@@ -199,6 +204,10 @@ def run(a: argparse.Namespace) -> int:
+                             resolved["timeout_s"], resolved["prefix"])
+         if a.command == "logs":
+             from strata_cli.logs import run as run_logs
++            if a.follow and acquisition is not None:
++                from strata_control import longpath
++                acquisition.release_workspace()
++                acquisition.source_ready()
+             return run_logs(endpoint, follow=a.follow, output=a.output, interval=a.interval, quiet=quiet)
+         if machine or a.command == "status" or a.once:
+             snapshot = endpoint.snapshot()
+@@ -219,8 +228,12 @@ def run(a: argparse.Namespace) -> int:
+                 from strata_cli.monitor import MonitorApp
+             except ImportError:
+                 return _error("monitor component missing; install the optional terminal UI dependency", 5, machine)
+-            MonitorApp(endpoint, None, interval=a.interval, requests=a.requests,
+-                       theme=a.theme, color=a.color, glyphs=a.glyphs).run()
++            app = MonitorApp(endpoint, None, interval=a.interval, requests=a.requests,
++                             theme=a.theme, color=a.color, glyphs=a.glyphs)
++            if acquisition is not None:
++                acquisition.prepare_observer(launch=False)
++                acquisition.source_ready()
++            app.run()
+             return 0
+         # the one monitor, with the same seven views as the one `strata launch` opens (Connect is key 7 and works against this --url
+         # server); q just detaches here: nothing was started by this command, so there is nothing to stop
 diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
+index a61e6b4..9d60034 100644
 --- a/strata_control/acquisition.py
 +++ b/strata_control/acquisition.py
-@@ -24,6 +24,58 @@
- import threading
+@@ -25,6 +25,139 @@ import threading
  
  ENV = "STRATA_NO_ACQUIRE"
-+
+ 
 +def workspace_fds() -> tuple:
 +    """Keep the managed workspace locked if a mutating child outlives its parent."""
 +    fd = os.environ.get("STRATA_WORKSPACE_LOCK_FD")
 +    return (int(fd),) if fd is not None else ()
++
++
++def workspace_state():
++    """Read a managed workspace's identity without dropping its acquisition lease."""
++    import json
++    context = os.environ.get("STRATA_WORKSPACE_CONTEXT")
++    return json.loads(context)["state"] if context is not None else None
++
++
++_source_file = None
++
++
++def source_ready():
++    """Close only this reader; other processes can share its open file description."""
++    global _source_file
++    os.environ.pop("STRATA_SOURCE_LOCK_FD", None)
++    if _source_file is not None:
++        _source_file.close()
++        _source_file = None
++
++
++def source_handoff():
++    """Pass a short source read lease through a service exec, never acquisition ownership."""
++    if _source_file is None:
++        return ()
++    fd = _source_file.fileno()
++    os.set_inheritable(fd, True)
++    os.environ["STRATA_SOURCE_LOCK_FD"] = str(fd)
++    return (fd,)
++
++
++def service_ready():
++    """Cache deferred service helpers before allowing source publication during serving."""
++    if _source_file is None:
++        return
++    import importlib
++    for module in ("serve.session_save_retry", "serve.loader_diag", "serve.cache_drop", "strata_cli.client"):
++        importlib.import_module(module)
++    source_ready()
++
++
++@contextlib.contextmanager
++def source_observation(state=None):
++    """Keep source publication stable until the native consumer has loaded its passive code."""
++    global _source_file
++    if _source_file is not None:
++        yield
++        return
++    inherited = os.environ.pop("STRATA_SOURCE_LOCK_FD", None)
++    if inherited is not None:
++        lock = os.fdopen(int(inherited), "a")
++    elif state is not None:
++        import fcntl
++        from pathlib import Path
++        lock = (Path(state) / ".source-publication.lock").open("a")
++        fcntl.flock(lock, fcntl.LOCK_SH)
++    else:
++        yield
++        return
++    _source_file = lock
++    os.set_inheritable(lock.fileno(), False)
++    try:
++        yield
++    finally:
++        source_ready()
++
++
++def prepare_observer(*, launch=True):
++    """Load passive monitor imports before releasing a managed source read lease."""
++    if _source_file is None:
++        return
++    import importlib
++    modules = ["strata_cli.consoleinfo", "strata_cli.overview"]
++    if launch:
++        modules += [
++            "strata_control.engine_update", "strata_control.discovery", "strata_control.feed_models",
++            "strata_cli.update_cmd", "strata_control.runtime", "strata_control.cfg_paths",
++            "strata_control.signing", "strata_control.engine_component", "strata_control.updater",
++        ]
++    for module in modules:
++        importlib.import_module(module)
 +
 +
 +def release_workspace():
@@ -818,38 +1262,43 @@ diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
 +    finally:
 +        _workspace_mutation_lock.release()
 +
- 
++
  _lock = threading.Lock()
  _depth = 0
-diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
---- a/strata_cli/launch/app.py
-+++ b/strata_cli/launch/app.py
-@@ -431,11 +431,14 @@
  
- def run_monitor(info: dict, *, keep_default: bool = True, color: str = "auto") -> int:
-     """Open the monitor for a running launch. q asks whether to keep serving or stop."""
-+    from strata_control import acquisition
-+    workspace_state = acquisition.release_workspace()
-     from strata_cli.client import Endpoint
-     from strata_cli.launch.monitor_ext import LaunchMonitor
-     local = next((u for u in info.get("urls", []) if "127.0.0.1" in u), None) or f"http://127.0.0.1:{info.get('port', S.DEFAULT_PORT)}"
-     endpoint = Endpoint(local, info.get("key"), 3.0, "")
--    app = LaunchMonitor(endpoint, None, info={**info, "daily_check": True}, color=color)     # (the quiet once-a-day check for a newer engine: this monitor only)
-+    app = LaunchMonitor(endpoint, None, info={**info, "daily_check": True}, color=color,
-+                        workspace_state=workspace_state)     # (the quiet once-a-day check for a newer engine: this monitor only)
-     app.run()
-     if app.stop_requested:
-         from strata_control import runtime
+diff --git a/strata_control/doctor.py b/strata_control/doctor.py
+index c1c5575..57ba69e 100644
+--- a/strata_control/doctor.py
++++ b/strata_control/doctor.py
+@@ -156,7 +156,7 @@ def _live_probe(cfg: dict, backend: str) -> tuple[dict, list[dict]]:
+              "scope": "host card inventory only; engine execution, CUDA compatibility and topology unverified"}, issues)
+ 
+ 
+-def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bool = False) -> dict:
++def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bool = False, cwd: str | None = None) -> dict:
+     report = {"schema_version": 1, "profile": profile_id, "source_config": str(config_path) if config_path else None,
+               "components": [], "issues": [], "backend": None, "devices_selected": None,
+               "live_gpu_probe": None}
+@@ -173,6 +173,8 @@ def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bo
+         return report
+ 
+     cfg = read_run_config(config_path)
++    if cwd is not None and not cfg.get("cwd"):
++        cfg = dict(cfg, cwd=cwd)
+     report["backend"] = cfg.get("backend") or "cuda_or_cpu_unverified"
+     report["devices_selected"] = cfg.get("gpu")
+     exe = _location(cfg["exe"], cfg, config_path)
 diff --git a/strata_control/runtime.py b/strata_control/runtime.py
+index 988ba80..1159e51 100644
 --- a/strata_control/runtime.py
 +++ b/strata_control/runtime.py
-@@ -644,9 +644,12 @@
+@@ -644,9 +644,12 @@ def start(name: str, *, wait: float = 300, shutdown_timeout: float = 30,
                  command += ["--die-with-pid", str(die_with[0]), "--die-with-token", die_with[1]]
              detach = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
                        if WINDOWS else {"start_new_session": True})
 +            env = {key: value for key, value in os.environ.items()
 +                   if key not in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
-+                                  "STRATA_WORKSPACE_CONTEXT")}
++                                  "STRATA_WORKSPACE_CONTEXT", "STRATA_SOURCE_LOCK_FD")}
              proc = subprocess.Popen(command,
                                      cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
 -                                    stderr=subprocess.STDOUT, close_fds=True, **detach)
@@ -857,10 +1306,65 @@ diff --git a/strata_control/runtime.py b/strata_control/runtime.py
          _STARTED_HOSTS[name] = proc
          deadline = time.monotonic() + max(5.0, wait)
          while _read_state(name) is None and proc.poll() is None and time.monotonic() < deadline:
+diff --git a/strata_control/setup_config.py b/strata_control/setup_config.py
+index aacc11b..208d299 100644
+--- a/strata_control/setup_config.py
++++ b/strata_control/setup_config.py
+@@ -48,6 +48,7 @@ class SetupInputs:
+     model: Any = None
+     model_args: Any = None
+     models_dir: Any = None
++    data_dir: Any = None
+     multi: Any = None
+     pack: Any = None
+     ple: Any = None
+@@ -191,7 +192,6 @@ def config_for(inp: SetupInputs, lib) -> SetupConfig:
+     parallel_note = lib.parallel_note
+     ple_ram_platform_ok = lib.ple_ram_platform_ok
+     pool_workers_note = lib.pool_workers_note
+-    ready_paths = lib.ready_paths
+     recommend_pool_workers = lib.recommend_pool_workers
+     recommend_remote_expert_opt = lib.recommend_remote_expert_opt
+     resident_budget_gib = lib.resident_budget_gib
+@@ -551,7 +551,7 @@ def config_for(inp: SetupInputs, lib) -> SetupConfig:
+         old_cfg = home() / f"strata-{tag.lower()}.json"
+         vt = vision_tokens(a.vision_tokens, vision, old_cfg if old_cfg.is_file() else adopted)
+         cfg["vision"] = {"exe": str(eng / VEXE), "mmproj": str(mmproj),     # the text model, opened vocab-only:
+-                         "model": str(ready_paths(model, models_dir)["dense"] if ready else shards[0]),
++                         "model": str(model_args[model_args.index("--native") + 1]),
+                          "gpu": vision == "gpu", "max_tokens": vt}
+         if reader is not None:                          # AMD: the HIP reader with the CPU reader behind it, or the CPU reader
+             from strata_control import vision_reader as VR
+@@ -561,7 +561,7 @@ def config_for(inp: SetupInputs, lib) -> SetupConfig:
+     elif a.vision_tokens is not None:
+         warn("--vision-tokens: images are off for this model, so it is not used")
+     if a.images:                                       # only when given: else an earlier "images" is carried over
+-        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir))
++        cfg["images"] = setup_images(a, gpu, hip, Path(a.models_dir), inp.data_dir)
+     cfg_path = home() / f"strata-{tag.lower()}.json"
+     cal = setup_calibration(cfg, hip)                  # #566: Linux HIP too; the tuning is offered on NVIDIA only
+     if cal is not None:
+diff --git a/sycl/setup_intel.py b/sycl/setup_intel.py
+index 013c216..43e4777 100644
+--- a/sycl/setup_intel.py
++++ b/sycl/setup_intel.py
+@@ -541,7 +541,10 @@ def install(argv) -> None:
+             return start(cfg_path, *a, **k)
+         script = ROOT / f"run-{Path(cfg_path).stem[len('strata-'):]}.sh"
+         S.say(f"\nstarting {script.name} ...")
+-        os.execv("/bin/sh", ["/bin/sh", str(script)])
++        with S.acquisition.source_observation(S.acquisition.workspace_state()):
++            S.acquisition.source_handoff()
++            S.acquisition.release_workspace()
++            os.execv("/bin/sh", ["/bin/sh", str(script)])
+     S.start = start_sycl
+ 
+     argv = list(argv)
 diff --git a/tools/iq_pack.py b/tools/iq_pack.py
+index b33723a..7d1d29c 100644
 --- a/tools/iq_pack.py
 +++ b/tools/iq_pack.py
-@@ -704,8 +704,10 @@
+@@ -704,8 +704,10 @@ def main() -> int:
      if rc:
          return rc
      if not (out / "tokenizer" / "vocab.json").exists() or not (out / "tokenizer" / "chat_template.jinja").exists():
@@ -872,67 +1376,109 @@ diff --git a/tools/iq_pack.py b/tools/iq_pack.py
  
      # ---- the experts.  native_experts.txt is written to a temporary name and renamed only when every layer is
      # in: a stop part-way (a layer split across shards, #171) left a partial native_experts.txt that the next setup
-diff --git a/strata_cli/launch/monitor_ext.py b/strata_cli/launch/monitor_ext.py
---- a/strata_cli/launch/monitor_ext.py
-+++ b/strata_cli/launch/monitor_ext.py
-@@ -36,7 +36,10 @@
+diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
+index a9752e4..dd53af6 100644
+--- a/tools/nvfp4_local_pack.py
++++ b/tools/nvfp4_local_pack.py
+@@ -585,20 +585,25 @@ def cmd_pack(a) -> int:
+ # ------------------------------------------------------------------------------------------------------- prepare (setup)
+ def cmd_prepare(a) -> int:
+     """Everything setup needs from the downloaded checkpoint, each step skipped when its mark is there:
+-        <out>/ple-nvfp4.gguf   the n-gram table      <out>/dense.gguf   the dense weights (no experts)
++        <gguf-out or out>/ple-nvfp4.gguf   the n-gram table; dense.gguf   the dense weights (no experts)
+         <out>/pack/            index.txt, dense.bin, experts.bin, native_experts.txt, tokenizer/
+         <out>/mtp/rt/          the draft layer (a Q2_0 copy of NVIDIA's MTP experts)
+     The checkpoint is read, never changed; it can be deleted afterwards (the pack and the two GGUFs hold everything)."""
+     import subprocess
+     model, out = pathlib.Path(a.model), pathlib.Path(a.out)
+-    if not all((out / m).is_file() for m in MARKS):
++    gguf_out = pathlib.Path(getattr(a, "gguf_out", None) or out)
++    marks = [(gguf_out if m.endswith(".gguf.done") else out) / m for m in MARKS]
++    if not all(m.is_file() for m in marks):
+         require_packages()                          # before the 20 minutes of the n-gram table, not after them (#3227)
+     out.mkdir(parents=True, exist_ok=True)
++    gguf_out.mkdir(parents=True, exist_ok=True)
+     me = [sys.executable, str(pathlib.Path(__file__).resolve())]
+     tools = pathlib.Path(__file__).resolve().parent
  
- 
- class LaunchMonitor(MonitorApp):
--    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, **kw) -> None:
-+    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, workspace_state=None, **kw) -> None:
+     def run(cmd):
+-        r = subprocess.run(cmd)
++        sys.path.insert(0, str(tools.parent))
 +        from strata_control import acquisition
-+        inherited_state = acquisition.release_workspace()
-+        self.workspace_state = workspace_state if workspace_state is not None else inherited_state
-         super().__init__(endpoint, snapshot, **kw)
-         self.info = info
-         self.ask_quit = ask_quit                  # False: plain `strata monitor` (q detaches, nothing to stop)
-@@ -107,10 +110,11 @@
-         return bool(box.get("yes", default))
++        r = subprocess.run(cmd, pass_fds=acquisition.workspace_fds())
+         if r.returncode:
+             sys.exit("prepare: %s failed (exit %d)" % (cmd[1] if len(cmd) > 1 else cmd[0], r.returncode))
  
-     def _update_worker(self) -> None:
--        from strata_control import engine_update, updater
-+        from strata_control import acquisition, engine_update, updater
-         try:
-             self._say_line("Checking for a newer engine...")
--            out = engine_update.run_flow(ask=self._ask_from_thread, say=self._say_line)
-+            with acquisition.workspace_mutation(self.workspace_state):
-+                out = engine_update.run_flow(ask=self._ask_from_thread, say=self._say_line)
-             text = engine_update.summary(out)
-         except updater.UpdateError as exc:
-             text = str(exc)
-diff --git a/sycl/setup_intel.py b/sycl/setup_intel.py
---- a/sycl/setup_intel.py
-+++ b/sycl/setup_intel.py
-@@ -541,6 +541,7 @@
-             return start(cfg_path, *a, **k)
-         script = ROOT / f"run-{Path(cfg_path).stem[len('strata-'):]}.sh"
-         S.say(f"\nstarting {script.name} ...")
-+        S.acquisition.release_workspace()
-         os.execv("/bin/sh", ["/bin/sh", str(script)])
-     S.start = start_sycl
+@@ -611,12 +616,12 @@ def cmd_prepare(a) -> int:
+         fn()
+         mark.write_text("done %.0f s\n" % (time.time() - t0))
  
-diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
---- a/strata_cli/launch/catalog.py
-+++ b/strata_cli/launch/catalog.py
-@@ -258,9 +258,18 @@
-+def resolve_installation(root=None, src=None) -> tuple[Path, list]:
-+    """Resolve the launch installation without creating it or loading its catalog."""
-+    src = installer_folder(src)
-+    if root is None and os.environ.get("STRATA_WORKSPACE_CONTEXT") and not os.environ.get("STRATA_INSTALL_DIR"):
-+        root = src
-+    places = install_places(root, src)
-+    target = Path(root) if root else (places[0].path if places else install_root(None, src))
-+    return target, places
-+
-+
- class Catalog:
-     """setup.py's tables through strata_mcp's `Strata` object (the app's own catalog code)."""
+-    step("the n-gram table", out / "ple-nvfp4.gguf.done",
+-         lambda: run(me + ["ple", "--model", str(model), "--out", str(out / "ple-nvfp4.gguf")]))
+-    step("the dense weights", out / "dense.gguf.done",
+-         lambda: run(me + ["convert", "--dense-only", "--model", str(model), "--outfile", str(out / "dense.gguf")]))
++    step("the n-gram table", gguf_out / "ple-nvfp4.gguf.done",
++         lambda: run(me + ["ple", "--model", str(model), "--out", str(gguf_out / "ple-nvfp4.gguf")]))
++    step("the dense weights", gguf_out / "dense.gguf.done",
++         lambda: run(me + ["convert", "--dense-only", "--model", str(model), "--outfile", str(gguf_out / "dense.gguf")]))
+     step("the experts and the pack", out / "pack.done",           # (native_experts.txt is the pack's own marker, not ours)
+-         lambda: run(me + ["pack", "--model", str(model), "--dense-gguf", str(out / "dense.gguf"), "--out", str(out / "pack")]))
++         lambda: run(me + ["pack", "--model", str(model), "--dense-gguf", str(gguf_out / "dense.gguf"), "--out", str(out / "pack")]))
  
-     def __init__(self, src: str | os.PathLike | None = None, root: str | os.PathLike | None = None,
-                  hardware: dict | None = None):
-         self.src = installer_folder(src)
--        self.places = install_places(root, self.src)
--        self.root = Path(root) if root else (self.places[0].path if self.places else install_root(None, self.src))
-+        self.root, self.places = resolve_installation(root, self.src)
-         mcp = self.src / "tools" / "strata_mcp.py"
+     mtp = out / "mtp"
+ 
+@@ -688,6 +693,7 @@ def main() -> int:
+     pr = sub.add_parser("prepare")
+     pr.add_argument("--model", required=True)
+     pr.add_argument("--out", required=True)
++    pr.add_argument("--gguf-out", help="GGUF output directory (default: --out); packs and drafts stay under --out")
+     sl = sub.add_parser("slim")
+     sl.add_argument("--gguf", required=True)
+     sl.add_argument("--out", required=True)
+diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
+index 8129c41..5da04b5 100644
+--- a/tools/strata_mcp.py
++++ b/tools/strata_mcp.py
+@@ -1711,7 +1711,7 @@ def shard_gaps(ggufs) -> list:
+     return gaps
+ 
+ 
+-def expected_files(S, family: str, model: str, models_dir: Path, vision: bool) -> list:
++def expected_files(S, family: str, model: str, models_dir: Path, vision: bool, *, data_dir=None, elsewhere=()) -> list:
+     """The files setup fetches for one install, with the sizes it can know before the download starts:
+     [{path, bytes|None, role}] where role is "model" (the shards or the pack's files) or "vision" (the picture reader).
+     Empty when the setup module cannot say (the caller then falls back to the folder scan)."""
+@@ -1732,16 +1732,27 @@ def expected_files(S, family: str, model: str, models_dir: Path, vision: bool) -
+                 out.append({"path": str(folder / own["mmproj"]), "bytes": own["sha256"][own["mmproj"]][0], "role": "vision"})
+             return out
+         fam, d = S.FAMILIES[family], S.MODELS[model]
++        vision_models = Path(models_dir)
++        selected = getattr(S, "model_download_layout", None)
++        layout = selected(family, model, models_dir, data_dir=data_dir, elsewhere=elsewhere) if selected else None
+         if d.get("repo"):                               # NVFP4: a ready-made pack, many files with pinned sizes
+-            for f in S.ready_needed(model, Path(models_dir)):
+-                out.append({"path": str(S.ready_where(Path(models_dir), f)), "bytes": f[4], "role": "model"})
++            if layout is None:                         # an external installation supplies its own setup module
++                files = S.ready_needed(model, Path(models_dir))
++                paths = [S.ready_where(Path(models_dir), f) for f in files]
++            else:
++                models_dir, ready_data, _, paths = layout
++                files = S.ready_needed(model, models_dir, ready_data)
++            for f, path in zip(files, paths):
++                out.append({"path": str(path), "bytes": f[4], "role": "model"})
+         else:
+-            folder = Path(models_dir) / (fam.get("tag", "") + model)
+-            for i in range(1, S.model_shards(fam, model) + 1):
+-                out.append({"path": str(folder / S.model_file(fam, model, i)), "bytes": None, "role": "model"})
++            paths = layout[3] if layout is not None else [
++                Path(models_dir) / (fam.get("tag", "") + model) / S.model_file(fam, model, i)
++                for i in range(1, S.model_shards(fam, model) + 1)]
++            for path in paths:
++                out.append({"path": str(path), "bytes": None, "role": "model"})
+         if vision:                                      # beside the model folders, not inside them (setup step 5)
+             size = (fam.get("mmproj_sha256") or (None,))[0] or DEFAULT_MMPROJ_BYTES
+-            out.append({"path": str(Path(models_dir) / fam.get("mmproj", S.MMPROJ)), "bytes": size, "role": "vision"})
++            out.append({"path": str(vision_models / fam.get("mmproj", S.MMPROJ)), "bytes": size, "role": "vision"})
+     except Exception:                                   # noqa: BLE001 - progress is a convenience: never break the install
+         return []
+     return out
