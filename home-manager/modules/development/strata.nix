@@ -49,13 +49,17 @@ in
         Serving and observers release acquisition ownership after preparation. Monitor
         updates acquire a fresh workspace lock through model restart; a busy workspace
         refuses that update without blocking observation.
+        Warm same-pin runtime stop and launch --stop follow native parser and dispatch
+        precedence without acquiring the workspace lock, so they can stop a service while an updater waits.
 
         A separate publication lease protects source checks, native parsing, exec and
         consumer initialization. One-shot observers keep a read lease until completion;
         logs and monitors release it before polling. Asynchronous runtime starts hand a
         short read lease through the owner host to each backend, including later restarts.
-        Services release it at native readiness after caching deferred helpers; hosts
-        release their copy after handoff. Fetching does not hold the publication lock.
+        Benchmark services inherit only this publication lease, not acquisition ownership.
+        Hosts and benchmark controllers close their spawn copy after handoff; services
+        release theirs at native readiness after caching deferred helpers. Fetching does
+        not hold the publication lock.
         Warm observations require the complete applied overlay and a valid HEAD.
         Interrupted initialization and publication resume before parser inspection.
         Managed launch refreshes source and Python after pin changes, then lets native
@@ -77,6 +81,8 @@ in
         External acquisitions keep upstream folder selection.
         Null preserves upstream folder selection; an explicit CLI --data-dir takes priority.
         This default is not a remembered CLI choice and does not request a data move.
+        Launch plans and folder selection use the same effective destination as setup
+        without saving this default in launch settings or presets.
         Installed starts, updates, checks and standalone commands keep their existing paths.
         Upstream retains explicit move
         confirmation and owns model selection, tuning and profiles.
@@ -101,8 +107,9 @@ in
         including supported abbreviations and equals syntax. Installed starts,
         updates, checks and standalone commands keep their existing paths.
         Managed acquisition through the launch runner receives these same defaults.
-        Download progress uses setup's destinations and reuse selection, including
-        retained checkpoints; vision projectors follow the requested model directory.
+        Download progress, plans, helper forecasts and folder-space warnings share setup's
+        effective destinations and reuse selection, including retained checkpoints.
+        Missing vision projectors use the requested model directory.
         These defaults do not request moves; upstream retains model selection, tuning and profiles.
       '';
     };
@@ -141,9 +148,11 @@ in
         Installed base configs and source-built engines stay in the workspace. Derived
         launch configs remain in upstream's state directory and receive native argument
         migrations before serving, including when the runtime is already certified.
-        SYCL validation reads the real engine behind its launcher and translates only engine
-        argument paths through the effective wrapper mount; tokenizer and vision paths stay
-        on the host. Manifest-listed auxiliary engines retain native signatures, payload
+        SYCL validation checks the engine selected through the wrapper's effective mount
+        and configured working directory. Saved environment values override ambient settings;
+        empty values use wrapper defaults. Only engine argument paths are translated;
+        tokenizer and vision paths stay on the host. Manifest-listed auxiliary engines
+        retain native signatures, payload
         checks and version policy, with hashes for the main and selected executable.
         Component engines keep upstream's shared store. Explicit external launch targets
         keep upstream directory and runtime selection.

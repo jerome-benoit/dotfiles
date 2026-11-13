@@ -115,6 +115,7 @@ pkgs.runCommand "check-strata-workspace"
         python.numpy
         python.jinja2
         python.pip
+        python.regex
       ]))
     ];
   }

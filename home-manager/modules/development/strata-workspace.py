@@ -530,6 +530,8 @@ def observer_probe(root, args):
     from strata_control import acquisition
     with acquisition.source_observation():
         a = terminal_args(root, args)
+        if not passive_action(a):
+            return 72
         if a.command == "monitor" and runtime_action(a):
             try:
                 from strata_cli.client import Endpoint
@@ -556,6 +558,13 @@ def terminal_args(root, args):
     sys.path.insert(0, str(root))
     from strata_cli.cli import parse_args
     return parse_args(args)
+
+
+def passive_action(a):
+    """Follow native dispatch precedence for commands that never acquire."""
+    return (a.command in {"status", "monitor", "logs", "connection"}
+            or (a.command == "runtime" and a.runtime_command == "stop")
+            or (a.command == "launch" and a.stop and not a.list_presets and not a.delete_preset))
 
 
 def runtime_action(a):
@@ -675,11 +684,16 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
     source = state / "source"
     ledger = source / ".git" / SOURCE_PATCH
     # Hold a short source read lease through the guard, native parser, UI readiness and exec.
-    if (not managed_setup and args and args[0] in {"status", "monitor", "logs", "connection"}
+    if (not managed_setup and args and args[0] in {"status", "monitor", "logs", "connection", "runtime", "launch"}
             and (source / ".git").exists() and source_patch is not None):
         with source_publication_lock(state, shared=True) as source_lock:
+            head = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", "HEAD"],
+                capture_output=True, text=True,
+            )
             if (ledger.is_file() and ledger.read_text() == Path(source_patch).read_text()
-                    and git(source, "rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode == 0
+                    and head.returncode == 0
+                    and (args[0] not in {"launch", "runtime"} or head.stdout.strip() == revision)
                     and patch_check(source, ledger.read_text(), reverse=True)):
                 python = runtime_python(source)
                 if not os.access(python, os.X_OK):
@@ -720,7 +734,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                     refresh_runtime(root, revision, lock.fileno(), [], configs=configs)
         elif not os.access(python, os.X_OK):
             python = Path(sys.executable)
-        if a.command in {"status", "monitor", "logs", "connection"}:
+        if passive_action(a):
             with source_publication_lock(state, shared=True) as source_lock:
                 # Close the owning object, not its raw descriptor; context cleanup stays idempotent.
                 lock.close()
