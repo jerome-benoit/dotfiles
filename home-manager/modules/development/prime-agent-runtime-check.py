@@ -53,7 +53,7 @@ def check_selected_sources(root, env):
     project_module = project / "src/nix_project_probe"
     project_module.mkdir(parents=True)
     (project / "SKILL.md").write_text(
-        "---\nname: nix-project-probe\ndescription: Repository Python admission check\n---\nDo not execute repository code.\n"
+        "---\nname: nix-project-probe\ndescription: Project-scoped Python skill admission check\n---\nDo not execute project-scoped Python code.\n"
     )
     (project / "pyproject.toml").write_text(
         '[project]\nname="nix-project-probe"\nversion="0.1.0"\ndependencies=[]\n'
@@ -61,12 +61,12 @@ def check_selected_sources(root, env):
     project_marker = root / "project-imported"
     (project_module / "__init__.py").write_text(
         f"import pathlib\npathlib.Path({str(project_marker)!r}).touch()\n"
-        "async def run(): return 'repository code executed'\n"
+        "async def run(): return 'project-scoped Python code executed'\n"
     )
     result_file = root / "selected-source.json"
     code = (
         "import json, pathlib\n"
-        "assert 'nix_project_probe' not in globals(), 'repository Python skill admitted'\n"
+        "assert 'nix_project_probe' not in globals(), 'project-scoped Python skill admitted'\n"
         f"pathlib.Path({str(result_file)!r}).write_text(json.dumps("
         "{'value': await edit(), 'file': edit.__file__, 'unique': await nix_source_probe()}))"
     )
@@ -85,7 +85,7 @@ def check_selected_sources(root, env):
         "file": str(selected_module),
         "unique": 43,
     }
-    assert not project_marker.exists(), "repository Python skill was imported"
+    assert not project_marker.exists(), "project-scoped Python skill was imported"
     selected_module.write_text(
         "import nix_missing_dependency_for_source_check\nasync def run(): return 'wrong fallback'\n"
     )

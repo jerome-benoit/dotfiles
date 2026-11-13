@@ -1,6 +1,6 @@
 # base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
-# intent: bind Nix kernel imports to selected user/temporary skill sources without installing dependencies.
-#   Preserve upstream's exclusion of repository-scoped Python skills from kernel admission.
+# intent: bind Nix kernel imports to selected non-project skill sources without installing dependencies.
+#   Preserve upstream's exclusion of project-scoped Python skills from kernel admission.
 diff --git a/crates/pa-core/src/kernel/bootstrap/mod.rs b/crates/pa-core/src/kernel/bootstrap/mod.rs
 --- a/crates/pa-core/src/kernel/bootstrap/mod.rs
 +++ b/crates/pa-core/src/kernel/bootstrap/mod.rs

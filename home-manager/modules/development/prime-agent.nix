@@ -204,9 +204,8 @@ let
           # Workaround: login guidance references documents absent from release sources.
           # Remove when upstream points to documentation included in its releases.
           ../../../patches/prime-agent-bundled-docs.patch
-          # Workaround: name-only skill imports can execute a different selected user source.
-          # Repository-scoped Python skills remain excluded by upstream.
-          # Remove when the kernel binds imports to the resolved skill packages.
+          # Workaround: name-only imports can bypass the selected non-project skill source.
+          # Remove when upstream binds imports to resolved skill packages.
           ../../../patches/prime-agent-python-skill-source.patch
         ];
         PRIME_AGENT_NIX_MANAGED = "1";
