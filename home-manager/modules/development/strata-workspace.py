@@ -519,6 +519,9 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         words = cli_doors(source, args)
         if words["terminal"] and (words["command"] in {"status", "monitor", "logs", "connection"}
                                   or words["command"] is None):
+            if words["command"] == "monitor":
+                # Observation owns no lock; its opt-in update worker reacquires one.
+                os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
             python = source / ".venv/bin/python"
             os.execv(str(python), [str(python), str(source / TERMINAL_CLI), *args])
     with workspace_lock(state, inherited=managed_setup) as (state, lock):

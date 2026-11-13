@@ -12,7 +12,7 @@ let
     path: lib.hasPrefix "/" path && !(path == "/nix/store" || lib.hasPrefix "/nix/store/" path)
   );
   # Workaround: upstream mixes GGUF/artifact directories and has no managed workspace lock lifecycle.
-  # Remove when upstream supports separate destinations and inherited acquisition locks released before serving.
+  # Remove when upstream separates destinations and locks acquisition and monitor updates without locking services.
   sourcePatch = ../../../patches/strata-setup-directory-roles.patch;
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
@@ -45,9 +45,12 @@ in
         its source patch under the workspace lock, leaves the diff visible and refuses
         conflicting edits. Other contents remain user-owned and outside the Nix store.
         Managed setup, install, launch acquisition and other mutating Terminal commands
-        hold this lock; mutating children inherit it. Serving and launch monitoring release
-        it after preparation. Status, monitor, logs and connection bypass preparation on
-        a checkout with a valid HEAD, so they remain usable during acquisition and serving.
+        hold this lock; mutating children inherit it, including Intel SYCL setup.
+        Serving and monitoring release it after preparation. Both launch monitoring and
+        standalone monitor reacquire a fresh lock for opt-in updates through model restart;
+        a busy workspace refuses that update without blocking observation.
+        Status, monitor, logs and connection bypass preparation on a checkout with a valid
+        HEAD, so they remain usable during acquisition and serving.
         Interrupted initialization resumes under the lock before the launcher inspects its parser.
         Direct upstream scripts outside this launcher do not participate in this lock.
         Changing this path does not migrate the workspace.

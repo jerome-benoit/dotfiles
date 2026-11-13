@@ -434,7 +434,7 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
 diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
 --- a/strata_control/acquisition.py
 +++ b/strata_control/acquisition.py
-@@ -26,5 +26,21 @@
+@@ -26,5 +26,57 @@
  ENV = "STRATA_NO_ACQUIRE"
  
 +def workspace_fds() -> tuple:
@@ -443,14 +443,50 @@ diff --git a/strata_control/acquisition.py b/strata_control/acquisition.py
 +    return (int(fd),) if fd is not None else ()
 +
 +
-+def release_workspace() -> None:
-+    """Serving and monitoring do not mutate the managed checkout."""
++def release_workspace():
++    """Drop acquisition ownership and return only the state path needed by a monitor."""
++    import json
++    context = os.environ.pop("STRATA_WORKSPACE_CONTEXT", None)
 +    fd = os.environ.pop("STRATA_WORKSPACE_LOCK_FD", None)
 +    os.environ.pop("STRATA_WORKSPACE_HELPER", None)
-+    os.environ.pop("STRATA_WORKSPACE_CONTEXT", None)
 +    if fd is not None:
 +        # Do not LOCK_UN: a surviving mutator may share this open file description.
 +        os.close(int(fd))
++    return json.loads(context)["state"] if context is not None else None
++
++
++_workspace_mutation_lock = threading.Lock()
++
++
++@contextlib.contextmanager
++def workspace_mutation(state):
++    """Own a fresh workspace lock only while a monitor updates and restarts models."""
++    if state is None:
++        yield
++        return
++    import fcntl
++    import json
++    from pathlib import Path
++    # The descriptor protocol is process-wide; two worker threads must not overwrite it.
++    if not _workspace_mutation_lock.acquire(blocking=False):
++        raise RuntimeError("workspace is busy; retry the update when acquisition finishes")
++    try:
++        with (Path(state) / ".source.lock").open("a") as lock:
++            try:
++                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
++            except BlockingIOError:
++                raise RuntimeError("workspace is busy; retry the update when acquisition finishes") from None
++            os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(lock.fileno())
++            os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
++            try:
++                yield
++            finally:
++                # Purge before close; mutating children may still own this file description.
++                os.environ.pop("STRATA_WORKSPACE_LOCK_FD", None)
++                os.environ.pop("STRATA_WORKSPACE_HELPER", None)
++                os.environ.pop("STRATA_WORKSPACE_CONTEXT", None)
++    finally:
++        _workspace_mutation_lock.release()
 +
 +
  _lock = threading.Lock()
@@ -525,15 +561,22 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
 diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
 --- a/strata_cli/launch/app.py
 +++ b/strata_cli/launch/app.py
-@@ -431,6 +431,8 @@
+@@ -431,11 +431,14 @@
  
  def run_monitor(info: dict, *, keep_default: bool = True, color: str = "auto") -> int:
      """Open the monitor for a running launch. q asks whether to keep serving or stop."""
 +    from strata_control import acquisition
-+    acquisition.release_workspace()
++    workspace_state = acquisition.release_workspace()
      from strata_cli.client import Endpoint
      from strata_cli.launch.monitor_ext import LaunchMonitor
      local = next((u for u in info.get("urls", []) if "127.0.0.1" in u), None) or f"http://127.0.0.1:{info.get('port', S.DEFAULT_PORT)}"
+     endpoint = Endpoint(local, info.get("key"), 3.0, "")
+-    app = LaunchMonitor(endpoint, None, info={**info, "daily_check": True}, color=color)     # (the quiet once-a-day check for a newer engine: this monitor only)
++    app = LaunchMonitor(endpoint, None, info={**info, "daily_check": True}, color=color,
++                        workspace_state=workspace_state)     # (the quiet once-a-day check for a newer engine: this monitor only)
+     app.run()
+     if app.stop_requested:
+         from strata_control import runtime
 diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
 --- a/tools/nvfp4_local_pack.py
 +++ b/tools/nvfp4_local_pack.py
@@ -580,3 +623,49 @@ diff --git a/tools/iq_pack.py b/tools/iq_pack.py
  
      # ---- the experts.  native_experts.txt is written to a temporary name and renamed only when every layer is
      # in: a stop part-way (a layer split across shards, #171) left a partial native_experts.txt that the next setup
+diff --git a/strata_cli/launch/monitor_ext.py b/strata_cli/launch/monitor_ext.py
+--- a/strata_cli/launch/monitor_ext.py
++++ b/strata_cli/launch/monitor_ext.py
+@@ -38,6 +38,9 @@
+ class LaunchMonitor(MonitorApp):
+-    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, **kw) -> None:
++    def __init__(self, endpoint, snapshot, *, info: dict, ask_quit: bool = True, workspace_state=None, **kw) -> None:
++        from strata_control import acquisition
++        inherited_state = acquisition.release_workspace()
++        self.workspace_state = workspace_state if workspace_state is not None else inherited_state
+         super().__init__(endpoint, snapshot, **kw)
+         self.info = info
+         self.ask_quit = ask_quit                  # False: plain `strata monitor` (q detaches, nothing to stop)
+         self.connect_enabled = True
+@@ -109,9 +112,10 @@
+     def _update_worker(self) -> None:
+-        from strata_control import engine_update, updater
++        from strata_control import acquisition, engine_update, updater
+         try:
+             self._say_line("Checking for a newer engine...")
+-            out = engine_update.run_flow(ask=self._ask_from_thread, say=self._say_line)
++            with acquisition.workspace_mutation(self.workspace_state):
++                out = engine_update.run_flow(ask=self._ask_from_thread, say=self._say_line)
+             text = engine_update.summary(out)
+         except updater.UpdateError as exc:
+             text = str(exc)
+         except Exception as exc:                 # noqa: BLE001 - a sentence, never a trace
+diff --git a/setup.py b/setup.py
+--- a/setup.py
++++ b/setup.py
+@@ -8551,7 +8551,7 @@
+     script = ROOT / "sycl" / "setup_intel.py"
+     if not script.exists():
+         fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
+-    return subprocess.call([sys.executable, str(script), *rest])
++    os.execv(sys.executable, [sys.executable, str(script), *rest])
+ 
+ 
+ def intel_control_setup(a) -> int:
+diff --git a/sycl/setup_intel.py b/sycl/setup_intel.py
+--- a/sycl/setup_intel.py
++++ b/sycl/setup_intel.py
+@@ -543,2 +543,3 @@
+         S.say(f"\nstarting {script.name} ...")
++        S.acquisition.release_workspace()
+         os.execv("/bin/sh", ["/bin/sh", str(script)])

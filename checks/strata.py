@@ -92,6 +92,8 @@ class WorkspaceTests(unittest.TestCase):
         (self.repo / "tools").mkdir()
         shutil.copyfile(Path(UPSTREAM) / "tools/nvfp4_local_pack.py", self.repo / "tools/nvfp4_local_pack.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/iq_pack.py", self.repo / "tools/iq_pack.py")
+        (self.repo / "sycl").mkdir()
+        shutil.copyfile(Path(UPSTREAM) / "sycl/setup_intel.py", self.repo / "sycl/setup_intel.py")
         (self.repo / "removed.py").write_text("obsolete source\n")
         self.old = self.commit()
         (self.repo / "code.py").write_text("new source\n")
@@ -1328,7 +1330,11 @@ server.main = service
         self.assert_workspace_locked()
         observer = subprocess.Popen(self.command(self.old), env=self.env,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.addCleanup(lambda: observer.poll() is None and observer.kill())
+        def cleanup_observer():
+            if observer.poll() is None:
+                observer.kill()
+            observer.communicate(timeout=10)
+        self.addCleanup(cleanup_observer)
         self.assertRaises(subprocess.TimeoutExpired, observer.wait, timeout=0.2)
         self.assert_observers_answer(self.old)
         process.kill()
@@ -1421,46 +1427,343 @@ cli._run = run
 ''')
         self.assert_mutator_child_keeps_lock(self.command(self.old) + ["run", "launch"])
 
-    def test_launch_monitor_releases_lock_before_monitor_loop(self):
-        root = self.prepare(self.old)
-        self.make_terminal(root, f'''
-import types
-# Replace optional UI rendering only. Import and run upstream's real launch monitor boundary.
-sys.modules["textual"] = types.ModuleType("textual")
-for name in ("textual.app", "textual.binding", "strata_cli.launch.screens",
-             "strata_cli.launch.widgets", "strata_cli.launch.monitor_ext"):
+    def test_monitor_update_workers_lock_both_doors_and_release_after_failure(self):
+        for door in ("launch", "monitor"):
+            with self.subTest(door=door):
+                self.state = self.base / door
+                root = self.prepare(self.old)
+                self.make_terminal(root, f'''
+import contextlib, fcntl, json, os, socket, threading, types
+from strata_control import acquisition, dsv41_paths, engine_update, profiles, runtime, updater
+# Replace rendering only; keep LaunchMonitor, its worker and both command entry points.
+for name in ("textual", "textual.app", "textual.binding", "textual.widgets", "rich", "rich.text",
+             "strata_cli.monitor", "strata_cli.launch.screens", "strata_cli.launch.widgets"):
     sys.modules[name] = types.ModuleType(name)
 sys.modules["textual.app"].App = object
 sys.modules["textual.binding"].Binding = lambda *args, **kwargs: None
+sys.modules["textual.widgets"].Static = object
+sys.modules["rich.text"].Text = object
 screens = sys.modules["strata_cli.launch.screens"]
 for name in ("AccessScreen", "AdvancedScreen", "CardsScreen", "ConfirmScreen", "ContextScreen",
              "DraftingScreen", "FolderScreen", "ModelScreen", "ParallelScreen", "PicturesScreen",
              "RunScreen", "SaveScreen", "SpeedScreen", "StartScreen", "TuningScreen", "flow_for"):
     setattr(screens, name, object)
 widgets = sys.modules["strata_cli.launch.widgets"]
-widgets.CSS, widgets.Glyphs = "", object
-class Monitor:
-    stop_requested = False
+widgets.CSS, widgets.Glyphs, widgets.DARK, widgets.LIGHT = "", object, None, None
+protocol = ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT")
+state = Path({str(self.state)!r})
+config = Path({str(root / "launch-model.json")!r})
+old = Path({str(root / "engine-dsv41/1.0-linux-x86_64-cuda/strata-dsv41")!r})
+new = old.parent.parent / "2.0-linux-x86_64-cuda" / old.name
+config.write_text(json.dumps({{"exe": str(old), "args": ["--parallel", "1"]}}))
+def assert_locked():
+    with (state / ".source.lock").open("a") as probe:
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        raise AssertionError("monitor mutation lost workspace lock")
+class MonitorBase:
     def __init__(self, *args, **kwargs):
+        self.closing, self.is_mounted, self.view = False, False, 0
+    def call_from_thread(self, function):
+        function()
+    def _paint(self):
         pass
     def run(self):
-        exec({GATE!r})
-sys.modules["strata_cli.launch.monitor_ext"].LaunchMonitor = Monitor
+        assert self.workspace_state == str(state)
+        assert not any(key in os.environ for key in protocol)
+        listener = socket.socket(socket.AF_UNIX)
+        listener.bind(os.environ["GATE_SOCKET"])
+        listener.listen(1)
+        with open(os.environ["GATE_READY"], "w") as ready:
+            ready.write(str(os.getpid()))
+        with listener.accept()[0] as peer:
+            peer.sendall(b"r")
+            assert peer.recv(1) == b"b"
+            self._update_worker()
+            assert "workspace is busy" in self.selection_notice
+            assert not self.updating
+            assert not any(key in os.environ for key in protocol)
+            peer.sendall(b"b")
+            assert peer.recv(1) == b"u"
+            reached, resume = threading.Event(), threading.Event()
+            atomic = profiles._atomic
+            def publish(path, data):
+                assert_locked()
+                reached.set()
+                assert resume.wait(90), "test did not release config publication"
+                atomic(path, data)
+            profiles._atomic = publish
+            engine_update.build_context = lambda *args: types.SimpleNamespace()
+            model = types.SimpleNamespace(profile="fixture", label="fixture", to_dict=lambda: {{"name": "fixture"}})
+            def update(ctx, **kwargs):
+                assert_locked()
+                with updater.update_lock(config.parent):
+                    ctx.gate.stopped = [model]
+                    assert dsv41_paths.repoint_all([config], new) == 1
+                    raise updater.UpdateError("fixture update failure after mutation")
+            updater.run_update = update
+            runtime._repair_config_paths = lambda *args: (None, None)
+            runtime._repair_dsv41_paths = lambda *args: None
+            runtime._check_start_candidate = lambda *args: ({{}}, [])
+            runtime._engine_preflight = lambda *args: None
+            runtime._paths = lambda *args: (None, None, config.parent / "runtime.log")
+            profiles._lock = lambda *args: contextlib.nullcontext()
+            runtime.procs.end_leftovers = lambda **kwargs: None
+            runtime._await_start = lambda *args: {{}}
+            children = []
+            runtime._read_state = lambda *args: {{}} if children else None
+            popen = __import__("subprocess").Popen
+            def spawn(command, **kwargs):
+                fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+                assert not os.get_inheritable(fd)
+                code = ("import os; assert not any(k in os.environ for k in " + repr(protocol) + "); "
+                        "fd=" + str(fd) + "; identity=" + repr((os.fstat(fd).st_dev, os.fstat(fd).st_ino)) + "\\n"
+                        "try: st=os.fstat(fd)\\n"
+                        "except OSError: pass\\n"
+                        "else: assert (st.st_dev, st.st_ino) != identity\\n")
+                child = popen([sys.executable, "-c", code], **kwargs)
+                children.append(child)
+                return child
+            def restart(model):
+                assert_locked()
+                __import__("subprocess").Popen = spawn
+                try:
+                    runtime.start("fixture", wait=0)
+                    assert children[0].wait(timeout=30) == 0
+                finally:
+                    __import__("subprocess").Popen = popen
+                assert_locked()
+                return True, "fixture restarted"
+            engine_update.start_model = restart
+            self._ask_from_thread = lambda *args: True
+            self.action_update_engine()
+            assert reached.wait(30)
+            peer.sendall(b"w")
+            assert peer.recv(1) == b"p"
+            resume.set()
+            for thread in threading.enumerate():
+                if thread.name == "strata-engine-update":
+                    thread.join(30)
+                    assert not thread.is_alive()
+            assert not self.updating
+            assert "fixture update failure" in self.selection_notice
+            assert not any(key in os.environ for key in protocol)
+            assert self.next_poll_at == 0.0
+            assert (config.parent / "runtime.log").exists()
+            profiles._atomic = atomic
+            # A later update still works after the failed one and its model restart.
+            updater.run_update = lambda ctx, **kwargs: {{"exit_code": 0, "results": []}}
+            self._update_worker()
+            assert self.selection_notice == "Nothing needed updating."
+            peer.sendall(b"d")
+            assert peer.recv(1) == b"q"
+sys.modules["strata_cli.monitor"].MonitorApp = MonitorBase
 original_run = cli._run
 def run(a):
-    if a.command != "launch":
-        return original_run(a)
-    from strata_cli.launch import app
-    return app.run_monitor({{"url": "http://127.0.0.1:1", "port": 1}})
+    if a.command == "launch":
+        from strata_cli.launch.app import run_monitor
+        return run_monitor({{"url": "http://127.0.0.1:1", "port": 1}})
+    if a.command == "monitor" and not a.once:
+        sys.stdout.isatty = lambda: True
+    return original_run(a)
 cli._run = run
 ''')
-        process, pid, peer = self.gated_process(self.command(self.old) + ["run", "launch"])
+                process, pid, peer = self.gated_process(self.command(self.old) +
+                    ["run", door, "--url", "http://127.0.0.1:1"] if door == "monitor" else
+                    self.command(self.old) + ["run", door])
+                peer.settimeout(60)
+                self.assertEqual(pid, process.pid)
+                self.assert_workspace_unlocked()
+                with (self.state / ".source.lock").open("a") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    peer.sendall(b"b")
+                    self.assertEqual(peer.recv(1), b"b")
+                    self.assert_observers_answer(self.old)
+                peer.sendall(b"u")
+                self.assertEqual(peer.recv(1), b"w")
+                self.assert_workspace_locked()
+                contender = subprocess.Popen(self.command(self.old), env=self.env,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                def cleanup_contender(process=contender):
+                    if process.poll() is None:
+                        process.kill()
+                    process.communicate(timeout=10)
+                self.addCleanup(cleanup_contender)
+                self.assertRaises(subprocess.TimeoutExpired, contender.wait, timeout=0.2)
+                self.assert_observers_answer(self.old)
+                peer.sendall(b"p")
+                response = peer.recv(1)
+                if response != b"d":
+                    stdout, stderr = process.communicate(timeout=30)
+                    self.fail(f"Monitor worker stopped before completion: {stdout}\n{stderr}")
+                stdout, stderr = contender.communicate(timeout=30)
+                self.assertEqual(contender.returncode, 0, stderr)
+                self.assertEqual(Path(stdout.strip()), root)
+                self.assert_workspace_unlocked()
+                from importlib.util import module_from_spec, spec_from_file_location
+                spec = spec_from_file_location("test_workspace", WORKSPACE)
+                workspace = module_from_spec(spec)
+                spec.loader.exec_module(workspace)
+                with workspace.workspace_lock(self.state):
+                    # The queued launch can now publish its settings without a stale update overwriting them.
+                    config = root / "launch-model.json"
+                    actual = json.loads(config.read_text())
+                    actual["args"] = ["--parallel", "8"]
+                    subprocess.run([sys.executable, "-c",
+                        "import json,sys; from pathlib import Path; "
+                        "from strata_cli.launch.runner import write_private; "
+                        "write_private(Path(sys.argv[1]), json.loads(sys.argv[2]))",
+                        str(config), json.dumps(actual)], cwd=root, env=self.env, check=True, timeout=10)
+                peer.sendall(b"q")
+                process.wait(timeout=30)
+                self.assertEqual(process.returncode, 0, process.stderr.read())
+                self.assertEqual(json.loads(config.read_text())["args"], ["--parallel", "8"])
+
+    def make_intel_boundary(self, root, body):
+        original = root / "sycl/setup_intel.py"
+        original.rename(root / "sycl/intel_real.py")
+        original.write_text(f'''
+import importlib.util, json, os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import setup as S
+fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+identity = os.stat(Path({str(self.state)!r}) / ".source.lock")
+inherited = os.fstat(fd)
+assert (inherited.st_dev, inherited.st_ino) == (identity.st_dev, identity.st_ino)
+assert os.getpid() == int(os.environ["INTEL_SETUP_PID"])
+assert sys.argv[1:] == ["--fixture"]
+spec = importlib.util.spec_from_file_location("intel_real", Path(__file__).with_name("intel_real.py"))
+intel = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(intel)
+# Restore the tracked patch target before any queued launcher checks patch ownership.
+Path(__file__).write_bytes(Path(__file__).with_name("intel_real.py").read_bytes())
+intel.intel_gpus = lambda: [{{"driver": "xe", "devid": "e223", "vram_gb": 32}}]
+intel.sycl_engine = lambda: (Path("/fixture/strata"), None)
+intel.sycl_version = lambda: "fixture"
+S.ram_gb = lambda: 64
+{body}
+intel.install(sys.argv[1:])
+''')
+
+    def intel_command(self, root, fd, backend):
+        return [sys.executable, "-c", f'''
+import fcntl, json, os, sys
+from pathlib import Path
+sys.path.insert(0, {str(root)!r})
+import setup
+lock = os.open({str(self.state / ".source.lock")!r}, os.O_RDWR)
+fcntl.flock(lock, fcntl.LOCK_EX)
+if lock != {fd}:
+    os.dup2(lock, {fd})
+    os.close(lock)
+os.set_inheritable({fd}, True)
+os.environ.update(STRATA_WORKSPACE_LOCK_FD=str({fd}), STRATA_WORKSPACE_HELPER="fixture",
+                  STRATA_WORKSPACE_CONTEXT=json.dumps({{"state": {str(self.state)!r}}}),
+                  INTEL_SETUP_PID=str(os.getpid()))
+setup.sycl_setup({backend!r} + ["--fixture"])
+raise AssertionError("SYCL handoff returned instead of replacing setup")
+''']
+
+    def test_sycl_exec_preserves_low_and_high_lock_fds_and_mutating_children(self):
+        for fd, backend in ((3, ["--backend", "sycl"]), (100, ["--backend=sycl"])):
+            with self.subTest(fd=fd):
+                self.state = self.base / str(fd)
+                root = self.prepare(self.old)
+                self.make_terminal(root)
+                gate = root / "tools/intel-gate.py"
+                gate.write_text('''
+import os
+from pathlib import Path
+fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+actual = os.fstat(fd)
+expected = os.stat(Path(__file__).resolve().parents[2] / ".source.lock")
+assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+''' + GATE)
+                self.make_intel_boundary(root, f'''
+def main():
+    return S.run([sys.executable, {str(gate)!r}]).returncode
+S.main = main
+''')
+                self.assert_mutator_child_keeps_lock(self.intel_command(root, fd, backend))
+
+    def test_sycl_service_drops_protocol_without_unlocking_surviving_mutator(self):
+        root = self.prepare(self.old)
+        self.make_terminal(root)
+        child_socket = self.base / "intel-child.sock"
+        child = root / "tools/intel-survivor.py"
+        child.write_text(f'''
+import os, socket
+fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+assert os.fstat(fd).st_ino == os.stat({str(self.state / ".source.lock")!r}).st_ino
+listener = socket.socket(socket.AF_UNIX)
+listener.bind({str(child_socket)!r})
+listener.listen(1)
+print("ready", flush=True)
+with listener.accept()[0] as peer:
+    peer.sendall(b"r")
+    peer.recv(1)
+''')
+        service = root / "tools/intel-service.py"
+        service.write_text('''
+import os
+assert not any(key in os.environ for key in (
+    "STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"))
+assert os.getpid() == int(os.environ["INTEL_SETUP_PID"])
+try:
+    actual = os.fstat(100)
+except OSError:
+    pass
+else:
+    raise AssertionError("service inherited acquisition FD")
+''' + GATE)
+        (root / "run-fixture.sh").write_text(f'exec "{sys.executable}" "{service}"\n')
+        config = root / "strata-fixture.json"
+        config.write_text('{"backend": "sycl"}')
+        self.make_intel_boundary(root, f'''
+import subprocess
+def main():
+    child = subprocess.Popen([sys.executable, {str(child)!r}], pass_fds=S.acquisition.workspace_fds(),
+                             stdout=subprocess.PIPE, text=True)
+    assert child.stdout.readline().strip() == "ready"
+    S.start(Path({str(config)!r}))
+    raise AssertionError("service handoff returned")
+S.main = main
+''')
+        process, pid, peer = self.gated_process(self.intel_command(root, 100, ["--backend", "sycl"]))
         self.assertEqual(pid, process.pid)
-        self.assert_workspace_unlocked()
+        self.assert_workspace_locked()
         self.assert_observers_answer(self.old)
+        with socket.socket(socket.AF_UNIX) as survivor:
+            survivor.settimeout(10)
+            survivor.connect(str(child_socket))
+            self.assertEqual(survivor.recv(1), b"r")
+            survivor.sendall(b"q")
+        self.assert_workspace_unlocked()
         peer.sendall(b"q")
         process.wait(timeout=30)
         self.assertEqual(process.returncode, 0, process.stderr.read())
+
+    def test_sycl_non_sycl_start_keeps_original_delegation(self):
+        root = self.prepare(self.old)
+        config = root / "strata-fixture.json"
+        config.write_text('{"backend": "cpu"}')
+        self.make_intel_boundary(root, f'''
+def original_start(path, *args, **kwargs):
+    assert Path(path) == Path({str(config)!r})
+    assert args == ("positional",) and kwargs == {{"open_browser": False}}
+    assert S.acquisition.workspace_fds() == (100,)
+    assert os.fstat(100).st_ino == identity.st_ino
+    return 17
+S.start = original_start
+S.main = lambda: S.start(Path({str(config)!r}), "positional", open_browser=False)
+''')
+        result = subprocess.run(self.intel_command(root, 100, ["--backend=sycl"]),
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assert_workspace_unlocked()
 
     def test_detached_runtime_drops_lock_protocol_without_unlocking_launcher(self):
         root = self.prepare(self.old)
