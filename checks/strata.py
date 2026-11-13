@@ -1312,6 +1312,35 @@ for argv in (["source", "--context", "not-an-int"], ["source", "--backend", "unk
             self.assertEqual(result.returncode, 3, result.stderr)
             self.assertFalse(json.loads(result.stdout)["ok"])
 
+    def test_logs_follow_releases_lock_after_preparation_and_on_prepared_source(self):
+        root = self.prepare(self.old)
+        self.make_terminal(root, f'''
+import os
+from strata_cli import logs
+from strata_cli.client import Endpoint
+Endpoint.snapshot = lambda *a, **k: {{
+    "instance": {{"id": "fixture"}},
+    "activity": {{"available": True, "last_seq": 0, "events": []}}}}
+def pause(interval):
+    assert not any(key in os.environ for key in (
+        "STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"))
+    exec({GATE!r}, {{}})
+    raise KeyboardInterrupt
+logs.time.sleep = pause
+''')
+        # Published but unapplied overlay: the first observer must prepare under the lock.
+        subprocess.run(["git", "-C", str(root), "apply", "--reverse", SOURCE_PATCH],
+                       env=self.env, check=True)
+        for phase in ("preparation-required", "already-prepared"):
+            with self.subTest(phase=phase):
+                process, pid, peer = self.gated_process(self.command(self.old) + [
+                    "run", "logs", "--follow", "--url", "http://127.0.0.1:1"])
+                self.assertEqual(pid, process.pid)
+                self.assertIsNone(process.poll())
+                self.assert_workspace_unlocked()
+                peer.sendall(b"q")
+                process.communicate(timeout=30)
+
     def test_terminal_service_releases_lock_and_observers_answer(self):
         root = self.prepare(self.old)
         self.make_terminal(root, f'''
@@ -3144,6 +3173,7 @@ fi
         root = self.prepare(self.old)
         marker = root / ".git/strata-runtime-revision"
         marker.write_text(self.old + "\n")
+        self.make_runtime_model(root)
         self.env.update(PIP_NO_INDEX="1", PYTHONNOUSERSITE="1", STRATA_NO_ACQUIRE="1")
         cases = [
             (["status", "--url", "http://127.0.0.1:1", "--timeout", "0.1", "--output", "json"], 3),
@@ -3155,12 +3185,16 @@ fi
             (["launch", "--list-presets"], 0),
             (["launch", "--plan", "--family", "qwen", "--model", "Q2_0", "--output", "json"], 0),
             (["serve", "--config", "missing.json", "--plan"], 5),
+            # Alias result semantics stay upstream-owned; only acquisition invariants matter here.
+            (["serve", "--config", str(root / "strata-fixture.json"), "--engine", "mock", "--json"], None),
+            (["serve", "--profile", "missing-profile", "--json"], None),
         ]
         for argv, expected in cases:
             with self.subTest(argv=argv):
                 result = subprocess.run(self.command(self.new) + ["run", *argv], env=self.env,
                                         capture_output=True, text=True, timeout=90)
-                self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
+                if expected is not None:
+                    self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
                 self.assertNotIn("Traceback", result.stderr)
                 self.assertFalse((root / ".venv").exists())
                 self.assertFalse((self.state / ".python-root").exists())
@@ -3203,7 +3237,6 @@ from strata_cli.launch.runner import Runner
 ROOT = Path(__file__).resolve().parent
 cmd.apply_defaults = lambda s, catalog: (s, [])
 def run(self):
-    assert self.catalog.root == ROOT, (self.catalog.root, ROOT)
     config = self.catalog.root / "strata-Q2_0.json"
     if config.exists():
         assert (ROOT / ".git/strata-runtime-revision").read_text().strip() == os.environ["EXPECTED_REVISION"]
@@ -3249,6 +3282,83 @@ def main(argv, **kwargs):
     def test_native_pin_refresh_precedes_serve(self):
         self.assert_native_lifecycle("serve")
 
+    def test_external_launch_and_serve_do_not_reconcile_unrelated_managed_models(self):
+        root = self.make_updater_workspace()
+        (root / "tokenizer/vocab.json").unlink()
+        reached = self.base / "external-action"
+        self.make_terminal(root, f'''
+import json
+from types import SimpleNamespace
+from strata_cli.launch import cmd
+from strata_cli.launch.runner import Runner
+cmd.apply_defaults = lambda s, catalog: (s, [])
+def run(self):
+    config = json.loads((self.catalog.root / "strata-Q2_0.json").read_text())
+    assert config["model_name"] == "external"
+    Path({str(reached)!r}).write_text("launch")
+    return SimpleNamespace(serving=False, profile=None, engine_problem=None, final_text="prepared")
+Runner.run = run
+''')
+        (root / "serve/server.py").write_text(f'''
+import json
+from pathlib import Path
+api_key_of = lambda key: key
+explicit_no_key = lambda key: not key
+key_list = lambda key: [key]
+engine_args = lambda cfg: cfg["args"]
+def main(argv, **kwargs):
+    config = json.loads(Path(argv[argv.index("--config") + 1]).read_text())
+    assert config["model_name"] == "external"
+    Path({str(reached)!r}).write_text("serve")
+    return 0
+''')
+        external = self.base / "external installation"
+        external.mkdir()
+        config = self.make_runtime_model(external, "Q2_0")
+        config["model_name"] = "external"
+        target = external / "strata-Q2_0.json"
+        target.write_text(json.dumps(config))
+        alias = self.base / "external alias"
+        alias.symlink_to(external, target_is_directory=True)
+        config_alias = root / "external-profile.json"
+        config_alias.symlink_to(target)
+        self.run_source_script(root, f'''
+from strata_control import profiles
+profiles.create("external-model", {str(target)!r})
+''')
+        marker = root / ".git/strata-runtime-revision"
+        marker.write_text(self.old + "\n")
+        protected = (marker, root / "strata-fixture.json",
+                     root / "engine/strata", root / "engine/BUILD.json")
+        before = {path: path.read_bytes() for path in protected}
+        launch = ["launch", "--family", "qwen", "--model", "Q2_0", "--no-tui", "--output", "json"]
+        serve = ["serve", "--engine", "mock", "--port", "0"]
+        cases = [
+            ("launch-external", launch, external, "launch"),
+            ("launch-canonical-alias", launch, alias, "launch"),
+            ("serve-config-overrides-install-env", [*serve, "--config", str(target)], root, "serve"),
+            ("serve-named-profile", [*serve, "--profile", "external-model"], root, "serve"),
+            ("serve-relative-cross-root-symlink",
+             [*serve, "--config", os.path.relpath(config_alias, self.base)], root, "serve"),
+        ]
+        for name, argv, install, action in cases:
+            with self.subTest(case=name):
+                reached.unlink(missing_ok=True)
+                result = subprocess.run(self.command(self.new) + ["run", *argv], cwd=self.base,
+                                        env=dict(self.env, STRATA_INSTALL_DIR=str(install), PIP_NO_INDEX="1"),
+                                        capture_output=True, text=True, timeout=90)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertEqual(reached.read_text(), action)
+                self.assertFalse((root / "update-attempts").exists())
+                self.assertEqual({path: path.read_bytes() for path in protected}, before)
+        missing = subprocess.run(self.command(self.new) + [
+            "run", *serve, "--profile", "missing-profile", "--output", "jsonl"],
+            env=dict(self.env, PIP_NO_INDEX="1"), capture_output=True, text=True, timeout=90)
+        self.assertEqual(missing.returncode, 5, missing.stderr + missing.stdout)
+        self.assertEqual(json.loads(missing.stdout)["event"], "failed")
+        self.assertFalse((root / "update-attempts").exists())
+        self.assertEqual({path: path.read_bytes() for path in protected}, before)
+
     def assert_native_lifecycle(self, door):
         state = self.state
         self.state = state / door
@@ -3263,6 +3373,9 @@ def main(argv, **kwargs):
         self.assertTrue((root / "strata-Q2_0.json").exists())
         self.assertFalse((root / ".git/strata-runtime-revision").exists())
         action = root / "action-reached"
+        if door == "serve":
+            # The explicit serve profile, not this installation override, owns reconciliation.
+            env["STRATA_INSTALL_DIR"] = str(self.base / "unrelated external installation")
         action.unlink()
         argv = launch if door == "launch" else [
             "run", "serve", "--config", str(root / "strata-Q2_0.json"), "--engine", "mock"]
@@ -3284,6 +3397,14 @@ def main(argv, **kwargs):
         self.assertEqual(action.read_text(), "Runner.run" if door == "launch" else "serve main")
         self.assertEqual((root / ".git/strata-runtime-revision").read_text().strip(), self.new)
         self.assertEqual(json.loads((root / "strata-Q2_0.json").read_text())["custom"], "preserved")
+        if door == "launch":
+            alias = self.base / "managed source alias"
+            alias.symlink_to(root, target_is_directory=True)
+            env["STRATA_INSTALL_DIR"] = str(alias)
+            reused = subprocess.run(self.command(self.new) + argv, env=env,
+                                    capture_output=True, text=True, timeout=120)
+            self.assertEqual(reused.returncode, 0, reused.stderr + reused.stdout)
+            self.assertEqual((root / "update-attempts").read_text(), "3")
 
     def test_first_status_recovers_initial_and_migrated_patch_publication(self):
         state = self.state

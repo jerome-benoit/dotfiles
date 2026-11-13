@@ -46,15 +46,17 @@ in
         conflicting edits. Other contents remain user-owned and outside the Nix store.
         Managed setup, install, launch acquisition and other mutating Terminal commands
         hold this lock; mutating children inherit it, including Intel SYCL setup.
-        Serving and monitoring release it after preparation. Both launch monitoring and
+        Serving and observers release it after preparation. Both launch monitoring and
         standalone monitor reacquire a fresh lock for opt-in updates through model restart;
         a busy workspace refuses that update without blocking observation.
         Status, monitor, logs and connection bypass preparation only when the complete
         published source patch is applied and HEAD is valid, so they remain usable during
         acquisition and serving. Interrupted initialization and patch publication resume
         under the lock before the launcher imports its parser.
-        A real launch or serve after a source pin change refreshes and validates installed runtimes
-        before running the requested action. Failure leaves refresh pending for the next attempt.
+        A real launch or serve targeting this workspace refreshes and validates its installed
+        runtimes after a source pin change, before the requested action. Native catalog and
+        config/profile resolution determine ownership; external targets do not reconcile
+        workspace models. Failure leaves refresh pending for the next managed attempt.
         Direct upstream scripts outside this launcher do not participate in this lock.
         Changing this path does not migrate the workspace.
       '';
@@ -114,7 +116,10 @@ in
         Help, version, status, monitor --once and plans do not acquire Python packages, models or engines.
         Source and Nix environment realization can still require network access.
         A cold serve plan reports upstream's typed missing-dependency error until runtime is available.
-        New source pins refresh installed runtimes automatically before real launch or serve.
+        New source pins refresh installed runtimes automatically before real managed launch or serve.
+        Launch ownership follows the native catalog; serve ownership follows its resolved config or
+        saved profile, independently of STRATA_INSTALL_DIR. Canonical paths determine ownership.
+        External targets skip workspace model reconciliation but may bootstrap Terminal Python.
         Managed launch configs share the source workspace. Source-built engines stay there;
         component engines keep upstream's shared store and explicit pins. Model data is reused
         in place. Explicit external launch targets keep upstream directory and runtime selection.

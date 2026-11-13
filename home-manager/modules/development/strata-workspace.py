@@ -453,10 +453,27 @@ def runtime_action(a):
         return not (a.plan or any(getattr(a, key, False)
                                  for key in ("status", "list_presets", "show_key", "stop", "delete_preset")))
     if a.command == "serve":
-        return not a.plan
+        return not (a.plan or a.json)
     if a.command == "monitor":
         return not a.once
     return a.command == "bench" and a.bench_command == "run" and not getattr(a, "plan", False)
+
+
+def managed_runtime_target(root, a):
+    """Use native target resolution before reconciling the managed installation."""
+    if a.command == "launch":
+        from strata_cli.launch.catalog import resolve_installation
+        target, _ = resolve_installation()
+    elif a.command == "serve":
+        from strata_control import profiles
+        try:
+            config, _, _ = profiles.resolve(a.config)
+        except profiles.ProfileError:
+            return False  # Native dispatch reports the original typed profile error.
+        target = config.resolve().parent
+    else:
+        return False
+    return target.resolve() == root.resolve()
 
 
 def source_exec(context, args):
@@ -577,14 +594,15 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         python = runtime_python(root)
         if runtime_action(a):
             python = bootstrap_runtime(state, root, lock.fileno())
-            if a.command in {"launch", "serve"} and model_configs(root):
+            if model_configs(root) and managed_runtime_target(root, a):
                 refresh_runtime(root, revision, lock.fileno(), [])
         elif not os.access(python, os.X_OK):
             python = Path(sys.executable)
-        if a.command == "monitor":
+        if a.command in {"status", "monitor", "logs", "connection"}:
             from strata_control import acquisition
             acquisition.release_workspace()
-            os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
+            if a.command == "monitor" and runtime_action(a):
+                os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
         os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
 
 
