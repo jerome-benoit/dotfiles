@@ -73,6 +73,8 @@ explaining why it exists and when it can go:
    guard in its base; neither patch corrects the other.
 5. Verify application without fuzz or offset warnings and inspect the resulting
    code. Exercise affected behavior when code or upstream assumptions change.
+   Provenance-only updates with unchanged code and consumers do not require
+   aggregate runtime checks.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
 
@@ -103,9 +105,9 @@ gateway cases. A source-only import or a patched test copy is not a substitute.
 ### OpenCode dependency hashes
 
 `pins/opencode.json` records hashes for the selected OpenCode source and local Bun.
-Compare dependency inputs and the Bun toolchain after updating OpenCode or Nixpkgs;
-recalculate all three targets when they change, using the upstream dependency
-recipe and both normalization scripts. Update source and toolchain provenance together.
+Compare workspace manifests, root catalogs, native lockfile entries, the recipe,
+normalizers and Bun after updating OpenCode or Nixpkgs. Recalculate all three
+targets when dependency inputs change; update source and toolchain provenance together.
 Record dependency-output hash checks separately from CLI builds and ARM-targeted
 `--cpu`/`--os` calculations separately from native builds. Do not carry forward
 verification claims from an older source. Keep hash-only checks serial with
@@ -127,6 +129,10 @@ Check the evaluated derivation's Bun input before calculating hashes.
 Use a fake output hash or an explicit rebuild to force fresh output:
 a successful build can otherwise reuse an existing fixed-output store path
 without checking the current recipe.
+
+If a calculation is interrupted, inspect completed phases and retained outputs
+before retrying. Hash a completed dependency output directly instead of rebuilding it.
+Restart only the unfinished phase, with a bounded deadline.
 
 ### Caveman source pin
 

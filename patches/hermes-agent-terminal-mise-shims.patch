@@ -1,9 +1,9 @@
-# base: hermes-agent e43e8c50786c51b586dcd4625963008d719492d4
+# base: hermes-agent 491f9845833cb0a005a744aa9a81aea8d8bc2b48
 # intent: Restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 diff --git a/tools/environments/local.py b/tools/environments/local.py
 --- a/tools/environments/local.py
 +++ b/tools/environments/local.py
-@@ -905,7 +905,9 @@
+@@ -927,7 +927,9 @@
      return "\n".join(prelude) + "\n" + cmd_string
  
  
@@ -14,7 +14,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      """Prepend a line that re-appends *parent_path* dirs the login profile dropped.
  
      A login profile can reset PATH outright (Debian's ``/etc/profile``, so every
-@@ -919,6 +921,14 @@
+@@ -941,6 +943,14 @@
      this same prelude so the two paths cannot diverge."""
      if _IS_WINDOWS:
          return cmd_string  # native PATH stays ``;``-joined; bash sees a converted copy
@@ -29,7 +29,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      # Relative entries resolve against the shell's cwd, not ours, so only absolute ones are checked.
      entries = [d for d in dict.fromkeys(parent_path.split(":"))
                 if d and (not os.path.isabs(d) or os.path.isdir(d))]
-@@ -1177,6 +1187,13 @@
+@@ -1199,6 +1209,13 @@
                  self.cwd, safe_cwd)
          self.cwd = safe_cwd
  
@@ -43,7 +43,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      def _run_bash(self, cmd_string: str, *, login: bool = False, timeout: int = 120,
                    stdin_data: str | None = None) -> subprocess.Popen:
          bash = _find_bash()
-@@ -1185,7 +1202,9 @@
+@@ -1207,7 +1224,9 @@
          # custom init files so nvm/asdf/pyenv land on PATH in the snapshot; then the
          # spawn env's dirs a resetting profile dropped are re-appended (#56634).
          if login:
