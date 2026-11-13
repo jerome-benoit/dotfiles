@@ -425,6 +425,22 @@ def bootstrap_runtime(state, root, lock_fd):
     return python
 
 
+def monitor_ready(root):
+    """Probe only the interactive monitor's real UI consumer in its runtime interpreter."""
+    python = runtime_python(root)
+    if not os.access(python, os.X_OK):
+        return False
+    result = subprocess.run(
+        [str(python), "-c", "import sys\ntry:\n from strata_cli.monitor import MonitorApp\n"
+         "except ImportError:\n sys.exit(72)\n"],
+        cwd=root,
+    )
+    if result.returncode == 72:
+        return False
+    result.check_returncode()
+    return True
+
+
 def terminal_args(root, args):
     sys.path.insert(0, str(root))
     from strata_cli.cli import parse_args
@@ -526,12 +542,13 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
     if (not managed_setup and args and args[0] in {"status", "monitor", "logs", "connection"}
             and (source / ".git").exists() and source_patch is not None
             and ledger.is_file() and ledger.read_text() == Path(source_patch).read_text()
-            and git(source, "rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode == 0):
+            and git(source, "rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode == 0
+            and patch_check(source, ledger.read_text(), reverse=True)):
         a = terminal_args(source, args)
         if a.command in {"status", "monitor", "logs", "connection"}:
             if a.command == "monitor" and runtime_action(a):
                 # Cold monitor UI needs its screen packages; observation itself owns no lock.
-                if not os.access(runtime_python(source), os.X_OK):
+                if not monitor_ready(source):
                     pass
                 else:
                     os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})

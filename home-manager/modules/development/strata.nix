@@ -49,9 +49,10 @@ in
         Serving and monitoring release it after preparation. Both launch monitoring and
         standalone monitor reacquire a fresh lock for opt-in updates through model restart;
         a busy workspace refuses that update without blocking observation.
-        Status, monitor, logs and connection bypass preparation on a checkout with a valid
-        HEAD, so they remain usable during acquisition and serving.
-        Interrupted initialization resumes under the lock before the launcher imports its parser.
+        Status, monitor, logs and connection bypass preparation only when the complete
+        published source patch is applied and HEAD is valid, so they remain usable during
+        acquisition and serving. Interrupted initialization and patch publication resume
+        under the lock before the launcher imports its parser.
         A real launch or serve after a source pin change refreshes and validates installed runtimes
         before running the requested action. Failure leaves refresh pending for the next attempt.
         Direct upstream scripts outside this launcher do not participate in this lock.
@@ -102,15 +103,21 @@ in
         The source subcommand passes raw arguments to source setup: source --help shows setup help,
         source starts or calibrates installed models without forcing setup, and source --update
         explicitly refreshes the pinned source runtime. Install forces setup or --update as requested.
+        Install help before a user-supplied -- separator stays in the Terminal parser,
+        including after setup flags, and never starts an external installer's bootstrap.
         Update remains the upstream engine/Control feed command; it does not change the Nix source pin.
         A real launch, serve, install or cold monitor UI can bootstrap Python without installing a model.
+        Interactive monitoring probes its UI imports in the selected runtime and resumes incomplete bootstrap.
+        Help, including signed-feed family help in either argument order, does not discover feeds.
         Help, version, status, monitor --once and plans do not acquire Python packages, models or engines.
         Source and Nix environment realization can still require network access.
         A cold serve plan reports upstream's typed missing-dependency error until runtime is available.
         New source pins refresh installed runtimes automatically before real launch or serve.
         Managed launch configs share the source workspace. Source-built engines stay there;
         component engines keep upstream's shared store and explicit pins. Model data is reused
-        in place. An explicitly selected external installation stays caller-owned.
+        in place. An explicitly selected external installation uses its own installer and runtime,
+        without managed directory defaults or private workspace state. Canonical aliases of the
+        managed checkout retain managed setup and locking.
         Terminal commands preserve caller arguments and working directory, including relative config paths.
       '';
     };

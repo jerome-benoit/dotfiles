@@ -219,7 +219,7 @@ diff --git a/setup.py b/setup.py
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -10404,16 +10459,18 @@
+@@ -10404,16 +10459,21 @@
      except Exception:
          pass
      if sys.platform == "darwin" and not CONTROL:       # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below
@@ -230,8 +230,11 @@ diff --git a/setup.py b/setup.py
 +        return mac_setup(argv)
 +    _peek = lambda flag: next((v.split("=", 1)[1] if v.startswith(flag + "=") else argv[i + 1] if i + 1 < len(argv) else None   # noqa: E731
 +                               for i, v in enumerate(argv) if v == flag or v.startswith(flag + "=")), None)
-+    wants_help = any(v == "-h" or (v.startswith("--") and "--help".startswith(v)) for v in argv)
-+    if not wants_help and ((_peek("--family") and _peek("--family") not in {**FAMILIES, **OWN_PATH_FAMILIES, **MULTI_FILE_FAMILIES}) \
++    option_prefix = argv[:argv.index("--")] if "--" in argv else argv
++    help_options = [v for v in option_prefix
++                    if v == "-h" or (len(v) > 2 and v.startswith("--") and "--help".startswith(v))]
++    help_option = next((v for v in help_options if v in ("--help", "-h")), next(iter(help_options), None))
++    if help_option is None and ((_peek("--family") and _peek("--family") not in {**FAMILIES, **OWN_PATH_FAMILIES, **MULTI_FILE_FAMILIES}) \
              or (_peek("--model") and not _peek("--family") and model_alias(_peek("--model")) not in MODELS
 -                and not any(model_alias(_peek("--model")) in f["models"] for f in (*OWN_PATH_FAMILIES.values(), *MULTI_FILE_FAMILIES.values()))):
 +                and not any(model_alias(_peek("--model")) in f["models"] for f in (*OWN_PATH_FAMILIES.values(), *MULTI_FILE_FAMILIES.values())))):
@@ -244,7 +247,7 @@ diff --git a/setup.py b/setup.py
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md), deepseek41 = DeepSeek-V4.1-Flash "
-@@ -10483,6 +10540,7 @@
+@@ -10483,6 +10543,7 @@
      ap.add_argument("--set-default-data-dir", action="store_true",
                      help="with --data-dir: remember the new folder as the data folder without moving anything")
      ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
@@ -252,11 +255,14 @@ diff --git a/setup.py b/setup.py
      ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
                                                             "or its unpacked folder); it is checked and installed instead of being fetched")
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -10562,7 +10620,11 @@
+@@ -10562,7 +10623,14 @@
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
 -    a = ap.parse_args()
++    if help_option is not None:
++        # Let the complete public parser resolve help abbreviations and reject ambiguous prefixes.
++        ap.parse_args([help_option])
 +    a = ap.parse_args(argv)
 +    if after_parse is not None:
 +        result = after_parse(a, argv)
@@ -265,7 +271,7 @@ diff --git a/setup.py b/setup.py
      if getattr(a, "gguf_dir", None):                   # the person's own files: their finish marks go to Strata's marks/, never beside them
          own_files_in(a.gguf_dir)
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES:
-@@ -10581,7 +10643,7 @@
+@@ -10581,7 +10649,7 @@
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -274,7 +280,7 @@ diff --git a/setup.py b/setup.py
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -11231,15 +11293,45 @@
+@@ -11231,15 +11299,45 @@
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
@@ -324,7 +330,7 @@ diff --git a/setup.py b/setup.py
      else:
          models_dir = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
          shards = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
-@@ -11255,15 +11347,15 @@
+@@ -11255,15 +11353,15 @@
                  ok(f"model files found in {models_dir}")
                  break
      mark_whole_unless_pinned([] if ready else shards, model_hf(fam, model) if fam.get("hf") else None, bool(a.gguf_dir))   # #173: a whole file copied in by hand has no finish mark
@@ -344,7 +350,7 @@ diff --git a/setup.py b/setup.py
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -11271,7 +11363,7 @@
+@@ -11271,7 +11369,7 @@
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -353,7 +359,7 @@ diff --git a/setup.py b/setup.py
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -11279,11 +11371,16 @@
+@@ -11279,11 +11377,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -373,7 +379,7 @@ diff --git a/setup.py b/setup.py
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11317,10 +11414,10 @@
+@@ -11317,10 +11420,10 @@
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -386,7 +392,7 @@ diff --git a/setup.py b/setup.py
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11377,17 +11474,18 @@
+@@ -11377,17 +11480,18 @@
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
      env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
      prepared = bool(ready and MODELS[model].get("prepare"))
@@ -410,7 +416,7 @@ diff --git a/setup.py b/setup.py
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11408,7 +11506,7 @@
+@@ -11408,7 +11512,7 @@
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -419,7 +425,7 @@ diff --git a/setup.py b/setup.py
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11442,7 +11540,7 @@
+@@ -11442,7 +11546,7 @@
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -428,7 +434,7 @@ diff --git a/setup.py b/setup.py
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11455,7 +11553,7 @@
+@@ -11455,7 +11559,7 @@
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(
@@ -437,7 +443,7 @@ diff --git a/setup.py b/setup.py
      cfg, cfg_path, cal, args, ctx, kv, resident = (_built.cfg, _built.cfg_path, _built.cal, _built.args, _built.ctx, _built.kv, _built.resident)
      write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
                         after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
-@@ -11498,9 +11596,15 @@
+@@ -11498,9 +11602,15 @@
      return start(cfg_path, port)
  
  
@@ -480,23 +486,54 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
      from serve.server import main as server_main
      if os.name not in ("posix", "nt"):
          return _serve_foreground(server_main, args, plan, output=a.output, quiet=a.quiet)
-@@ -2081,7 +2086,11 @@
+@@ -2075,21 +2080,59 @@
+     """The one place the terminal acquires anything: it hands over to the installer (setup.py) of a full Strata
+     folder, which is where pip, the engine and the models are fetched. A folder without it (the terminal archive)
+     says so and names what to do instead."""
+-    installer = Path(os.environ.get("STRATA_INSTALL_DIR") or ROOT) / "setup.py"
++    target = Path(os.environ.get("STRATA_INSTALL_DIR") or ROOT).expanduser().resolve()
++    installer = target / "setup.py"
+     if not installer.is_file():
+         return _error("this folder has no installer (setup.py). Engines, models and updates are installed from a "
                        "full Strata folder with SETUP.bat / ./setup.sh and UPDATE.bat / ./update.sh; "
                        "set STRATA_INSTALL_DIR to that folder to run it from here. To update the engine and Control "
                        "from the signed update feed, run `strata update`", 5)
 -    extra = [x for x in a.setup_args if x != "--"]
 +    extra = list(a.setup_args)
 +    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
-+    if helper:
++    if helper and target == ROOT.resolve():
 +        os.execv(sys.executable, [sys.executable, helper, "--managed-setup",
 +                                 "--update" if a.update else "--setup", *extra])
      env = dict(os.environ)
-     if (ROOT / "python").is_dir() and (ROOT / "VERSION").is_file():
+-    if (ROOT / "python").is_dir() and (ROOT / "VERSION").is_file():
++    external = target != ROOT.resolve()
++    if external:
++        for key in ("STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT", "STRATA_WORKSPACE_LOCK_FD",
++                    "STRATA_BOOTSTRAP_ONLY", "STRATA_RUNTIME_READY"):
++            env.pop(key, None)
++        if "STRATA_INSTALL_DIR" in env:
++            env["STRATA_INSTALL_DIR"] = str(target)
++    if (target / "python").is_dir() and (target / "VERSION").is_file():
          # the Terminal bundle: its installer only downloads and prepares the model (no pip, no engine fetch, no compiler)
-@@ -2090,6 +2099,20 @@
+         env["STRATA_CONTROL_INSTALL"] = "1"
+         from strata_cli.launch.catalog import install_root
          env.setdefault("STRATA_INSTALL_DIR", str(install_root()))
-     return subprocess.call([sys.executable, str(installer), "--update" if a.update else "--setup", *extra],
-                            cwd=str(installer.parent), env=env)
+-    return subprocess.call([sys.executable, str(installer), "--update" if a.update else "--setup", *extra],
+-                           cwd=str(installer.parent), env=env)
++    command = [sys.executable, str(installer)]
++    if external:
++        wrapper = target / "setup.sh"
++        python = next((p for p in (target / "python/bin/python3", target / ".venv/bin/python")
++                       if os.access(p, os.X_OK)), None)
++        if os.name == "posix" and wrapper.is_file():
++            command = ["sh", str(wrapper)]
++        elif python is not None:
++            command = [str(python), str(installer)]
++        else:
++            return _error(f"external installation {target} has no setup.sh or executable runtime; "
++                          "restore its installer or Python environment and retry", 5)
++    return subprocess.call([*command, "--update" if a.update else "--setup", *extra],
++                           cwd=str(target), env=env, close_fds=True)
 +
 +
 +def _source_command(a: argparse.Namespace) -> int:
@@ -514,7 +551,7 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
  
  
  def _access_retry(a: argparse.Namespace, error: BaseException) -> int | None:
-@@ -2132,6 +2155,8 @@
+@@ -2132,6 +2175,8 @@
              return _serve(a)
          if a.command == "install":
              return _install(a)
@@ -523,7 +560,7 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
          if a.command == "repair-access":
              return _repair_access(a)
          if a.command == "profile":
-@@ -2227,10 +2252,10 @@
+@@ -2227,19 +2272,43 @@
          return self.text
  
  
@@ -538,7 +575,19 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
      if not argv or argv[0] != "install":
          return argv
      rest = list(argv[1:])
-@@ -2240,6 +2265,22 @@
+-    if rest and rest[0] in ("-h", "--help"):
+-        return argv
++    option_prefix = rest[:rest.index("--")] if "--" in rest else rest
++    help_options = []
++    for value in option_prefix:
++        option = value.partition("=")[0]
++        if option == "-h" or (len(option) > 2 and option.startswith("--") and "--help".startswith(option)):
++            help_options.append(value)
++    help_option = next((v for v in help_options if v in ("--help", "-h")), next(iter(help_options), None))
++    if help_option is not None:
++        # Install help belongs to this public parser, not an external installer's bootstrap.
++        return ["install", help_option]
+     update = "--update" in rest
      if update:
          rest.remove("--update")
      return ["install", *(["--update"] if update else []), "--", *rest]
@@ -561,7 +610,7 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
  
  
  def main(argv: list[str] | None = None) -> int:
-@@ -2253,16 +2294,7 @@
+@@ -2253,16 +2322,7 @@
          private_files.adopt_user_defaults()      # what this process creates belongs to the user even when it runs as administrator
      except ImportError:                          # a thin bundle ships without strata_control
          pass
