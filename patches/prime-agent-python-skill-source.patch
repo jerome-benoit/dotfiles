@@ -1,9 +1,10 @@
-# base: v0.10.2 (ea9d9602ec0938d9e454e8963107cd85af1565c6)
-# intent: bind Nix kernel skill imports to the selected source without installing dependencies.
+# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
+# intent: bind Nix kernel imports to selected non-project skill sources without installing dependencies.
+#   Preserve upstream's exclusion of project-scoped Python skills from kernel admission.
 diff --git a/crates/pa-core/src/kernel/bootstrap/mod.rs b/crates/pa-core/src/kernel/bootstrap/mod.rs
 --- a/crates/pa-core/src/kernel/bootstrap/mod.rs
 +++ b/crates/pa-core/src/kernel/bootstrap/mod.rs
-@@ -196,7 +196,10 @@ async fn ensure_kernel_python_uncached(
+@@ -210,7 +210,10 @@ async fn ensure_kernel_python_uncached(
                      ));
                  }
              }

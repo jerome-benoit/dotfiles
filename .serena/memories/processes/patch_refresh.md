@@ -30,10 +30,9 @@ explaining why it exists and when it can go:
 
 - `patches/prime-agent-nix-self-update.patch` — refuse Nix-managed self-update and fix `PI_OFFLINE` parsing.
 - `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when process ground truth is unavailable.
-- `patches/prime-agent-daemon-discovery.patch` — remove mission-local exclusions while preserving state-root ownership.
 - `patches/prime-agent-nix-daemon-generation.patch` — reject different or unverifiable daemon executables without stopping existing sessions.
 - `patches/prime-agent-bundled-docs.patch` — point login guidance to the bundled upstream README.
-- `patches/prime-agent-python-skill-source.patch` — import selected skill sources without installing dependencies.
+- `patches/prime-agent-python-skill-source.patch` — bind imports to selected non-project skill sources without installing dependencies.
 - `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
 - `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
 - `patches/caveman-nix-installer-paths.patch` — preserve private interpreters, payload ownership and existing settings permissions during atomic writes in standalone installers and prepared local plugins.
