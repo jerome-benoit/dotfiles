@@ -315,10 +315,10 @@ OpenCode AI assistant:
 - Generated Desktop requires a non-null CLI package selection
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - Desktop uses upstream's pinned Electron package
-- Workaround: upstream dependency hashes are incompatible with the selected Bun. `pins/opencode.json` records hashes, source/toolchain revisions and verification provenance.
-- Hash updates require matching dependency inputs and Bun. Verify the bot's source and toolchain in its job logs; an unchanged `bun.lock` alone is insufficient.
-- Recalculate with the locked source and local Bun when inputs differ; update provenance and verify dependency and CLI builds.
-- ARM-targeted calculations must reproduce native bot hashes with the reference Bun before reuse. They do not replace native build verification.
+- Workaround: upstream dependency hashes do not match the selected source and Bun. `pins/opencode.json` records hashes, source/toolchain revisions and verification provenance.
+- Hash updates require matching source, dependency inputs and Bun. Calibrate against a known native reference at its exact source/toolchain; an unchanged `bun.lock` alone is insufficient.
+- Recalculate with the locked source and local Bun when inputs differ; update provenance and verify dependency outputs and CLI builds separately.
+- `--cpu`/`--os` replays must reproduce the known native reference before reuse. Calibration does not replace native validation of the refreshed target; retrospective checks must be labelled as such.
 - CLI and generated Desktop share the corrected dependency derivation; custom package selections remain unchanged.
 - Remove this override when upstream ships hashes compatible with the selected source and Bun. The local hash fixer does not maintain these hashes.
 - Warnings if packages unavailable for system

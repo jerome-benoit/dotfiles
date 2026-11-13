@@ -114,7 +114,9 @@ verification claims from an older source. Keep hash-only checks serial with
 Use a disk-backed `TMPDIR` for standalone calculations when `/tmp` is tmpfs;
 large dependency trees otherwise count against the memory limit. Replay the
 upstream filters, frozen lock and both normalizers. Calibrate the procedure
-against the previous known pin before trusting new outputs. Limit Bun network
+against the previous known native pin at its exact source and Bun version before
+trusting new outputs. If calibration is performed afterwards, record it as
+retrospective without rewriting the initial execution history. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose
 NAR hash and fixed-output store path match the selected derivation.
 

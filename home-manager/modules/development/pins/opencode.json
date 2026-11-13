@@ -1,19 +1,46 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-1J6gTPU3Hcc4pbmhaYQFCFO7bkcRHItZUZtZb9ffzkc=",
-    "aarch64-linux": "sha256-rCgT3rvmvLhwWTAqmvIRXV15tZwsFt7r9DbeyD6Gg0g=",
+    "x86_64-linux": "sha256-afhOEbf/FnTCpwxS1kpuCdCaQKLNh84ToItHKREfEuU=",
+    "aarch64-linux": "sha256-hDW9mIVnZySsIzLPkApYjipnlJtbLgiG0izMeyl3zYo=",
     "aarch64-darwin": "sha256-JBSDsLKF3fW+um95ecFyi3fyF6JhQfFGrpNR8cFJt+0="
   },
   "provenance": {
     "sourceRevision": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
     "nixpkgsRevision": "2074cc672349f14240fb7ea90d509e0b643e9dd4",
     "bunVersion": "1.4.4",
-    "buildSystem": "aarch64-darwin",
-    "calculation": "Upstream dependency phases with Bun 1.4.4 from the followed nixpkgs, frozen lockfile and both normalization scripts; NAR hashes computed from completed install outputs.",
+    "buildSystems": {
+      "x86_64-linux": "x86_64-linux",
+      "aarch64-linux": "x86_64-linux",
+      "aarch64-darwin": "aarch64-darwin"
+    },
+    "linuxEnvironment": "Docker linux/amd64 under emulation; sandbox and syscall filtering disabled for compatibility.",
+    "calculation": "Exact upstream frozen-lockfile dependency phases and both normalization scripts; Linux outputs recalculated after reference calibration. No CLI or Desktop build.",
+    "initialCalculation": {
+      "buildSystem": "aarch64-darwin",
+      "parallelTargets": 3,
+      "coresPerBuild": 2,
+      "policy": "Did not follow the serial protocol; the two Linux replay hashes were subsequently replaced."
+    },
+    "calibration": {
+      "retrospective": true,
+      "referenceSourceRevision": "f96b54590db6fd76f1abb0de09edca21c6fda68c",
+      "referenceNixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
+      "referenceBunVersion": "1.4.4",
+      "referenceTarget": "x86_64-linux",
+      "referenceHash": "sha256-d+WXBzkU1bZnWB+Ws1a2X/PXBZPW/DXQwTAxMWim0jE=",
+      "executionSystem": "x86_64-linux",
+      "result": "Exact upstream dependency recipe reproduced the known native reference hash.",
+      "rejectedAttempt": "Darwin replay with pruned copy roots produced sha256-pxhIBo/w3FXthJhcaYCOiiEvdiF0kol/253mLAn6EUI=; not treated as successful calibration."
+    },
+    "validationPolicy": {
+      "maxJobs": 1,
+      "cores": 1,
+      "targets": "serial"
+    },
     "verification": {
-      "x86_64-linux": "--cpu=x64 --os=linux replay on aarch64-darwin; completed dependency output NAR hash verified, no native Linux build.",
-      "aarch64-linux": "--cpu=arm64 --os=linux replay on aarch64-darwin; completed dependency output NAR hash verified, no native Linux build.",
-      "aarch64-darwin": "Native dependency phases completed and output NAR hash verified; this hash calculation did not build the CLI or Desktop."
+      "x86_64-linux": "Exact Linux x86_64 dependency FOD and serialized NAR check passed in the emulated container; no CLI/Desktop build.",
+      "aarch64-linux": "--cpu=arm64 --os=linux replay on the calibrated Linux x86_64 builder; dependency FOD and serialized NAR check passed, no native ARM runtime build.",
+      "aarch64-darwin": "Native dependency output retained; serialized NAR check on Darwin, not a CLI/Desktop build."
     }
   }
 }
