@@ -1451,6 +1451,7 @@ def opencode_location_contract(f):
     location.mkdir()
     execute([GIT, "init", "--initial-branch=main", location], f.env)
     source = r'''
+import assert from "node:assert/strict";
 import {pathToFileURL} from "node:url";
 import {readFileSync} from "node:fs";
 const plugin = (await import(pathToFileURL(process.argv[1]))).default;
@@ -1474,11 +1475,46 @@ await hooks.get("session:prompt")({sessionID:"location-contract",prompt:{parts:[
 await hooks.get("session:compaction")({sessionID:"location-contract",system:[]});
 await hooks.get("tool:execute.before")({sessionID:"location-contract",tool:"shell",input:{command:"git status"}});
 await hooks.get("tool:execute.after")({sessionID:"location-contract",tool:"shell",status:"completed",input:{command:"git status"},result:{output:"clean"}});
+const calls = () => readFileSync(process.argv[3],"utf8").trim().split("\n").map(JSON.parse);
+const sessionID = "location-contract";
+const stops = () => calls().filter(row=>row.argv[2]==="Stop" && row.payload.session_id===sessionID).length;
+const event = async (type, extra = {}) => {
+  pending.push({type, data:{sessionID, ...extra}});
+  wake?.();
+  await new Promise(resolve => setImmediate(resolve));
+};
+const idle = hooks.get("session:experimental.idle");
+assert.equal(typeof idle, "function", "V2 must register the model-idle hook");
+await event("session.execution.started");
+await idle({sessionID, background:[]});
+assert.equal(stops(), 1);
+// An idle hook may admit continuation input: a second completed model turn is another Stop.
+await idle({sessionID, background:[]});
+assert.equal(stops(), 2);
+await event("session.execution.succeeded");
+assert.equal(stops(), 2, "terminal success must not duplicate model Stop");
+// Successful control-only work has no idle-hook invocation, so it must not become Stop.
+await event("session.execution.started");
+await event("session.execution.succeeded");
+assert.equal(stops(), 2);
+for (const [type, extra] of [
+  ["session.execution.interrupted", {reason:"user"}],
+  ["session.execution.interrupted", {reason:"shutdown"}],
+  ["session.execution.failed", {error:{type:"unknown", message:"fixture failure"}}],
+]) {
+  await event("session.execution.started");
+  await event(type, extra);
+  assert.equal(stops(), 2, `${type} is not completed model work`);
+}
+await hooks.get("session:context")({sessionID, system:[]});
+assert.equal(calls().filter(row=>row.argv[2]==="SessionStart" && row.payload.session_id===sessionID).length, 1,
+  "failure/interruption must retain the factory's session context");
+assert.equal(calls().filter(row=>row.argv[2]==="SessionEnd").length, 0,
+  "failure/interruption must not finalize the session");
 // Producer-shaped locationless deletion must finalize immediately, not on disposal.
 pending.push({type:"session.deleted",data:{sessionID:"location-contract"}});
 wake?.();
 await new Promise(resolve => setImmediate(resolve));
-const calls = () => readFileSync(process.argv[3],"utf8").trim().split("\n").map(JSON.parse);
 if (calls().filter(row=>row.argv[2]==="SessionEnd").length !== 1) throw new Error("Locationless deletion dropped");
 dispose();
 if (calls().filter(row=>row.argv[2]==="SessionEnd").length !== 1) throw new Error("Deleted session finalized twice");
@@ -1486,11 +1522,13 @@ const legacy = await plugin.server({directory:process.argv[2]});
 await legacy.event({event:{type:"session.created",properties:{info:{id:"legacy-contract"}}}});
 await legacy["experimental.chat.system.transform"]({sessionID:"legacy-contract"},{system:[]});
 await legacy["experimental.session.compacting"]({sessionID:"legacy-contract"},{context:[]});
+await legacy.event({event:{type:"session.idle",properties:{sessionID:"legacy-contract"}}});
 await legacy.event({event:{type:"session.deleted",properties:{sessionID:"legacy-contract"}}});
 await legacy.dispose();
 const legacyCalls = calls().filter(row=>row.payload.session_id==="legacy-contract");
 if (!legacyCalls.some(row=>row.argv[2]==="SessionStart")) throw new Error("V1 SessionStart missing");
 if (!legacyCalls.some(row=>row.argv[2]==="PreCompact")) throw new Error("V1 compaction missing");
+assert.equal(legacyCalls.filter(row=>row.argv[2]==="Stop").length, 1, "V1 idle lifecycle must remain supported");
 if (legacyCalls.filter(row=>row.argv[2]==="SessionEnd").length!==1) throw new Error("V1 session finalized twice");
 console.log(JSON.stringify(calls()));
 '''
@@ -1692,7 +1730,7 @@ def opencode_roots(f):
         ("empty-xdg", {"XDG_CONFIG_HOME": str(f.root / "empty xdg literal ' $root"),
                        "OPENCODE_CONFIG_DIR": ""}),
         ("override", {"XDG_CONFIG_HOME": str(f.root / "unused-xdg"),
-                      "OPENCODE_CONFIG_DIR": str(f.root / "override literal ' $root")}),
+                      "OPENCODE_CONFIG_DIR": str(f.root / "override literal ' $root  ")}),
     ):
         environment = {key: value for key, value in {**f.env, **additions}.items() if value is not None}
         expected = Path(environment.get("OPENCODE_CONFIG_DIR") or
@@ -1712,13 +1750,14 @@ def opencode_roots(f):
         f.cli("disable", "opencode", env=environment)
         assert not native.exists()
         assert foreign.read_text() == '{"foreign":true}\n'
-    environment = {**f.env, "OPENCODE_CONFIG_DIR": "relative-opencode"}
-    for arguments in (("tools", "hooks", "install", "opencode"), ("enable", "opencode")):
-        refusal = f.cli(*arguments, env=environment, check=False)
-        assert refusal.returncode != 0
-        assert b"must be absolute" in refusal.stderr
-        assert not (f.repo / "relative-opencode").exists()
-        assert foreign.read_text() == '{"foreign":true}\n'
+    for value in ("relative-opencode", "  relative-opencode", " \t "):
+        environment = {**f.env, "OPENCODE_CONFIG_DIR": value}
+        for arguments in (("tools", "hooks", "install", "opencode"), ("enable", "opencode")):
+            refusal = f.cli(*arguments, env=environment, check=False)
+            assert refusal.returncode != 0
+            assert b"must be absolute" in refusal.stderr
+            assert not (f.repo / value).exists()
+            assert foreign.read_text() == '{"foreign":true}\n'
 
 
 def main():

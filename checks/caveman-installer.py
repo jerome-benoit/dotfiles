@@ -601,7 +601,7 @@ process.stdout.write(JSON.stringify({started, changed, output}));
     # OPENCODE_CONFIG_DIR replaces XDG's complete root, without migrating old data.
     override_fixture = Fixture(root / "opencode-override", lifetime=True)
     override_fixture.env["XDG_CONFIG_HOME"] = str(override_fixture.root / "unused xdg")
-    override = override_fixture.root / "override root ' $literal"
+    override = override_fixture.root / "override root ' $literal  "
     override_fixture.env["OPENCODE_CONFIG_DIR"] = str(override)
     old_root = override_fixture.home / ".config/opencode"
     old_root.mkdir(parents=True)
@@ -685,24 +685,25 @@ console.log(JSON.stringify({
         assert not copied_plugin.exists()
         assert foreign.read_text() == '{"foreign":true}\n'
 
-    relative = Fixture(root / "opencode-relative")
-    relative.env["OPENCODE_CONFIG_DIR"] = "relative-opencode"
-    before_relative = snapshot(relative.home)
-    refusal = relative.install("--only", "opencode", success=False)
-    assert refusal.returncode != 0
-    assert b"must be absolute" in refusal.stderr + refusal.stdout
-    assert snapshot(relative.home) == before_relative
-    assert not (relative.root / "relative-opencode").exists()
-    # Importing the shipped copied-plugin payload must refuse the same value.
-    refusal = call(
-        [relative.profile / "lib/caveman/node", "--input-type=module", "-e",
-         "import {pathToFileURL} from 'node:url'; await import(pathToFileURL(process.argv[1]).href);",
-         source / "src/plugins/opencode/plugin.js"],
-        relative.env, relative.root, success=False,
-    )
-    assert refusal.returncode != 0 and b"must be absolute" in refusal.stderr
-    assert snapshot(relative.home) == before_relative
-    assert not (relative.root / "relative-opencode").exists()
+    for index, value in enumerate(("relative-opencode", "  relative-opencode", " \t ")):
+        relative = Fixture(root / f"opencode-relative-{index}")
+        relative.env["OPENCODE_CONFIG_DIR"] = value
+        before_relative = snapshot(relative.home)
+        refusal = relative.install("--only", "opencode", success=False)
+        assert refusal.returncode != 0
+        assert b"must be absolute" in refusal.stderr + refusal.stdout
+        assert snapshot(relative.home) == before_relative
+        assert not (relative.root / value).exists()
+        # Importing the shipped copied-plugin payload must refuse the same value.
+        refusal = call(
+            [relative.profile / "lib/caveman/node", "--input-type=module", "-e",
+             "import {pathToFileURL} from 'node:url'; await import(pathToFileURL(process.argv[1]).href);",
+             source / "src/plugins/opencode/plugin.js"],
+            relative.env, relative.root, success=False,
+        )
+        assert refusal.returncode != 0 and b"must be absolute" in refusal.stderr
+        assert snapshot(relative.home) == before_relative
+        assert not (relative.root / value).exists()
 
     # Persist the bundled JavaScript middleware through private Node, not npx or Go.
     # The upstream launcher records argv and runs the packaged MCP server over stdio.

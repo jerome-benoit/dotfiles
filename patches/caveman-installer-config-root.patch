@@ -1,17 +1,15 @@
-# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
+# base: JuliusBrussee/caveman 67968b7a8ac666415a8301e1f2c86ad28567c7ec
 # prerequisites: caveman-nix-installer-paths.patch
 # intent: Preserve root precedence and reject relative OPENCODE_CONFIG_DIR overrides.
 #   Preserve nonempty override bytes and the upstream XDG_CONFIG_HOME fallback.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
-@@ -1590,8 +1590,11 @@
-   // host read nothing). Otherwise ~/.config/opencode on every platform (on
+@@ -1591,7 +1591,10 @@
    // Windows that's %USERPROFILE%\.config\opencode via os.homedir()), NOT
    // %APPDATA% (#376). Same order as the CLI and the mode plugin.
--  const selected = (process.env.OPENCODE_CONFIG_DIR || '').trim();
--  if (selected) return path.resolve(selected);
-+  const selected = process.env.OPENCODE_CONFIG_DIR;
+   const selected = process.env.OPENCODE_CONFIG_DIR || '';
+-  if (selected.trim()) return path.resolve(selected);
 +  if (selected) {
 +    if (!path.isAbsolute(selected)) throw new Error('OpenCode config root must be absolute');
 +    return selected;
@@ -22,14 +20,13 @@ diff --git a/installer/install.js b/installer/install.js
 diff --git a/src/plugins/opencode/plugin.js b/src/plugins/opencode/plugin.js
 --- a/src/plugins/opencode/plugin.js
 +++ b/src/plugins/opencode/plugin.js
-@@ -136,9 +136,10 @@
- // is already correct cross-platform. The CLI and the installer resolve the same
+@@ -137,8 +137,9 @@
  // order; a flag written under a root the host does not read is invisible to it.
  function opencodeConfigDir() {
--  const selected = (process.env.OPENCODE_CONFIG_DIR || '').trim();
-+  const selected = process.env.OPENCODE_CONFIG_DIR;
-   if (selected) {
+   const selected = process.env.OPENCODE_CONFIG_DIR || '';
+-  if (selected.trim()) {
 -    return path.resolve(selected);
++  if (selected) {
 +    if (!path.isAbsolute(selected)) throw new Error('OpenCode config root must be absolute');
 +    return selected;
    }

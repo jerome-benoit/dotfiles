@@ -1,19 +1,19 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-d+WXBzkU1bZnWB+Ws1a2X/PXBZPW/DXQwTAxMWim0jE=",
-    "aarch64-linux": "sha256-iOSox1EHm4GvIjsAPunfv8k0XVkbvAShAiGRmSXGvaU=",
-    "aarch64-darwin": "sha256-le279IPqPoLFGpzHZMYFK9PjjGR3ui/q5/tQZ1OwQYg="
+    "x86_64-linux": "sha256-1J6gTPU3Hcc4pbmhaYQFCFO7bkcRHItZUZtZb9ffzkc=",
+    "aarch64-linux": "sha256-rCgT3rvmvLhwWTAqmvIRXV15tZwsFt7r9DbeyD6Gg0g=",
+    "aarch64-darwin": "sha256-JBSDsLKF3fW+um95ecFyi3fyF6JhQfFGrpNR8cFJt+0="
   },
   "provenance": {
-    "sourceRevision": "f96b54590db6fd76f1abb0de09edca21c6fda68c",
-    "nixpkgsRevision": "9397dcb09c9598a33509fbc0cce699bd4e6c84d5",
+    "sourceRevision": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
+    "nixpkgsRevision": "2074cc672349f14240fb7ea90d509e0b643e9dd4",
     "bunVersion": "1.4.4",
-    "buildSystem": "x86_64-linux",
-    "calculation": "Upstream dependency phases with Bun 1.4.4 from the repository's followed nixpkgs, a frozen lockfile and both normalization scripts; ARM targets use --cpu/--os with --ignore-scripts.",
+    "buildSystem": "aarch64-darwin",
+    "calculation": "Upstream dependency phases with Bun 1.4.4 from the followed nixpkgs, frozen lockfile and both normalization scripts; NAR hashes computed from completed install outputs.",
     "verification": {
-      "x86_64-linux": "Native dependency output hash verified. CLI and Desktop not built locally.",
-      "aarch64-linux": "--cpu=arm64 --os=linux replay on x86_64-linux: fresh fixed-output hash verified; no native build.",
-      "aarch64-darwin": "--cpu=arm64 --os=darwin replay on x86_64-linux: fresh fixed-output hash verified; no native build."
+      "x86_64-linux": "--cpu=x64 --os=linux replay on aarch64-darwin; completed dependency output NAR hash verified, no native Linux build.",
+      "aarch64-linux": "--cpu=arm64 --os=linux replay on aarch64-darwin; completed dependency output NAR hash verified, no native Linux build.",
+      "aarch64-darwin": "Native dependency phases completed and output NAR hash verified; this hash calculation did not build the CLI or Desktop."
     }
   }
 }

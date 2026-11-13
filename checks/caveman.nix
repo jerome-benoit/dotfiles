@@ -1,5 +1,9 @@
 { pkgs, package }:
 let
+  pins = pkgs.callPackage ../home-manager/modules/development/pins { };
+  blocks = pkgs.callPackage ../home-manager/modules/development/caveman/blocks.nix {
+    pins = pins.caveman.blocks;
+  };
   # Pi supplies TypeBox when loading extensions; use the real module here too.
   typebox = pkgs.fetchzip {
     url = "https://registry.npmjs.org/typebox/-/typebox-1.3.18.tgz";
@@ -34,7 +38,8 @@ pkgs.runCommand "check-caveman-runtime"
   ''
     CAVEMAN_TEST_SHELL=${pkgs.lib.getExe pkgs.bash} \
       ${pkgs.lib.getExe pkgs.nodejs_22} --test ${package.installerSource}/tests/installer/nix-registration-paths.test.mjs
-    python3 ${./caveman.py} ${package} ${pkgs.lib.getExe pkgs.git} ${pkgs.lib.getExe pkgs.nodejs_22} ${package.runtime}/bin/caveman-blocks
+    # Seed legacy hook copies with the native derivation, not a wrapper implementation path.
+    python3 ${./caveman.py} ${package} ${pkgs.lib.getExe pkgs.git} ${pkgs.lib.getExe pkgs.nodejs_22} ${pkgs.lib.getExe blocks.nativePackage}
     # Keep copies on the build filesystem while forcing the short-state fallback.
     profileTmp="$(mktemp -d "$TMPDIR/caveman-profiles-XXXXXXXX")"
     longTmp="$profileTmp/native-socket-regression-requires-a-temporary-parent-that-exceeds-the-portable-unix-domain-socket-path-limit"

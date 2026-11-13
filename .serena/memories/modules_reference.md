@@ -461,8 +461,8 @@ SSH configuration:
 
 ### ortie.nix
 
-- Installs the nixpkgs package; a shared overlay supplies `aws-lc` and `libgit2` required by Cargo's system-library hook until the pin includes [the upstream fix](https://github.com/NixOS/nixpkgs/pull/586834).
-- The email check uses the same corrected Ortie package; its other package dependencies remain stock.
+- Installs the stock nixpkgs package, whose build inputs supply `aws-lc` and `libgit2` for Cargo's system-library hook.
+- Email checks use the same stock Ortie package without a dedicated package-set override.
 
 ### himalaya.nix
 

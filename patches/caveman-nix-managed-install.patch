@@ -1,6 +1,7 @@
-# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
+# base: JuliusBrussee/caveman 67968b7a8ac666415a8301e1f2c86ad28567c7ec
 # intent: refuse executable installation and self-update in the package-managed CLI,
 #   durable npm installer and module downloader; Nix owns those executables.
+diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
 @@ -3218,6 +3218,9 @@
@@ -23,6 +24,7 @@
    const npm = which("npm");
    if (!npm) throw new Error("npm not found: install the CLI yourself (npm install -g @caveman-ai/cli), then run caveman setup");
    // npm's stderr, or an `npm error` line of ours when npm could not be
+diff --git a/packages/cli/src/modules/index-file.ts b/packages/cli/src/modules/index-file.ts
 --- a/packages/cli/src/modules/index-file.ts
 +++ b/packages/cli/src/modules/index-file.ts
 @@ -127,6 +127,9 @@
