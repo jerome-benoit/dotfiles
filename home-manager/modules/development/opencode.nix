@@ -14,7 +14,7 @@ let
       inherit lib;
       inherit (pkgs) fetchurl fetchzip;
     }).opencode.hashes;
-  # Workaround: pinned upstream dependency hashes use a different Bun toolchain.
+  # Workaround: upstream dependency hashes are stale for the selected source and Bun.
   # Hash values, toolchain and verification provenance are recorded in pins/opencode.json.
   # Remove when upstream hashes match the selected source and Bun toolchain.
   baseOpencodePackage =
@@ -30,22 +30,66 @@ let
   mkOpencodePackage =
     package:
     if package != null then
-      package.overrideAttrs (previousAttrs: {
-        # Workaround: Desktop discovers service.json, not service-prod.json.
-        # Remove when upstream CLI and clients use the same service registry.
-        env = (previousAttrs.env or { }) // {
-          OPENCODE_CHANNEL = "latest";
-        };
-
-        # Workaround: native Node modules need libstdc++ at runtime on Linux.
-        # Remove when upstream wraps the executable with its compiler runtime.
-        postFixup =
-          (previousAttrs.postFixup or "")
-          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-            wrapProgram "$out/bin/opencode" \
-              --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
-          '';
-      })
+      let
+        compiledPackage = package.overrideAttrs (previousAttrs: {
+          # Workaround: Desktop discovers service.json, not service-prod.json.
+          # Remove when upstream CLI and clients use the same service registry.
+          env = (previousAttrs.env or { }) // {
+            OPENCODE_CHANNEL = "latest";
+          };
+        });
+      in
+      if pkgs.stdenv.hostPlatform.isLinux then
+        pkgs.symlinkJoin (
+          {
+            name = compiledPackage.name;
+            paths = [ compiledPackage ];
+            # Desktop validates the copied CLI as a native executable.
+            nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+            # Workaround: native Node modules need libstdc++ at runtime on Linux.
+            # Remove when upstream wraps the executable with its compiler runtime.
+            postBuild = ''
+              # Own bin even when a selected package links that directory elsewhere.
+              rm -rf "$out/bin"
+              mkdir "$out/bin"
+              cp -rs "${compiledPackage}/bin/." "$out/bin/"
+              for executable in "$out"/bin/*; do
+                if [ "$executable" != "$out/bin/opencode" ] \
+                  && [ "$executable" -ef "$out/bin/opencode" ]; then
+                  rm "$executable"
+                  ln -s opencode "$executable"
+                fi
+              done
+              rm "$out/bin/opencode"
+              makeBinaryWrapper "${compiledPackage}/bin/opencode" "$out/bin/opencode" \
+                --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+            '';
+            passthru =
+              (compiledPackage.passthru or { })
+              // lib.filterAttrs (
+                name: _:
+                builtins.elem name [
+                  "env"
+                  "node_modules"
+                  "patches"
+                  "src"
+                ]
+              ) compiledPackage
+              // {
+                inherit compiledPackage;
+              };
+            inherit (compiledPackage) meta;
+          }
+          // lib.filterAttrs (
+            name: _:
+            builtins.elem name [
+              "pname"
+              "version"
+            ]
+          ) compiledPackage
+        )
+      else
+        compiledPackage
     else
       null;
 

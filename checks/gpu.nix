@@ -173,7 +173,7 @@ let
           };
         }
       ];
-    }).config.modules.development.colibri.package.buildPhase;
+    }).config.modules.development.colibri.package.engines.buildPhase;
   colibriPlans =
     lib.concatLists (
       lib.mapAttrsToList

@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
+# base: JuliusBrussee/caveman 67968b7a8ac666415a8301e1f2c86ad28567c7ec
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch (in order)
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1395
 # issues: https://github.com/JuliusBrussee/caveman/issues/1405
@@ -9,6 +9,7 @@
 #   membership; retain later siblings, recovery data and upstream CRLF behavior.
 #   Replace the permissive upstream ownership readers; do not retain a literal-block
 #   shortcut that removes containers containing foreign children added after enable.
+diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
 @@ -10409,27 +10409,6 @@

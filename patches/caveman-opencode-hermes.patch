@@ -1,18 +1,20 @@
-# base: JuliusBrussee/caveman 3dc497a7f858c774d6e15b25e8c6120ef3a0eda8
+# base: JuliusBrussee/caveman 67968b7a8ac666415a8301e1f2c86ad28567c7ec
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch (in order)
 # intent: retain upstream OpenCode root precedence, dual-major plugins and V2
 #   location handling; require raw absolute roots, isolate V1 factory state and
 #   pass served workdirs through shrink callbacks. Read canonical Hermes scalar
 #   memberships, validate both lists before writes, respect deny lists and clear
 #   inactive hook markers without deleting foreign payloads.
+#   V2 Stop uses the real model-idle hook, not terminal errors or control-only work.
+diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
 @@ -9229,9 +9229,9 @@
  // variable installed into a root the host never reads, while still reporting
  // success (#1441); the installer and the mode plugin resolve it the same way.
  function opencodeConfigDir(): string {
--  const selected = (process.env.OPENCODE_CONFIG_DIR ?? "").trim();
--  if (selected) return resolve(selected);
+-  const selected = process.env.OPENCODE_CONFIG_DIR ?? "";
+-  if (selected.trim()) return resolve(selected);
 -  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
 +  const root = process.env.OPENCODE_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
 +  if (!isAbsolute(root)) throw new Error("OpenCode config root must be absolute");
@@ -267,7 +269,27 @@
  
      function sessionContext(sessionID) {
        if (!contexts.has(sessionID)) {
-@@ -10430,9 +10426,9 @@
+@@ -9624,7 +9620,6 @@
+       const sessionID = event.data?.sessionID;
+       if (typeof sessionID !== "string" || !sessionID) return;
+       if (type === "session.created") sessionContext(sessionID);
+-      if (type === "session.idle") emit("Stop", { session_id: sessionID });
+       // "session.compacted" is the V1 event name; V2 reports compaction
+       // through "session.compaction.ended". Handle both.
+       if (type === "session.compaction.ended" || type === "session.compacted") {
+@@ -9638,6 +9633,11 @@
+         pending.delete(sessionID);
+       }
+     }
++
++    // Stop belongs to completed model work, not errors or control-only drains.
++    await ctx.session.hook("experimental.idle", (event) => {
++      emit("Stop", { session_id: event.sessionID });
++    });
+ 
+     await ctx.session.hook("prompt", (event) => {
+       const prompt = event.prompt ?? {};
+@@ -10430,9 +10430,9 @@
    return value.replace(/^[ \t]+|[ \t]+$/g, "");
  }
  
@@ -279,7 +301,7 @@
  function hermesYamlScalar(value: string): string | boolean | null {
    const raw = hermesYamlTrim(value);
    if (raw.startsWith('"')) {
-@@ -10461,8 +10457,8 @@
+@@ -10461,8 +10461,8 @@
      if (/^(?:false|False|FALSE)$/.test(plain)) return false;
      // Match complete numbers and timestamps, not numeric prefixes in plugin names.
      if (plain && !/^[,[\]{}#&*!|>'"%@`]/.test(plain) && !/^[-?:](?:[ \t]|$)/.test(plain)
@@ -290,7 +312,7 @@
        && !/^[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?|0b[01_]+|0o[0-7_]+|0x[0-9a-fA-F_]+)$/.test(plain)
        && !/^[-+]?(?:[1-9][0-9_]*(?::[0-5]?[0-9])+|[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*)$/.test(plain)
        && !/^[0-9]{4}-(?:[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$/.test(plain)) return plain;
-@@ -10472,6 +10468,10 @@
+@@ -10472,6 +10472,10 @@
  
  function hermesYamlContent(line: string): boolean {
    return !/^[ \t]*(?:#.*)?$/.test(line);
@@ -301,7 +323,7 @@
  }
  
  function hermesYamlLineContent(lines: string[], index: number, quotedHashLines: Set<number> | undefined): boolean {
-@@ -10497,10 +10497,13 @@
+@@ -10497,10 +10501,13 @@
    let pendingOwner: number | undefined;
    let plainOwner: number | undefined;
    let quote: "'" | '"' | undefined;
@@ -316,7 +338,7 @@
      const line = lines[index]!;
      const width = line.match(/^ */)![0].length;
      if (block) {
-@@ -10520,7 +10523,7 @@
+@@ -10520,7 +10527,7 @@
      }
      if (!hermesYamlTrim(line) || (!quote && /^[ \t]*#/.test(line))) continue;
      let text = line.slice(width);
@@ -325,7 +347,7 @@
        if (plainOwner !== undefined) {
          if (width > plainOwner) continue;
          plainOwner = undefined;
-@@ -10572,26 +10575,33 @@
+@@ -10572,26 +10579,33 @@
            }
            tokenStart = false;
            quotedToken = true;
@@ -364,7 +386,7 @@
        } else if (tokenStart && (char === "!" || char === "&")) {
          const property = text.slice(i).match(/^(?:!<[^>]*>|[!&][^ \t,[\]{}]+)/);
          if (property) i += property[0].length - 1;
-@@ -10601,7 +10611,8 @@
+@@ -10601,7 +10615,8 @@
        }
      }
    }
@@ -374,7 +396,7 @@
  }
  
  function hermesYamlMap(lines: string[], parent?: HermesYamlEntry): Map<string, HermesYamlEntry> {
-@@ -10611,13 +10622,13 @@
+@@ -10611,13 +10626,13 @@
    const entries = new Map<string, HermesYamlEntry>();
    let indent = parent ? -1 : 0;
    let previous: HermesYamlEntry | undefined;
@@ -391,7 +413,7 @@
      }
      const width = line.match(/^ */)![0].length;
      if (indent < 0) {
-@@ -10706,9 +10717,15 @@
+@@ -10706,9 +10721,15 @@
    return server;
  }
  
@@ -410,7 +432,7 @@
    for (let i = enabled.start + 1; i < enabled.end; i++) {
      if (!hermesYamlContent(lines[i]!)) continue;
      const item = lines[i]!.match(/^( *)- (.*)$/);
-@@ -10722,17 +10739,103 @@
+@@ -10722,17 +10743,103 @@
        if (hermesYamlContent(line) && line.match(/^ */)![0].length <= indent) break;
        end++;
      }
@@ -521,7 +543,7 @@
  }
  
  function hermesNativeOwned(text: string, owned: Record<string, unknown>) {
-@@ -10879,6 +10982,8 @@
+@@ -10879,6 +10986,8 @@
    }
    const items = hermesNativePluginItems(lines, enabled);
    if (!items.some((item) => item.name === HERMES_NATIVE_PLUGIN_NAME)) {
@@ -530,7 +552,7 @@
      const itemPad = " ".repeat(items[0]?.indent ?? enabled.indent + 2);
      const block = [`${itemPad}${HERMES_NATIVE_PLUGIN_BEGIN}`, `${itemPad}- ${HERMES_NATIVE_PLUGIN_NAME}`, `${itemPad}${HERMES_NATIVE_PLUGIN_END}`];
      lines.splice(enabled.start + 1, 0, ...block);
-@@ -11324,6 +11429,10 @@
+@@ -11324,6 +11433,10 @@
  // progress line per step itself; refusals still throw with their full message.
  function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
    const { detected, profiles } = enableProfiles(argv);
@@ -541,7 +563,7 @@
    if (profiles.some((profile) => profile.id !== "aider")) registrationPath();
    const gw = gatewayURL();
    for (const profile of profiles) {
-@@ -12062,7 +12171,8 @@
+@@ -12062,7 +12175,8 @@
            // comments and renormalises quoting, and a literal read called that
            // drift (#1410).
            const state = hermesNativeOwned(current.toString("utf8"), operation.owned ?? {});
@@ -551,7 +573,7 @@
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -18956,11 +19066,12 @@
+@@ -18956,11 +19070,12 @@
  import { execFileSync } from "node:child_process";
  
  // Returns the rewritten command, or undefined to leave the original alone.
@@ -565,7 +587,7 @@
        encoding: "utf8",
        windowsHide: true,
      });
-@@ -18978,10 +19089,10 @@
+@@ -18978,10 +19093,10 @@
  // V1: a named factory returning a hook map, mutating output.args.command.
  function opencodeShrinkPluginHookMapV1(): string {
    return `
@@ -578,7 +600,7 @@
      if (next) output.args.command = next;
    },
  });
-@@ -19002,7 +19113,7 @@
+@@ -19002,7 +19117,7 @@
        if (event?.tool !== "bash" && event?.tool !== "shell") return;
        const input = event.input;
        if (!input || typeof input !== "object") return;
@@ -587,7 +609,7 @@
        if (next) input.command = next;
      });
    },
-@@ -19157,119 +19268,37 @@
+@@ -19157,119 +19272,37 @@
  
  type HermesPluginMembership = "enabled" | "disabled" | "not-enabled";
  
@@ -731,7 +753,7 @@
  }
  
  function hermesPluginInstallConfigReady(): boolean {
-@@ -19283,15 +19312,8 @@
+@@ -19283,15 +19316,8 @@
        return false;
      }
    }
@@ -749,7 +771,7 @@
    return true;
  }
  
-@@ -19306,32 +19328,22 @@
+@@ -19306,32 +19332,22 @@
        return false;
      }
    }
@@ -793,7 +815,7 @@
        return false;
      }
      if (enabledLine >= 0) {
-@@ -19340,7 +19352,9 @@
+@@ -19340,7 +19356,9 @@
        const pad = " ".repeat(yamlListItemIndent(lines, enabledLine, plugins.end) ?? 4);
        lines.splice(enabledLine + 1, 0, `${pad}${HERMES_PLUGIN_ENABLE_BEGIN}`, `${pad}- ${HERMES_PLUGIN_NAME}`, `${pad}${HERMES_PLUGIN_ENABLE_END}`);
      } else {
@@ -804,7 +826,7 @@
      }
    } else {
      if (lines.length > 0 && lines[lines.length - 1]!.trim() !== "") lines.push("");
-@@ -19411,7 +19425,10 @@
+@@ -19411,7 +19429,10 @@
  
  function installShrinkPluginHermes(): boolean {
    registrationPath();
@@ -816,7 +838,7 @@
    try {
      mkdirSync(hermesPluginDir(), { recursive: true });
      writeFileSync(hermesPluginManifestPath(), hermesPluginManifestSource());
-@@ -19421,7 +19438,8 @@
+@@ -19421,7 +19442,8 @@
      return false;
    }
    if (!enableHermesPluginInConfig()) {
@@ -826,7 +848,7 @@
      return false;
    }
    return true;
-@@ -19494,6 +19512,10 @@
+@@ -19494,6 +19516,10 @@
    return join(cavemanHome(), "hooks", `${agentId}.json`);
  }
  function shrinkHookInstalled(agentId: string): boolean {

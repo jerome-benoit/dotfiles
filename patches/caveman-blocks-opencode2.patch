@@ -1,4 +1,4 @@
-# base: v0.1.0-rc.5
+# base: caveman-ai/blocks v0.1.0-rc.5
 # upstream: proposed in https://github.com/caveman-ai/blocks/pull/17 (ec71197d39c6e61813ceaeb1571781565318fdb4)
 # issues: https://github.com/caveman-ai/blocks/issues/18 https://github.com/caveman-ai/blocks/issues/19
 # intent: support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.

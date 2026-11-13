@@ -23,9 +23,25 @@ let
   version = pins.version;
   src = pins.src;
 
-  # Python 3.12: beautifulsoup4 pulls in sphinxHook, and nixpkgs disables
-  # sphinx below 3.12; the runtime itself accepts >=3.11.
-  py = pkgs.python312;
+  # beautifulsoup4's Sphinx hook requires Python >=3.12.
+  # Isolate test fixes in Prime's Python package set.
+  py = pkgs.python312.override (previousArgs: {
+    self = py;
+    packageOverrides = lib.composeExtensions (previousArgs.packageOverrides or (_: _: { })) (
+      _: pythonPrev: {
+        # Workaround: real-time Trio cancellation tests expire during HTTP/2 initialization on loaded builders.
+        # Remove when pinned nixpkgs carries httpx2#1231 or a release containing its virtual-clock fixture.
+        httpcore2 = pythonPrev.httpcore2.overridePythonAttrs (previousAttrs: {
+          patches = (previousAttrs.patches or [ ]) ++ [
+            (pkgs.fetchurl {
+              url = "https://github.com/pydantic/httpx2/commit/fc32b34daa5e070917979ae36b8dd91913897379.patch";
+              hash = "sha256-3dG2g6WOL/xCXpXr4vz3Wz4sfS1vzeqGV29LGzrnelA=";
+            })
+          ];
+        });
+      }
+    );
+  });
   runtimeRoot = "${src}/prime-agent-runtime";
   runtimeProject = "${runtimeRoot}/pyproject.toml";
   runtimeLock = "${runtimeRoot}/uv.lock";
@@ -165,7 +181,7 @@ let
 
   supported = builtins.elem hp.system platforms;
 
-  primeAgentPackage =
+  nativePackage =
     if !supported then
       null
     else
@@ -182,17 +198,14 @@ let
           # Workaround: Darwin's /bin/ps probe can fail in the Nix sandbox.
           # Remove when upstream skips comparisons without process ground truth.
           ../../../patches/prime-agent-darwin-tests.patch
-          # Workaround: upstream mission-local exclusions hide default UID socket directories.
-          # Remove when discovery relies only on the invocation's state root.
-          ../../../patches/prime-agent-daemon-discovery.patch
           # Workaround: compatible daemons can keep running a previous Nix executable.
           # Remove when upstream checks executable identity without stopping existing work.
           ../../../patches/prime-agent-nix-daemon-generation.patch
           # Workaround: login guidance references documents absent from release sources.
           # Remove when upstream points to documentation included in its releases.
           ../../../patches/prime-agent-bundled-docs.patch
-          # Workaround: name-only skill imports can execute a different selected source.
-          # Remove when the kernel binds imports to the resolved skill packages.
+          # Workaround: name-only imports can bypass the selected non-project skill source.
+          # Remove when upstream binds imports to resolved skill packages.
           ../../../patches/prime-agent-python-skill-source.patch
         ];
         PRIME_AGENT_NIX_MANAGED = "1";
@@ -218,8 +231,40 @@ let
         checkFlags = [
           "--skip=piped_stdin::tests::a_live_producer_resets_the_window"
         ];
+        strictDeps = true;
+        __darwinAllowLocalNetworking = true;
+
+        postInstall = ''
+          mkdir -p $out/share/prime-agent
+          cp -r prime-agent-runtime docs skills README.md LICENSE CHANGELOG.md $out/share/prime-agent/
+        '';
+
+        meta = {
+          description = "Prime Agent: self-improving RLM coding and research agent";
+          homepage = "https://github.com/PrimeIntellect-ai/prime-agent";
+          license = lib.licenses.mit;
+          mainProgram = "prime-agent";
+          inherit platforms;
+        };
+      };
+
+  primeAgentPackage =
+    if !supported then
+      null
+    else
+      pkgs.stdenv.mkDerivation {
+        pname = "prime-agent";
+        inherit version;
+        dontUnpack = true;
+        dontBuild = true;
+        nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+        strictDeps = true;
+        # The read-only update installCheck serves HTTP on loopback.
+        __darwinAllowLocalNetworking = true;
+
         passthru = {
           inherit
+            nativePackage
             bundledSkills
             pythonRuntimePackages
             kernelPython
@@ -230,23 +275,18 @@ let
             ;
         };
 
-        nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
-        strictDeps = true;
-        # The read-only update installCheck serves HTTP on loopback.
-        __darwinAllowLocalNetworking = true;
-
-        postInstall = ''
-          mkdir -p $out/share/prime-agent
-          cp -r prime-agent-runtime docs skills README.md LICENSE CHANGELOG.md $out/share/prime-agent/
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out/bin $out/libexec $out/share
+          # Copy, not symlink: daemon generation checks compare canonical executable paths.
+          cp ${nativePackage}/bin/prime-agent $out/libexec/prime-agent
+          cp -r ${nativePackage}/share/prime-agent $out/share/prime-agent
+          chmod -R u+w $out/share/prime-agent
           # Git tag archives omit bundled catalogs. Pin production data separately;
           # catalog updates do not change the Rust source pin.
           cp ${pins.bundledCatalogs}/models/catalog.v1.json $out/share/prime-agent/models.bundled.json
           cp ${pins.bundledCatalogs}/plugins/catalog.v2.json $out/share/prime-agent/mcp-services.bundled.json
-        '';
-        # Keep the payload basename visible to upstream's process ownership census.
-        preFixup = ''
-          mkdir -p $out/libexec
-          mv $out/bin/prime-agent $out/libexec/prime-agent
+          runHook postInstall
         '';
         postFixup = ''
           makeWrapper $out/libexec/prime-agent $out/bin/prime-agent \
@@ -271,7 +311,7 @@ let
           export HOME=$(mktemp -d)
           export DO_NOT_TRACK=1
           export PI_OFFLINE=1
-          ${kernelPython}/bin/python3 scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
+          ${kernelPython}/bin/python3 ${src}/scripts/release/bundle_catalog.py verify --out $out/share/prime-agent
           # Schema validation intentionally accepts upstream fixture catalogs.
           ${kernelPython}/bin/python3 - "$out/share/prime-agent" <<'PY'
           import json
@@ -316,13 +356,7 @@ let
           cmp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
         '';
 
-        meta = {
-          description = "Prime Agent: self-improving RLM coding and research agent";
-          homepage = "https://github.com/PrimeIntellect-ai/prime-agent";
-          license = lib.licenses.mit;
-          mainProgram = "prime-agent";
-          inherit platforms;
-        };
+        inherit (nativePackage) meta;
       };
   optionalPackages = config.modules.core.lib.mkOptionalPackages [
     {

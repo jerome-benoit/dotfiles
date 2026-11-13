@@ -174,8 +174,10 @@ def main():
         consumer(json.loads(args.consumer))
         return
     driver = str(Path(__file__).resolve())
-    with tempfile.TemporaryDirectory(prefix="hermes-mise-") as temporary:
-        root = Path(temporary)
+    # mise deliberately excludes canonical /nix paths from shim activation.
+    # Use a user-like home, not TMPDIR when Darwin builds place it under /nix.
+    with tempfile.TemporaryDirectory(prefix="hermes-mise-", dir="/tmp") as temporary:
+        root = Path(temporary).resolve()
         for layout in ("default", "xdg", "data", "settings", "override"):
             home = root / layout
             home.mkdir()

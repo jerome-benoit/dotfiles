@@ -71,58 +71,76 @@ let
       fi
     fi
   '';
+  cliPackage = stdenvNoCC.mkDerivation {
+    pname = "caveman-cli";
+    inherit version src;
+
+    nativeBuildInputs = [
+      nodejs_22
+      pnpm_10
+      pnpmConfigHook
+    ];
+    strictDeps = true;
+    inherit pnpmWorkspaces;
+    pnpmDeps = fetchPnpmDeps {
+      pname = "caveman";
+      inherit src;
+      pnpm = pnpm_10;
+      inherit pnpmWorkspaces;
+      fetcherVersion = 5;
+      hash = pins.pnpmDepsHash;
+    };
+
+    # Workaround: upstream has no package-manager-owned installation mode.
+    # Remove when it can disable all executable installation and self-update paths.
+    patches = [
+      ../../../../patches/caveman-nix-managed-install.patch
+      # Workaround: generated agent registrations retain runtime closure paths.
+      # Remove when upstream separates execution from durable registration paths.
+      ../../../../patches/caveman-nix-registration-paths.patch
+      # Workaround: Hermes ownership readers accept ambiguous YAML and remove later siblings.
+      # Remove when upstream validates owned values strictly and restores only those values.
+      ../../../../patches/caveman-hermes-native-yaml.patch
+      # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event;
+      # Hermes membership checks accept ambiguous YAML.
+      # Remove when factories isolate state/cwd, model-idle drives Stop, roots stay absolute
+      # and membership fails closed.
+      ../../../../patches/caveman-opencode-hermes.patch
+    ];
+
+    buildPhase = ''
+      runHook preBuild
+      # The CLI generates its binary catalog from this release, not its npm version.
+      test "$(cat packages/cli/BINARY_RELEASE)" = "bin-v${pins.runtimeVersion}"
+      read -r blocksRelease _ < packages/cli/BLOCKS_RELEASE
+      test "$blocksRelease" = "v${pins.blocks.version}"
+      pnpm --dir packages/cli run build
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/lib/caveman" "$out/share/doc/caveman"
+      cp -r packages/cli/dist packages/cli/package.json "$out/lib/caveman/"
+      cp packages/cli/{LICENSE,NOTICE,README.md} "$out/share/doc/caveman/"
+      runHook postInstall
+    '';
+  };
 in
 stdenvNoCC.mkDerivation {
   pname = "caveman";
-  inherit version src;
-
-  nativeBuildInputs = [
-    makeWrapper
-    nodejs_22
-    pnpm_10
-    pnpmConfigHook
-  ];
+  inherit version;
+  dontUnpack = true;
+  dontBuild = true;
+  nativeBuildInputs = [ makeWrapper ];
   strictDeps = true;
-  inherit pnpmWorkspaces;
-  pnpmDeps = fetchPnpmDeps {
-    pname = "caveman";
-    inherit src;
-    pnpm = pnpm_10;
-    inherit pnpmWorkspaces;
-    fetcherVersion = 5;
-    hash = pins.pnpmDepsHash;
-  };
-
-  # Workaround: upstream has no package-manager-owned installation mode.
-  # Remove when it can disable all executable installation and self-update paths.
-  patches = [
-    ../../../../patches/caveman-nix-managed-install.patch
-    # Workaround: generated agent registrations retain runtime closure paths.
-    # Remove when upstream separates execution from durable registration paths.
-    ../../../../patches/caveman-nix-registration-paths.patch
-    # Workaround: Hermes ownership readers accept ambiguous YAML and remove later siblings.
-    # Remove when upstream validates owned values strictly and restores only those values.
-    ../../../../patches/caveman-hermes-native-yaml.patch
-    # Workaround: OpenCode factories share state; Hermes membership checks accept ambiguous YAML.
-    # Remove when factories isolate state and cwd, roots stay absolute, and membership fails closed.
-    ../../../../patches/caveman-opencode-hermes.patch
-  ];
-
-  buildPhase = ''
-    runHook preBuild
-    # The CLI generates its binary catalog from this release, not its npm version.
-    test "$(cat packages/cli/BINARY_RELEASE)" = "bin-v${pins.runtimeVersion}"
-    read -r blocksRelease _ < packages/cli/BLOCKS_RELEASE
-    test "$blocksRelease" = "v${pins.blocks.version}"
-    pnpm --dir packages/cli run build
-    runHook postBuild
-  '';
 
   installPhase = ''
     runHook preInstall
     mkdir -p "$out/lib/caveman" "$out/bin" "$out/share/doc/caveman"
-    cp -r packages/cli/dist packages/cli/package.json "$out/lib/caveman/"
-    cp packages/cli/{LICENSE,NOTICE,README.md} "$out/share/doc/caveman/"
+    # Keep CLI files in the assembled runtime tree for relative resource paths.
+    cp -r ${cliPackage}/lib/caveman/. "$out/lib/caveman/"
+    cp -r ${cliPackage}/share/doc/caveman/. "$out/share/doc/caveman/"
     ln -s ${installerSource} "$out/lib/caveman/source"
     for executable in ${runtime}/bin/*; do
       name="$(basename "$executable")"
@@ -176,7 +194,12 @@ stdenvNoCC.mkDerivation {
   '';
 
   passthru = {
-    inherit runtime installerSource registrationProfile;
+    inherit
+      cliPackage
+      runtime
+      installerSource
+      registrationProfile
+      ;
     inherit (src) rev;
   };
 

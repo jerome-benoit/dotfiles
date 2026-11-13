@@ -1,5 +1,5 @@
-# base: https://github.com/JuliusBrussee/caveman/archive/3dc497a7f858c774d6e15b25e8c6120ef3a0eda8.tar.gz
-# base-hash: sha256-I/pMhDvXZp8KOGhWRCNeSIz+3z4ag1m6wdo6kl+JbXs= (fetchzip unpacked source)
+# base: https://github.com/JuliusBrussee/caveman/archive/67968b7a8ac666415a8301e1f2c86ad28567c7ec.tar.gz
+# base-hash: sha256-O8zaG1wN17YZvscWqmUX4lsFwJHOgQvwo8B1yWo5cq0= (fetchzip unpacked source)
 # intent: use profile-local interpreters and isolate mutable Claude payload ownership.
 #   Preserve upstream atomic model writes for ordinary callers; prepared plugins
 #   collect writes into the ownership-journal transaction.
@@ -86,7 +86,7 @@ diff --git a/installer/install.js b/installer/install.js
 +    ? [absoluteNodePath(), path.join(root, 'lib', 'caveman', 'source', 'src', 'mcp-servers', 'caveman-shrink', 'index.js'), ...upstream]
 +    : ['npx', '-y', MCP_SHRINK_PKG, ...upstream];
  }
-
+ 
  // Running is necessary but not sufficient: a node below the package's
 @@ -563,6 +597,9 @@
  // then see node on its PATH. `--hook-node <path>` pins a node of your choice.
@@ -97,7 +97,7 @@ diff --git a/installer/install.js b/installer/install.js
 +  }
    return (opts && opts.hookNode) || absoluteNodePath();
  }
-
+ 
 @@ -590,10 +627,10 @@
  
  // `plugin list` also names a turned-off plugin, which runs no hooks. Only
@@ -348,14 +348,13 @@ diff --git a/installer/install.js b/installer/install.js
  EXAMPLES
    npx -y github:JuliusBrussee/caveman                        # default install
    npx -y github:JuliusBrussee/caveman -- --all               # all the trimmings
-@@ -2853,12 +2971,15 @@
-
+@@ -2854,11 +2972,14 @@
    checkWslWindowsNode();
    checkNodeVersion();
-+
+ 
 +  // The upstream override must not bypass the managed private interpreter.
 +  if (opts.hookNode && MANAGED_PLUGINS.registrationRoot()) hookNode(opts);
-
++
    // A pinned --hook-node lands in every hook command: refuse one that does not
    // run as a supported node before anything is written. Bare `node` is looked
    // up on the HOOK's PATH later, which may differ from this one, so it is only

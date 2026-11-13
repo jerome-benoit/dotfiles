@@ -1,4 +1,4 @@
-# base: v0.1.0-rc.5
+# base: caveman-ai/blocks v0.1.0-rc.5
 # intent: keep the profile-selected Nix wrapper as the installed hook without copying
 #   os.Executable(), preserving its dependencies across profile generations.
 diff --git a/internal/repo/repo.go b/internal/repo/repo.go
