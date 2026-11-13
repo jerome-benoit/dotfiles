@@ -306,7 +306,7 @@ OpenCode AI assistant:
 - CLI, Desktop and Neovim use the shared background service by default
 - Custom CLI packages must be upstream-compatible source-built derivations; service and Linux runtime adjustments also apply to overrides
 - Existing build environment and post-fixup hooks are preserved
-- The Linux C++ runtime wrapper is assembled separately from CLI compilation; channel selection remains compile-time. Darwin retains the compiled package directly.
+- Linux assembles the C++ runtime wrapper separately as a native executable, as required by Desktop. Channel selection remains compile-time; Darwin retains the compiled package directly.
 - Generated Desktop bundles the selected CLI
 - Staged CLI paths include the version, architecture and Nix output identity
 - Cleanup retains all stages of the bundled and adopted versions for the current architecture

@@ -44,7 +44,8 @@ let
           {
             name = compiledPackage.name;
             paths = [ compiledPackage ];
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+            # Desktop validates the copied CLI as a native executable.
+            nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
             # Workaround: native Node modules need libstdc++ at runtime on Linux.
             # Remove when upstream wraps the executable with its compiler runtime.
             postBuild = ''
@@ -60,7 +61,7 @@ let
                 fi
               done
               rm "$out/bin/opencode"
-              makeWrapper "${compiledPackage}/bin/opencode" "$out/bin/opencode" \
+              makeBinaryWrapper "${compiledPackage}/bin/opencode" "$out/bin/opencode" \
                 --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
             '';
             passthru =
