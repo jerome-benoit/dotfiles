@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 67968b7a8ac666415a8301e1f2c86ad28567c7ec
+# base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-nix-installer-paths.patch
 # intent: Preserve root precedence and reject relative OPENCODE_CONFIG_DIR overrides.
 #   Preserve nonempty override bytes and the upstream XDG_CONFIG_HOME fallback.

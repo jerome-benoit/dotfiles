@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 67968b7a8ac666415a8301e1f2c86ad28567c7ec
+# base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-nix-managed-install.patch
 # intent: separate Nix execution-time closure paths from durable agent
 #   registrations through a lexical CAVEMAN_REGISTRATION_ROOT profile prefix.
