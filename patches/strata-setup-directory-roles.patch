@@ -1008,7 +1008,7 @@ index b768807..a2ae0e1 100644
      if os.name == "nt":
          # Windows has no process group to signal: the engine tree is put in a job object this run owns, which ends every process in it in one call
 diff --git a/strata_cli/cli.py b/strata_cli/cli.py
-index 5927ddc..4b0ccdd 100644
+index 5927ddc..42d7c88 100644
 --- a/strata_cli/cli.py
 +++ b/strata_cli/cli.py
 @@ -188,9 +188,12 @@ def parser() -> argparse.ArgumentParser:
@@ -1021,7 +1021,7 @@ index 5927ddc..4b0ccdd 100644
      install = sp.add_parser(
          "install",
 -        help="the explicit installer: engine, models, Python packages (starting and serving never do this)")
-+        help="install a model or explicitly refresh the pinned source runtime")
++        help="install a model or refresh the selected installation's runtime")
      install.add_argument("--update", action="store_true",
                           help="update an existing install (what UPDATE.bat / update.sh run) instead of setting one up")
      install.add_argument("setup_args", nargs=argparse.REMAINDER,

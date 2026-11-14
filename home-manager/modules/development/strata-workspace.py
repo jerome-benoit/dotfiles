@@ -1,4 +1,4 @@
-"""Manage Strata's pinned, writable checkout and its runtime under the user's state directory.
+"""Manage Strata's pinned, writable checkout and runtime in the configured workspace.
 
 Keep revision refs for offline rollback, serialize source/runtime changes, and root Nix Python.
 The public Terminal grammar owns the root; `source` delegates raw arguments to setup's real parser.
