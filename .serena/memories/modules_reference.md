@@ -262,6 +262,7 @@ Agent of Empires session manager:
 - Prefer the declared future XDG session environment during activation. Without a declared export, follow the native environment and existing-directory precedence, including Darwin's legacy fallback.
 
 - The selected packaged AoE registry detects and launches Nixpkgs' `cursor-agent`; no generic `agent` alias is installed.
+- The packaged web frontend preserves diagnosed missing-container causes; Retry recreates the container without adapter-install instructions. Remove the patch when upstream carries that cause through recovery UI.
 
 ### pi.nix
 

@@ -43,6 +43,7 @@ explaining why it exists and when it can go:
 - `patches/caveman-installer-config-root.patch` — preserve `OPENCODE_CONFIG_DIR` bytes and reject relative values in the installer and copied plugin; retain the upstream `XDG_CONFIG_HOME` fallback; apply after nix-installer-paths.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
+- `patches/agent-of-empires-container-recovery.patch` — preserve typed startup causes in the web frontend and offer container recreation instead of adapter installation; no prerequisite patches.
 - `patches/herdr-desktop-nix-cli-link.patch` — disable automatic macOS CLI-link installation, including copied application bundles; no prerequisite patches.
 - `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
