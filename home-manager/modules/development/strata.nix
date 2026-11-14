@@ -117,6 +117,8 @@ in
         data folder during reconfiguration. Missing files keep their requested destinations.
         Qwen3.6 and DeepSeek forecasts and progress share setup's selection and live completion rules.
         Missing vision projectors use the requested model directory.
+        Remaining DeepSeek downloads are checked per destination filesystem.
+        Launch progress snapshots follow upstream migration and path selection.
         These defaults do not request moves; upstream retains model selection, tuning and profiles.
       '';
     };

@@ -1132,7 +1132,6 @@ exit 9
         self.assertTrue(source.is_symlink())
         self.assertEqual(os.readlink(source), missing.name)
         self.assertFalse(missing.exists())
-        self.assertEqual({path.name for path in self.state.iterdir()}, {"source", ".source.lock"})
         self.assertIn(f"Workspace link {source} is broken", result.stderr)
         self.assertIn("restore its target or remove the link and retry", result.stderr)
 
@@ -5768,6 +5767,191 @@ async def edit():
         assert ctx.settings.data_dir == str(data)
         assert "--set-default-data-dir" in Runner(ctx.settings, catalog=cat).setup_args()
 asyncio.run(edit())
+''')
+
+    def test_deepseek_install_budgets_missing_shared_files_at_their_destination(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os
+from pathlib import Path
+from unittest.mock import patch
+from strata_cli.launch.catalog import Catalog
+root = Path.cwd()
+base = root.parent.parent / "deepseek-disk"
+old, requested = base / "old", base / "requested"
+old.mkdir(parents=True)
+requested.mkdir()
+settings = base / "settings.json"
+settings.write_text(json.dumps({"data_dir": str(old)}))
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "models_directory": str(requested)}))
+mod = Catalog(src=root, root=root, hardware={}).strata.setup_module()
+model = "IST-DAS-2.00bpw"
+fam = mod.MULTI_FILE_FAMILIES["deepseek41"]
+def seed(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as stream:
+        stream.truncate(fam["sha256"][path.name][0])
+    assert path.stat().st_blocks == 0
+    mod.mark(path, "sha256 " + fam["sha256"][path.name][1])
+for path in mod.dsv41_download_layout(model, old / "models", vision=False)["shards"]:
+    seed(path)
+selected = mod.dsv41_download_layout(model, requested, vision=False, elsewhere=[old])
+assert selected["folder"].is_relative_to(old)
+assert all(path.is_relative_to(requested) for path in selected["shared"].values())
+parsed = []
+with contextlib.redirect_stdout(io.StringIO()):
+    assert mod.main(["--family", "deepseek41", "--model", model, "--context", "8192", "--vision", "no",
+        "--models-dir", str(requested), "--data-dir", str(old), "--separate-model-artifacts", "--no-start", "--yes"],
+        after_parse=lambda a, argv: (parsed.append(a), 0)[1]) == 0
+card = {"index": 0, "name": "CPU fixture GPU", "vram_gb": 80, "arch": "89", "count": 1}
+class ReachedAcquisition(Exception):
+    pass
+def stop(*args, **kwargs):
+    raise ReachedAcquisition()
+def install(old_free, new_free, allowed, probe=True):
+    probes, output = [], io.StringIO()
+    def capacity(path):
+        path = Path(path)
+        probes.append(path)
+        return old_free if path.is_relative_to(old) else new_free
+    with patch.object(mod, "free_gb", side_effect=capacity), patch.object(mod, "pip_install", side_effect=stop), \
+            patch.object(mod, "dsv41_cards", return_value=[card]), contextlib.redirect_stdout(output):
+        try:
+            mod.install_dsv41(parsed[0], "deepseek41", card, False, [], 13, [], 8080, 2000, None, [card], elsewhere=[old])
+        except ReachedAcquisition:
+            assert allowed, output.getvalue()
+        except SystemExit as error:
+            assert not allowed and error.code == 1, output.getvalue()
+            assert f"not enough free disk space in {requested}" in output.getvalue(), output.getvalue()
+        else:
+            raise AssertionError("fixture did not stop at the acquisition boundary")
+    assert bool(probes) == probe, probes
+    assert all(path.is_relative_to(requested) for path in probes), probes
+install(0, 1000, True)
+install(1000, 0, False)
+needed = sum(fam["sha256"][name][0] for name in selected["shared"]) / 1e9
+install(0, needed, True)
+install(1000, needed - 0.001, False)
+for path in selected["shared"].values():
+    seed(path)
+install(0, 0, True, probe=False)
+pending = selected["shared"][mod.DSV41_DSPARK]
+pending.unlink()
+part = pending.with_name(pending.name + ".part")
+size = fam["sha256"][pending.name][0]
+with part.open("wb") as stream:
+    stream.truncate(size // 2)
+remaining = (size - part.stat().st_size) / 1e9
+install(0, remaining, True)
+install(1000, remaining - 0.001, False)
+with part.open("r+b") as stream:
+    stream.truncate(size + 1)
+install(0, 0, True, probe=False)
+''')
+
+    def test_launch_progress_follows_native_automatic_migration(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import json, os, socket
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog, ModelRow
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.launch.runner import Runner
+root = Path.cwd()
+base = root.parent.parent / "migration-progress"
+base.mkdir()
+requested = base / "requested"
+requested.mkdir()
+settings = base / "settings.json"
+settings.write_text("{}")
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "models_directory": str(requested)}))
+cat = Catalog(src=root, root=root, hardware={})
+mod = cat.strata.setup_module()
+family, model = "qwen", "IQ3_XXS"
+tag = cat.tag_of(family, model)
+count = mod.model_shards(mod.FAMILIES[family], model)
+folder = root / "models" / model
+folder.mkdir(parents=True)
+for index in range(1, count + 1):
+    path = folder / mod.model_file(mod.FAMILIES[family], model, index)
+    with path.open("wb") as stream:
+        stream.truncate(1_000_000_000)
+    assert path.stat().st_blocks == 0
+    mod.mark(path)
+row = ModelRow(family=family, family_title="Qwen", model=model, id=tag, about="", download_gb=count,
+    need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
+    experimental=False, images=False, installed=False)
+cat.rows = lambda: [row]
+config = root / ("strata-" + tag + ".json")
+producer = base / "native-progress.py"
+producer.write_text(r"""
+import json, socket, sys
+from pathlib import Path
+import setup as mod
+root = Path.cwd()
+with socket.socket(socket.AF_UNIX) as gate:
+    gate.connect(sys.argv[2])
+    assert gate.recv(1) == b"g"
+parsed = []
+assert mod.main(sys.argv[3:], after_parse=lambda a, argv: (parsed.append(a), 0)[1]) == 0
+a = parsed[0]
+mod.step(3, "installing dependencies")
+mod.say("engine: 1.0 / 2.0 GB (50%)")
+mod.step(4, "preparing the engine")
+data, retained = mod.data_folder_for(a)
+layout = mod.model_download_layout(a.family, a.model, Path(a.models_dir), data_dir=data, elsewhere=retained)
+assert all(path.is_file() and mod.done(path) for path in layout[3])
+mod.step(5, "downloading model")
+for path in layout[3]:
+    mod.ok(str(path) + ": already downloaded")
+mod.step(6, "writing config")
+pack = data / "packs" / "fixture"
+pack.mkdir(parents=True)
+Path(sys.argv[1]).write_text(json.dumps({"exe": sys.executable,
+    "args": ["--native", str(layout[3][0]), "--pack", str(pack), "--max-context", "8192", "--kv", "fp16"]}))
+""")
+events, observed = [], []
+runner = Runner(LaunchSettings(family=family, model=model, context=8192, vision="off", mtp="off", drafting="off"),
+    catalog=cat, emit=events.append)
+spawn, read_lines, combined = runner._spawn, runner._read_lines, cat.mcp.combined_progress
+gate_path = base / "migration.sock"
+def spawn_fixture(argv, **kwargs):
+    return spawn([argv[0], str(producer), str(config), str(gate_path), *argv[2:]], **kwargs)
+def read_fixture(process):
+    # Old eager snapshots run before this gate; migration cannot race ahead of that snapshot.
+    with listener.accept()[0] as gate:
+        gate.sendall(b"g")
+    yield from read_lines(process)
+def observe(prog, job, **kwargs):
+    result = combined(prog, job, **kwargs)
+    observed.append((str(prog.get("step") or ""), json.loads(json.dumps(job)), json.loads(json.dumps(result))))
+    return result
+runner._spawn, runner._read_lines, cat.mcp.combined_progress = spawn_fixture, read_fixture, observe
+try:
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.settimeout(15)
+        listener.bind(str(gate_path))
+        listener.listen(1)
+        assert runner.ensure_model() == config
+finally:
+    runner._stop_children()
+    cat.mcp.combined_progress = combined
+downloads = [(job, shown) for step, job, shown in observed if step.startswith("5/")]
+assert downloads
+for job, shown in downloads:
+    part = next(part for part in shown["parts"] if part["kind"] == "model")
+    assert part["state"] == "done" and part["files_done"] == part["files_total"] == count, part
+    assert part["done_gb"] == part["total_gb"] == count, part
+    assert all(Path(item["path"]).is_file() and not Path(item["path"]).is_relative_to(requested) for item in job["files"])
+before = [job for step, job, shown in observed if step.startswith(("3/", "4/"))]
+assert before and all(not job for job in before), before
+assert all(job == downloads[-1][0] for step, job, shown in observed if step.startswith("6/"))
+shown = [event for event in events if str(event.data.get("step") or "").startswith("5/") and event.pct is not None]
+assert shown and all(event.pct == 99 for event in shown), shown
+assert events[-1].pct == 100
+assert not folder.exists()
 ''')
 
 

@@ -74,7 +74,7 @@ index fbd5354..2a2058b 100644
 -if __name__ == "__main__":
 -    sys.exit(main())
 diff --git a/setup.py b/setup.py
-index a99e9df..719692e 100644
+index a99e9df..ff03221 100644
 --- a/setup.py
 +++ b/setup.py
 @@ -1158,7 +1158,7 @@ def run(cmd, cwd=None, env=None, check=True, quiet=False):
@@ -603,7 +603,7 @@ index a99e9df..719692e 100644
      """Steps 2-7 for DeepSeek-V4.1-Flash (MULTI_FILE_FAMILIES): where it fits (strata_control/dsv41_fit.py, said plainly: a 508 GB
      download and a model larger than most computers' memory are warnings, never a refusal), the engine (strata-dsv41), the nine
      pinned shards (or your own, --gguf-dir), the engine's pack folder, the tokenizer and chat template from the GGUF, the config.  The
-@@ -9727,23 +9950,19 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
+@@ -9727,33 +9950,28 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
          fail(dsv41_context.problem(ctx), "--context takes 8192 up to 1048576 (8K, 32K, 64K, 128K, 256K, 512K, 1M); the default is 131072 (128K)")
      if dsv41_context.note(ctx):
          warn(f"context {dsv41_context.label(ctx)}: {dsv41_context.note(ctx)}")
@@ -632,7 +632,42 @@ index a99e9df..719692e 100644
  
      def partial(f: Path) -> int:
          p = f.with_name(f.name + ".part")
-@@ -9886,7 +10105,8 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
+         return p.stat().st_size if p.is_file() else 0
+ 
+-    left = sum(0 if f.exists() and (done(f) or a.gguf_dir or own_files.get(f) or f.name in DSV41_LEGACY_FILES) else fam["sha256"][f.name][0] - partial(f)
+-               for f in [*shards, *shared]) / 1e9
+-    probe = folder if folder.exists() else (folder.parent if folder.parent.exists() else Path(a.models_dir))
+-    free = free_gb(probe)
+-    plan = dsv41_fit.plan([{**c, "vram_gb": float(c.get("vram_gb") or 0)} for c in cards], ram, free if left else None, ctx, model=model,
++    needs = [(f, 0 if f.exists() and (done(f) or a.gguf_dir or own_files.get(f) or f.name in DSV41_LEGACY_FILES)
++              else max(0, fam["sha256"][f.name][0] - partial(f)) / 1e9) for f in [*shards, *shared]]
++    left = sum(gb for _, gb in needs)
++    plan = dsv41_fit.plan([{**c, "vram_gb": float(c.get("vram_gb") or 0)} for c in cards], ram, None, ctx, model=model,
+                          named=True)               # `cards` are decided above (dsv41_auto_cards / the person's): the plan describes them
+     say()
+     for line in plan["lines"]:
+@@ -9787,12 +10005,14 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
+                      f"{model} needs about {plan['ram_needed_gb']:.0f} GB of RAM", f"more RAM or cards fix it; --model {model} --yes "
+                      "installs it anyway", "  Install it anyway?")
+         warn(f"installing {model} with {ram:.0f} GB of RAM, as you chose")
+-    if left and free < left:
+-        fail(f"not enough free disk space in {folder}: need ~{left:.0f} GB, {free:.0f} GB free",
+-             "use --models-dir on a bigger drive (an NVMe drive is best: the n-gram table is read from it while the model "
+-             "answers), or --gguf-dir for files you already have")
+-    if left and free < left + dsv41_fit.DISK_HEADROOM_GB:
+-        warn(f"little free disk space in {folder}: {free:.1f} GB free for about {left:.1f} GB. Setup goes on and should fit")
++    for parent, needed in destination_budgets(needs):
++        free = free_gb(parent)
++        if free < needed:
++            fail(f"not enough free disk space in {parent}: need ~{needed:.0f} GB, {free:.0f} GB free",
++                 "use --models-dir on a bigger drive (an NVMe drive is best: the n-gram table is read from it while the model "
++                 "answers), or --gguf-dir for files you already have")
++        if free < needed + dsv41_fit.DISK_HEADROOM_GB:
++            warn(f"little free disk space in {parent}: {free:.1f} GB free for about {needed:.1f} GB. Setup goes on and should fit")
+     if ctx > DSV41_CONTEXT:       # 128K is the default now (owner, 2026-11-01); only a longer one the person asked for is said to be untested
+         warn(f"{ctx // 1024}K tokens of context: longer than the {DSV41_CONTEXT // 1024}K the engine is checked at; kept as you chose, but untested")
+     # Pictures are on by default (owner rule): the engine reads them with its own vision tower (319 MiB, loaded with the model, no separate
+@@ -9886,7 +10106,8 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
          else:
              download(DSV41_SHARED[f.name] + f.name, f)
          verify_sha256(f, *dsv41_pin_of(f, fam["sha256"][f.name]), own=own_files[f], also=dsv41_also(f.name))
@@ -642,7 +677,7 @@ index a99e9df..719692e 100644
  
      step(6, "preparing the model for Strata")
      data, _ = data_folder_for(a)
-@@ -10389,10 +10609,11 @@ def mac_dsv41_setup(a) -> int:
+@@ -10389,10 +10610,11 @@ def mac_dsv41_setup(a) -> int:
      if problems:
          fail(problems[0])
      gpu = {"index": 0, "name": info["chip"], "vendor": "apple", "vram_gb": 0.0, "unified_gb": ram, "usable": True}
@@ -656,7 +691,7 @@ index a99e9df..719692e 100644
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -10404,16 +10625,21 @@ def main() -> int:
+@@ -10404,16 +10626,21 @@ def main() -> int:
      except Exception:
          pass
      if sys.platform == "darwin" and not CONTROL:       # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below
@@ -684,7 +719,7 @@ index a99e9df..719692e 100644
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md), deepseek41 = DeepSeek-V4.1-Flash "
-@@ -10483,6 +10709,7 @@ def main() -> int:
+@@ -10483,6 +10710,7 @@ def main() -> int:
      ap.add_argument("--set-default-data-dir", action="store_true",
                      help="with --data-dir: remember the new folder as the data folder without moving anything")
      ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
@@ -692,7 +727,7 @@ index a99e9df..719692e 100644
      ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
                                                             "or its unpacked folder); it is checked and installed instead of being fetched")
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -10562,7 +10789,14 @@ def main() -> int:
+@@ -10562,7 +10790,14 @@ def main() -> int:
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
@@ -708,7 +743,7 @@ index a99e9df..719692e 100644
      if getattr(a, "gguf_dir", None):                   # the person's own files: their finish marks go to Strata's marks/, never beside them
          own_files_in(a.gguf_dir)
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES:
-@@ -10581,7 +10815,7 @@ def main() -> int:
+@@ -10581,7 +10816,7 @@ def main() -> int:
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -717,7 +752,7 @@ index a99e9df..719692e 100644
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -10964,11 +11198,11 @@ def main() -> int:
+@@ -10964,11 +11199,11 @@ def main() -> int:
          family = allf[int(ask("Which model?", [str(i) for i in range(1, len(allf) + 1)],
                                str(allf.index(rec_fam) + 1), a.yes)) - 1]
      if family in OWN_PATH_FAMILIES:                    # Qwen3.6: its own engine path, its own steps 2-7
@@ -731,7 +766,7 @@ index a99e9df..719692e 100644
      fam = FAMILIES[family]
      SHAPE_ENGINE.clear()
      if fam.get("shape"):                               # a feed model of its own shape: its own engine component (strata_control/shape_engine.py)
-@@ -11231,39 +11465,26 @@ def main() -> int:
+@@ -11231,39 +11466,26 @@ def main() -> int:
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
@@ -781,7 +816,7 @@ index a99e9df..719692e 100644
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -11271,7 +11492,7 @@ def main() -> int:
+@@ -11271,7 +11493,7 @@ def main() -> int:
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -790,7 +825,7 @@ index a99e9df..719692e 100644
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -11279,11 +11500,16 @@ def main() -> int:
+@@ -11279,11 +11501,16 @@ def main() -> int:
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -810,7 +845,7 @@ index a99e9df..719692e 100644
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11317,10 +11543,10 @@ def main() -> int:
+@@ -11317,10 +11544,10 @@ def main() -> int:
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -823,7 +858,7 @@ index a99e9df..719692e 100644
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11377,17 +11603,18 @@ def main() -> int:
+@@ -11377,17 +11604,18 @@ def main() -> int:
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
      env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
      prepared = bool(ready and MODELS[model].get("prepare"))
@@ -847,7 +882,7 @@ index a99e9df..719692e 100644
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11408,7 +11635,7 @@ def main() -> int:
+@@ -11408,7 +11636,7 @@ def main() -> int:
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -856,7 +891,7 @@ index a99e9df..719692e 100644
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11442,7 +11669,7 @@ def main() -> int:
+@@ -11442,7 +11670,7 @@ def main() -> int:
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -865,7 +900,7 @@ index a99e9df..719692e 100644
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11455,7 +11682,7 @@ def main() -> int:
+@@ -11455,7 +11683,7 @@ def main() -> int:
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(
@@ -874,7 +909,7 @@ index a99e9df..719692e 100644
      cfg, cfg_path, cal, args, ctx, kv, resident = (_built.cfg, _built.cfg_path, _built.cal, _built.args, _built.ctx, _built.kv, _built.resident)
      write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
                         after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
-@@ -11498,9 +11725,15 @@ def main() -> int:
+@@ -11498,9 +11726,15 @@ def main() -> int:
      return start(cfg_path, port)
  
  
@@ -1697,7 +1732,7 @@ index 35d9171..bce75ea 100644
              text = f"The update did not run: {exc}"
          self.updating = False
 diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
-index 5f07cb8..f9093b7 100644
+index 5f07cb8..9bb147b 100644
 --- a/strata_cli/launch/runner.py
 +++ b/strata_cli/launch/runner.py
 @@ -707,7 +707,9 @@ class Runner:
@@ -1830,16 +1865,27 @@ index 5f07cb8..f9093b7 100644
                  first = next((f for f in job["files"] if f.get("role") == "model"), None)
                  if first:                                    # the folder setup names it (Q2_0), not the lower-case run-config tag (q2_0)
                      job["folder"] = str(Path(first["path"]).parent)
-@@ -1348,7 +1333,7 @@ class Runner:
+@@ -1323,7 +1308,7 @@ class Runner:
+         p = self._spawn(argv, env=env, cwd=str(cat.src))
+         lines: list[str] = []
+         already: bool | None = None                          # all the model's files were on disk before this run wrote anything
+-        job = self.progress_job()
++        job = {}
+         step_seen, step_since, quiet_since, said = None, time.monotonic(), time.monotonic(), None
+         for line in self._read_lines(p):
+             if self.cancel.is_set():
+@@ -1348,7 +1333,9 @@ class Runner:
                      self.notices.append(note[1])
                  self.emit("model", note[1], None, level=note[0], step=step_seen)
              prog = cat.mcp.install_progress(lines)
 -            prog = cat.mcp.combined_progress(prog, job)
++            if str(prog.get("step") or "").startswith("5/") and not str(step_seen or "").startswith("5/"):
++                job = self.progress_job()                    # setup has migrated and selected the native download paths by step 5
 +            prog = cat.mcp.combined_progress(prog, job, setup_module=cat.strata.setup_module())
              dl, phase, label = prog.get("download"), prog.get("phase"), prog.get("label")
              if prog.get("step") != step_seen:
                  step_seen, step_since = prog.get("step"), time.monotonic()
-@@ -1706,7 +1691,8 @@ class Runner:
+@@ -1706,7 +1693,8 @@ class Runner:
              except Exception:                                # noqa: BLE001 - an unreadable table is only the old, generic plan
                  name = None
          return {"mode": mode, "klass": drafting.card_class(archs), "model_name": name, "family": self.s.family,
@@ -1849,7 +1895,7 @@ index 5f07cb8..f9093b7 100644
                  "backend": backend, "archs": archs, "mtp_here": drafting.mtp_ready(args) if cfg else None,
                  "blocked": drafting.blocked_by(args, split=bool(self.s.gpus and len(self.s.gpus) > 1), slots=int(self.s.parallel or 0), named=drafting.normalize(mode) == "dflash2", backend=backend)}
  
-@@ -2456,6 +2442,7 @@ class Runner:
+@@ -2456,6 +2444,7 @@ class Runner:
          from strata_control import discovery
          from strata_control.discovery import MMPROJ_GB, MTP_FETCH_GB
          s = self.s
@@ -1857,7 +1903,7 @@ index 5f07cb8..f9093b7 100644
          st = self.model_state()
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
-@@ -2466,9 +2453,7 @@ class Runner:
+@@ -2466,9 +2455,7 @@ class Runner:
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -1868,7 +1914,7 @@ index 5f07cb8..f9093b7 100644
                  if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
                      parts.append({"kind": "mtp", "label": "the draft layer", "gb": MTP_FETCH_GB})
                  own = None
-@@ -2476,7 +2461,7 @@ class Runner:
+@@ -2476,7 +2463,7 @@ class Runner:
                      own = Path(s.model_path)
                      own = own if own.is_dir() else own.parent
                  # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
@@ -1877,7 +1923,7 @@ index 5f07cb8..f9093b7 100644
                  if wants_pictures and "mmproj" not in have and not has_reader:
                      parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
-@@ -2487,7 +2472,6 @@ class Runner:
+@@ -2487,7 +2474,6 @@ class Runner:
              if _b is not None and self.other_copy() is not None:
                  _cfg = None                                  # another data folder's copy: its drafter is not the one this launch uses
              want = self.drafting_inputs(_cfg or {})
@@ -1885,7 +1931,7 @@ index 5f07cb8..f9093b7 100644
              sig = self.drafting_signals(_cfg or {}, want)
              if drafting.needs_pack(**want, **sig) or drafting.needs_tuned(**want, **sig):            # chosen DFlash2 (or Auto picking it) and the drafter (the tuned one, where the set has it) is not here: it is part of the download
                  parts.append({"kind": "dflash2", "label": "the DFlash2 drafter",
-@@ -2507,10 +2491,10 @@ class Runner:
+@@ -2507,10 +2493,10 @@ class Runner:
              # them with the same search setup makes (setup.dsv41_shared_missing), so the plan is the download (0.2.9.1: "Nothing to download" and then 8 GB)
              try:
                  mod = self.catalog.strata.setup_module()
@@ -1898,7 +1944,7 @@ index 5f07cb8..f9093b7 100644
                      if size >= 5e7:
                          parts.append({"kind": "shared", "label": labels.get(name, name), "gb": round(size / 1e9, 1)})
              except Exception:                                # noqa: BLE001 - the plan still shows the rest
-@@ -2577,17 +2561,20 @@ class Runner:
+@@ -2577,17 +2563,20 @@ class Runner:
              _m, families, _c, _src = self.catalog.tables()
              if mod is None or not (families.get(s.family or "") or {}).get("ready") or not hasattr(mod, "ready_needed"):
                  return None
@@ -1925,7 +1971,7 @@ index 5f07cb8..f9093b7 100644
          except Exception:                                    # noqa: BLE001 - a plan that cannot work this out still shows the rest
              return None
  
-@@ -2838,7 +2825,7 @@ class Runner:
+@@ -2838,7 +2827,7 @@ class Runner:
          s = self.s
          hw = self.catalog.hardware()
          try:
@@ -1934,7 +1980,7 @@ index 5f07cb8..f9093b7 100644
              free = None if (s.model_path or self.model_state().remaining_gb < 1) else self.catalog.disk_free(data)
          except Exception:                                    # noqa: BLE001 - a plan that cannot read the disk still shows the rest
              free = None
-@@ -2879,10 +2866,17 @@ class Runner:
+@@ -2879,10 +2868,17 @@ class Runner:
              self.ensure_profile(cfg)
              self.emit("config", "Settings are saved.", 100)
              if self.engine_problem:
@@ -1952,7 +1998,7 @@ index 5f07cb8..f9093b7 100644
              self.tune()
              self.check_cancel()
              if not start:
-@@ -2894,10 +2888,10 @@ class Runner:
+@@ -2894,10 +2890,10 @@ class Runner:
              res = Result(self.profile, urls, self.s.api_key, self.tune_word, self.notices, str(cfg), tunnel)
              self.emit("done", "Strata is serving.", 100, urls=urls)
              return res
