@@ -5920,7 +5920,7 @@ gate_path = base / "migration.sock"
 def spawn_fixture(argv, **kwargs):
     return spawn([argv[0], str(producer), str(config), str(gate_path), *argv[2:]], **kwargs)
 def read_fixture(process):
-    # Old eager snapshots run before this gate; migration cannot race ahead of that snapshot.
+    # Hold migration until stdout consumption begins; earlier snapshots must observe the original paths.
     with listener.accept()[0] as gate:
         gate.sendall(b"g")
     yield from read_lines(process)
