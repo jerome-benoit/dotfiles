@@ -951,7 +951,7 @@ index b768807..a2ae0e1 100644
      if os.name == "nt":
          # Windows has no process group to signal: the engine tree is put in a job object this run owns, which ends every process in it in one call
 diff --git a/strata_cli/cli.py b/strata_cli/cli.py
-index 5927ddc..04dafc6 100644
+index 5927ddc..4b0ccdd 100644
 --- a/strata_cli/cli.py
 +++ b/strata_cli/cli.py
 @@ -188,9 +188,12 @@ def parser() -> argparse.ArgumentParser:
@@ -1112,7 +1112,7 @@ index 5927ddc..04dafc6 100644
 +
 +
 +def _source_command(a: argparse.Namespace) -> int:
-+    """Run source setup unchanged; unlike install, a bare source command starts an installed model."""
++    """Run source setup without forcing --setup."""
 +    helper = os.environ.get("STRATA_WORKSPACE_HELPER")
 +    if helper:
 +        os.execv(sys.executable, [sys.executable, helper, "--managed-setup", *a.setup_args])

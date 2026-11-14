@@ -40,86 +40,54 @@ in
       default = "${config.xdg.dataHome}/strata";
       defaultText = lib.literalExpression ''"''${config.xdg.dataHome}/strata"'';
       description = ''
-        Absolute writable directory outside /nix/store for the source checkout, virtual
-        environment, engines, build caches and interpreter GC root. The launcher applies
-        its source patch under the workspace lock, leaves the diff visible and refuses
-        conflicting edits. Other contents remain user-owned and outside the Nix store.
-        Managed setup, install, launch acquisition and other mutating Terminal commands
-        hold this lock; mutating children inherit it, including Intel SYCL setup.
-        Serving and observers release acquisition ownership after preparation. Monitor
-        updates acquire a fresh workspace lock through model restart; a busy workspace
-        refuses that update without blocking observation.
-        Warm same-pin runtime stop and launch --stop follow native parser and dispatch
-        precedence without acquiring the workspace lock, so they can stop a service while an updater waits.
+        Absolute writable directory outside /nix/store for the source checkout,
+        Python environment, engines, build caches and interpreter GC root.
+        The launcher keeps its source patch visible and refuses conflicting edits.
 
-        A separate publication lease protects source checks, native parsing, exec and
-        consumer initialization. One-shot observers keep a read lease until completion;
-        logs and monitors release it before polling. Asynchronous runtime starts hand a
-        short read lease through the owner host to each backend, including later restarts.
-        Benchmark services inherit only this publication lease, not acquisition ownership.
-        Hosts and benchmark controllers close their spawn copy after handoff; services
-        release theirs at native readiness after caching deferred helpers. Fetching does
-        not hold the publication lock.
-        Warm observations require the complete applied overlay and a valid HEAD.
-        Interrupted initialization and publication resume before parser inspection.
-        Managed launch refreshes source and Python after pin changes, then lets native
-        launch acquire missing engines, models and drafters before validating the derived
-        selected config. Unrelated incomplete installations do not block that launch.
-        Source starts, explicit updates and managed serve retain complete validation.
-        Failed repairs remain pending. Independent external runtimes skip reconciliation.
-        Direct upstream scripts outside this launcher do not participate
-        in these leases.
-        Changing this path does not migrate the workspace.
+        Managed setup, updates and model acquisition serialize workspace mutations.
+        Serving and observation release the mutation lock after preparation.
+        Monitor updates refuse a busy workspace without blocking observation.
+        Prepared same-pin stop commands remain available while an updater waits.
+        Source publication protects command initialization; direct upstream scripts
+        outside this launcher do not participate in these protections.
+
+        Other workspace contents remain user-owned. Changing this path does not
+        migrate the workspace.
       '';
     };
     dataDirectory = lib.mkOption {
       type = lib.types.nullOr mutableDirectory;
       default = null;
       description = ''
-        Optional absolute directory outside /nix/store, used as --data-dir for new
-        models, packs and drafts during managed source setup, install and launch acquisition.
-        External acquisitions keep upstream folder selection.
-        Null preserves upstream folder selection; an explicit CLI --data-dir takes priority.
-        This default is not a remembered CLI choice and does not request a data move.
-        Launch plans and folder selection use the same effective destination as setup
-        without saving this default in launch settings or presets.
-        Folder screens keep unchanged explicit choices even when they equal the derived
-        default; accepting an implicit default does not save it.
-        Own-file move plans count existing MTP whether setup moves it or reuses it in place.
-        Installed-move forecasts credit complete files only at the selected model placement.
-        Installed starts, updates, checks and standalone commands keep their existing paths.
-        Upstream retains explicit move
-        confirmation and owns model selection, tuning and profiles.
+        Optional absolute directory outside /nix/store, used as --data-dir during
+        managed source setup, install and launch acquisition.
+        Null keeps upstream selection; explicit CLI values take priority.
+        Independent external installations keep upstream directory selection.
+
+        This default stays unsaved in launch settings and presets. The Folder screen
+        preserves unchanged explicit choices, including choices equal to the default.
+        This default does not request a move or redirect installed starts, updates,
+        checks or standalone actions. Upstream retains explicit move confirmation.
       '';
     };
     modelsDirectory = lib.mkOption {
       type = lib.types.nullOr mutableDirectory;
       default = null;
       description = ''
-        Optional absolute directory outside /nix/store, passed as --models-dir during
-        initial or explicit managed setup and launch acquisition.
-        External acquisitions keep upstream folder selection.
+        Optional absolute directory outside /nix/store, used as --models-dir during
+        managed source setup, install and launch acquisition.
         GGUF downloads and QAD dense/PLE outputs use this directory; NVFP4 packs,
         QAD checkpoints/drafts and image VAE files use the data directory.
+        Null leaves upstream selection unchanged, normally <data directory>/models.
+        Explicit CLI paths take priority; independent external installations keep
+        upstream directory selection.
 
-        Complete NVFP4 installations are reused in place before selecting a QAD
-        checkpoint. Fully verified checkpoints take priority over partial downloads.
-        Checkpoints resume in place; new outputs use the selected GGUF and data directories.
-
-        Null preserves upstream layout, normally <data directory>/models, including
-        when --models-dir is supplied on the CLI. Explicit CLI values take priority,
-        including supported abbreviations and equals syntax. Installed starts,
-        updates, checks and standalone commands keep their existing paths.
-        Managed acquisition through the launch runner receives these same defaults.
-        Download progress, plans, helper forecasts and folder-space warnings share setup's
-        effective destinations and reuse selection, including retained checkpoints.
-        Without a data move, split acquisition also reuses complete files in the current
-        data folder during reconfiguration. Missing files keep their requested destinations.
-        Qwen3.6 and DeepSeek forecasts and progress share setup's selection and live completion rules.
-        Missing vision projectors use the requested model directory.
-        Remaining DeepSeek downloads are checked per destination filesystem.
-        Launch progress snapshots follow upstream migration and path selection.
-        These defaults do not request moves; upstream retains model selection, tuning and profiles.
+        Complete retained files are reused in place. Missing files use the requested
+        destinations, including vision projectors. Plans and progress follow native
+        path selection and completion evidence. DeepSeek checks remaining downloads
+        per destination filesystem.
+        This default does not request a move or redirect installed starts, updates,
+        checks or standalone actions.
       '';
     };
     package = lib.mkOption {
@@ -127,48 +95,28 @@ in
       default = strataPackage;
       defaultText = lib.literalExpression "strataPackage";
       description = ''
-        Strata's public Terminal command in the upstream x86_64-linux CUDA development environment.
-        Root help, version, bare usage and errors use the pinned Terminal parser.
-        The source subcommand passes raw arguments to source setup: source --help shows setup help,
-        source starts or calibrates installed models without forcing setup, and source --update
-        explicitly refreshes the pinned source runtime. Install forces setup or --update as requested.
-        Install help before a user-supplied -- separator stays in the Terminal parser,
-        including after setup flags, and never starts an external installer's bootstrap.
-        Update remains the upstream engine/Control feed command; it does not change the Nix source pin.
-        Real launch, serve, install, bench run and cold monitor UI commands can bootstrap
-        Python without installing a model. Interactive monitoring checks its real UI consumer
-        in the selected runtime and resumes incomplete bootstrap. Invalid monitor requests,
-        including JSON without --once or interactive use without a terminal, return native
-        errors before optional UI imports or Python bootstrap.
-        Serve semantic usage errors retain native output before dependency checks or bootstrap.
-        Help, including signed-feed family help in either argument order, does not discover feeds.
-        Help, version, status, monitor --once and plans do not acquire Python packages, models or engines.
-        Source and Nix environment realization can still require network access.
-        A cold serve plan reports upstream's typed missing-dependency error until runtime is available.
-        New source pins refresh installed runtimes automatically before real managed launch or serve.
-        A source-refresh receipt records a successful updater and validated Python at the pin;
-        it does not certify engines or model files. Launch validates its actual derived config
-        after acquisition and before tuning or start. A complete runtime revision is recorded
-        atomically only when every installed config also validates. Healthy selected launches
-        reuse the source-refresh receipt even when unrelated inventory remains incomplete.
-        Launch ownership follows the native catalog. Serve follows its canonical config
-        or the original raw executable when that executable belongs to the workspace,
-        independently of STRATA_INSTALL_DIR. Component references retain upstream pins.
-        Independent external runtimes skip workspace reconciliation but may bootstrap Terminal Python.
-        Installed base configs and source-built engines stay in the workspace. Derived
-        launch configs remain in upstream's state directory and receive native argument
-        migrations before serving, including when the runtime is already certified.
-        SYCL validation checks the engine selected through the wrapper's effective mount
-        and configured working directory. Saved environment values override ambient settings;
-        empty values use wrapper defaults. Only engine argument paths are translated;
-        tokenizer and vision paths stay on the host. Manifest-listed auxiliary engines
-        retain native signatures, payload
-        checks and version policy, with hashes for the main and selected executable.
-        Component engines keep upstream's shared store. Explicit external launch targets
-        keep upstream directory and runtime selection.
-        External install targets use their own installer and runtime without private workspace state.
-        Canonical aliases of the managed checkout retain managed setup and locking.
-        Terminal commands preserve caller arguments and working directory, including relative config paths.
+        Strata's Terminal CLI in the upstream x86_64-linux CUDA development environment.
+        Bare strata prints native usage and exits 2; strata --help prints Terminal help
+        and exits 0. Terminal dispatch preserves caller arguments and working directory,
+        including relative config paths; native actions may select their own directories.
+
+        strata source runs source setup from the managed checkout without forcing --setup.
+        source --help shows setup help; source --update refreshes the pinned source runtime.
+        strata install runs the selected installation's installer and runtime from its
+        directory, forcing --setup or --update as requested. Native install also accepts
+        setup options; these are not Terminal root options.
+        strata update uses the signed engine/Control feed without changing the Nix source pin.
+
+        After source-pin changes, real managed launch or serve refreshes source/Python
+        automatically. Launch acquires missing components, then validates its selected
+        config before tuning or starting. Unrelated incomplete installations do not block
+        launch. Independent external runtimes keep upstream selection and skip workspace
+        reconciliation; Terminal Python may still bootstrap.
+
+        Real commands may bootstrap Python as needed. Help, version, status, monitor --once
+        and plans do not bootstrap Python or acquire models or engines. Source preparation
+        and Nix realization can still need network; a cold serve plan can report missing
+        dependencies. Upstream owns model selection, explicit moves, tuning and profiles.
       '';
     };
   };
