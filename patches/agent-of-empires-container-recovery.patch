@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires 64a5d3b83a0e919644a4431b60b1e042ede727d8 (web/)
+# base: agent-of-empires/agent-of-empires 326d0971a84c88f1e2e32b85e2ea149aabf8fc9b (web/)
 # prerequisites: none
 # intent: preserve typed startup causes and offer container recreation without adapter-install instructions.
 diff --git a/src/components/acp/SessionBanners.tsx b/src/components/acp/SessionBanners.tsx
