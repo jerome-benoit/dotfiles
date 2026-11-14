@@ -110,11 +110,13 @@ in
         setup options; these are not Terminal root options.
         strata update uses the signed engine/Control feed without changing the Nix source pin.
 
-        After source-pin changes, real managed launch or serve refreshes source/Python
-        automatically. Launch acquires missing components, then validates its selected
-        config before tuning or starting. Unrelated incomplete installations do not block
-        launch. Independent external runtimes keep upstream selection and skip workspace
-        reconciliation; Terminal Python may still bootstrap.
+        After source-pin changes, accepted managed launch or serve refreshes the managed
+        runtime automatically. Launch validates native choices before preparing Python or updating
+        installed components, then revalidates under its private interpreter. Guided launch
+        prepares Python before opening screens. Launch acquires missing components and
+        validates its selected config before tuning or starting. Unrelated incomplete
+        installations do not block launch. Independent external runtimes keep upstream
+        selection and skip workspace reconciliation; Terminal Python may still bootstrap.
 
         Real commands may bootstrap Python as needed. Help, version, status, monitor --once
         and plans do not bootstrap Python or acquire models or engines. Source preparation

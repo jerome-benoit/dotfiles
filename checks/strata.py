@@ -3585,10 +3585,13 @@ fi
         peer.close()
         self.assert_workspace_unlocked()
 
-    def run_terminal_pty(self, command, env):
+    def run_terminal_pty(self, command, env, *, input_data=None):
         master, slave = pty.openpty()
-        process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave)
+        process = subprocess.Popen(command, env=env, stdin=slave if input_data is not None else subprocess.DEVNULL,
+                                   stdout=slave, stderr=slave)
         os.close(slave)
+        if input_data is not None:
+            os.write(master, input_data)
         output = bytearray()
         deadline = time.monotonic() + 90
         try:
@@ -3753,6 +3756,183 @@ fi
                 self.assertFalse((root / ".venv").exists())
                 self.assertFalse((self.state / ".python-root").exists())
                 self.assertEqual(marker.read_text().strip(), self.old)
+
+    def test_launch_semantic_errors_preserve_native_results_without_runtime(self):
+        root = self.prepare(self.old)
+        setup = root / "setup.sh"
+        setup.write_text('#!/bin/sh\nprintf x >> "$(dirname "$0")/bootstrap-attempts"\nexit 19\n')
+        setup.chmod(0o700)
+        self.write_terminal(root, '''
+import socket
+from strata_cli import cli
+from strata_cli.launch.catalog import Catalog
+original_catalog = Catalog.__init__
+def catalog(self, src=None, root=None, hardware=None):
+    return original_catalog(self, src=src, root=root,
+        hardware={"gpus": [], "ram_gb": 256, "disk_free_gb": 512, "os": "linux", "cpu": {"avx2": True}})
+Catalog.__init__ = catalog
+def no_network(*args, **kwargs):
+    raise AssertionError("invalid launch attempted network acquisition")
+socket.socket.connect = no_network
+raise SystemExit(cli.main())
+''')
+        env = dict(self.env, STRATA_INSTALL_DIR=str(root), PIP_NO_INDEX="1")
+        env.pop("STRATA_TEST_MISSING_KEY", None)
+        for key in ("STRATA_WORKSPACE_CONTEXT", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_LOCK_FD",
+                    "STRATA_SOURCE_LOCK_FD", "STRATA_LAUNCH_RUNTIME_READY"):
+            env.pop(key, None)
+        choices = ["--family", "qwen", "--model", "Q2_0", "--no-tui"]
+        self.run_source_script(root, '''
+from strata_cli.launch import store
+from strata_cli.launch.settings import LaunchSettings
+store.save(LaunchSettings(family="qwen", model="Q2_0", parallel=9), "invalid-parallel")
+''')
+        cases = [
+            ["--backend", "not-a-backend"], ["--model", "not-a-model"],
+            ["--preset", "missing-preset"], ["--model-path", str(self.base / "missing.gguf")],
+            [*choices, "--parallel", "9"], [*choices, "--port", "70000"],
+            [*choices, "--api-key-env", "STRATA_TEST_MISSING_KEY"],
+            [*choices, "--gpu", "0", "--gpu-roles", "0=worker"],
+            ["--preset", "invalid-parallel", "--no-tui"], [],
+        ]
+        expected = []
+        for options in cases:
+            argv = ["launch", *options, "--output", "json"]
+            result = subprocess.run([sys.executable, str(root / self.env["TEST_TERMINAL_CLI"]), *argv],
+                                    cwd=self.base, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+            if result.stdout:
+                self.assertFalse(json.loads(result.stdout)["ok"])
+            else:
+                self.assertIn("usage: strata launch", result.stderr)
+            expected.append((argv, result.stdout, result.stderr))
+        for options in (["--backend", "not-a-backend"], ["--preset", "missing-preset"]):
+            argv = ["--quiet", "launch", *options]
+            result = subprocess.run([sys.executable, str(root / self.env["TEST_TERMINAL_CLI"]), *argv],
+                                    cwd=self.base, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("strata:", result.stderr)
+            expected.append((argv, result.stdout, result.stderr))
+        receipts = [root / ".git/strata-runtime-revision", root / ".git/strata-source-refresh-revision"]
+        for path in receipts:
+            path.write_text("keep existing runtime receipt\n")
+        for state in ("cold", "working", "pipless", "unusable"):
+            with self.subTest(runtime=state):
+                shutil.rmtree(root / ".venv", ignore_errors=True)
+                if state == "pipless":
+                    self.make_venv_without_pip(root)
+                elif state in {"working", "unusable"}:
+                    interpreter = root / ".venv/bin/python"
+                    interpreter.parent.mkdir(parents=True)
+                    if state == "working":
+                        interpreter.symlink_to(sys.executable)
+                    else:
+                        interpreter.write_text("#!/bin/sh\nexit 61\n")
+                        interpreter.chmod(0o700)
+                before = {path: path.read_bytes() for path in receipts}
+                for argv, stdout, stderr in expected:
+                    with self.subTest(argv=argv):
+                        result = subprocess.run(self.command(self.old) + ["run", *argv], cwd=self.base,
+                                                env=env, capture_output=True, text=True, timeout=30)
+                        self.assertEqual((result.returncode, result.stdout, result.stderr),
+                                         (2, stdout, stderr))
+                        self.assertEqual({path: path.read_bytes() for path in receipts}, before)
+                        self.assertFalse((root / "bootstrap-attempts").exists())
+                if state == "cold":
+                    self.assertFalse((root / ".venv").exists())
+                elif state == "pipless":
+                    self.assertFalse((root / ".venv/.strata-pip.json").exists())
+
+    def test_launch_private_handoff_preserves_single_output_key_and_start(self):
+        root = self.make_native_lifecycle_workspace()
+        (root / "allow-update").touch()
+        setup = root / "setup.sh"
+        first, separator, body = setup.read_text().partition("\n")
+        setup.write_text(first + separator + (
+            'if [ "${STRATA_BOOTSTRAP_ONLY:-}" = 1 ]; then printf x >> "$(dirname "$0")/bootstrap-attempts"; fi\n'
+        ) + body)
+        entry = root / self.env["TEST_TERMINAL_CLI"]
+        entry.write_text(entry.read_text().replace("raise SystemExit(cli.main())", '''
+import os, sys
+from strata_cli.launch import access
+from strata_control import models_move
+models_move.interrupted = lambda *_: {"pending": True}
+Runner.check_own_files = lambda self: self.emit("model", "Identified fixture model.", None)
+original_key = access.new_key
+def new_key():
+    key = original_key()
+    with (ROOT / "generated-keys").open("a") as output:
+        output.write(key + "\\n")
+    return key
+access.new_key = new_key
+original_start = Runner.start
+def start(self):
+    assert Path(sys.executable).absolute() == (ROOT / ".venv/bin/python").absolute()
+    assert "STRATA_LAUNCH_RUNTIME_READY" not in os.environ
+    with (ROOT / "starts").open("a") as output:
+        output.write("start\\n")
+    return original_start(self)
+Runner.start = start
+if os.environ.get("TEST_WRONG_LAUNCH_PYTHON") and "STRATA_LAUNCH_RUNTIME_READY" in os.environ:
+    receipt = json.loads(os.environ["STRATA_LAUNCH_RUNTIME_READY"])
+    receipt["python"] = sys._base_executable
+    os.environ["STRATA_LAUNCH_RUNTIME_READY"] = json.dumps(receipt)
+raise SystemExit(cli.main())
+'''))
+        env = dict(self.env, PIP_NO_INDEX="1", PYTHONNOUSERSITE="1", STRATA_INSTALL_DIR=str(root))
+        command = self.command(self.old) + [
+            "run", "launch", "--family", "qwen", "--model", "Q2_0", "--no-tui", "--yes",
+            "--access", "lan", "--api-key", "existing-fixture-key", "--new-key", "--save-preset", "once",
+        ]
+        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=240)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.count("A move of your models was interrupted."), 1)
+        self.assertEqual(result.stdout.count("Identified fixture model."), 1)
+        self.assertEqual((root / "starts").read_text(), "start\n")
+        self.assertEqual((root / "bootstrap-attempts").read_text(), "x")
+        keys = (root / "generated-keys").read_text().splitlines()
+        self.assertEqual(len(keys), 1)
+        self.run_source_script(root, f'''
+from strata_cli.launch import store
+assert store.load("once").api_key == {keys[0]!r}
+assert [preset.name for preset in store.list_presets()] == ["once"]
+''')
+        failed = subprocess.run([*command, "--output", "json"],
+                                env=dict(env, TEST_WRONG_LAUNCH_PYTHON="1"),
+                                capture_output=True, text=True, timeout=90)
+        self.assertEqual(failed.returncode, 2, failed.stderr + failed.stdout)
+        self.assertIn("interpreter", json.loads(failed.stdout)["error"]["message"])
+        self.assertEqual((root / "starts").read_text(), "start\n")
+        self.assertEqual((root / "generated-keys").read_text().splitlines(), keys)
+        self.assertEqual((root / "bootstrap-attempts").read_text(), "xx")
+
+    def test_guided_launch_missing_screens_keeps_one_handoff_and_native_cancel(self):
+        root = self.make_updater_workspace()
+        self.write_terminal(root, '''
+import sys
+from pathlib import Path
+from strata_cli import cli
+from strata_cli.launch import cmd
+ROOT = Path(__file__).resolve().parent
+def screens_missing():
+    assert Path(sys.executable).absolute() == (ROOT / ".venv/bin/python").absolute()
+    return "textual"
+cmd._screens_missing = screens_missing
+def defaults(settings, catalog):
+    settings.family, settings.model, settings.context = "qwen", "Q2_0", 8192
+    return settings, []
+cmd.apply_defaults = defaults
+raise SystemExit(cli.main())
+''')
+        env = dict(self.env, PIP_NO_INDEX="1", PYTHONNOUSERSITE="1",
+                   STRATA_INSTALL_DIR=str(root), TERM="xterm")
+        code, output = self.run_terminal_pty(self.command(self.old) + ["run", "launch"], env, input_data=b"n\n")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(output.count("The screens need a Python package"), 1, output)
+        self.assertEqual(output.count("Start it now?"), 1, output)
+        self.assertEqual(output.count("Nothing was changed."), 1, output)
+        self.assert_workspace_unlocked()
 
     def make_native_lifecycle_workspace(self):
         root = self.prepare(self.old)

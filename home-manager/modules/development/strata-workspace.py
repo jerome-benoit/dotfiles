@@ -575,9 +575,6 @@ def passive_action(a):
 
 def runtime_action(a):
     """Opt in only actions whose execution needs Python runtime or screen dependencies."""
-    if a.command == "launch":
-        return not (a.plan or any(getattr(a, key, False)
-                                 for key in ("status", "list_presets", "show_key", "stop", "delete_preset")))
     if a.command == "serve":
         from strata_cli.cli import validate_serve_args
         from strata_control.profiles import ProfileError
@@ -595,10 +592,6 @@ def runtime_action(a):
 def managed_runtime_configs(root, a):
     """Return selected configs for managed actions, or None for independent external runtimes."""
     root = root.resolve()
-    if a.command == "launch":
-        from strata_cli.launch.catalog import resolve_installation
-        target, _ = resolve_installation()
-        return [] if target.resolve() == root else None
     if a.command == "serve":
         from strata_control import doctor, engine_component, profiles
         try:
@@ -614,6 +607,24 @@ def managed_runtime_configs(root, a):
             if doctor._location(cfg["exe"], effective, config).resolve().is_relative_to(root):
                 return [config]
     return None
+
+
+def launch_exec(installation, args):
+    """Resume a native-validated launch under its prepared private interpreter."""
+    context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
+    state = Path(context["state"]).resolve()
+    root = (state / "source").resolve()
+    lock_fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+    installation = Path(installation).resolve()
+    python = bootstrap_runtime(state, root, lock_fd)
+    if installation == root:
+        prepare_launch_runtime(root, context["revision"], lock_fd)
+    os.environ["STRATA_LAUNCH_RUNTIME_READY"] = json.dumps({
+        "source": str(root), "revision": context["revision"], "installation": str(installation),
+        "python": str(python.absolute()),
+    })
+    entry = context.get("terminal_cli", TERMINAL_CLI)
+    os.execv(str(python), [str(python), str(root / entry), *args])
 
 
 def source_exec(context, args):
@@ -692,6 +703,8 @@ def source_exec(context, args):
 
 def run_workspace(state, revision, args, *, data_directory=None, models_directory=None, source_patch=None,
                   managed_setup=False):
+    if not managed_setup:
+        os.environ.pop("STRATA_LAUNCH_RUNTIME_READY", None)
     state = Path(state).expanduser().resolve()
     source = state / "source"
     ledger = source / ".git" / SOURCE_PATCH
@@ -707,7 +720,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                     and head.returncode == 0
                     and head.stdout.strip() == revision
                     and patch_check(source, ledger.read_text(), reverse=True)):
-                python = runtime_python(source)
+                python = Path(sys.executable) if args[0] == "launch" else runtime_python(source)
                 if not os.access(python, os.X_OK):
                     python = Path(sys.executable)
                 probe = subprocess.run(
@@ -725,6 +738,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         context = {
             "state": str(state), "revision": revision, "data_directory": data_directory,
             "models_directory": models_directory, "source_patch": source_patch, "remote": REMOTE,
+            "terminal_cli": TERMINAL_CLI,
         }
         os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(lock.fileno())
         os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
@@ -736,14 +750,13 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         if a.command == "source":
             return source_exec(context, a.setup_args)
         python = runtime_python(root)
-        if runtime_action(a):
+        if a.command == "launch":
+            python = Path(sys.executable)
+        elif runtime_action(a):
             python = bootstrap_runtime(state, root, lock.fileno())
             configs = managed_runtime_configs(root, a)
-            if configs is not None:
-                if a.command == "launch":
-                    prepare_launch_runtime(root, revision, lock.fileno())
-                elif configs or model_configs(root):
-                    refresh_runtime(root, revision, lock.fileno(), [], configs=configs)
+            if configs is not None and (configs or model_configs(root)):
+                refresh_runtime(root, revision, lock.fileno(), [], configs=configs)
         elif not os.access(python, os.X_OK):
             python = Path(sys.executable)
         if passive_action(a):
@@ -762,7 +775,10 @@ if __name__ == "__main__":
             if sys.argv[1] == "--source-exec":
                 sys.exit(source_exec(context, sys.argv[2:]))
             context.pop("remote")
+            TERMINAL_CLI = context.pop("terminal_cli", TERMINAL_CLI)
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
+        elif sys.argv[1] == "--launch-exec":
+            launch_exec(sys.argv[2], sys.argv[3:])
         elif sys.argv[1] == "--observer-probe":
             sys.exit(observer_probe(Path(sys.argv[2]).resolve(), sys.argv[3:]))
         elif sys.argv[1] == "--validate-selected":
