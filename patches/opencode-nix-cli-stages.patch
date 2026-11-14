@@ -1,4 +1,4 @@
-# base: anomalyco/opencode 83960f8a56b2f2b8ad0b751f23baaf9d0eb65ad9
+# base: anomalyco/opencode 9f1639c73223053c7e5bc6f2204995fcd39b15ad
 # prerequisites: none
 # intent: isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 diff --git a/packages/desktop/src/main/service/cli-version.ts b/packages/desktop/src/main/service/cli-version.ts

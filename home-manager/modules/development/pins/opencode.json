@@ -1,11 +1,11 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-7j8Id12jeAhCjSK0KCmmWcy+wYXPkGhzTTdl6RqLHz0=",
-    "aarch64-linux": "sha256-BOaMjw4dmt+JypKTPwTE23QsLlq0AxNhvGUwBR3OPD4=",
-    "aarch64-darwin": "sha256-tiPPxe/O1+1UadAhuvNB9/1rQPWKiqJ7aW3tQS0zV+M="
+    "x86_64-linux": "sha256-WJSCoGtHb84aqRUvo2nEdDqSvlqJp3/kSss+VWii2e4=",
+    "aarch64-linux": "sha256-Tl4OdE6yUA5YtsnQ7ZxcXkau2BzqZfl5W8bJE4SlDdE=",
+    "aarch64-darwin": "sha256-TigMUvnZX6AAlbjrCaenxwtVj5zlXwoX+ETuTwNF258="
   },
   "provenance": {
-    "sourceRevision": "83960f8a56b2f2b8ad0b751f23baaf9d0eb65ad9",
+    "sourceRevision": "9f1639c73223053c7e5bc6f2204995fcd39b15ad",
     "nixpkgsRevision": "2074cc672349f14240fb7ea90d509e0b643e9dd4",
     "bunVersion": "1.4.4",
     "buildSystems": {
@@ -13,19 +13,19 @@
       "aarch64-linux": "x86_64-linux",
       "aarch64-darwin": "aarch64-darwin"
     },
-    "linuxEnvironment": "Docker linux/amd64 under emulation; sandbox and syscall filtering disabled for compatibility.",
-    "calculation": "Exact upstream frozen-lockfile dependency phases and both normalization scripts; targets serialized. Darwin was interrupted after installPhase completed; its retained output was hashed directly.",
+    "linuxEnvironment": "Docker linux/amd64 under emulation; dependency calculations use its disk-backed filesystem. Sandbox and syscall filtering disabled for tool materialization.",
+    "calculation": "Selected upstream source fileset, frozen root/CLI/Desktop/app installation filters and both normalizers. Dependency-only NAR serialized in place without output copies; targets serialized.",
     "calibration": {
       "retrospective": false,
-      "referenceSourceRevision": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
+      "referenceSourceRevision": "83960f8a56b2f2b8ad0b751f23baaf9d0eb65ad9",
       "referenceNixpkgsRevision": "2074cc672349f14240fb7ea90d509e0b643e9dd4",
       "referenceBunVersion": "1.4.4",
       "referenceHashes": {
-        "x86_64-linux": "sha256-afhOEbf/FnTCpwxS1kpuCdCaQKLNh84ToItHKREfEuU=",
-        "aarch64-linux": "sha256-hDW9mIVnZySsIzLPkApYjipnlJtbLgiG0izMeyl3zYo=",
-        "aarch64-darwin": "sha256-JBSDsLKF3fW+um95ecFyi3fyF6JhQfFGrpNR8cFJt+0="
+        "x86_64-linux": "sha256-7j8Id12jeAhCjSK0KCmmWcy+wYXPkGhzTTdl6RqLHz0=",
+        "aarch64-linux": "sha256-BOaMjw4dmt+JypKTPwTE23QsLlq0AxNhvGUwBR3OPD4=",
+        "aarch64-darwin": "sha256-tiPPxe/O1+1UadAhuvNB9/1rQPWKiqJ7aW3tQS0zV+M="
       },
-      "result": "Previous per-target reference outputs reproduced on the same build systems before calculating the refreshed targets."
+      "result": "NAR encoding matched Nix on a bounded filesystem fixture; all previous per-target hashes reproduced before their refreshed calculations."
     },
     "validationPolicy": {
       "maxJobs": 1,
@@ -33,9 +33,9 @@
       "targets": "serial"
     },
     "verification": {
-      "x86_64-linux": "Exact Linux x86_64 dependency FOD and NAR check passed; imported output matches the production fixed-output path. No CLI/Desktop build.",
-      "aarch64-linux": "--cpu=arm64 --os=linux replay on the calibrated Linux x86_64 builder; dependency FOD, NAR and production output path verified. No native ARM runtime build.",
-      "aarch64-darwin": "Fresh native dependency phases completed and retained output NAR hash verified directly. No corrected FOD, CLI or Desktop rebuild."
+      "x86_64-linux": "Calibrated dependency NAR calculated on the Linux x64 builder; no fixed-output registration or CLI/Desktop build.",
+      "aarch64-linux": "--cpu=arm64 --os=linux dependency replay calibrated and calculated on Linux x64; no native ARM execution or fixed-output registration.",
+      "aarch64-darwin": "Native dependency installation and normalizers completed; calibrated dependency NAR calculated without copying. Selected search tests passed; no FOD or CLI/Desktop build."
     }
   }
 }

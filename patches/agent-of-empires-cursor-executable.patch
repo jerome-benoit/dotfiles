@@ -1,10 +1,10 @@
-# base: agent-of-empires/agent-of-empires f87a4153bb92db4bfe580ec6f3d2a56b98f37fba
+# base: agent-of-empires/agent-of-empires 64a5d3b83a0e919644a4431b60b1e042ede727d8
 # prerequisites: none
 # intent: Detect and launch the packaged cursor-agent executable instead of agent.
 diff --git a/src/agents.rs b/src/agents.rs
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -788,7 +788,7 @@
+@@ -794,7 +794,7 @@
              SessionCaptureContext::PaneScoped,
              SessionCaptureContext::PaneScoped,
          ),
@@ -16,7 +16,7 @@ diff --git a/src/agents.rs b/src/agents.rs
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
-@@ -3562,6 +3562,36 @@
+@@ -3564,6 +3564,36 @@
  
  #[cfg(test)]
  mod tests {

@@ -124,6 +124,10 @@ retrospective without rewriting the initial execution history. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose
 NAR hash and fixed-output store path match the selected derivation.
 
+Copy-free NAR calculation requires an exact format check against Nix and calibration
+against the previous per-target reference. Preserve output paths, symlinks and
+executable bits; this byte proof does not establish fixed-output registration.
+
 Use `inputs.opencode` from this repository's evaluated flake so its
 `nixpkgs.follows` supplies the actual Bun toolchain. CLI `--override-input`
 does not override inputs loaded by `builtins.getFlake` inside `--expr`.
