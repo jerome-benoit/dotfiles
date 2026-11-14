@@ -320,7 +320,13 @@ def check_runtime(root, selected=(), *, inventory=True):
                 problems.append(f"{exe}: Metal engine was not built for this source")
             continue
         info = exe.parent / "BUILD.json"
-        meta = json.loads(info.read_text()) if info.exists() else {}
+        try:
+            meta = json.loads(info.read_text()) if info.exists() else {}
+            if not isinstance(meta, dict):
+                raise ValueError("expected a JSON object")
+        except (OSError, ValueError) as error:
+            problems.append(f"{config.name}: invalid build metadata {info}: {error}")
+            continue
         manifest = exe.parent / engine_component.MANIFEST
         if manifest.exists():
             try:
@@ -573,6 +579,12 @@ def runtime_action(a):
         return not (a.plan or any(getattr(a, key, False)
                                  for key in ("status", "list_presets", "show_key", "stop", "delete_preset")))
     if a.command == "serve":
+        from strata_cli.cli import validate_serve_args
+        from strata_control.profiles import ProfileError
+        try:
+            validate_serve_args(a)
+        except ProfileError:
+            return False  # Native dispatch owns its error envelope and exit code.
         return not (a.plan or a.json)
     if a.command == "monitor":
         from strata_cli.monitor_commands import monitor_validation_error
