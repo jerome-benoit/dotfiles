@@ -95,7 +95,8 @@ non-login fallback. Preserve the local fallback-decision override only for the
 gateway marker, and keep the regression where an explicit init file causes
 activation to fail after a valid gateway launch. Unmarked fallback stays upstream.
 
-After refreshing, run `checks/hermes-mise.py` through the public Hermes check.
+When patched code or relevant upstream assumptions change, run
+`checks/hermes-mise.py` through the public Hermes check.
 It imports the actual installed wheel with its own interpreter and exercises
 `LocalEnvironment` snapshots and persistent cwd, not extracted helper bodies.
 Keep real mise/Node fixtures, account Bash/Zsh, all directory layouts, runtime
