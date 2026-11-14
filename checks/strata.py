@@ -103,7 +103,7 @@ class WorkspaceTests(unittest.TestCase):
         terminal_tests = self.repo / "tests/terminal"
         terminal_tests.mkdir(parents=True)
         for name in ("test_discovery.py", "test_net_own_folder.py", "test_model_folder_case.py",
-                     "test_fix3_0212.py", "test_flow2_022.py"):
+                     "test_fix3_0212.py", "test_flow2_022.py", "test_dsv41_mac_unsloth.py"):
             shutil.copyfile(Path(UPSTREAM) / "tests/terminal" / name, terminal_tests / name)
         shutil.copyfile(Path(UPSTREAM) / "strata.py", self.repo / "strata.py")
         shutil.copyfile(Path(UPSTREAM) / "setup.sh", self.repo / "setup.sh")
@@ -114,6 +114,8 @@ class WorkspaceTests(unittest.TestCase):
         shutil.copyfile(Path(UPSTREAM) / "tools/iq_pack.py", self.repo / "tools/iq_pack.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/strata_mcp.py", self.repo / "tools/strata_mcp.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/gguf_reader.py", self.repo / "tools/gguf_reader.py")
+        for name in ("test_setup_qwen36.py", "test_setup_feed_models.py", "test_setup_dsv41.py", "test_setup_amd_cards.py"):
+            shutil.copyfile(Path(UPSTREAM) / "tools" / name, self.repo / "tools" / name)
         (self.repo / "sycl").mkdir()
         shutil.copyfile(Path(UPSTREAM) / "sycl/setup_intel.py", self.repo / "sycl/setup_intel.py")
         (self.repo / "removed.py").write_text("obsolete source\n")
@@ -4927,12 +4929,13 @@ for name in legacy["shared"]:
     seed(legacy["folder"] / name, *fam["sha256"][name])
 def forbidden(*args, **kwargs):
     raise AssertionError("read-only plan attempted acquisition or data mutation")
-def plan(vision="off"):
+def plan(vision="off", model_path=None):
     output = io.StringIO()
     before = settings.read_bytes()
     with contextlib.redirect_stdout(output):
         assert cmd.run_launch(cli.parse_args(["launch", "--family", family, "--model", model, "--context", "8192",
-            "--vision", vision, "--mtp", "off", "--drafting", "off", "--no-api-key", "--plan", "--output", "json"])) == 0
+            "--vision", vision, "--mtp", "off", "--drafting", "off", "--no-api-key", "--plan", "--output", "json",
+            *(["--model-path", str(model_path)] if model_path else [])])) == 0
     assert settings.read_bytes() == before
     return json.loads(output.getvalue())["plan"]["download"]["gb"]
 with contextlib.ExitStack() as guards:
@@ -4973,7 +4976,9 @@ with contextlib.ExitStack() as guards:
     seed(first, *fam["sha256"][first.name])
     shared = selected["shared"][mod.DSV41_DSPARK]
     shared.unlink()
-    assert plan() > 0
+    expected_shared = round(fam["sha256"][mod.DSV41_DSPARK][0] / 1e9, 1)
+    assert plan() == expected_shared
+    assert plan(model_path=selected["folder"]) == expected_shared
     seed(shared, *fam["sha256"][mod.DSV41_DSPARK])
     assert plan("on") > 0
     seed_selected(models, vision=True)
@@ -5819,7 +5824,7 @@ def install(old_free, new_free, allowed, probe=True):
     with patch.object(mod, "free_gb", side_effect=capacity), patch.object(mod, "pip_install", side_effect=stop), \
             patch.object(mod, "dsv41_cards", return_value=[card]), contextlib.redirect_stdout(output):
         try:
-            mod.install_dsv41(parsed[0], "deepseek41", card, False, [], 13, [], 8080, 2000, None, [card], elsewhere=[old])
+            mod.install_dsv41(parsed[0], "deepseek41", card, False, [], 13, [], 8080, 2000, None, [card], data=old, elsewhere=[old])
         except ReachedAcquisition:
             assert allowed, output.getvalue()
         except SystemExit as error:
@@ -6062,6 +6067,236 @@ shown = [event for event in events if str(event.data.get("step") or "").startswi
 assert shown and all(event.pct == 99 for event in shown), shown
 assert events[-1].pct == 100
 assert retained.is_file() and not (models / (fam["tag"] + model) / filename).exists()
+''')
+
+    def test_family_preparation_keeps_selected_sources_after_saving_data_directory(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os, shutil, socket, subprocess
+from pathlib import Path
+from unittest.mock import patch
+root = Path.cwd()
+base = root.parent.parent / "family-preparation"
+base.mkdir()
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root))
+import setup
+@HARDWARE@
+card["count"] = 1
+setup.ram_gb = lambda: 2000
+setup.gpu_compute_mode = lambda *args: None
+setup.gpu_drives_display = lambda *args: False
+setup.rotational_disk = lambda *args: None
+setup.free_gb = lambda *args: 1000.0
+setup.cpu_sockets = lambda: []
+setup.disk_room_problem = lambda *args: None
+class Prepared(Exception):
+    pass
+def forbidden(*args, **kwargs):
+    raise AssertionError("unexpected acquisition, process or network")
+for family, model, vision in (("qwen36", "UD-Q4_K_XL", "no"),
+                              ("qwen36", "UD-Q4_K_XL", "yes"),
+                              ("deepseek41", "IST-DAS-2.00bpw", "no")):
+    for move in (False, True):
+        name = f"{family}-{vision}-{move}"
+        data, models = base / name / "data", base / name / "gguf"
+        data.mkdir(parents=True)
+        models.mkdir()
+        settings = base / name / "settings.json"
+        settings.write_text(json.dumps({"data_dir": str(root)}))
+        os.environ["STRATA_SETTINGS_FILE"] = str(settings)
+        if family == "qwen36":
+            fam = setup.OWN_PATH_FAMILIES[family]
+            folder = root / "models" / (fam["tag"] + model)
+            originals = [folder / fam["file"].format(q=model)]
+            if vision == "yes":
+                originals.append(folder / fam["mmproj"])
+        else:
+            fam = setup.MULTI_FILE_FAMILIES[family]
+            originals = [Path(item["path"]) for item in setup.dsv41_download_files(model, root / "models", vision=False)]
+        for path in originals:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            size, sha = fam["sha256"][path.name]
+            with path.open("wb") as stream:
+                stream.truncate(size)
+            assert path.stat().st_blocks == 0
+            setup.mark(path, "sha256 " + sha)
+        # Explicit moves select the merged folder; keep uses retained files without moving them.
+        selected_models = data / "models" if move else models
+        expected = [data / path.relative_to(root) if move else path for path in originals]
+        reached = []
+        def prepare(command, **kwargs):
+            assert all(path.is_file() and setup.done(path) for path in expected), (name, command)
+            assert all((data / path.relative_to(root)).exists() == move for path in originals), name
+            assert json.loads(settings.read_text())["data_dir"] == str(data)
+            assert command[command.index("--out") + 1] == str(data / "packs" / (fam["tag"] + model).lower()), command
+            if family == "qwen36":
+                assert command[command.index("--gguf") + 1] == str(expected[0]), command
+            else:
+                assert str(expected[0].parent) in list(map(str, command)), command
+            reached.append(True)
+            raise Prepared()
+        with contextlib.ExitStack() as guards:
+            guards.enter_context(patch.object(setup, "run", side_effect=prepare))
+            guards.enter_context(patch.object(setup, "download", side_effect=forbidden))
+            guards.enter_context(patch.object(setup, "engine_step",
+                side_effect=lambda a, gpu, hip, amd, tk, choice: (root, root / "engine", {"version": "99.0.0"}, [], gpu, choice)))
+            guards.enter_context(patch.object(setup, "engine_families", return_value=[setup.OWN_PATH_FAMILIES["qwen36"]["arch"]]))
+            guards.enter_context(patch.object(setup, "dsv41_exe", return_value=root / "engine/strata-dsv41"))
+            guards.enter_context(patch.object(setup, "dsv41_cards", return_value=[card]))
+            guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
+            guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
+            guards.enter_context(patch.object(socket, "create_connection", side_effect=forbidden))
+            argv = ["--family", family, "--model", model, "--context", "8192", "--vision", vision,
+                    "--models-dir", str(selected_models), "--data-dir", str(data), "--set-default-data-dir",
+                    "--separate-model-artifacts", "--no-start", "--yes", *(["--move-data"] if move else [])]
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    setup.main(argv)
+                except Prepared:
+                    pass
+            assert reached, name
+        shutil.rmtree(root / "models", ignore_errors=True)
+        shutil.rmtree(data / "models", ignore_errors=True)
+'''.replace("@HARDWARE@", HARDWARE_SETUP))
+
+    def test_deepseek_move_plan_projects_native_selection_without_mutation(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os, shutil, socket, subprocess
+from pathlib import Path
+from unittest.mock import patch
+from strata_cli import cli
+from strata_cli.launch import catalog as C, cmd
+from strata_cli.launch.runner import Runner
+from strata_control import discovery, drafting, engine_component
+root = Path.cwd()
+base = root.parent.parent / "deepseek-move-plan"
+base.mkdir()
+cases = ("move", "missing-pack", "incomplete-pack", "conflicting-pack", "missing-shard", "unfinished-shard",
+         "marker-only", "part-only", "missing-shared", "unfinished-shared", "split", "split-complete",
+         "merged", "unfinished-destination", "six", "partial-six", "legacy", "vision")
+for scenario in cases:
+    home = base / scenario
+    data, models = home / "data", home / "gguf"
+    data.mkdir(parents=True)
+    models.mkdir()
+    settings = home / "settings.json"
+    settings.write_text(json.dumps({"data_dir": str(root)}))
+    split = scenario in ("split", "split-complete")
+    os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+        STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent),
+            **({"models_directory": str(models)} if split else {})}))
+    cat = C.Catalog(src=root, root=root, hardware={})
+    mod = cat.strata.setup_module()
+    family, model = "deepseek41", "IST-DAS-2.00bpw"
+    fam = mod.MULTI_FILE_FAMILIES[family]
+    def seed(path):
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        size, sha = fam["sha256"][path.name]
+        with path.open("wb") as stream:
+            stream.truncate(size)
+        assert path.stat().st_blocks == 0
+        mod.mark(path, "sha256 " + sha)
+    selected = mod.dsv41_download_layout(model, root / "models", vision=False)
+    for path in [*selected["shards"], *selected["shared"].values()]:
+        seed(path)
+    tag = cat.tag_of(family, model)
+    pack = root / "packs" / tag
+    (pack / "tokenizer").mkdir(parents=True)
+    (pack / "tokenizer/vocab.json").write_text("{}")
+    (pack / "tensors.txt").write_text("fixture")
+    config = root / ("strata-" + tag + ".json")
+    config.write_text(json.dumps({"exe": str(root / "engine/strata-dsv41"), "arch": family,
+        "args": ["--pack", str(pack), "--max-context", "8192", "--vision", "off"]}))
+    row = C.ModelRow(family=family, family_title="DeepSeek", model=model, id=tag, about="",
+        download_gb=sum(item["bytes"] for item in mod.dsv41_download_files(model, root / "models", vision=False)) / 1e9,
+        need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
+        experimental=False, images=True, installed=True)
+    cat.rows = lambda: [row]
+    cat.strata.describe_config = lambda path: {"images": "off"}
+    first = selected["shards"][0]
+    missing = None
+    if scenario == "missing-pack":
+        shutil.rmtree(pack)
+    if scenario == "incomplete-pack":
+        (pack / "tokenizer/vocab.json").unlink()
+    if scenario == "conflicting-pack":
+        destination = data / "packs" / tag
+        destination.mkdir(parents=True)
+        (destination / "tensors.txt").write_text("destination only")
+    if scenario in ("missing-shard", "marker-only", "part-only"):
+        first.unlink()
+        missing = first
+        if scenario == "missing-shard":
+            first.with_name(first.name + ".done").unlink()
+        if scenario == "part-only":
+            first.with_name(first.name + ".done").unlink()
+            with first.with_name(first.name + ".part").open("wb") as stream:
+                stream.truncate(fam["sha256"][first.name][0])
+    if scenario == "unfinished-shard":
+        first.with_name(first.name + ".done").unlink()
+        missing = first
+    if scenario in ("missing-shared", "unfinished-shared"):
+        missing = selected["shared"][mod.DSV41_DSPARK]
+        (missing if scenario == "missing-shared" else missing.with_name(missing.name + ".done")).unlink()
+    if scenario == "split-complete":
+        for item in mod.dsv41_download_files(model, models, vision=False):
+            seed(item["path"])
+    if scenario in ("merged", "unfinished-destination"):
+        destination = data / first.relative_to(root)
+        destination.parent.mkdir(parents=True)
+        if scenario == "merged":
+            first.rename(destination)
+            first.with_name(first.name + ".done").rename(destination.with_name(destination.name + ".done"))
+        else:
+            destination.write_bytes(b"unfinished destination wins")
+            missing = first
+    if scenario in ("six", "partial-six"):
+        names = fam["models"][model]["shards6"]
+        for name in names if scenario == "six" else names[:1]:
+            seed(selected["folder"] / name)
+    if scenario == "legacy":
+        legacy = first.with_name(mod.DSV41_LEGACY_NAMES[first.name])
+        first.rename(legacy)
+    if scenario == "vision":
+        missing = mod.dsv41_download_layout(model, root / "models", vision=True)["shared"][mod.DSV41_MMPROJ]
+    footprint = discovery.footprint(json.loads(config.read_text()), config)
+    assert footprint.weights == [] and footprint.data_dir == root
+    def forbidden(*args, **kwargs):
+        raise AssertionError("plan attempted acquisition, mutation or a process")
+    def plan():
+        output = io.StringIO()
+        before = settings.read_bytes(), config.read_bytes()
+        with patch.object(mod, "data_folder", side_effect=forbidden), patch.object(mod, "data_folder_for", side_effect=forbidden), \
+                patch.object(mod, "save_settings", side_effect=forbidden), contextlib.redirect_stdout(output):
+            assert cmd.run_launch(cli.parse_args(["launch", "--family", family, "--model", model, "--context", "8192",
+                "--data-dir", str(data), "--move-data", "--vision", "on" if scenario == "vision" else "off",
+                "--mtp", "off", "--drafting", "off", "--no-api-key", "--plan", "--output", "json"])) == 0
+        assert before == (settings.read_bytes(), config.read_bytes())
+        return json.loads(output.getvalue())["plan"]["download"]
+    with contextlib.ExitStack() as guards:
+        guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
+        guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
+        guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
+        guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
+        guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
+        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", ""), ("speed_line", "")):
+            guards.enter_context(patch.object(Runner, name, return_value=value))
+        guards.enter_context(patch.object(C, "Catalog", return_value=cat))
+        guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
+        before = plan()
+        expected = round(fam["sha256"][missing.name][0] / 1e9, 1) if missing else \
+            round(row.download_gb, 1) if scenario == "split" else 0
+        assert before["gb"] == expected, (scenario, before, expected)
+        assert not any(part["kind"] == "shared" for part in before["parts"]), before
+        if scenario in ("move", "six", "partial-six", "legacy", "merged"):
+            with contextlib.redirect_stdout(io.StringIO()):
+                mod.data_folder(str(data), move=True, yes=True, set_default=True)
+            assert plan()["gb"] == 0, scenario
+    config.unlink()
+    shutil.rmtree(root / "models", ignore_errors=True)
+    shutil.rmtree(root / "packs", ignore_errors=True)
 ''')
 
 

@@ -84,9 +84,10 @@ in
 
         Complete retained files are reused in place. Missing files use the requested
         destinations, including vision projectors. Plans and progress follow native
-        path selection and completion evidence. Launch progress retains acquisition
-        sources when the saved data directory changes. DeepSeek checks remaining
-        downloads per destination filesystem.
+        path selection and completion evidence. Retained sources remain usable through
+        model preparation when the saved data directory changes. Plans account for
+        native file merges; existing destination files and whole packs take priority.
+        DeepSeek checks remaining downloads per destination filesystem.
         This default does not request a move or redirect installed starts, updates,
         checks or standalone actions.
       '';
