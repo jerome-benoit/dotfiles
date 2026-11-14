@@ -83,7 +83,8 @@ in
         This default is not a remembered CLI choice and does not request a data move.
         Launch plans and folder selection use the same effective destination as setup
         without saving this default in launch settings or presets.
-        Folder screens preserve explicit choices; accepting a derived default does not save it.
+        Folder screens keep unchanged explicit choices even when they equal the derived
+        default; accepting an implicit default does not save it.
         Own-file move plans count existing MTP whether setup moves it or reuses it in place.
         Installed-move forecasts credit complete files only at the selected model placement.
         Installed starts, updates, checks and standalone commands keep their existing paths.
@@ -112,7 +113,9 @@ in
         Managed acquisition through the launch runner receives these same defaults.
         Download progress, plans, helper forecasts and folder-space warnings share setup's
         effective destinations and reuse selection, including retained checkpoints.
-        DeepSeek forecasts and progress share setup's shard selection and live completion rules.
+        Without a data move, split acquisition also reuses complete files in the current
+        data folder during reconfiguration. Missing files keep their requested destinations.
+        Qwen3.6 and DeepSeek forecasts and progress share setup's selection and live completion rules.
         Missing vision projectors use the requested model directory.
         These defaults do not request moves; upstream retains model selection, tuning and profiles.
       '';

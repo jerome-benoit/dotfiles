@@ -74,7 +74,7 @@ index fbd5354..2a2058b 100644
 -if __name__ == "__main__":
 -    sys.exit(main())
 diff --git a/setup.py b/setup.py
-index a99e9df..b27805f 100644
+index a99e9df..719692e 100644
 --- a/setup.py
 +++ b/setup.py
 @@ -1158,7 +1158,7 @@ def run(cmd, cwd=None, env=None, check=True, quiet=False):
@@ -86,7 +86,19 @@ index a99e9df..b27805f 100644
      if check and r.returncode != 0:
          if quiet and r.stdout:
              say(r.stdout[-4000:])
-@@ -3772,41 +3772,47 @@ def ready_files(model: str) -> list:
+@@ -1299,6 +1299,11 @@ def done(path: Path) -> bool:
+     return mark_text(path) is not None
+ 
+ 
++def download_complete(path: Path, *, own: bool = False) -> bool:
++    """Whether native acquisition accepts this final file without fetching it."""
++    return path.exists() and (done(path) or own)
++
++
+ def mark(path: Path, text=""):
+     """Write the finish mark.  A folder that cannot be written (--gguf-dir on a read-only share, #570, a read-only model disk) keeps the mark
+     in Strata's own folder instead (marks/), so a 110 GB Engram is hashed once, not on every launch; only when that cannot be written either
+@@ -3772,41 +3777,47 @@ def ready_files(model: str) -> list:
      return [(role, repo, t["revision"], path, size, sha) for path, (role, size, sha) in t["files"].items()]
  
  
@@ -150,7 +162,7 @@ index a99e9df..b27805f 100644
          if f[0] == "pack" and p.name == "index.txt":
              out["pack"] = p.parent
          elif f[0] in ("dense", "ple", "embd"):
-@@ -3814,6 +3820,49 @@ def ready_paths(model: str, models_dir: Path) -> dict:
+@@ -3814,6 +3825,49 @@ def ready_paths(model: str, models_dir: Path) -> dict:
      return out
  
  
@@ -200,7 +212,7 @@ index a99e9df..b27805f 100644
  def ready_verified(p: Path, sha: str) -> bool:
      """Downloaded whole and checked: its finish mark holds the pinned SHA-256 (verify_sha256)."""
      try:
-@@ -3822,13 +3871,67 @@ def ready_verified(p: Path, sha: str) -> bool:
+@@ -3822,13 +3876,67 @@ def ready_verified(p: Path, sha: str) -> bool:
          return False
  
  
@@ -272,7 +284,7 @@ index a99e9df..b27805f 100644
          if ready_verified(dst, sha):
              ok(f"{f[3]} already downloaded")
              continue
-@@ -5127,7 +5230,8 @@ def engine_from_feed(eng: Path, updating: bool = False) -> Path | None:
+@@ -5127,7 +5235,8 @@ def engine_from_feed(eng: Path, updating: bool = False) -> Path | None:
      say("  Fetching the ready-made engine from the signed update feed ...")
      try:
          run = subprocess.run([sys.executable, str(ROOT / "strata.py"), "update", "--no-control", "--output", "json"],
@@ -282,7 +294,7 @@ index a99e9df..b27805f 100644
      except (OSError, subprocess.SubprocessError) as e:
          warn(f"the update feed could not be run ({e})")
          return None
-@@ -5650,7 +5754,7 @@ def image_backend_choice(a, gpu: dict | None, hip: bool) -> tuple[str, str, floa
+@@ -5650,7 +5759,7 @@ def image_backend_choice(a, gpu: dict | None, hip: bool) -> tuple[str, str, floa
      return backend, quant, gb
  
  
@@ -291,7 +303,7 @@ index a99e9df..b27805f 100644
      """--images qwen-image: sd-cli for this GPU and Qwen-Image-2.1-Turbo's three files -> the run config's "images"
      section (serve/images.py); None for --images no, or when not wanted after all."""
      if not a.images or a.images == "no":
-@@ -5662,17 +5766,20 @@ def setup_images(a, gpu: dict, hip: bool, models_dir: Path) -> dict | None:
+@@ -5662,17 +5771,20 @@ def setup_images(a, gpu: dict, hip: bool, models_dir: Path) -> dict | None:
      need = sum(QI.FILES[k][2] for k in (quant, "vae", "llm")) / 1e9
      if ask(f"Download the image model ({need:.1f} GB) and set up image generation?", ["y", "n"], "y", a.yes) != "y":
          return None
@@ -316,7 +328,7 @@ index a99e9df..b27805f 100644
      ok(f"image generation: {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
      return cfg
  
-@@ -6919,11 +7026,12 @@ def has_data(folder: Path) -> bool:
+@@ -6919,11 +7031,12 @@ def has_data(folder: Path) -> bool:
      return False
  
  
@@ -331,7 +343,7 @@ index a99e9df..b27805f 100644
          try:
              for d in base.iterdir():
                  if d.is_dir() and d.name.lower().startswith("strata"):
-@@ -6935,7 +7043,7 @@ def other_installs(settings: dict) -> list:
+@@ -6935,7 +7048,7 @@ def other_installs(settings: dict) -> list:
      for d in cands:
          try:
              d = d.resolve()
@@ -340,7 +352,7 @@ index a99e9df..b27805f 100644
                  found.append(d)
          except OSError:
              pass
-@@ -7019,6 +7127,39 @@ def same_folder(a: Path, b: Path) -> bool:
+@@ -7019,6 +7132,39 @@ def same_folder(a: Path, b: Path) -> bool:
          return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
  
  
@@ -380,7 +392,7 @@ index a99e9df..b27805f 100644
  def data_folder(requested: str | None, move: bool = False, yes: bool = True, set_default: bool = False) -> tuple:
      """(the data folder, folders that still hold model files and are used where they are).
  
-@@ -7047,12 +7188,8 @@ def data_folder(requested: str | None, move: bool = False, yes: bool = True, set
+@@ -7047,12 +7193,8 @@ def data_folder(requested: str | None, move: bool = False, yes: bool = True, set
      elsewhere = []
      # #198: the data folder remembered before (a --data-dir to a new place) is a source too, and so is a Strata-data
      # folder nested in any of them (an install that kept its models one level down)
@@ -394,7 +406,27 @@ index a99e9df..b27805f 100644
          # a different folder than the one in use: nothing is moved unless the person says so
          held = []
          for folder in dict.fromkeys(sources):
-@@ -8033,13 +8170,25 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
+@@ -7113,10 +7255,17 @@ def data_folder(requested: str | None, move: bool = False, yes: bool = True, set
+     return dest, elsewhere
+ 
+ 
++def model_data_sources(data, retained=(), *, separate=False, move=False):
++    """Reuse current model files in split layouts without changing destinations or predicting moves."""
++    return tuple(dict.fromkeys([*([Path(data)] if separate and not move else []), *retained]))
++
++
+ def data_folder_for(a) -> tuple:
+     """data_folder() with the answers on the command line (--data-dir, --move-data, --yes, --set-default-data-dir)."""
+-    return data_folder(getattr(a, "data_dir", None), getattr(a, "move_data", False), bool(getattr(a, "yes", True)),
+-                       getattr(a, "set_default_data_dir", False))
++    data, retained = data_folder(getattr(a, "data_dir", None), getattr(a, "move_data", False),
++                                 bool(getattr(a, "yes", True)), getattr(a, "set_default_data_dir", False))
++    return data, model_data_sources(data, retained, separate=getattr(a, "separate_model_artifacts", False),
++                                    move=getattr(a, "move_data", False))
+ 
+ 
+ def data_folder_in_place() -> tuple:
+@@ -8033,13 +8182,25 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
      for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
                                             break_on_hyphens=False)):   # #564: what this start uses
          say(("  " if n == 0 else "    ") + line)
@@ -427,7 +459,7 @@ index a99e9df..b27805f 100644
  
  
  # the draft subsets setup copied before (sha256): replaced by the current one, a subset made by hand is kept
-@@ -8551,7 +8700,7 @@ def sycl_setup(argv) -> int:
+@@ -8551,7 +8712,7 @@ def sycl_setup(argv) -> int:
      script = ROOT / "sycl" / "setup_intel.py"
      if not script.exists():
          fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
@@ -436,7 +468,57 @@ index a99e9df..b27805f 100644
  
  
  def intel_control_setup(a) -> int:
-@@ -9339,21 +9488,57 @@ def dsv41_find_shared(a, name: str, folder: Path, shared: Path, alt: tuple = ())
+@@ -8925,7 +9086,22 @@ def own_path_parallel_note(a_parallel, fam: dict, model: str, vram_gb: float, ct
+     return lines
+ 
+ 
+-def install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted):
++def own_path_download_layout(family, model, models_dir, *, gguf_dir=None, elsewhere=()):
++    """Select native GGUF and reader sources; missing files keep their requested destinations."""
++    fam = OWN_PATH_FAMILIES[family]
++    folder = Path(gguf_dir) if gguf_dir else Path(models_dir) / (fam["tag"] + model)
++    gguf, mmproj = folder / fam["file"].format(q=model), folder / fam["mmproj"]
++    if not gguf_dir:
++        for root in elsewhere:
++            candidate = Path(root) / "models" / (fam["tag"] + model)
++            if not download_complete(gguf) and download_complete(candidate / gguf.name):
++                gguf = candidate / gguf.name
++            if not download_complete(mmproj) and download_complete(candidate / mmproj.name):
++                mmproj = candidate / mmproj.name
++    return {"folder": gguf.parent, "gguf": gguf, "bytes": fam["sha256"][gguf.name][0], "mmproj": mmproj}
++
++
++def install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, *, elsewhere=()):
+     """Steps 2-7 for a family with its own engine path (OWN_PATH_FAMILIES: Qwen3.6-35B-A3B): the size, the context, the
+     engine, the GGUF (pinned revision, size and SHA-256), the tokenizer from the GGUF, the config and the start
+     script.  The engine places the experts itself (every one in VRAM when they fit, else the most-used ones there and
+@@ -8997,12 +9173,12 @@ def install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopte
+     if a.rope_scaling or a.rope_scale or a.kv or a.resident_budget_gib is not None or a.low_ram not in (None, "auto"):
+         warn(f"--rope-scaling / --kv / --resident-budget-gib / --low-ram are Flash-Next settings: {fam['title']} "
+              "does not use them")
+-    folder = Path(a.gguf_dir) if a.gguf_dir else Path(a.models_dir) / tag
+-    gguf = folder / fam["file"].format(q=model)
+-    size = fam["sha256"][gguf.name][0]
++    selected = own_path_download_layout(family, model, a.models_dir, gguf_dir=a.gguf_dir,
++                                        elsewhere=elsewhere if getattr(a, "separate_model_artifacts", False) else ())
++    folder, gguf, size = selected["folder"], selected["gguf"], selected["bytes"]
+     part = gguf.with_name(gguf.name + ".part")
+     def have(p: Path) -> bool:                         # --gguf-dir: the person's own file has no finish mark; verify_sha256 checks and writes it
+-        return p.exists() and (done(p) or bool(a.gguf_dir))
++        return download_complete(p, own=bool(a.gguf_dir))
+     left = 0 if have(gguf) else (size - (part.stat().st_size if part.is_file() else 0)) / 1e9
+     if left and free_gb(folder) < left:
+         fail(f"not enough free disk space in {folder}: need ~{left:.0f} GB, {free_gb(folder):.0f} GB free", ("use --data-dir on a bigger drive (strata launch --data-dir)" if CONTROL else "use --models-dir on a bigger drive"))
+@@ -9038,7 +9214,7 @@ def install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopte
+         download(fam["hf"] + gguf.name, gguf)
+     verify_sha256(gguf, *fam["sha256"][gguf.name], own=bool(a.gguf_dir))
+     ok(f"model file: {gguf}")
+-    mmproj = folder / fam["mmproj"]
++    mmproj = selected["mmproj"]
+     if vision != "none":                               # the image encoder: Unsloth's mmproj, pinned, size + SHA-256 checked
+         if not a.gguf_dir and not have(mmproj) and not mmproj.with_name(mmproj.name + ".part").exists():
+             # another size of this model has it already (the same file, kept beside each size): linked here, not fetched again
+@@ -9339,21 +9515,68 @@ def dsv41_find_shared(a, name: str, folder: Path, shared: Path, alt: tuple = ())
      return shared / name
  
  
@@ -444,7 +526,7 @@ index a99e9df..b27805f 100644
 -    """[(name, bytes still to fetch)] of the shared files (the Engram, the DSpark drafter, the metadata shard, the picture file) that install_dsv41 would download for
 -    `model` with these choices; the same search as the install (dsv41_find_shared), so the launcher's plan and the acquisition cannot disagree.  Files the person has
 -    (--gguf-dir) or that are already complete in the shared folder are not listed; a half-fetched one counts what is left."""
-+def dsv41_download_layout(model: str, models_dir, gguf_dir=None, *, vision: bool = True) -> dict:
++def dsv41_download_layout(model: str, models_dir, gguf_dir=None, *, vision: bool = True, elsewhere=()) -> dict:
 +    """Read the installer's shard and shared-file selection without creating, moving or downloading files."""
      from types import SimpleNamespace
      fam = MULTI_FILE_FAMILIES["deepseek41"]
@@ -455,53 +537,73 @@ index a99e9df..b27805f 100644
 +    if layout == "six" and not a.gguf_dir and not all((folder / name).exists() for name in md["shards6"]):
 +        layout = "four"                 # (setup downloads only the pinned four-shard files: a part of the six-shard set in setup's own folder is not used)
 +    shards = [dsv41_pick(folder, name) for name in (md["shards6"] if layout == "six" else md["shards"])]
++    sources = [dsv41_download_layout(model, Path(root) / "models", vision=vision)
++               for root in elsewhere if not gguf_dir and not same_folder(Path(root) / "models", models_dir)]
++    if not gguf_dir and not all(download_complete(p, own=p.name in DSV41_LEGACY_FILES) for p in shards):
++        source = next((item for item in sources
++                       if all(download_complete(p, own=p.name in DSV41_LEGACY_FILES) for p in item["shards"])), None)
++        if source is not None:
++            folder, layout, shards = source["folder"], source["layout"], source["shards"]
      shared_dir = dsv41_shared_dir(a, fam)
      udlow = md.get("recipe") in ("udlow", "coder")
 +    shared = {name: dsv41_find_shared(a, name, folder, shared_dir,
 +                                    (md["engram_shard"],) if udlow and name == DSV41_ISTA_ENGRAM else ())
 +              for name in [*md.get("shared", []), *([DSV41_MMPROJ] if vision else [])]}
-+    return {"folder": folder, "layout": layout, "shards": shards, "shared": shared, "shared_dir": shared_dir}
++    shared_dirs = tuple(dict.fromkeys([shared_dir, *(item["shared_dir"] for item in sources)]))
++    for name, path in shared.items():
++        if download_complete(path, own=bool(gguf_dir) or path.parent not in shared_dirs):
++            continue
++        for source in sources:
++            candidate = source["shared"][name]
++            if download_complete(candidate, own=candidate.parent not in source["shared_dirs"]):
++                shared[name] = candidate
++                break
++    return {"folder": folder, "layout": layout, "shards": shards, "shared": shared,
++            "shared_dir": shared_dir, "shared_dirs": shared_dirs}
 +
 +
-+def dsv41_download_complete(path: Path, *, own: bool = False) -> bool:
-+    """Whether native acquisition accepts this final file without fetching it."""
-+    return path.exists() and (done(path) or own)
-+
-+
-+def dsv41_download_files(model: str, models_dir, gguf_dir=None, *, vision: bool = True) -> list:
++def dsv41_download_files(model: str, models_dir, gguf_dir=None, *, vision: bool = True, elsewhere=()) -> list:
 +    """Selected files and native completion evidence for launch forecasts and download progress."""
 +    fam = MULTI_FILE_FAMILIES["deepseek41"]
-+    selected = dsv41_download_layout(model, models_dir, gguf_dir, vision=vision)
++    selected = dsv41_download_layout(model, models_dir, gguf_dir, vision=vision, elsewhere=elsewhere)
 +    files = []
 +    for path in selected["shards"]:
 +        accepted = bool(gguf_dir) or path.name in DSV41_LEGACY_FILES
 +        files.append({"path": str(path), "bytes": fam["sha256"][path.name][0], "role": "model",
-+                      "accept_unmarked": accepted, "complete": dsv41_download_complete(path, own=accepted)})
++                      "accept_unmarked": accepted, "complete": download_complete(path, own=accepted)})
 +    for name, path in selected["shared"].items():
-+        accepted = bool(gguf_dir) or path.parent != selected["shared_dir"]
++        accepted = bool(gguf_dir) or path.parent not in selected["shared_dirs"]
 +        files.append({"path": str(path), "bytes": fam["sha256"][name][0],
 +                      "role": "vision" if name == DSV41_MMPROJ else "model",
-+                      "accept_unmarked": accepted, "complete": dsv41_download_complete(path, own=accepted)})
++                      "accept_unmarked": accepted, "complete": download_complete(path, own=accepted)})
 +    return files
 +
 +
-+def dsv41_shared_missing(model: str, models_dir, gguf_dir=None, vision: bool = True) -> list:
++def dsv41_shared_missing(model: str, models_dir, gguf_dir=None, vision: bool = True, *, elsewhere=()) -> list:
 +    """[(name, bytes still to fetch)] of the shared files (the Engram, the DSpark drafter, the metadata shard, the picture file) that install_dsv41 would download for
 +    `model` with these choices; the same search as the install (dsv41_find_shared), so the launcher's plan and the acquisition cannot disagree.  Files the person has
 +    (--gguf-dir) or that are already complete in the shared folder are not listed; a half-fetched one counts what is left."""
 +    fam = MULTI_FILE_FAMILIES["deepseek41"]
-+    selected = dsv41_download_layout(model, models_dir, gguf_dir, vision=vision)
-+    shared_dir = selected["shared_dir"]
++    selected = dsv41_download_layout(model, models_dir, gguf_dir, vision=vision, elsewhere=elsewhere)
      out = []
 -    for n in [*md.get("shared", []), *([DSV41_MMPROJ] if vision else [])]:
 -        f = dsv41_find_shared(a, n, folder, shared_dir, (md["engram_shard"],) if (udlow and n == DSV41_ISTA_ENGRAM) else ())
 -        if f.exists() and (done(f) or a.gguf_dir or f.parent != shared_dir):
 +    for n, f in selected["shared"].items():
-+        if dsv41_download_complete(f, own=bool(gguf_dir) or f.parent != shared_dir):
++        if download_complete(f, own=bool(gguf_dir) or f.parent not in selected["shared_dirs"]):
              continue
          part = f.with_name(f.name + ".part")
          have = part.stat().st_size if part.is_file() else 0
-@@ -9727,21 +9912,17 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
+@@ -9679,7 +9902,7 @@ def dsv41_cards(gpu: dict, all_cards: list | None, asked: bool) -> list:
+     return list(all_cards)
+ 
+ 
+-def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards=None):
++def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards=None, *, elsewhere=()):
+     """Steps 2-7 for DeepSeek-V4.1-Flash (MULTI_FILE_FAMILIES): where it fits (strata_control/dsv41_fit.py, said plainly: a 508 GB
+     download and a model larger than most computers' memory are warnings, never a refusal), the engine (strata-dsv41), the nine
+     pinned shards (or your own, --gguf-dir), the engine's pack folder, the tokenizer and chat template from the GGUF, the config.  The
+@@ -9727,23 +9950,19 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
          fail(dsv41_context.problem(ctx), "--context takes 8192 up to 1048576 (8K, 32K, 64K, 128K, 256K, 512K, 1M); the default is 131072 (128K)")
      if dsv41_context.note(ctx):
          warn(f"context {dsv41_context.label(ctx)}: {dsv41_context.note(ctx)}")
@@ -509,14 +611,15 @@ index a99e9df..b27805f 100644
 -    layout = dsv41_layout_of(md, lambda n: (folder / n).exists()) if ista else "four"
 -    if layout == "six" and not a.gguf_dir and not all((folder / n).exists() for n in md["shards6"]):
 -        layout = "four"                 # (setup downloads only the pinned four-shard files: a part of the six-shard set in setup's own folder is not used)
-+    selected = dsv41_download_layout(model, a.models_dir, a.gguf_dir, vision=a.vision not in ("no", "off"))
++    selected = dsv41_download_layout(model, a.models_dir, a.gguf_dir, vision=a.vision not in ("no", "off"),
++                                     elsewhere=elsewhere if getattr(a, "separate_model_artifacts", False) else ())
 +    folder, layout, shards = selected["folder"], selected["layout"], selected["shards"]
      if layout == "six" and any((folder / n).exists() for n in md["shards"]):
          say(f"  {folder} holds both the older four-shard files and the six-shard files ISTA's converter wrote: the six-shard files are used (they carry the current chat template).")
 -    shards = [dsv41_pick(folder, n) for n in (md["shards6"] if layout == "six" else md["shards"])]
      if layout == "six":
          say(f"  {folder} holds ISTA-DASLab's six-shard files of 2026-10-27 ({len(shards)} files and the Engram as the sixth): they are used where they are.")
-     shared_dir = dsv41_shared_dir(a, fam)
+-    shared_dir = dsv41_shared_dir(a, fam)
      # Pictures are on by default (owner rule): the engine reads them with its own vision tower, which the pack carries when the tower's weights
      # (mmproj-BF16.gguf, a shared file) were there when it was made.  --vision no leaves the file out and the pack text-only.
      ds_vision = "off" if a.vision in ("no", "off") else "on"           # (on a Mac this is settled again once the engine is known, below)
@@ -524,10 +627,27 @@ index a99e9df..b27805f 100644
 -    shared = [dsv41_find_shared(a, n, folder, shared_dir, (md["engram_shard"],) if (udlow and n == DSV41_ISTA_ENGRAM) else ()) for n in shared_names]
 +    shared = list(selected["shared"].values())
      mmproj_file = shared[len(md.get("shared", []))] if ds_vision == "on" else None
-     own_files = {f: bool(a.gguf_dir) or f.parent != shared_dir for f in shared}         # a file found outside setup's own folder is the person's
+-    own_files = {f: bool(a.gguf_dir) or f.parent != shared_dir for f in shared}         # a file found outside setup's own folder is the person's
++    own_files = {f: bool(a.gguf_dir) or f.parent not in selected["shared_dirs"] for f in shared}  # retained managed files still require finish marks
  
-@@ -10392,7 +10573,8 @@ def mac_dsv41_setup(a) -> int:
-     return install_dsv41(a, a.family, gpu, False, False, 0, False, a.port or 8080, ram, None, [gpu])
+     def partial(f: Path) -> int:
+         p = f.with_name(f.name + ".part")
+@@ -9886,7 +10105,8 @@ def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted,
+         else:
+             download(DSV41_SHARED[f.name] + f.name, f)
+         verify_sha256(f, *dsv41_pin_of(f, fam["sha256"][f.name]), own=own_files[f], also=dsv41_also(f.name))
+-    ok(f"model files: {folder} ({len(shards)} shards" + (f"; shared files: {shared_dir if any(not own_files[f] for f in shared) else shared[0].parent}" if shared else "") + ")")
++    shared_folders = ", ".join(dict.fromkeys(str(f.parent) for f in shared))
++    ok(f"model files: {folder} ({len(shards)} shards" + (f"; shared files: {shared_folders}" if shared else "") + ")")
+ 
+     step(6, "preparing the model for Strata")
+     data, _ = data_folder_for(a)
+@@ -10389,10 +10609,11 @@ def mac_dsv41_setup(a) -> int:
+     if problems:
+         fail(problems[0])
+     gpu = {"index": 0, "name": info["chip"], "vendor": "apple", "vram_gb": 0.0, "unified_gb": ram, "usable": True}
+-    return install_dsv41(a, a.family, gpu, False, False, 0, False, a.port or 8080, ram, None, [gpu])
++    return install_dsv41(a, a.family, gpu, False, False, 0, False, a.port or 8080, ram, None, [gpu], elsewhere=_elsewhere)
  
  
 -def main() -> int:
@@ -536,7 +656,7 @@ index a99e9df..b27805f 100644
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -10404,16 +10586,21 @@ def main() -> int:
+@@ -10404,16 +10625,21 @@ def main() -> int:
      except Exception:
          pass
      if sys.platform == "darwin" and not CONTROL:       # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below
@@ -564,7 +684,7 @@ index a99e9df..b27805f 100644
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md), deepseek41 = DeepSeek-V4.1-Flash "
-@@ -10483,6 +10670,7 @@ def main() -> int:
+@@ -10483,6 +10709,7 @@ def main() -> int:
      ap.add_argument("--set-default-data-dir", action="store_true",
                      help="with --data-dir: remember the new folder as the data folder without moving anything")
      ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
@@ -572,7 +692,7 @@ index a99e9df..b27805f 100644
      ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
                                                             "or its unpacked folder); it is checked and installed instead of being fetched")
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -10562,7 +10750,14 @@ def main() -> int:
+@@ -10562,7 +10789,14 @@ def main() -> int:
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
@@ -588,7 +708,7 @@ index a99e9df..b27805f 100644
      if getattr(a, "gguf_dir", None):                   # the person's own files: their finish marks go to Strata's marks/, never beside them
          own_files_in(a.gguf_dir)
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES:
-@@ -10581,7 +10776,7 @@ def main() -> int:
+@@ -10581,7 +10815,7 @@ def main() -> int:
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -597,7 +717,21 @@ index a99e9df..b27805f 100644
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -11231,39 +11426,26 @@ def main() -> int:
+@@ -10964,11 +11198,11 @@ def main() -> int:
+         family = allf[int(ask("Which model?", [str(i) for i in range(1, len(allf) + 1)],
+                               str(allf.index(rec_fam) + 1), a.yes)) - 1]
+     if family in OWN_PATH_FAMILIES:                    # Qwen3.6: its own engine path, its own steps 2-7
+-        return install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted)
++        return install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, elsewhere=elsewhere)
+     if family in MULTI_FILE_FAMILIES:                  # DeepSeek-V4.1-Flash: nine shards, its own engine, several cards
+         all_cards = (None if (WIN or getattr(a, "_cards_named", False)) else dsv41_auto_cards(amd, ROOT / "engine")) if hip else [g for g in found if gpu_problem(g) is None]
+         gpu = {**gpu, "cards": chosen}
+-        return install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards)
++        return install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards, elsewhere=elsewhere)
+     fam = FAMILIES[family]
+     SHAPE_ENGINE.clear()
+     if fam.get("shape"):                               # a feed model of its own shape: its own engine component (strata_control/shape_engine.py)
+@@ -11231,39 +11465,26 @@ def main() -> int:
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
@@ -647,7 +781,7 @@ index a99e9df..b27805f 100644
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -11271,7 +11453,7 @@ def main() -> int:
+@@ -11271,7 +11492,7 @@ def main() -> int:
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -656,7 +790,7 @@ index a99e9df..b27805f 100644
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -11279,11 +11461,16 @@ def main() -> int:
+@@ -11279,11 +11500,16 @@ def main() -> int:
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -676,7 +810,7 @@ index a99e9df..b27805f 100644
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11317,10 +11504,10 @@ def main() -> int:
+@@ -11317,10 +11543,10 @@ def main() -> int:
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -689,7 +823,7 @@ index a99e9df..b27805f 100644
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11377,17 +11564,18 @@ def main() -> int:
+@@ -11377,17 +11603,18 @@ def main() -> int:
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
      env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
      prepared = bool(ready and MODELS[model].get("prepare"))
@@ -713,7 +847,7 @@ index a99e9df..b27805f 100644
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11408,7 +11596,7 @@ def main() -> int:
+@@ -11408,7 +11635,7 @@ def main() -> int:
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -722,7 +856,7 @@ index a99e9df..b27805f 100644
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11442,7 +11630,7 @@ def main() -> int:
+@@ -11442,7 +11669,7 @@ def main() -> int:
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -731,7 +865,7 @@ index a99e9df..b27805f 100644
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11455,7 +11643,7 @@ def main() -> int:
+@@ -11455,7 +11682,7 @@ def main() -> int:
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(
@@ -740,7 +874,7 @@ index a99e9df..b27805f 100644
      cfg, cfg_path, cal, args, ctx, kv, resident = (_built.cfg, _built.cfg_path, _built.cal, _built.args, _built.ctx, _built.kv, _built.resident)
      write_setup_config(cfg_path, cfg, adopted if adopted is not None and adopted.name == cfg_path.name else None, explicit_args(a),
                         after_carry=(lambda c: uma_cache_guard(c, model, gpu)) if gpu.get("uma") else None)
-@@ -11498,9 +11686,15 @@ def main() -> int:
+@@ -11498,9 +11725,15 @@ def main() -> int:
      return start(cfg_path, port)
  
  
@@ -1150,7 +1284,7 @@ index 00a3e05..7edb80e 100644
      if app.stop_requested:
          from strata_control import runtime
 diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
-index 88f0d64..2250c4f 100644
+index 88f0d64..e690870 100644
 --- a/strata_cli/launch/catalog.py
 +++ b/strata_cli/launch/catalog.py
 @@ -255,14 +255,51 @@ def intel_arc_cards(root: str = "/sys/class/drm") -> list[dict]:
@@ -1207,7 +1341,7 @@ index 88f0d64..2250c4f 100644
          mcp = self.src / "tools" / "strata_mcp.py"
          if not mcp.is_file() or not (self.src / "setup.py").is_file():
              raise CatalogUnavailable(
-@@ -599,19 +636,109 @@ class Catalog:
+@@ -599,19 +636,111 @@ class Catalog:
      def data_dir(self) -> Path:
          return self.data_dir_choice()[0]
  
@@ -1262,6 +1396,8 @@ index 88f0d64..2250c4f 100644
 +        mod = self.strata.setup_module()
 +        elsewhere = tuple(mod.retained_data_sources(data, requested=data_arg is not None, move=bool(move and data_dir), install_dir=self.root)) \
 +            if mod is not None and hasattr(mod, "retained_data_sources") else ()
++        if models_arg is not None:
++            elsewhere = mod.model_data_sources(data, elsewhere, separate=True, move=bool(move and data_dir))
 +        moving_sources = ()
 +        if mod is not None and hasattr(mod, "retained_data_sources"):
 +            available = mod.retained_data_sources(data, requested=data_arg is not None, move=bool(move and data_dir),
@@ -1331,7 +1467,7 @@ index 88f0d64..2250c4f 100644
      def disk_free(self, path: str | os.PathLike) -> float | None:
          return self.strata.disk_free(Path(path))
 diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
-index c9619aa..124a0ca 100644
+index c9619aa..9f79d4d 100644
 --- a/strata_cli/launch/modelstate.py
 +++ b/strata_cli/launch/modelstate.py
 @@ -7,7 +7,6 @@ is downloaded again. Nothing here reads more than a run config and file existenc
@@ -1387,7 +1523,7 @@ index c9619aa..124a0ca 100644
          st.installed = True
          st.folder = fp.data_dir
          gone = [m for m in fp.missing() if m.kind == "weights"]
-@@ -182,43 +187,47 @@ def assess(catalog, family: str | None, model: str | None, *, vision: str = "off
+@@ -182,43 +187,54 @@ def assess(catalog, family: str | None, model: str | None, *, vision: str = "off
                  st.parts.append(Part("mmproj", "the picture reader", MMPROJ_GB))
          images = (desc or {}).get("images") if desc is not None else ("cpu" if fp.mmproj else "off")
          if wants_pictures and (images in (None, "off")) and not any(p.kind == "mmproj" for p in st.parts):
@@ -1423,10 +1559,17 @@ index c9619aa..124a0ca 100644
 +                remaining = sum(f[4] for f in mod.ready_needed(model, folder, ready_data)
 +                                if not mod.ready_verified(mod.ready_where(folder, f, ready_data, checkpoint), f[5])) / 1e9
 +        elif own_tower:
-+            files = mod.dsv41_download_files(model, directories.models_dir, vision=vision != "off")
++            files = mod.dsv41_download_files(model, directories.models_dir, vision=vision != "off",
++                                             elsewhere=directories.elsewhere if directories.models_argument else ())
 +            folder = Path(files[0]["path"]).parent if files else directories.models_dir
 +            got = sum(item["bytes"] for item in files if item["complete"])
 +            remaining = sum(item["bytes"] for item in files if not item["complete"]) / 1e9
++        elif family in getattr(mod, "OWN_PATH_FAMILIES", {}):
++            selected = mod.own_path_download_layout(family, model, directories.models_dir,
++                                                    elsewhere=directories.elsewhere if directories.models_argument else ())
++            folder = selected["folder"]
++            got = selected["bytes"] if mod.download_complete(selected["gguf"]) else 0
++            remaining = (selected["bytes"] - got) / 1e9
 +        else:
 +            folder = catalog.model_folder(base, family, model)
 +            got = sum(path.stat().st_size for path in folder.glob("*.gguf") if not path.name.lower().startswith("mmproj"))
@@ -1460,7 +1603,7 @@ index c9619aa..124a0ca 100644
  def mmproj_size(catalog, family: str | None, name: str) -> int | None:
      """The pinned size of the family's picture reader (setup's fam["mmproj_sha256"] or ISTA_FILES), None when setup does not pin one."""
      try:
-@@ -232,12 +241,14 @@ def mmproj_size(catalog, family: str | None, name: str) -> int | None:
+@@ -232,12 +248,14 @@ def mmproj_size(catalog, family: str | None, name: str) -> int | None:
          return None
  
  
@@ -1476,7 +1619,7 @@ index c9619aa..124a0ca 100644
      for base in data_folders:
          if not base:
              continue
-@@ -265,6 +276,8 @@ def reader_present(catalog, family: str | None, data_folders, own: Path | None =
+@@ -265,6 +283,8 @@ def reader_present(catalog, family: str | None, data_folders, own: Path | None =
          if alt is None:
              return False
          places = [Path(b) / sub / alt[0] for b in data_folders if b for sub in ("models", "Models")]
@@ -1825,7 +1968,7 @@ index 5f07cb8..f9093b7 100644
              raise
  
 diff --git a/strata_cli/launch/screens.py b/strata_cli/launch/screens.py
-index 4cc523a..ad36b88 100644
+index 4cc523a..eac20b7 100644
 --- a/strata_cli/launch/screens.py
 +++ b/strata_cli/launch/screens.py
 @@ -848,10 +848,13 @@ class FolderScreen(Base):
@@ -1845,6 +1988,16 @@ index 4cc523a..ad36b88 100644
          out = Text()
          if s.model_path:
              out.append(f"Your model files stay where they are: {s.model_path}\n", style=FG)
+@@ -913,7 +916,8 @@ class FolderScreen(Base):
+     def commit(self) -> None:
+         value = self.typed()
+         default = str(self.ctx.default_folder())
+-        self.ctx.settings.data_dir = None if (not value or value == default) else value
++        previous = self.ctx.settings.data_dir
++        self.ctx.settings.data_dir = None if (not value or (value == default and value != previous)) else value
+ 
+ 
+ # ------------------------------------------------------------------------------------------------ 4 context
 diff --git a/strata_cli/monitor_commands.py b/strata_cli/monitor_commands.py
 index 7db98a1..20e629e 100644
 --- a/strata_cli/monitor_commands.py
@@ -2644,7 +2797,7 @@ index a9752e4..dd53af6 100644
      sl.add_argument("--gguf", required=True)
      sl.add_argument("--out", required=True)
 diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
-index 8129c41..b53aecb 100644
+index 8129c41..5d3841f 100644
 --- a/tools/strata_mcp.py
 +++ b/tools/strata_mcp.py
 @@ -1676,7 +1676,7 @@ class Strata:
@@ -2656,7 +2809,7 @@ index 8129c41..b53aecb 100644
          out = {"running": running, "started": j.get("started"), "model": j.get("model"), "family": j.get("family"),
                 "log": str(log_path), **prog}
          if not running:
-@@ -1711,18 +1711,15 @@ def shard_gaps(ggufs) -> list:
+@@ -1711,43 +1711,51 @@ def shard_gaps(ggufs) -> list:
      return gaps
  
  
@@ -2674,12 +2827,18 @@ index 8129c41..b53aecb 100644
 -            return ([{"path": str(folder / n), "bytes": big["sha256"][n][0], "role": "model"} for n in big["models"][model]["shards"]]
 -                    + [{"path": str(shared / n), "bytes": big["sha256"][n][0], "role": "model"} for n in big["models"][model].get("shared", [])])
 +        if big:                                         # DeepSeek-V4.1-Flash: the installer's selected shards and reusable shared files
-+            return S.dsv41_download_files(model, models_dir, vision=vision)
++            return S.dsv41_download_files(model, models_dir, vision=vision, elsewhere=elsewhere if data_dir is not None else ())
          own = (getattr(S, "OWN_PATH_FAMILIES", None) or {}).get(family)
          if own:                                         # Qwen3.6: the GGUF and the picture reader in the model's folder
-             folder = Path(models_dir) / (own["tag"] + model)
-@@ -1732,22 +1729,33 @@ def expected_files(S, family: str, model: str, models_dir: Path, vision: bool) -
-                 out.append({"path": str(folder / own["mmproj"]), "bytes": own["sha256"][own["mmproj"]][0], "role": "vision"})
+-            folder = Path(models_dir) / (own["tag"] + model)
+-            name = own["file"].format(q=model)
+-            out.append({"path": str(folder / name), "bytes": own["sha256"][name][0], "role": "model"})
++            selected = S.own_path_download_layout(family, model, models_dir, elsewhere=elsewhere if data_dir is not None else ())
++            out.append({"path": str(selected["gguf"]), "bytes": selected["bytes"], "role": "model", "accept_unmarked": False})
+             if vision:
+-                out.append({"path": str(folder / own["mmproj"]), "bytes": own["sha256"][own["mmproj"]][0], "role": "vision"})
++                out.append({"path": str(selected["mmproj"]), "bytes": own["sha256"][own["mmproj"]][0],
++                            "role": "vision", "accept_unmarked": False})
              return out
          fam, d = S.FAMILIES[family], S.MODELS[model]
 +        vision_models = Path(models_dir)
@@ -2725,7 +2884,7 @@ index 8129c41..b53aecb 100644
          try:
 -            if part.is_file():
 +            if "accept_unmarked" in f and setup_module is not None and \
-+                    setup_module.dsv41_download_complete(p, own=f["accept_unmarked"]):
++                    setup_module.download_complete(p, own=f["accept_unmarked"]):
 +                state, have = "done", p.stat().st_size
 +            elif part.is_file():
                  state, have = "downloading", part.stat().st_size

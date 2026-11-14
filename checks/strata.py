@@ -4844,7 +4844,7 @@ row = ModelRow(family="qwen", family_title="Qwen", model="IQ3_XXS", id="iq3_xxs"
     download_gb=1, need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
     experimental=False, images=False, installed=False)
 cat.rows = lambda: [row]
-async def exercise(choice):
+async def exercise(choice, typed=None, expected=None):
     settings = LaunchSettings(family="qwen", model="IQ3_XXS", context=8192, data_dir=choice,
                               vision="off", mtp="off", drafting="off")
     ctx = Ctx(cat, NS(usable_gpus=[], main_vram_gb=0, other_vendor_note=""), [row], settings)
@@ -4862,14 +4862,19 @@ async def exercise(choice):
     async with app.run_test(size=(100, 32)) as pilot:
         await pilot.pause()
         assert app.screen.query_one("#folderpath", Input).value == (choice or str(managed))
+        if typed is not None:
+            app.screen.query_one("#folderpath", Input).value = typed
         await pilot.press("enter")
         await pilot.pause()
         assert app.advanced
-        assert settings.data_dir == choice
+        result = expected if typed is not None else choice
+        assert settings.data_dir == result
         selected = cat.launch_directories(settings.family, settings.model, data_dir=settings.data_dir)
-        assert selected.data_dir == (Path(choice) if choice else managed)
+        assert selected.data_dir == (Path(result) if result else managed)
 with patch.object(drafting, "detect_hardware", return_value=("cpu", [])):
     asyncio.run(exercise(str(explicit)))
+    asyncio.run(exercise(str(managed)))
+    asyncio.run(exercise(str(explicit), typed=str(managed)))
     asyncio.run(exercise(None))
 ''')
 
@@ -4942,7 +4947,11 @@ with contextlib.ExitStack() as guards:
         guards.enter_context(patch.object(Runner, name, return_value=value))
     guards.enter_context(patch.object(C, "Catalog", return_value=cat))
     guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
-    assert plan() > 0
+    assert plan() == 0
+    # The retained set is usable; remove it before exercising completion of the requested set in isolation.
+    for path in [*legacy["shards"], *(legacy["folder"] / name for name in legacy["shared"])]:
+        path.unlink()
+        path.with_name(path.name + ".done").unlink()
     selected = seed_selected(models)
     assert plan() == 0
     job = {"files": mod.dsv41_download_files(model, models, vision=False), "total_gb": row.download_gb}
@@ -5567,6 +5576,199 @@ for model in ("NVFP4", "NVFP4-QAD"):
                 self.assertNotIn("unrecognized arguments", result.stdout + result.stderr)
                 self.assertEqual((root / "code.py").read_text(), "new source\n")
 
+
+
+    def test_reconfigured_installations_reuse_native_sources_without_retargeting_downloads(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os
+from pathlib import Path
+from types import SimpleNamespace as NS
+from strata_cli.launch.catalog import Catalog, ModelRow
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.launch.runner import Runner, desc_matches
+from tools.strata_mcp import expected_files
+root = Path.cwd()
+base = root.parent.parent / "reconfigured"
+base.mkdir()
+engine = root / "engine/strata"
+engine.parent.mkdir()
+engine.write_bytes(b"engine=0.1.46\\n")
+engine.chmod(0o700)
+for family, model in (("qwen", "IQ3_XXS"), ("qwen36", "UD-Q4_K_XL"), ("deepseek41", "IST-DAS-2.00bpw")):
+    home = base / family
+    data, requested = home / "data", home / "requested"
+    data.mkdir(parents=True)
+    requested.mkdir()
+    settings_file = home / "settings.json"
+    settings_file.write_text(json.dumps({"data_dir": str(data)}))
+    os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root),
+        STRATA_SETTINGS_FILE=str(settings_file), STRATA_WORKSPACE_CONTEXT=json.dumps({
+            "state": str(root.parent), "data_directory": str(data), "models_directory": str(requested)}))
+    cat = Catalog(src=root, root=root, hardware={})
+    mod = cat.strata.setup_module()
+    tag = cat.tag_of(family, model)
+    row = ModelRow(family=family, family_title=family, model=model, id=tag, about="",
+        download_gb=1, need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
+        experimental=False, images=False, installed=True)
+    cat.rows = lambda: [row]
+    def select(models, retained=(), vision=False):
+        return expected_files(mod, family, model, models, vision, data_dir=data, elsewhere=retained)
+    old_files = select(data / "models")
+    assert old_files
+    for item in old_files:
+        path = Path(item["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as target:
+            target.truncate(item["bytes"] or 32)
+        mod.mark(path)
+    pack = data / "packs" / tag
+    pack.mkdir(parents=True)
+    args = ["--pack", str(pack), "--max-context", "8192", "--kv", "fp16"]
+    if family != "deepseek41":
+        args += ["--native", old_files[0]["path"]]
+    else:
+        args += ["--vision", "off"]
+    config = root / ("strata-" + tag + ".json")
+    config.write_text(json.dumps({"exe": str(engine), "args": args,
+                                 **({"arch": family} if family == "deepseek41" else {})}))
+    s = LaunchSettings(family=family, model=model, context=32768, vision="off", mtp="off", drafting="off")
+    runner = Runner(s, catalog=cat)
+    installed, desc = runner.installed_state()
+    assert installed == config and not desc_matches(desc, s)
+    assert runner.model_state().remaining_gb == 0
+    argv = runner.setup_args()
+    assert Path(argv[argv.index("--models-dir") + 1]) == requested
+    with contextlib.redirect_stdout(io.StringIO()):
+        actual_data, retained = mod.data_folder_for(NS(data_dir=str(data), move_data=False,
+            yes=True, set_default_data_dir=False, separate_model_artifacts=True))
+    assert actual_data == data
+    selected = select(requested, retained)
+    assert {item["path"] for item in selected} == {item["path"] for item in old_files}
+    assert all(mod.download_complete(Path(item["path"]), own=item.get("accept_unmarked", False)) for item in selected)
+    pictures = select(requested, retained, vision=True)
+    reader = next(item for item in pictures if item["role"] == "vision")
+    assert Path(reader["path"]).is_relative_to(requested), reader
+    # Removing a managed shared mark must not reclassify that file as a personal unmarked file.
+    if family == "deepseek41":
+        shared = next(item for item in selected if "shared" in str(Path(item["path"]).parent))
+        path = Path(shared["path"])
+        path.with_name(path.name + ".done").unlink()
+        current = select(requested, retained)
+        replacement = next(item for item in current if Path(item["path"]).name == path.name)
+        assert Path(replacement["path"]).is_relative_to(requested)
+        assert not replacement["accept_unmarked"]
+        mod.mark(path)
+    # A complete explicitly requested set stays ahead of retained files.
+    requested_files = select(requested)
+    for item in requested_files:
+        path = Path(item["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as target:
+            target.truncate(item["bytes"] or 32)
+        mod.mark(path)
+    assert {item["path"] for item in select(requested, retained)} == {item["path"] for item in requested_files}
+    config.unlink()
+''')
+
+    def test_own_path_forecasts_and_progress_follow_native_completion(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import json, os
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog, ModelRow
+from strata_cli.launch import modelstate
+from tools.strata_mcp import expected_files, files_progress
+root = Path.cwd()
+base = root.parent.parent / "own-path-completion"
+base.mkdir()
+for scenario in ("requested", "retained", "unmarked", "marker-only"):
+    home = base / scenario
+    data, models = home / "data", home / "gguf"
+    data.mkdir(parents=True)
+    models.mkdir()
+    settings = home / "settings.json"
+    settings.write_text(json.dumps({"data_dir": str(data)}))
+    os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root),
+        STRATA_SETTINGS_FILE=str(settings), STRATA_WORKSPACE_CONTEXT=json.dumps({
+            "state": str(root.parent), "data_directory": str(data), "models_directory": str(models)}))
+    cat = Catalog(src=root, root=root, hardware={})
+    mod = cat.strata.setup_module()
+    family, model = "qwen36", "UD-Q4_K_XL"
+    native = mod.own_path_download_layout(family, model, models)
+    path = (data / "models" / native["gguf"].parent.name / native["gguf"].name
+            if scenario == "retained" else native["gguf"])
+    path.parent.mkdir(parents=True)
+    if scenario != "marker-only":
+        with path.open("wb") as target:
+            target.truncate(native["bytes"])
+    if scenario != "unmarked":
+        mod.mark(path)
+    row = ModelRow(family=family, family_title=family, model=model, id="qwen36", about="",
+        download_gb=native["bytes"] / 1e9, need_vram_gb=0, need_ram_gb=1, spill_gb=0,
+        verdict="fits", words="fits", experimental=False, images=False, installed=False)
+    cat.rows = lambda: [row]
+    dirs = cat.launch_directories(family, model)
+    selected = mod.own_path_download_layout(family, model, models, elsewhere=dirs.elsewhere)
+    complete = mod.download_complete(selected["gguf"])
+    state = modelstate.assess(cat, family, model, vision="off", mtp="off", drafting="off", directories=dirs)
+    assert state.remaining_gb == (0 if complete else native["bytes"] / 1e9), scenario
+    assert complete == (scenario in ("requested", "retained"))
+    files = expected_files(mod, family, model, models, False, data_dir=data, elsewhere=dirs.elsewhere)
+    assert Path(files[0]["path"]) == selected["gguf"]
+    if scenario == "unmarked":
+        before = files_progress({}, {}, files, setup_module=mod)
+        mod.mark(path)
+        after = files_progress({}, {}, files, setup_module=mod)
+        assert before["parts"][0]["state"] != "done"
+        assert after["parts"][0]["state"] == "done"
+''')
+
+    def test_native_preset_edit_keeps_explicit_folder_equal_to_default(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import asyncio, json, os
+from pathlib import Path
+from strata_cli.launch.app import Ctx, LaunchApp
+from strata_cli.launch.catalog import Catalog, Computer, ModelRow
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.launch import store
+from strata_cli.launch.screens import ModelScreen, FolderScreen, ContextScreen
+from strata_cli.launch.runner import Runner
+root = Path.cwd()
+data = root.parent.parent / "preset-data"
+data.mkdir()
+settings = root.parent.parent / "preset-settings.json"
+settings.write_text("{}")
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+    STRATA_LAUNCH_PRESET_DIR=str(root.parent.parent / "presets"),
+    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "data_directory": str(data)}))
+cat = Catalog(src=root, root=root, hardware={})
+row = ModelRow(family="qwen", family_title="Qwen", model="IQ3_XXS", id="iq3_xxs", about="",
+    download_gb=1, need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
+    experimental=False, images=False, installed=False)
+cat.rows = lambda: [row]
+store.save(LaunchSettings(family="qwen", model="IQ3_XXS", context=8192, data_dir=str(data),
+                         vision="off", mtp="off", drafting="off"), "folder-equal")
+ctx = Ctx(cat, Computer(ram_gb=64, gpus=[], disk_free_gb=100), [row], LaunchSettings())
+async def edit():
+    app = LaunchApp(ctx, auto_run=False)
+    async with app.run_test(size=(100, 32)) as pilot:
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        assert isinstance(app.screen, ModelScreen)
+        assert ctx.settings.data_dir == str(data)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, FolderScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, ContextScreen)
+        assert ctx.settings.data_dir == str(data)
+        assert "--set-default-data-dir" in Runner(ctx.settings, catalog=cat).setup_args()
+asyncio.run(edit())
+''')
 
 
 unittest.main()
