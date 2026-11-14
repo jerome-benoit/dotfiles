@@ -1,0 +1,255 @@
+# base: agent-of-empires/agent-of-empires f87a4153bb92db4bfe580ec6f3d2a56b98f37fba (web/)
+# prerequisites: none
+# intent: preserve typed startup causes and offer container recreation without adapter-install instructions.
+diff --git a/src/components/acp/SessionBanners.tsx b/src/components/acp/SessionBanners.tsx
+index 0b31ef3..514d011 100644
+--- a/src/components/acp/SessionBanners.tsx
++++ b/src/components/acp/SessionBanners.tsx
+@@ -55,6 +55,7 @@ export function SessionBanners({
+         <StartupErrorBanner
+           sessionId={sessionId}
+           message={state.startupError}
++          startupCause={state.startupErrorCause}
+           acpWorkerState={acpWorkerState}
+           sentStopped={state.restartStoppedSent}
+           retriedError={state.retriedError}
+diff --git a/src/components/acp/StartupErrorBanner.tsx b/src/components/acp/StartupErrorBanner.tsx
+index 9952aa9..e98e660 100644
+--- a/src/components/acp/StartupErrorBanner.tsx
++++ b/src/components/acp/StartupErrorBanner.tsx
+@@ -4,6 +4,7 @@ import { useRespawnSession } from "../../hooks/useRespawnSession";
+ import { fetchAgentInstallInfo, type AgentInstallInfo } from "../../lib/api";
+ import { writeClipboard } from "../../lib/clipboard";
+ import type { AcpWorkerState } from "../../lib/types";
++import type { StartupCause } from "../../lib/acpTypes";
+ import { splitInstallHint, startupErrorCause, useAdapterInstall } from "./adapterRecovery";
+ import { CommandBlock, RecoveryActionRow, type RecoveryAction } from "./RecoveryActionRow";
+ import { ApiKeyAlternative } from "./SignInPopover";
+@@ -144,6 +145,7 @@ const ADAPTER_NOT_FOUND = /binary `[^`]+` not found/;
+ export function StartupErrorBanner({
+   sessionId,
+   message,
++  startupCause = null,
+   acpWorkerState,
+   sentStopped = false,
+   retriedError = null,
+@@ -154,6 +156,7 @@ export function StartupErrorBanner({
+ }: {
+   sessionId: string;
+   message: string;
++  startupCause?: StartupCause | null;
+   acpWorkerState: AcpWorkerState;
+   /** A restart stopped the sent message and it hasn't been sent again. */
+   sentStopped?: boolean;
+@@ -194,12 +197,19 @@ export function StartupErrorBanner({
+   }, [sessionId, infoRequest]);
+ 
+   const name = info?.display_name ?? AGENT_IN_MESSAGE.exec(message)?.[1] ?? "The agent";
+-  const specific = specificRemediation(
+-    message,
+-    info?.agent ?? AGENT_IN_MESSAGE.exec(message)?.[1],
+-    name,
+-    info ? info.sandboxed === true : undefined,
+-  );
++  const specific =
++    startupCause?.kind === "container_missing" ? (
++      <>
++        This Session's sandbox container was removed. Click <strong>Retry</strong> to create a new one.
++      </>
++    ) : (
++      specificRemediation(
++        message,
++        info?.agent ?? AGENT_IN_MESSAGE.exec(message)?.[1],
++        name,
++        info ? info.sandboxed === true : undefined,
++      )
++    );
+   const canInstall = !specific && info?.install_allowed === true && info.npm_installable;
+   const busy = retryState === "retrying" || install.state === "installing";
+ 
+diff --git a/src/components/acp/__tests__/StartupErrorBanner.test.tsx b/src/components/acp/__tests__/StartupErrorBanner.test.tsx
+index f196bc1..cbb7bfb 100644
+--- a/src/components/acp/__tests__/StartupErrorBanner.test.tsx
++++ b/src/components/acp/__tests__/StartupErrorBanner.test.tsx
+@@ -5,6 +5,8 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
+ import type { AgentInstallInfo } from "../../../lib/api";
+ import type { AcpWorkerState } from "../../../lib/types";
+ import { StartupErrorBanner } from "../StartupErrorBanner";
++import { SessionBanners } from "../SessionBanners";
++import { applyEvent, emptyAcpState, type AcpState } from "../../../lib/acpTypes";
+ 
+ const writeClipboard = vi.fn();
+ vi.mock("../../../lib/clipboard", () => ({
+@@ -102,6 +104,61 @@ afterEach(() => {
+   cleanup();
+   vi.unstubAllGlobals();
+ });
++describe("container-missing recovery", () => {
++  const message = "Worker stopped";
++  const missing = () =>
++    applyEvent(emptyAcpState(), {
++      session_id: "s-1",
++      seq: 1,
++      event: { AgentStartupError: { message, cause: { kind: "container_missing" } } },
++    });
++  const banner = (state: AcpState) => (
++    <SessionBanners
++      sessionId="s-1"
++      state={state}
++      startingAgent={null}
++      canRestart={true}
++      acpWorkerState="absent"
++      trashedAt={null}
++      archivedAt={null}
++      snoozedUntil={null}
++      dismissError={vi.fn()}
++    />
++  );
++
++  it("uses the diagnosed cause and offers recreation without adapter installation", async () => {
++    const spy = stubApi({
++      info: json(claude({ sandboxed: true, install_blocked: "container_not_running" })),
++      spawn: json({}),
++    });
++    const view = render(banner(missing()));
++    await waitFor(() => expect(calls(spy, "/acp/install-info")).toBe(1));
++    expect(view.getByText(/sandbox container was removed/)).toBeTruthy();
++    expect(view.queryByTestId("startup-error-banner-command")).toBeNull();
++    expect(view.queryByText(/Run this inside the container/)).toBeNull();
++    expect(view.queryByText(/usually missing or out of date/)).toBeNull();
++    fireEvent.click(view.getByTestId("startup-error-banner-retry"));
++    await waitFor(() => expect(calls(spy, "/acp/spawn")).toBe(1));
++    expect(calls(spy, "/acp/install-agent")).toBe(0);
++  });
++
++  it("does not reuse the container diagnosis for a later undiagnosed startup error", async () => {
++    stubApi({ info: json(claude({ sandboxed: true, install_blocked: "container_not_running" })) });
++    const state = missing();
++    const view = render(banner(state));
++    await waitFor(() => expect(view.getByText(/sandbox container was removed/)).toBeTruthy());
++    const next = applyEvent(state, {
++      session_id: "s-1",
++      seq: 2,
++      event: { AgentStartupError: { message: SPAWN_MSG } },
++    });
++    view.rerender(banner(next));
++    await waitFor(() => expect(view.getByTestId("startup-error-banner-command")).toBeTruthy());
++    expect(view.queryByText(/sandbox container was removed/)).toBeNull();
++    expect(view.getByText(/Run this inside the container/)).toBeTruthy();
++  });
++});
++
+ 
+ describe("StartupErrorBanner layout", () => {
+   it.each<{
+diff --git a/src/hooks/acpSession/reducer.ts b/src/hooks/acpSession/reducer.ts
+index 17de660..4d1aa02 100644
+--- a/src/hooks/acpSession/reducer.ts
++++ b/src/hooks/acpSession/reducer.ts
+@@ -313,6 +313,7 @@ export function reducer(state: AcpState, action: Action): AcpState {
+         ...state,
+         optimisticRows: state.optimisticRows.concat(row),
+         startupError: null,
++        startupErrorCause: null,
+         // A Retry still running keeps its line.
+         retriedError: state.restartInFlight ? state.retriedError : null,
+         lastError: null,
+@@ -379,7 +380,11 @@ export function reducer(state: AcpState, action: Action): AcpState {
+         restartInFlight: true,
+         restartStoppedSent: state.restartStoppedSent || action.stoppedSent,
+         restartFailure: null,
+-        ...(action.retriedError !== undefined && { startupError: null, retriedError: action.retriedError }),
++        ...(action.retriedError !== undefined && {
++          startupError: null,
++          startupErrorCause: null,
++          retriedError: action.retriedError,
++        }),
+       };
+     case "restart_failed":
+       if (action.epoch !== state.restartEpoch)
+@@ -394,6 +399,7 @@ export function reducer(state: AcpState, action: Action): AcpState {
+           restartInFlight: false,
+           restartEpoch: state.restartEpoch + 1,
+           startupError: action.message,
++          startupErrorCause: null,
+           restartStoppedSent: state.restartStoppedSent || action.stoppedSent,
+         };
+       return {
+diff --git a/src/lib/acpTypes.ts b/src/lib/acpTypes.ts
+index eb7ca5b..13d5caf 100644
+--- a/src/lib/acpTypes.ts
++++ b/src/lib/acpTypes.ts
+@@ -305,6 +305,9 @@ export type IntegrationLostReason =
+   | { kind: "hold_overflow" }
+   | { kind: "lease_overflow" };
+ 
++/** Mirror of `StartupCause` in src/acp/state.rs. */
++export type StartupCause = { kind: "container_missing" };
++
+ // One variant per Event::* in src/acp/state.rs, externally tagged.
+ export type AcpEvent =
+   | { PlanUpdated: { plan: Plan } }
+@@ -430,7 +433,7 @@ export type AcpEvent =
+   | { AgentThoughtChunk: { text: string; message_id?: string } }
+   | { CancelRequested: { escalates_at: string } }
+   | { Stopped: { reason: string } }
+-  | { AgentStartupError: { message: string } }
++  | { AgentStartupError: { message: string; cause?: StartupCause } }
+   | { PromptRuntimeError: { message: string } }
+   | { IncompatibleAgent: { detail: IncompatibleAgentDetail } }
+   | { IntegrationLost: { reason: IntegrationLostReason } }
+@@ -626,6 +629,7 @@ export interface AcpState {
+   oldestSeq: number;
+   lagged: boolean;
+   startupError: string | null;
++  startupErrorCause: StartupCause | null;
+   /** Adapter compatibility failure; replaces the session view with `StartupErrorScreen`. */
+   incompatibleAgent: IncompatibleAgentDetail | null;
+   lastError: string | null;
+@@ -1036,6 +1040,7 @@ export function emptyAcpState(): AcpState {
+     oldestSeq: 0,
+     lagged: false,
+     startupError: null,
++    startupErrorCause: null,
+     incompatibleAgent: null,
+     lastError: null,
+     turnActive: false,
+@@ -1084,6 +1089,7 @@ function isSteeredContinuation(state: AcpState): boolean {
+ 
+ function applyNewTurnResets(next: AcpState): void {
+   next.startupError = null;
++  next.startupErrorCause = null;
+   if (!next.restartInFlight) next.retriedError = null;
+   next.lastError = null;
+   // The cancel phase is server-owned; only the escalation deadline is ours.
+@@ -1295,12 +1301,14 @@ export function applyEvent(state: AcpState, frame: AcpFrame): AcpState {
+     next.startupError = `Agent integration lost: ${
+       reason.kind === "contract_violation" ? reason.detail : reason.kind.replace("_", " ")
+     }`;
++    next.startupErrorCause = null;
+     next.agentUnresponsive = false;
+     closeTurn(next);
+     return next;
+   }
+   if ("AgentStartupError" in event) {
+     next.startupError = event.AgentStartupError.message;
++    next.startupErrorCause = event.AgentStartupError.cause ?? null;
+     const retried = state.restartInFlight ? state.retriedError : null;
+     endRestart(next);
+     next.retriedError = retried;
+@@ -1358,6 +1366,7 @@ export function applyEvent(state: AcpState, frame: AcpFrame): AcpState {
+     next.sessionAssigned = true;
+     endRestart(next);
+     next.startupError = null;
++    next.startupErrorCause = null;
+     next.lastError = null;
+     next.incompatibleAgent = null;
+     next.workerStopped = false;
+@@ -1412,6 +1421,7 @@ export function applyEvent(state: AcpState, frame: AcpFrame): AcpState {
+     next.sessionUsage = null;
+     next.usageBaseline = null;
+     next.startupError = null;
++    next.startupErrorCause = null;
+     next.retriedError = null;
+     next.lastAgentSwitch = { from, to, reason, at: now };
+     // The switch emits Stopped { user_stopped } first; keep its banner hidden through the handshake.

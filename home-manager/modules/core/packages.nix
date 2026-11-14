@@ -207,7 +207,6 @@ in
           tap "moltenbits/tap", trusted: true
           tap "jundot/omlx", "https://github.com/jundot/omlx", trusted: true
           tap "incoai/tap", trusted: true
-          cask "chatgpt"
           cask "docker-desktop"
           cask "ferdium"
           cask "ghostty"

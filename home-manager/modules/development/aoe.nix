@@ -13,6 +13,11 @@ let
   aoePackages = inputs.agent-of-empires.packages.${system} or { };
   baseAoePackage =
     if cfg.enableWeb then aoePackages.aoe-with-web or null else aoePackages.default or null;
+  # Workaround: the web recovery UI discards the diagnosed missing-container cause.
+  # Remove when upstream preserves the cause and offers container recreation.
+  aoeWebFrontend = aoePackages.aoe-web-frontend.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ../../../patches/agent-of-empires-container-recovery.patch ];
+  });
   # Workaround: Nixpkgs installs Cursor as cursor-agent, not the generic agent.
   # Remove when upstream's registry detects and launches cursor-agent.
   aoePackage =
@@ -24,6 +29,9 @@ let
         env = (old.env or { }) // {
           NIX_AOE_WHICH = "${pkgs.which}/bin/which";
         };
+      } // lib.optionalAttrs cfg.enableWeb {
+        AOE_WEB_DIST = "${aoeWebFrontend}/dist";
+        passthru = (old.passthru or { }) // { npmDeps = aoeWebFrontend.npmDeps; };
       });
 
   aoeConfig = ''

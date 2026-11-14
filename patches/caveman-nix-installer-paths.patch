@@ -1,5 +1,5 @@
-# base: https://github.com/JuliusBrussee/caveman/archive/67968b7a8ac666415a8301e1f2c86ad28567c7ec.tar.gz
-# base-hash: sha256-O8zaG1wN17YZvscWqmUX4lsFwJHOgQvwo8B1yWo5cq0= (fetchzip unpacked source)
+# base: https://github.com/JuliusBrussee/caveman/archive/b4ee71d557d96e3cbc14f88fa6e953a1362865f5.tar.gz
+# base-hash: sha256-HcNc+iyIL/K4JOBBsJAS2eh0vcpW3CwL5CQMqY0LMh0= (fetchzip unpacked source)
 # intent: use profile-local interpreters and isolate mutable Claude payload ownership.
 #   Preserve upstream atomic model writes for ordinary callers; prepared plugins
 #   collect writes into the ownership-journal transaction.
