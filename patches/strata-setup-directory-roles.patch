@@ -1732,7 +1732,7 @@ index 35d9171..bce75ea 100644
              text = f"The update did not run: {exc}"
          self.updating = False
 diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
-index 5f07cb8..9bb147b 100644
+index 5f07cb8..7378eb2 100644
 --- a/strata_cli/launch/runner.py
 +++ b/strata_cli/launch/runner.py
 @@ -707,7 +707,9 @@ class Runner:
@@ -1838,9 +1838,16 @@ index 5f07cb8..9bb147b 100644
          except Exception:                                    # noqa: BLE001 - a plan line, never a reason to stop
              return None
  
-@@ -1254,14 +1232,21 @@ class Runner:
-         person's --data-dir and not the default one) and every file of the install with the catalog's total, so a model in several shards
-         shows 'of 66.4 GB' from the start and not the size of the file being fetched."""
+@@ -1249,19 +1227,25 @@ class Runner:
+                 return
+             yield ln
+ 
+-    def progress_job(self) -> dict:
+-        """What the download figure is counted over: the folder setup writes the model into (the data folder it is GIVEN, which may be the
+-        person's --data-dir and not the default one) and every file of the install with the catalog's total, so a model in several shards
+-        shows 'of 66.4 GB' from the start and not the size of the file being fetched."""
++    def progress_job(self, *, elsewhere=()) -> dict:
++        """Select native progress files using current destinations and acquisition-scoped source roots."""
          s, cat = self.s, self.catalog
 -        data = Path(s.data_dir) if s.data_dir else (self.existing_data_dir() or cat.data_dir())
 -        models_dir = data / "models"
@@ -1861,11 +1868,18 @@ index 5f07cb8..9bb147b 100644
 -                job["files"] = cat.mcp.expected_files(setup_module, str(s.family), str(s.model), models_dir, self.vision_word() != "no")
 +                job["files"] = cat.mcp.expected_files(
 +                    setup_module, str(family), str(model), models_dir, self.vision_word() != "no",
-+                    data_dir=data if directories.models_argument else None, elsewhere=directories.elsewhere)
++                    data_dir=data if directories.models_argument else None,
++                    elsewhere=tuple(dict.fromkeys((*directories.elsewhere, *elsewhere))))
                  first = next((f for f in job["files"] if f.get("role") == "model"), None)
                  if first:                                    # the folder setup names it (Q2_0), not the lower-case run-config tag (q2_0)
                      job["folder"] = str(Path(first["path"]).parent)
-@@ -1323,7 +1308,7 @@ class Runner:
+@@ -1320,10 +1304,13 @@ class Runner:
+         for k in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
+             env.pop(k, None)
+         env["PYTHONPATH"] = str(cat.src)
++        # Keep candidate roots while setup changes saved directories; resolve files only after migration.
++        directories = cat.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
++        sources = (*directories.elsewhere, *directories.moving_sources)
          p = self._spawn(argv, env=env, cwd=str(cat.src))
          lines: list[str] = []
          already: bool | None = None                          # all the model's files were on disk before this run wrote anything
@@ -1874,18 +1888,18 @@ index 5f07cb8..9bb147b 100644
          step_seen, step_since, quiet_since, said = None, time.monotonic(), time.monotonic(), None
          for line in self._read_lines(p):
              if self.cancel.is_set():
-@@ -1348,7 +1333,9 @@ class Runner:
+@@ -1348,7 +1335,9 @@ class Runner:
                      self.notices.append(note[1])
                  self.emit("model", note[1], None, level=note[0], step=step_seen)
              prog = cat.mcp.install_progress(lines)
 -            prog = cat.mcp.combined_progress(prog, job)
 +            if str(prog.get("step") or "").startswith("5/") and not str(step_seen or "").startswith("5/"):
-+                job = self.progress_job()                    # setup has migrated and selected the native download paths by step 5
++                job = self.progress_job(elsewhere=sources)    # setup has migrated and selected the native download paths by step 5
 +            prog = cat.mcp.combined_progress(prog, job, setup_module=cat.strata.setup_module())
              dl, phase, label = prog.get("download"), prog.get("phase"), prog.get("label")
              if prog.get("step") != step_seen:
                  step_seen, step_since = prog.get("step"), time.monotonic()
-@@ -1706,7 +1693,8 @@ class Runner:
+@@ -1706,7 +1695,8 @@ class Runner:
              except Exception:                                # noqa: BLE001 - an unreadable table is only the old, generic plan
                  name = None
          return {"mode": mode, "klass": drafting.card_class(archs), "model_name": name, "family": self.s.family,
@@ -1895,7 +1909,7 @@ index 5f07cb8..9bb147b 100644
                  "backend": backend, "archs": archs, "mtp_here": drafting.mtp_ready(args) if cfg else None,
                  "blocked": drafting.blocked_by(args, split=bool(self.s.gpus and len(self.s.gpus) > 1), slots=int(self.s.parallel or 0), named=drafting.normalize(mode) == "dflash2", backend=backend)}
  
-@@ -2456,6 +2444,7 @@ class Runner:
+@@ -2456,6 +2446,7 @@ class Runner:
          from strata_control import discovery
          from strata_control.discovery import MMPROJ_GB, MTP_FETCH_GB
          s = self.s
@@ -1903,7 +1917,7 @@ index 5f07cb8..9bb147b 100644
          st = self.model_state()
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
-@@ -2466,9 +2455,7 @@ class Runner:
+@@ -2466,9 +2457,7 @@ class Runner:
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -1914,7 +1928,7 @@ index 5f07cb8..9bb147b 100644
                  if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
                      parts.append({"kind": "mtp", "label": "the draft layer", "gb": MTP_FETCH_GB})
                  own = None
-@@ -2476,7 +2463,7 @@ class Runner:
+@@ -2476,7 +2465,7 @@ class Runner:
                      own = Path(s.model_path)
                      own = own if own.is_dir() else own.parent
                  # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
@@ -1923,7 +1937,7 @@ index 5f07cb8..9bb147b 100644
                  if wants_pictures and "mmproj" not in have and not has_reader:
                      parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
-@@ -2487,7 +2474,6 @@ class Runner:
+@@ -2487,7 +2476,6 @@ class Runner:
              if _b is not None and self.other_copy() is not None:
                  _cfg = None                                  # another data folder's copy: its drafter is not the one this launch uses
              want = self.drafting_inputs(_cfg or {})
@@ -1931,7 +1945,7 @@ index 5f07cb8..9bb147b 100644
              sig = self.drafting_signals(_cfg or {}, want)
              if drafting.needs_pack(**want, **sig) or drafting.needs_tuned(**want, **sig):            # chosen DFlash2 (or Auto picking it) and the drafter (the tuned one, where the set has it) is not here: it is part of the download
                  parts.append({"kind": "dflash2", "label": "the DFlash2 drafter",
-@@ -2507,10 +2493,10 @@ class Runner:
+@@ -2507,10 +2495,10 @@ class Runner:
              # them with the same search setup makes (setup.dsv41_shared_missing), so the plan is the download (0.2.9.1: "Nothing to download" and then 8 GB)
              try:
                  mod = self.catalog.strata.setup_module()
@@ -1944,7 +1958,7 @@ index 5f07cb8..9bb147b 100644
                      if size >= 5e7:
                          parts.append({"kind": "shared", "label": labels.get(name, name), "gb": round(size / 1e9, 1)})
              except Exception:                                # noqa: BLE001 - the plan still shows the rest
-@@ -2577,17 +2563,20 @@ class Runner:
+@@ -2577,17 +2565,20 @@ class Runner:
              _m, families, _c, _src = self.catalog.tables()
              if mod is None or not (families.get(s.family or "") or {}).get("ready") or not hasattr(mod, "ready_needed"):
                  return None
@@ -1971,7 +1985,7 @@ index 5f07cb8..9bb147b 100644
          except Exception:                                    # noqa: BLE001 - a plan that cannot work this out still shows the rest
              return None
  
-@@ -2838,7 +2827,7 @@ class Runner:
+@@ -2838,7 +2829,7 @@ class Runner:
          s = self.s
          hw = self.catalog.hardware()
          try:
@@ -1980,7 +1994,7 @@ index 5f07cb8..9bb147b 100644
              free = None if (s.model_path or self.model_state().remaining_gb < 1) else self.catalog.disk_free(data)
          except Exception:                                    # noqa: BLE001 - a plan that cannot read the disk still shows the rest
              free = None
-@@ -2879,10 +2868,17 @@ class Runner:
+@@ -2879,10 +2870,17 @@ class Runner:
              self.ensure_profile(cfg)
              self.emit("config", "Settings are saved.", 100)
              if self.engine_problem:
@@ -1998,7 +2012,7 @@ index 5f07cb8..9bb147b 100644
              self.tune()
              self.check_cancel()
              if not start:
-@@ -2894,10 +2890,10 @@ class Runner:
+@@ -2894,10 +2892,10 @@ class Runner:
              res = Result(self.profile, urls, self.s.api_key, self.tune_word, self.notices, str(cfg), tunnel)
              self.emit("done", "Strata is serving.", 100, urls=urls)
              return res

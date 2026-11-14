@@ -1702,6 +1702,7 @@ def run(a):
     if a.command != "launch":
         return original_run(a)
     catalog = SimpleNamespace(src=Path({str(installer)!r}), root=Path({str(root)!r}), rows=lambda: [])
+    catalog.launch_directories = lambda *args, **kwargs: SimpleNamespace(elsewhere=(), moving_sources=())
     catalog.mcp = SimpleNamespace(install_progress=lambda lines: {{}}, combined_progress=lambda progress, job: progress)
     runner = Runner(LaunchSettings(family="qwen", model="IQ3_S"), catalog=catalog)
     runner.check_own_files = lambda: None
@@ -1711,7 +1712,7 @@ def run(a):
     runner.beside_refused = lambda: None
     runner.multi_file = lambda: True
     runner.setup_args = lambda: ["--setup"]
-    runner.progress_job = lambda: {{}}
+    runner.progress_job = lambda **kwargs: {{}}
     runner.ensure_model()
     return 0
 cli._run = run
@@ -3881,7 +3882,7 @@ with workspace.workspace_lock(root.parent) as (_, lock):
     native.desc_matches = lambda desc, settings: True
     runner.installed_state = lambda: (base, {})
     runner.intel_chosen = lambda: False
-    runner.progress_job = lambda: {}
+    runner.progress_job = lambda **kwargs: {}
     runner.ensure_drafter = lambda base: None
     # Keep Runner.ensure_engine, ensure_model, build_config, ensure_profile and run.
     # Replace only the model install process with a local payload writer.
@@ -5952,6 +5953,115 @@ shown = [event for event in events if str(event.data.get("step") or "").startswi
 assert shown and all(event.pct == 99 for event in shown), shown
 assert events[-1].pct == 100
 assert not folder.exists()
+''')
+
+    def test_launch_progress_keeps_retained_sources_when_saving_data_directory(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import json, os, socket
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog, ModelRow
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.launch.runner import Runner
+root = Path.cwd()
+base = root.parent.parent / "retained-progress"
+old, data, models = base / "arbitrary-storage/retained-data", base / "new-data", base / "requested-gguf"
+for path in (old, data, models):
+    path.mkdir(parents=True)
+settings = base / "settings.json"
+settings.write_text(json.dumps({"data_dir": str(old)}))
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "models_directory": str(models)}))
+cat = Catalog(src=root, root=root, hardware={"ram_gb": 64, "gpus": []})
+mod = cat.strata.setup_module()
+family, model = "qwen36", "UD-Q4_K_XL"
+fam = mod.OWN_PATH_FAMILIES[family]
+filename = fam["file"].format(q=model)
+retained = old / "models" / (fam["tag"] + model) / filename
+retained.parent.mkdir(parents=True)
+size, sha = fam["sha256"][filename]
+with retained.open("wb") as stream:
+    stream.truncate(size)
+assert retained.stat().st_blocks == 0
+mod.mark(retained, "sha256 " + sha)
+tag = cat.tag_of(family, model)
+row = ModelRow(family=family, family_title="Qwen3.6", model=model, id=tag, about="", download_gb=size / 1e9,
+    need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
+    experimental=False, images=False, installed=False)
+cat.rows = lambda: [row]
+config = root / ("strata-" + tag + ".json")
+selection = base / "selection.json"
+producer = base / "native-progress.py"
+producer.write_text(r"""
+import json, socket, sys
+from pathlib import Path
+import setup as mod
+parsed = []
+assert mod.main(sys.argv[4:], after_parse=lambda a, argv: (parsed.append(a), 0)[1]) == 0
+a = parsed[0]
+mod.step(3, "installing dependencies")
+mod.step(4, "preparing the engine")
+data, elsewhere = mod.data_folder_for(a)
+selected = mod.own_path_download_layout(a.family, a.model, Path(a.models_dir), gguf_dir=a.gguf_dir, elsewhere=elsewhere)
+Path(sys.argv[3]).write_text(json.dumps({"selected": str(selected["gguf"]),
+    "complete": mod.download_complete(selected["gguf"]), "settings": mod.load_settings()}))
+with socket.socket(socket.AF_UNIX) as gate:
+    gate.settimeout(15)
+    gate.connect(sys.argv[2])
+    mod.step(5, "downloading model")
+    mod.ok(str(selected["gguf"]) + ": already downloaded")
+    assert gate.recv(1) == b"g"
+mod.step(6, "writing config")
+pack = data / "packs" / "fixture"
+pack.mkdir(parents=True)
+Path(sys.argv[1]).write_text(json.dumps({"exe": sys.executable,
+    "args": ["--native", str(selected["gguf"]), "--pack", str(pack), "--max-context", "8192", "--kv", "fp16"]}))
+""")
+events, observed = [], []
+acknowledged = False
+gate_path = base / "selection.sock"
+def emit(event):
+    global acknowledged
+    events.append(event)
+    if str(event.data.get("step") or "").startswith("5/") and not acknowledged:
+        # Observe progress before the installed config can make the retained model discoverable.
+        assert not config.exists()
+        with listener.accept()[0] as gate:
+            gate.sendall(b"g")
+        acknowledged = True
+runner = Runner(LaunchSettings(family=family, model=model, context=8192, data_dir=str(data),
+    vision="off", mtp="off", drafting="off"), catalog=cat, emit=emit)
+spawn, combined = runner._spawn, cat.mcp.combined_progress
+def spawn_fixture(argv, **kwargs):
+    return spawn([argv[0], str(producer), str(config), str(gate_path), str(selection), *argv[2:]], **kwargs)
+def observe(prog, job, **kwargs):
+    shown = combined(prog, job, **kwargs)
+    if str(prog.get("step") or "").startswith("5/"):
+        observed.append(json.loads(json.dumps({"job": job, "shown": shown})))
+    return shown
+runner._spawn, cat.mcp.combined_progress = spawn_fixture, observe
+try:
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.settimeout(15)
+        listener.bind(str(gate_path))
+        listener.listen(1)
+        assert runner.ensure_model() == config
+finally:
+    runner._stop_children()
+    cat.mcp.combined_progress = combined
+actual = json.loads(selection.read_text())
+assert actual["selected"] == str(retained) and actual["complete"], actual
+assert actual["settings"]["data_dir"] == str(data), actual
+assert acknowledged and observed
+for snapshot in observed:
+    part = next(part for part in snapshot["shown"]["parts"] if part["kind"] == "model")
+    assert part["state"] == "done" and part["files_done"] == part["files_total"] == 1, part
+    assert part["done_gb"] == part["total_gb"] > 0, part
+    assert [item["path"] for item in snapshot["job"]["files"] if item.get("role", "model") == "model"] == [str(retained)]
+shown = [event for event in events if str(event.data.get("step") or "").startswith("5/") and event.pct is not None]
+assert shown and all(event.pct == 99 for event in shown), shown
+assert events[-1].pct == 100
+assert retained.is_file() and not (models / (fam["tag"] + model) / filename).exists()
 ''')
 
 
