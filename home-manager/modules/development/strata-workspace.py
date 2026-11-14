@@ -705,7 +705,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
             )
             if (ledger.is_file() and ledger.read_text() == Path(source_patch).read_text()
                     and head.returncode == 0
-                    and (args[0] not in {"launch", "runtime"} or head.stdout.strip() == revision)
+                    and head.stdout.strip() == revision
                     and patch_check(source, ledger.read_text(), reverse=True)):
                 python = runtime_python(source)
                 if not os.access(python, os.X_OK):

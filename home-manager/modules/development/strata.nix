@@ -47,7 +47,8 @@ in
         Managed setup, updates and model acquisition serialize workspace mutations.
         Serving and observation release the mutation lock after preparation.
         Monitor updates refuse a busy workspace without blocking observation.
-        Prepared same-pin stop commands remain available while an updater waits.
+        Prepared same-pin observers and stop commands remain available while an updater waits.
+        Commands prepare the requested source revision before parsing native arguments.
         Source publication protects command initialization; direct upstream scripts
         outside this launcher do not participate in these protections.
 

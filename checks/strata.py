@@ -4357,6 +4357,53 @@ with contextlib.redirect_stderr(io.StringIO()) as errors:
         raise AssertionError("invalid operation succeeded")
 ''')
 
+    def test_observers_refresh_pin_before_parsing_and_bypass_same_pin_mutation_lock(self):
+        root = self.prepare(self.old)
+        cli = self.repo / "strata_cli/cli.py"
+        anchor = "    return ap\n"
+        self.assertEqual(cli.read_text().count(anchor), 1)
+        cli.write_text(cli.read_text().replace(anchor,
+            '    for name in ("status", "monitor", "logs", "connection"):\n'
+            '        sp.choices[name].add_argument("--new-pin-flag", action="store_true")\n' + anchor))
+        revision = self.commit()
+        self.write_terminal(root, '''
+import json
+from strata_cli import cli
+def dispatch(a):
+    print(json.dumps({"command": a.command, "new_flag": getattr(a, "new_pin_flag", None)}))
+    return 0
+cli._run = dispatch
+raise SystemExit(cli.main())
+''')
+        requests = [
+            ("status", ["--new-pin-flag"], True),
+            ("monitor", ["--once", "--new-pin-flag"], True),
+            ("logs", ["--new-pin-flag"], True),
+            ("connection", ["--new-pin-flag", "list"], True),
+            ("status", [], False),
+        ]
+        for command, args, expected in requests:
+            with self.subTest(command=command, args=args):
+                self.prepare(self.old)
+                result = subprocess.run(self.command(revision) + ["run", command, *args],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"command": command, "new_flag": expected})
+                self.assertEqual(subprocess.check_output(
+                    ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), revision)
+                self.assertFalse((root / ".venv").exists())
+                self.assertFalse((root / ".git/strata-runtime-revision").exists())
+        with (self.state / ".source.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            for command, args in (("status", []), ("monitor", ["--once"]), ("logs", []), ("connection", ["list"])):
+                with self.subTest(same_pin=command):
+                    result = subprocess.run(self.command(revision) + ["run", command, *args],
+                                            env=self.env, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout), {"command": command, "new_flag": False})
+        self.assertFalse((root / ".venv").exists())
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
+
     def test_new_pin_parser_is_loaded_before_new_native_command(self):
         root = self.prepare(self.old)
         cli = self.repo / "strata_cli/cli.py"
