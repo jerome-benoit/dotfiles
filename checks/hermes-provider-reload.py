@@ -342,12 +342,146 @@ def normal_exit(plugin):
     # No manual runtime cleanup: the outer process verifies the real atexit callback.
 
 
+
+
+def activation_result(fixture, manager):
+    from hermes_cli.plugins_activation import plugin_activation_summary, activation_hint
+    key = next(key for key, loaded in manager._plugins.items() if loaded.manifest.name == "review-provider")
+    summary = plugin_activation_summary(manager, key)
+    hint = activation_hint({"gateway_reloaded": True, "activation": summary})
+    return summary, hint
+
+
+def activation_pending(fixture, fail):
+    from hermes_cli.plugins import PluginManager
+    gate = types.ModuleType("activation_test_gate")
+    gate.entered, gate.release = threading.Event(), threading.Event()
+    def pause():
+        gate.entered.set()
+        if not gate.release.wait(15):
+            raise RuntimeError("activation gate timed out")
+        if fail:
+            raise RuntimeError("activation failed after deferred response")
+    gate.pause = pause
+    sys.modules[gate.__name__] = gate
+    fixture.install(fixture.generation("one"))
+    old = fixture.profile()
+    fixture.install(fixture.generation("second", tail="import activation_test_gate\nactivation_test_gate.pause()"))
+    worker = threading.Thread(target=fixture.refresh, daemon=True)
+    worker.start()
+    try:
+        assert gate.entered.wait(15)
+        manager = PluginManager()
+        manager.discover_and_load(force=True)
+        before, hint = activation_result(fixture, manager)
+        assert "provider" not in before["activated_now"]
+        assert before["deferred"]["provider"] == ["review-provider"]
+        assert "new sessions use this version" not in hint
+        assert "not confirmed yet" in hint
+        assert fixture.profile() is old
+    finally:
+        gate.release.set()
+        worker.join(15)
+    assert not worker.is_alive()
+    after, final_hint = activation_result(fixture, manager)
+    if fail:
+        assert "activation failed after deferred response" in after["load_error"]
+        assert "provider" not in after["activated_now"]
+        assert fixture.profile() is old
+    else:
+        assert after["activated_now"]["provider"] == ["review-provider"]
+        assert "provider" not in after["deferred"]
+        assert fixture.headers(fixture.profile()) == "second"
+    assert before["deferred"]["provider"] == ["review-provider"]
+    return {"initial_hint": hint, "final_hint": final_hint}
+
+
+def activation_scope(fixture):
+    from hermes_cli.plugins import PluginManager
+    fixture.install(fixture.generation("one"))
+    fixture.profile()
+    manager = PluginManager()
+    manager.discover_and_load(force=True)
+    different = fixture.root / "different-home"
+    different.mkdir()
+    os.environ["HERMES_HOME"] = str(different)
+    try:
+        summary, _ = activation_result(fixture, manager)
+        assert summary["activated_now"]["provider"] == ["review-provider"]
+        assert fixture.providers.plugin_activation_status(fixture.link, home=different) == ("inactive", "")
+    finally:
+        os.environ["HERMES_HOME"] = str(fixture.home)
+    return {"manager_home": "ready", "ambient_home": "inactive"}
+
+
+def activation_merge(fixture):
+    import copy
+    from unittest.mock import patch
+    from hermes_cli import plugins_activation as activation
+    ready = {"name": "review-provider", "key": "review-provider", "activated_now": {"provider": ["review-provider"]}, "deferred": {},
+             "live_now": {"skills": [{"name": "keep-skill"}]}}
+    pending = {"name": "review-provider", "key": "review-provider", "activated_now": {}, "deferred": {"provider": ["review-provider"]}}
+    failed = {"name": "review-provider", "key": "review-provider", "activated_now": {}, "deferred": {}, "load_error": "gateway failed"}
+    for backend, gateway in ((ready, pending), (ready, failed), (failed, ready)):
+        with patch.object(activation, "load_and_go_live", return_value=copy.deepcopy(backend)), patch.object(
+            activation, "reload_running_gateway", return_value={"reloaded": True, "activations": [copy.deepcopy(gateway)]}
+        ):
+            result = activation.activate_plugin_now("review-provider")
+        observed = result["activation"]
+        assert observed["activated_now"] == gateway["activated_now"]
+        assert observed["deferred"] == gateway["deferred"]
+        assert observed.get("load_error") == gateway.get("load_error")
+        if "live_now" in backend:
+            assert observed["live_now"] == backend["live_now"]
+    return {"gateway_status_authoritative": True}
+
+
+def interrupted_host(fixture):
+    gate = ('import os, sys\n'
+            'from .aux import READY\n'
+            'if os.environ.get("HERMES_PLUGIN_HOST_PROCESS") == "1" and "--extract-profiles" not in sys.argv and '
+            '(Path(os.environ["HERMES_HOME"]) / "interrupt-once").exists():\n'
+            '    raise SystemExit("interrupted provider import")')
+    one = fixture.generation("one")
+    fixture.install(one)
+    old = fixture.profile()
+    assert fixture.headers(old) == "one"
+    pid = fixture.host()._proc.pid
+    two = fixture.generation("second", gate=gate, mutable=True)
+    (two / "aux.py").write_text("READY = True\n")
+    for path in two.iterdir():
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    two.chmod(0o555)
+    fixture.install(two)
+    fixture.refresh()
+    new = fixture.profile()
+    marker = fixture.home / "interrupt-once"
+    marker.touch()
+    try:
+        fixture.headers(new)
+    except Exception as error:
+        assert "SystemExit" in str(error) and "interrupted provider import" in str(error)
+    else:
+        raise AssertionError("first import must report the original SystemExit")
+    marker.unlink()
+    assert fixture.headers(new) == "second", "second call must recover without another failed call"
+    assert fixture.host()._proc.pid == pid
+    assert fixture.headers(old) == "one"
+    return {"second_call": "second", "host_retained": True, "old_hook": "one"}
+
+
+def long_names(fixture):
+    fixture.link = fixture.home / "plugins" / ("x" * 180)
+    result = rollback(fixture)
+    result["directory_name_length"] = len(fixture.link.name)
+    assert not list(fixture.reloader._snapshot_root.glob(".copy-*"))
+    return result
 def run_case(case, plugin):
     if case == "normal-exit":
         normal_exit(plugin)
         return
     root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-"))
-    hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup"}
+    hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup", "interrupt-host", "long-host"}
     fixture = Fixture(root, plugin, "host" if hosted else "in_process")
     try:
         if case.startswith("rollback"):
@@ -366,6 +500,16 @@ def run_case(case, plugin):
             result = hosted_overlap(fixture)
         elif case == "host-cleanup":
             result = host_cleanup(fixture)
+        elif case in {"activation-success", "activation-failure"}:
+            result = activation_pending(fixture, fail=case == "activation-failure")
+        elif case == "activation-home":
+            result = activation_scope(fixture)
+        elif case == "activation-merge":
+            result = activation_merge(fixture)
+        elif case == "interrupt-host":
+            result = interrupted_host(fixture)
+        elif case in {"long-native", "long-host"}:
+            result = long_names(fixture)
         else:
             raise ValueError(case)
         print(json.dumps(result))
@@ -423,6 +567,27 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_normal_exit_cleanup(self):
         self.run_case("normal-exit")
+
+    def test_deferred_activation_then_success(self):
+        self.run_case("activation-success")
+
+    def test_deferred_activation_then_failure(self):
+        self.run_case("activation-failure")
+
+    def test_activation_manager_home(self):
+        self.run_case("activation-home")
+
+    def test_gateway_activation_merge(self):
+        self.run_case("activation-merge")
+
+    def test_interrupted_host_import_recovers_on_next_call(self):
+        self.run_case("interrupt-host")
+
+    def test_long_plugin_name(self):
+        self.run_case("long-native")
+
+    def test_long_plugin_name_hosted(self):
+        self.run_case("long-host")
 
 
 if __name__ == "__main__":

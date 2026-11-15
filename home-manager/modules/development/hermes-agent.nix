@@ -99,6 +99,22 @@ let
                 };
               };
             }
+          else if lib.elem (toString path) [
+            "${inputs.hermes-agent}/nix/desktop.nix"
+            "${inputs.hermes-agent}/nix/webapp.nix"
+          ] then
+            args // {
+              hermesNpmLib = args.hermesNpmLib // {
+                # Workaround: pending provider activation is not a next-chat tool report.
+                # Remove when the renderer classifies only tools and prompt sections here.
+                buildPnpmPackage = options:
+                  (args.hermesNpmLib.buildPnpmPackage options).overrideAttrs (old: {
+                    patches = (old.patches or [ ]) ++ [
+                      ../../../patches/hermes-agent-provider-activation-ui.patch
+                    ];
+                  });
+              };
+            }
           else
             args
         );

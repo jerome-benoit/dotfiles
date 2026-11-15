@@ -1,11 +1,11 @@
 # base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
 # prerequisites: none
 # intent: preserve complete provider versions across rollback and hosted calls;
-#   identify frozen content and clean owned read-only snapshots
+#   identify frozen content, report publication status and clean owned snapshots
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py
-@@ -15,101 +15,204 @@
+@@ -15,101 +15,218 @@
  
  import atexit
  import hashlib
@@ -168,6 +168,11 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    return digest.hexdigest()
 +
 +
++def _discard_failed_modules(module_name: str) -> None:
++    for name in [name for name in sys.modules if name == module_name or name.startswith(module_name + ".")]:
++        sys.modules.pop(name, None)
++
++
 +def _load_version(plugin_dir: Path, source: str, module_name: str, *,
 +                  code_dir: Path, wait: bool = False) -> _LoadResult | None:
 +    """Share only complete registrations; public discovery never waits on an import."""
@@ -189,12 +194,12 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    staging = P._HomeLayer()
 +    registration = P._REGISTRATION_TARGET.set(staging)
 +    active = _active_import.set(True)
++    complete = False
 +    try:
 +        P._discover_providers()
 +        complete = P._import_user_module(plugin_dir, source, module_name, code_dir=code_dir)
 +        if not complete:
-+            for name in [name for name in sys.modules if name == module_name or name.startswith(module_name + ".")]:
-+                sys.modules.pop(name, None)
++            _discard_failed_modules(module_name)
 +        result = _LoadResult(staging, complete)
 +        if complete:
 +            with _versions_lock:
@@ -202,7 +207,10 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        future.set_result(result)
 +        return result
 +    except BaseException as error:
-+        future.set_exception(error)
++        if not complete:
++            _discard_failed_modules(module_name)
++        if not future.done():
++            future.set_exception(error)
 +        raise
 +    finally:
 +        _active_import.reset(active)
@@ -249,6 +257,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    with P._HOME_LAYERS_LOCK:
 +        request = next(_requests)
 +        layer.reload_requests[base_name] = (request, None)
++        layer.activation_status[base_name] = ("loading", "")
 +    try:
 +        prefix = f"{base_name}_{isolation_mode()}"
 +        code_dir, fingerprint = _snapshot(plugin_dir, prefix)
@@ -259,12 +268,15 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            layer.reload_requests[base_name] = (request, module_name)
 +            live = layer.trees.get(base_name)
 +            if live is not None and live[1] == module_name:
++                layer.activation_status[base_name] = ("ready", "")
++                layer.errors.pop(plugin_dir.name, None)
 +                return True
 +        result = _load_version(plugin_dir, source, module_name, code_dir=code_dir)
 +    except OSError as error:
 +        with P._HOME_LAYERS_LOCK:
 +            if layer.reload_requests[base_name][0] == request:
 +                layer.errors[plugin_dir.name] = f"{type(error).__name__}: {error}"
++                layer.activation_status[base_name] = ("failed", layer.errors[plugin_dir.name])
 +        logger.warning("Could not stage provider plugin %s: %s", plugin_dir.name, error)
 +        return True
 +    if result is None:
@@ -276,13 +288,15 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            _publish(layer, base_name, module_name, fingerprint, result.layer,
 +                     replacing=base_name in layer.trees)
 +            layer.errors.pop(plugin_dir.name, None)
++            layer.activation_status[base_name] = ("ready", "")
 +        else:
 +            layer.errors[plugin_dir.name] = result.layer.errors.get(plugin_dir.name, "Provider import did not complete")
++            layer.activation_status[base_name] = ("failed", layer.errors[plugin_dir.name])
 +    return True
  
  
  def _publish(layer, base_name: str, module_name: str, fingerprint: str, staging, *, replacing: bool) -> None:
-@@ -119,23 +222,23 @@
+@@ -119,23 +236,23 @@
      name another plugin currently owns."""
      import providers as P
  
@@ -329,16 +343,17 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 diff --git a/providers/__init__.py b/providers/__init__.py
 --- a/providers/__init__.py
 +++ b/providers/__init__.py
-@@ -99,6 +99,8 @@
+@@ -99,6 +99,9 @@
      # ``providers.plugin_reload`` compares and swaps when a plugin is updated (#153300)
      trees: dict[str, tuple[str, str]] = field(default_factory=dict)
      owner: dict[str, str] = field(default_factory=dict)
 +    # Latest observation per plugin; incomplete imports cannot supersede it.
 +    reload_requests: dict[str, tuple[int, str | None]] = field(default_factory=dict)
++    activation_status: dict[str, tuple[str, str]] = field(default_factory=dict)
  
  
  _HOME_LAYERS: dict[str, _HomeLayer] = {}
-@@ -159,18 +161,19 @@
+@@ -159,18 +162,19 @@
      only = _REGISTRATION_ONLY.get()
      if only is not None and profile.name not in only:
          return
@@ -359,7 +374,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      if _discovered and not _discovering:  # post-discovery registration: mirror it immediately
          _sync_auth_registry()
  
-@@ -466,6 +469,8 @@
+@@ -466,6 +470,8 @@
      """
      now = time.monotonic()
      from agent.safe_worker_policy import safe_worker_enabled
@@ -368,7 +383,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      # Safe mode fires zero user customization: same gate as ``_discover_providers``.
      if home is None or safe_worker_enabled() or not (
-@@ -480,7 +485,10 @@
+@@ -480,7 +486,10 @@
          # look settled afterwards and get remembered over an install that landed mid-scan.
          settled = _plugin_dir_stamps_settled(stamps)
          layer.disabled = None  # the scan records it again if it still skips a plugin
@@ -380,7 +395,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
          # A stamp still inside its mtime tick may not move for an install landing in that same
          # tick, which would hide the plugin until some later change: keep it unremembered so the
          # next periodic check scans again, until the stamps settle.
-@@ -585,7 +593,7 @@
+@@ -585,7 +594,7 @@
      return _manifest_field(plugin_dir, "kind") == "model-provider"
  
  
@@ -389,7 +404,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      """Import the bound home's not-yet-imported provider plugins into *layer*.
  
      ``$HERMES_HOME/plugins/model-providers/<name>/`` first, then plugins cloned flat by
-@@ -596,22 +604,24 @@
+@@ -596,22 +605,24 @@
      global _discovering
      token, prior_discovering = _REGISTRATION_TARGET.set(layer), _discovering
      _discovering = True
@@ -416,11 +431,31 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _plugin_disabled(plugin_dir: Path) -> bool:
-@@ -636,63 +646,61 @@
-     return f"_hermes_user_provider_{digest}_{plugin_dir.name.replace('-', '_')}"
+@@ -632,67 +643,80 @@
  
  
+ def _user_module_name(plugin_dir: Path, home_key: str) -> str:
+-    digest = hashlib.sha1(home_key.encode("utf-8")).hexdigest()[:10]
+-    return f"_hermes_user_provider_{digest}_{plugin_dir.name.replace('-', '_')}"
+-
+-
 -def _import_plugin_dir(plugin_dir: Path, source: str, *, home_key: str = "") -> None:
++    digest = hashlib.sha256(b"hermes-provider-namespace\0")
++    for value in (home_key, plugin_dir.name):
++        encoded = os.fsencode(value)
++        digest.update(len(encoded).to_bytes(8, "big") + encoded)
++    return f"_hermes_user_provider_{digest.hexdigest()}"
++
++
++def _provider_inactive(plugin_dir: Path, home_key: str) -> None:
++    layer = _REGISTRATION_TARGET.get()
++    if layer is not None:
++        base_name = _user_module_name(plugin_dir, home_key)
++        with _HOME_LAYERS_LOCK:
++            layer.reload_requests[base_name] = (-1, None)  # invalidate any older completion
++            layer.activation_status[base_name] = ("inactive", "")
++
++
 +def _import_plugin_dir(plugin_dir: Path, source: str, *, home_key: str = "") -> bool:
      """Import a single plugin directory so it self-registers.
  
@@ -428,10 +463,13 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      """
      if not (plugin_dir / "__init__.py").exists():
 -        return
++        if source != "bundled":
++            _provider_inactive(plugin_dir, home_key)
 +        return True
      if source != "bundled" and _plugin_disabled(plugin_dir):
          logger.debug("Skipping disabled provider plugin %s (plugins.disabled)", plugin_dir.name)
 -        return
++        _provider_inactive(plugin_dir, home_key)
 +        return True
      if source == "bundled":
          # A stable import path (``plugins.model_providers.<name>``) so relative imports work.
@@ -501,7 +539,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      finally:
          _current_source = None
      if in_process:
-@@ -701,31 +709,44 @@
+@@ -701,19 +725,20 @@
                             "in-process, NOT isolated by plugins.isolation: host", plugin_dir.name, name, reason)
          token = _REGISTRATION_ONLY.set(frozenset(in_process))
          try:
@@ -529,17 +567,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      _current_source = source
      try:
-+        if source != "bundled":
-+            from types import ModuleType
-+            parts = module_name.split(".")[:-1]
-+            for index in range(1, len(parts) + 1):
-+                parent = ".".join(parts[:index])
-+                if parent not in sys.modules:
-+                    package = ModuleType(parent)
-+                    package.__path__ = []
-+                    package.__package__ = parent
-+                    sys.modules[parent] = package
-         spec = importlib.util.spec_from_file_location(
+@@ -721,11 +746,13 @@
              module_name, plugin_dir / "__init__.py", submodule_search_locations=[str(plugin_dir)]
          )
          if spec is None or spec.loader is None:
@@ -554,7 +582,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      except Exception as exc:  # health: allow BLE001 -- plugin import boundary (moved from _import_plugin_dir): one broken plugin never breaks discovery
          logger.warning(
              "Failed to load %s provider plugin %s: %s", source, plugin_dir.name, exc
-@@ -734,6 +755,7 @@
+@@ -734,6 +761,7 @@
          _note_load_result(plugin_dir, exc)
      finally:
          _current_source = None
@@ -562,7 +590,32 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _note_load_result(plugin_dir: Path, exc: BaseException | None) -> None:
-@@ -931,11 +953,13 @@
+@@ -752,6 +780,24 @@
+ def plugin_load_error(plugin: str) -> str:
+     """The error the bound home's provider plugin dir *plugin* raised on its last import, else ``""``."""
+     return _home_layer().errors.get(plugin, "")
++
++
++def plugin_activation_status(plugin_dir: Path, *, home: Path) -> tuple[str, str]:
++    """Read the latest publication status in this home without discovery or waiting."""
++    from hermes_constants import hermes_home_key
++    if not (plugin_dir / "__init__.py").is_file():
++        return "inactive", ""
++
++    key = hermes_home_key(home)
++    base_name = _user_module_name(plugin_dir, key)
++    with _HOME_LAYERS_LOCK:
++        layer = _HOME_LAYERS.get(key)
++        if layer is None:
++            return "inactive", ""
++        state, error = layer.activation_status.get(base_name, ("inactive", ""))
++        if state == "ready" and not any(owner == base_name for owner in layer.owner.values()):
++            return "inactive", ""
++        return state, error
+ 
+ 
+ def _discover_entry_point_providers() -> None:
+@@ -931,11 +977,13 @@
      if _discovered:
          return
      _discovered = True
@@ -677,3 +730,109 @@ diff --git a/hermes_cli/plugin_host_child.py b/hermes_cli/plugin_host_child.py
 +        sys.stderr.flush()
 +        # A plugin thread stuck in a handler must not keep the host alive once Hermes has gone.
 +        os._exit(code)
+diff --git a/hermes_cli/plugins_activation.py b/hermes_cli/plugins_activation.py
+--- a/hermes_cli/plugins_activation.py
++++ b/hermes_cli/plugins_activation.py
+@@ -61,14 +61,15 @@
+     if kinds.get("locale"):  # language-pack layers: the i18n caches reset on registration, so live at once
+         now["locales"] = sorted(kinds["locale"])
+     load_error = ""
++    deferred: dict[str, list[str]] = {}
+     if getattr(manifest, "kind", None) == "model-provider":
+-        # providers/ discovery owns these and the forced sweep re-scans them: an updated tree serves new
+-        # sessions once it imported; a failed import leaves the previous version serving (#153300).
+-        from providers import plugin_load_error
+-        load_error = plugin_load_error(Path(getattr(manifest, "path", None) or name).name)
+-        if not load_error:
++        from providers import plugin_activation_status
++        directory = Path(getattr(manifest, "path", None) or name)
++        state, load_error = plugin_activation_status(directory, home=Path(manager.home_path))
++        if state == "ready":
+             now["provider"] = [name]
+-    deferred: dict[str, list[str]] = {}
++        elif state in ("loading", "inactive"):
++            deferred["provider"] = [name]
+     tools = sorted(set(kinds.get("tool", ())) | set(getattr(loaded, "tools_registered", None) or ())
+                    | set(getattr(manifest, "provides_tools", None) or ()))
+     if tools:
+@@ -155,10 +156,20 @@
+     if missing:
+         activation = {**(activation or {"name": name, "key": name}), "missing_dependencies": missing,
+                       "missing_in": [process for process, deps in gaps.items() if deps]}
+-    if gateway_error := (gateway_activation or {}).get("load_error"):
+-        # The gateway's own import result decides what the gateway serves, whatever this process loaded.
+-        now = {k: v for k, v in ((activation or {}).get("activated_now") or {}).items() if k != "provider"}
+-        activation = {**(activation or gateway_activation), "activated_now": now, "load_error": gateway_error}
++    if gateway_activation and ("provider" in (gateway_activation.get("activated_now") or {})
++                               or "provider" in (gateway_activation.get("deferred") or {})
++                               or gateway_activation.get("load_error")):
++        # Only the gateway determines whether its requested provider version is active.
++        merged = dict(activation or gateway_activation)
++        for section in ("activated_now", "deferred"):
++            values = {key: value for key, value in (merged.get(section) or {}).items() if key != "provider"}
++            if provider := (gateway_activation.get(section) or {}).get("provider"):
++                values["provider"] = provider
++            merged[section] = values
++        merged.pop("load_error", None)
++        if gateway_error := gateway_activation.get("load_error"):
++            merged["load_error"] = gateway_error
++        activation = merged
+     return {"gateway_reloaded": reloaded, "activation": activation,
+             "restart_required": not reloaded or bool(missing)}
+ 
+@@ -331,7 +342,7 @@
+         return "\n".join([*lines, dependency_restart_hint(missing, act.get("missing_in") or [])])
+     if error := act.get("load_error"):
+         return "\n".join([*lines, f"The updated provider plugin failed to load ({error}); "
+-                                  "the previous version keeps serving."])
++                                  "activation of the requested version is not confirmed."])
+     if not result.get("gateway_reloaded"):
+         # Live in open chats, or no gateway runs or is installed for this profile (first-time setup):
+         # a messaging gateway that starts later loads it at boot, so a restart applies to nothing.
+@@ -345,7 +356,8 @@
+         parts.append("active in the running gateway now: " + ", ".join(now_labels.get(k, k) for k in sorted(now)))
+     if deferred:
+         labels: dict[str, str] = {"tools": "tools (next session)", "prompt": "system prompt (next session)",
+-                                  "mcp_servers": "MCP servers (next session)"}
++                                  "mcp_servers": "MCP servers (next session)",
++                                  "provider": "model provider (activation not confirmed yet)"}
+         parts.append("deferred: " + ", ".join(labels.get(k, k) for k in sorted(deferred)))
+     if not parts:
+         return "\n".join([*lines, "Gateway reloaded plugins; nothing of this plugin needs a session or restart."])
+diff --git a/tui_gateway/methods_tools.py b/tui_gateway/methods_tools.py
+--- a/tui_gateway/methods_tools.py
++++ b/tui_gateway/methods_tools.py
+@@ -1715,8 +1715,8 @@
+ 
+     def _on_loaded(summaries) -> None:
+         for entry in summaries:
+-            _plugin_activations[entry["name"]] = entry
+-            _plugin_activations[entry["key"]] = entry
++            _plugin_activations[(manager.scope_key, entry["name"])] = entry
++            _plugin_activations[(manager.scope_key, entry["key"])] = entry
+     manager.on_plugin_loaded(_on_loaded)
+ 
+ 
+@@ -1725,9 +1725,20 @@
+     copy carries ``live_now``, which the listener's load-time summary cannot)."""
+     if result.get("activation"):
+         return result
++    from hermes_cli.plugins import get_plugin_manager
++    from hermes_cli.plugins_activation import plugin_activation_summary
++    manager = get_plugin_manager()
+     for key in (name, result.get("plugin_name"), result.get("name")):
+-        if key and key in _plugin_activations:
+-            result["activation"] = _plugin_activations[key]
++        if not key:
++            continue
++        for plugin_key, loaded in manager._plugins.items():
++            manifest = loaded.manifest
++            if key in (plugin_key, manifest.name, plugin_key.rsplit("/", 1)[-1]) and manifest.kind == "model-provider":
++                result["activation"] = plugin_activation_summary(manager, plugin_key)
++                return result
++        cached = _plugin_activations.get((manager.scope_key, key))
++        if cached is not None:
++            result["activation"] = cached
+             break
+     return result
+ 

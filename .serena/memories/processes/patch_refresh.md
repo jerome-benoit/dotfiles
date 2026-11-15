@@ -51,6 +51,7 @@ explaining why it exists and when it can go:
 - `patches/strata-setup-directory-roles.patch` — separate GGUF files from ready packs, QAD checkpoints/drafts and image VAE; runtime patch declared by the launcher, no prerequisite patches.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore opted-in gateway mise shims after local login PATH restoration, before snapshots and background commands; patched into the workspace wheel, no prerequisite patches.
 - `patches/hermes-agent-provider-reload.patch` — freeze content-identified provider generations, reuse completed registrations on rollback, bind hosted calls to their code and clean owned snapshots; patched into the workspace wheel, no prerequisite patches.
+- `patches/hermes-agent-provider-activation-ui.patch` — classify only Python tools and prompt sections as next-chat reports, not pending provider activation; renderer/webapp source patch, no prerequisite patches.
 
 ## Local Patch Refresh
 
@@ -96,10 +97,17 @@ Provider discovery identifies the copied tree by names, modes and file contents,
 not source timestamps. Publish its writable staging parent, preserving the copied
 permissions. Cache only completed registrations, retain old versions for rollback
 and late calls, and never wait for an active import from a public lookup.
+The per-home publication status is independent of scan completion: loading is
+reported as deferred, failed carries the current error, and only ready is active.
+Read status without rescanning, using the manager home; gateway status wins over
+backend status. Keep provider deferrals out of next-chat tools/prompt notices.
 Extraction and RPC must use the same frozen code; the host shares the complete
 version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Apply the wheel patch with or without mise.
+Interrupted imports discard only the failed module family before waking waiters.
+Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
+names do not expand internal storage components or collide after normalization.
 `checks/hermes-provider.py` exercises canonical Copilot discovery;
 `checks/hermes-provider-reload.py` covers generations, RPC, concurrency and exit
 cleanup against the installed interpreter. Copying then hashing guarantees the
