@@ -94,6 +94,10 @@ let
         startsBefore "sops-nix" "hermesAgentEnvironment"
         && startsBefore "hermesAgentEnvironment" "setupLaunchAgents"
     );
+  # Test tooling stays outside the runtime and uses PM's selected interpreter family.
+  runtimeTestPython =
+    (pkgs.callPackage "${inputs.hermes-agent}/nix/pythonLock.nix" { }).interpreter.withPackages
+      (pythonPackages: [ pythonPackages.pytest ]);
   wrappedVoicePython =
     pkgs.runCommand "hermes-voice-discovery-python"
       {
@@ -237,8 +241,66 @@ pkgs.runCommand "check-hermes-agent"
     ];
   }
   ''
-    ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
+    ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
       ${./hermes-provider.py} ${plugin}
+    # Run only public regressions for the source delta, one fresh installed process per file.
+    # Copy tests alone: upstream child probes add their test root to PYTHONPATH.
+    python3 - ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
+      ${runtimeTestPython}/${runtimeTestPython.sitePackages} ${inputs.hermes-agent}/tests <<'PY'
+    import os
+    from pathlib import Path
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+
+    interpreter, pytest_path, source_tests = sys.argv[1:]
+    cases = {
+        "providers/test_provider_plugin_update.py": [
+            "test_an_update_serves_new_sessions_whole_while_old_clients_stay_on_their_version[in-process]",
+            "test_a_broken_update_keeps_the_previous_version_and_says_so",
+        ],
+        "agent/test_redact_secret_sources_lifecycle.py": [
+            "test_removed_routed_source_releases_mask",
+            "test_startup_publish_leaves_the_redact_secrets_bridge_in_charge",
+        ],
+        "secret_sources/test_applied_secret_redaction.py": [
+            "test_a_revoked_key_is_unmasked_and_its_replacement_masked_on_reload",
+        ],
+        "tools/test_tts_command_providers.py": [
+            "TestGenerateCommandTts::test_writes_output_file",
+            "TestGenerateCommandTts::test_model_chosen_output_path_never_reaches_the_shell",
+        ],
+    }
+    runner = """
+    import sys
+    from pathlib import Path
+    import providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider
+    for module in (providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider):
+        assert "site-packages" in Path(module.__file__).parts, module.__file__
+    sys.path.append(sys.argv.pop(1))
+    import pytest
+    raise SystemExit(pytest.main(sys.argv[1:]))
+    """
+    with tempfile.TemporaryDirectory(prefix="hermes-installed-delta-") as temporary:
+        root = Path(temporary)
+        for relative, selectors in cases.items():
+            test = root / "tests" / relative
+            test.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Path(source_tests) / relative, test)
+            environment = {
+                "HOME": str(root), "HERMES_HOME": str(root / "hermes"), "TMPDIR": str(root),
+                "PATH": "${lib.makeBinPath [ pkgs.coreutils pkgs.bash ]}",
+                "HERMES_DISABLE_LAZY_INSTALLS": "1", "HERMES_TEST_ISOLATION": "1",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            }
+            subprocess.run(
+                [interpreter, "-I", "-B", "-c", runner, pytest_path,
+                 "-c", os.devnull, "--noconftest", "--import-mode=importlib", "-p", "no:cacheprovider",
+                 "-q", *(str(test) + "::" + selector for selector in selectors)],
+                cwd=root, env=environment, check=True, timeout=120,
+            )
+    PY
     ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
       # Same wrapper fixup and exact locked wheel; no compiler on caller PATH.
       PATH=${pkgs.coreutils}/bin ${wrappedVoicePython}/bin/python - <<'PY'

@@ -67,6 +67,11 @@ explaining why it exists and when it can go:
    For another lock update in an open PR, compare against the branch's current
    lock, preserving its pin and patch corrections. Recheck external consumers
    even when the patch's own source is unchanged.
+   Freeze pre-existing main edits without moving them; compose them with the PR
+   only in an isolated validation tree. Keep those edits out of the PR commit.
+   For Nixpkgs updates, trace effective package aliases, runtime closures and
+   toolchain derivations, not version labels alone. Home Manager updates also
+   require checking the activation, profile and shell-integration consumers.
 3. Check whether upstream now supplies each fix. Remove only superseded hunks;
    retire the whole patch only when every carried change is covered upstream.
 4. Apply prerequisite patches in the builder's declared order before regenerating
@@ -91,6 +96,10 @@ Provider discovery snapshots immutable plugin trees before importing them. Publi
 the writable staging parent atomically, preserving plugin permissions and the
 previous live version on failed imports. Apply this wheel patch with or without
 mise; exercise canonical Copilot discovery with `checks/hermes-provider.py`.
+
+For source deltas in secret routing or offline TTS, copy only the selected upstream
+tests into an isolated directory and run them against the installed wheel with
+isolated Python imports. Keep pytest tooling outside the runtime environment.
 
 Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
 the configured mise package and returns PATH only; no path comes from the private

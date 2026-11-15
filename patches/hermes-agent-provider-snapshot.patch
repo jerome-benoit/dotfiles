@@ -1,4 +1,4 @@
-# base: hermes-agent f578714e0ee122179ec28fecb9af989583b71baf
+# base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
 # prerequisites: none
 # intent: publish the writable staging parent without renaming read-only provider directories
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py

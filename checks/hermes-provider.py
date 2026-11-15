@@ -6,8 +6,6 @@ import sys
 import tempfile
 
 plugin = Path(sys.argv[1]).resolve()
-if len(sys.argv) > 2:
-    sys.path.insert(0, sys.argv[2])
 sys.dont_write_bytecode = True
 
 with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
@@ -22,10 +20,24 @@ with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
     import providers
     from providers import plugin_reload
 
+    fingerprint = plugin_reload.tree_fingerprint(plugin)
     try:
         profile = providers.get_provider_profile("copilot")
         assert profile is not None, providers.plugin_load_error("github-copilot")
         assert providers.get_provider_profile("copilot-acp") is not None
+        assert plugin_reload._snapshot_root is not None, "immutable provider must be staged"
+        snapshots = list(plugin_reload._snapshot_root.glob("*/github-copilot"))
+        assert len(snapshots) == 1, snapshots
+        assert snapshots[0].name == plugin.name
+        assert plugin_reload.tree_fingerprint(snapshots[0]) == fingerprint
+        assert os.stat(snapshots[0]).st_mode == os.stat(plugin).st_mode
+        assert os.access(snapshots[0].parent, os.W_OK), "publication parent must stay writable"
+        from hermes_cli.plugins import PluginManager
+
+        PluginManager().discover_and_load(force=True)
+        assert providers.get_provider_profile("copilot") is profile, "unchanged sweep must reuse the tree"
+        assert plugin_reload.tree_fingerprint(plugin) == fingerprint, "discovery must not change the source"
+        assert not list(plugin_reload._snapshot_root.glob(".copy-*")), "private staging tree leaked"
         for model, effort, expected in (
             ("gpt-6-astra", "max", "max"),
             ("gemini-4-carbon", "max", "high"),
@@ -43,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
             reasoning_config={"enabled": False, "effort": "high"},
             supports_reasoning=True,
         ) == ({}, {})
-        print("Immutable Copilot discovery and offline request projection passed")
+        print("Immutable Copilot discovery, unchanged forced reload and offline request projection passed")
     finally:
         # Only owned snapshots need writable directories for cleanup; never touch the Nix source.
         if plugin_reload._snapshot_root is not None:

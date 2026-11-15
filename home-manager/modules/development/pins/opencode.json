@@ -5,13 +5,13 @@
     "aarch64-darwin": "sha256-TigMUvnZX6AAlbjrCaenxwtVj5zlXwoX+ETuTwNF258="
   },
   "provenance": {
-    "sourceRevision": "38bd73789a43bf043599d6196af96583228035d7",
+    "sourceRevision": "d432a06b9c07bab0be4e8d642173b1cb14137f11",
     "hashSourceRevision": "9f1639c73223053c7e5bc6f2204995fcd39b15ad",
-    "nixpkgsRevision": "2074cc672349f14240fb7ea90d509e0b643e9dd4",
+    "nixpkgsRevision": "e126e9e73c335158ff8279ac14d5f4afec153716",
     "bunVersion": "1.4.4",
     "reuse": {
-      "comparison": "Only root scripts.lint changed among manifests; dependency/bin/install metadata, locks, native entries, filters, normalizers and Bun are unchanged. The dependency install uses --ignore-scripts.",
-      "verification": "Existing hash values and their recorded calculation/calibration are retained from hashSourceRevision; no hashes were recalculated for sourceRevision."
+      "comparison": "Since 38bd73789a43bf043599d6196af96583228035d7, only shell output decoding, UI and tests changed. Manifests, locks, native entries, dependency recipes, filters and normalizers are unchanged. The selected Nixpkgs retains the exact Bun 1.4.4 output on all three targets; Linux stdenvNoCC derivations are unchanged.",
+      "verification": "Hash values and calculation/calibration remain those of hashSourceRevision and Nixpkgs 2074cc672349f14240fb7ea90d509e0b643e9dd4. No hashes were recalculated for sourceRevision or the selected Nixpkgs revision."
     },
     "buildSystems": {
       "x86_64-linux": "x86_64-linux",
