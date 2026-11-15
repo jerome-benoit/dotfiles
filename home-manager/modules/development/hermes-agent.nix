@@ -55,9 +55,9 @@ let
       patches =
         (old.patches or [ ])
         ++ [
-          # Workaround: macOS cannot rename read-only provider snapshot directories.
-          # Remove when upstream publishes their writable staging parent instead.
-          ../../../patches/hermes-agent-provider-snapshot.patch
+          # Workaround: provider reloads lose complete versions and leak read-only snapshots.
+          # Remove when upstream preserves frozen versions through publication, RPC and cleanup.
+          ../../../patches/hermes-agent-provider-reload.patch
         ]
         ++ lib.optionals miseEnabled [
           # Workaround: local login profiles can put their tools ahead of inherited shims.

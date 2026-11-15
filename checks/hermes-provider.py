@@ -57,7 +57,4 @@ with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
         ) == ({}, {})
         print("Immutable Copilot discovery, unchanged forced reload and offline request projection passed")
     finally:
-        # Only owned snapshots need writable directories for cleanup; never touch the Nix source.
-        if plugin_reload._snapshot_root is not None:
-            for directory, _, _ in os.walk(plugin_reload._snapshot_root):
-                Path(directory).chmod(0o700)
+        plugin_reload._cleanup_snapshots()

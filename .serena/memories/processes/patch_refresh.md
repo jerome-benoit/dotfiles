@@ -50,7 +50,7 @@ explaining why it exists and when it can go:
 - `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
 - `patches/strata-setup-directory-roles.patch` — separate GGUF files from ready packs, QAD checkpoints/drafts and image VAE; runtime patch declared by the launcher, no prerequisite patches.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore opted-in gateway mise shims after local login PATH restoration, before snapshots and background commands; patched into the workspace wheel, no prerequisite patches.
-- `patches/hermes-agent-provider-snapshot.patch` — publish the writable staging parent so immutable Nix provider trees load on macOS; patched into the workspace wheel, no prerequisite patches.
+- `patches/hermes-agent-provider-reload.patch` — freeze content-identified provider generations, reuse completed registrations on rollback, bind hosted calls to their code and clean owned snapshots; patched into the workspace wheel, no prerequisite patches.
 
 ## Local Patch Refresh
 
@@ -92,10 +92,18 @@ the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
 
-Provider discovery snapshots immutable plugin trees before importing them. Publish
-the writable staging parent atomically, preserving plugin permissions and the
-previous live version on failed imports. Apply this wheel patch with or without
-mise; exercise canonical Copilot discovery with `checks/hermes-provider.py`.
+Provider discovery identifies the copied tree by names, modes and file contents,
+not source timestamps. Publish its writable staging parent, preserving the copied
+permissions. Cache only completed registrations, retain old versions for rollback
+and late calls, and never wait for an active import from a public lookup.
+Extraction and RPC must use the same frozen code; the host shares the complete
+version loader instead of replacing the process-wide registration function.
+Cleanup restores owner access only in owned copies, including before the host
+exits without atexit. Apply the wheel patch with or without mise.
+`checks/hermes-provider.py` exercises canonical Copilot discovery;
+`checks/hermes-provider-reload.py` covers generations, RPC, concurrency and exit
+cleanup against the installed interpreter. Copying then hashing guarantees the
+identity of the consumed copy, not an atomic multi-file update of a mutable source.
 
 For source deltas in secret routing or offline TTS, copy only the selected upstream
 tests into an isolated directory and run them against the installed wheel with

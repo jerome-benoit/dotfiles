@@ -1,0 +1,679 @@
+# base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
+# prerequisites: none
+# intent: preserve complete provider versions across rollback and hosted calls;
+#   identify frozen content and clean owned read-only snapshots
+diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
+--- a/providers/plugin_reload.py
++++ b/providers/plugin_reload.py
+@@ -15,101 +15,204 @@
+ 
+ import atexit
+ import hashlib
++import itertools
+ import logging
+ import os
+ import shutil
++import stat
+ import sys
+ import tempfile
+ import threading
++from concurrent.futures import Future
++from contextvars import ContextVar
++from dataclasses import dataclass
+ from pathlib import Path
++from typing import TYPE_CHECKING
++
++if TYPE_CHECKING:
++    from providers import _HomeLayer
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# Directories inside a plugin tree that never hold code the provider imports.
+-_SKIP_DIRS = frozenset({"__pycache__", ".git", "node_modules", "tests", "evals", ".venv"})
+-_SNAPSHOT_IGNORE = shutil.ignore_patterns("__pycache__", ".git", "node_modules", ".venv")
+-# One directory per process for the frozen copies; removed when the process exits.
++# Copies and content identities exclude the same non-runtime artifacts.
++_EXCLUDED = frozenset({"__pycache__", ".git", "node_modules", ".venv"})
++_SNAPSHOT_IGNORE = shutil.ignore_patterns(*_EXCLUDED)
+ _snapshot_root: Path | None = None
+ _snapshot_lock = threading.Lock()
+-
+-
+-def _snapshot(plugin_dir: Path, module_name: str) -> Path:
+-    """A frozen copy of *plugin_dir* for *module_name* (per home, plugin and tree), named like the original
+-    (load errors key on it). Copied into a private directory and published by one rename, so a concurrent scan
+-    never imports a half-written copy; a failed copy leaves nothing behind."""
++_versions_lock = threading.Lock()
++_completed_versions: dict[str, _LoadResult] = {}
++_loading_versions: dict[str, Future[_LoadResult]] = {}
++_active_import: ContextVar[bool] = ContextVar("_provider_version_import", default=False)
++_requests = itertools.count()
++
++
++@dataclass(frozen=True)
++class _LoadResult:
++    layer: _HomeLayer
++    complete: bool
++
++
++def _remove_owned_tree(path: Path) -> None:
++    """Make owned directories deletable, never following links to a source tree."""
++    if path.is_symlink():
++        path.unlink(missing_ok=True)
++        return
++    try:
++        path.chmod(path.stat().st_mode | stat.S_IRWXU, follow_symlinks=False)
++    except FileNotFoundError:
++        return
++    for root, directories, _ in os.walk(path, followlinks=False):
++        for name in directories:
++            directory = Path(root) / name
++            if not directory.is_symlink():
++                try:
++                    directory.chmod(directory.stat().st_mode | stat.S_IRWXU, follow_symlinks=False)
++                except FileNotFoundError:
++                    pass
++    try:
++        shutil.rmtree(path)
++    except FileNotFoundError:
++        pass
++
++
++def _cleanup_snapshots() -> None:
++    if _snapshot_root is not None:
++        _remove_owned_tree(_snapshot_root)
++
++
++def _snapshot(plugin_dir: Path, module_prefix: str) -> tuple[Path, str]:
++    """Copy first, identify those bytes, then publish their writable parent."""
+     global _snapshot_root
+     with _snapshot_lock:
+         if _snapshot_root is None:
+             _snapshot_root = Path(tempfile.mkdtemp(prefix="hermes-provider-plugins-"))
+-            atexit.register(shutil.rmtree, _snapshot_root, True)
+-    target = _snapshot_root / module_name / plugin_dir.name
+-    if target.is_dir():
+-        return target
+-    target.parent.mkdir(parents=True, exist_ok=True)
+-    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=target.parent))
+-    try:
+-        shutil.copytree(plugin_dir, private / plugin_dir.name, ignore=_SNAPSHOT_IGNORE)
+-        os.rename(private / plugin_dir.name, target)
+-    except OSError:
+-        if not target.is_dir():  # another scan publishing the same copy first is fine
+-            raise
++            atexit.register(_cleanup_snapshots)
++    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=_snapshot_root))
++    try:
++        copied = private / plugin_dir.name
++        shutil.copytree(plugin_dir.resolve(), copied, ignore=_SNAPSHOT_IGNORE)
++        fingerprint = tree_fingerprint(copied)
++        target = _snapshot_root / f"{module_prefix}_{fingerprint}" / plugin_dir.name
++        if not target.is_dir():
++            try:
++                os.rename(private, target.parent)
++            except OSError:
++                if not target.is_dir():
++                    raise
++        return target, fingerprint
+     finally:
+-        shutil.rmtree(private, ignore_errors=True)
+-    return target
++        _remove_owned_tree(private)
+ 
+ 
+ def tree_fingerprint(plugin_dir: Path) -> str:
+-    """Digest of the plugin's Python files and manifest (path, size, mtime): it moves whenever an update
+-    rewrites them, however the plugin was installed."""
+-    entries = []
+-    for root, dirs, files in os.walk(plugin_dir):
+-        dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS)
+-        for name in sorted(files):
+-            if name.endswith(".py") or name in ("plugin.yaml", "plugin.yml"):
+-                path = os.path.join(root, name)
+-                try:
+-                    st = os.stat(path)
+-                except OSError:
+-                    continue
+-                entries.append(f"{os.path.relpath(path, plugin_dir)}:{st.st_size}:{st.st_mtime_ns}")
+-    return hashlib.sha1("\n".join(entries).encode("utf-8")).hexdigest()[:12]
+-
+-
+-def import_into_layer(plugin_dir: Path, source: str, base_name: str) -> None:
+-    """Import *plugin_dir* into the layer being scanned unless that exact tree is already live there; an
+-    updated tree replaces the live one only once it imported completely."""
++    """Content identity of the materialized tree: names, types, modes and file bytes."""
++    digest = hashlib.sha256()
++
++    def record(path: Path, kind: bytes, mode: int) -> None:
++        name = os.fsencode(path.relative_to(plugin_dir).as_posix())
++        digest.update(kind + len(name).to_bytes(8, "big") + name)
++        digest.update(stat.S_IMODE(mode).to_bytes(2, "big"))
++
++    def failed(error: OSError) -> None:
++        raise error
++
++    for root, directories, files in os.walk(plugin_dir, onerror=failed):
++        directories[:] = sorted((name for name in directories if name not in _EXCLUDED), key=os.fsencode)
++        directory = Path(root)
++        record(directory, b"D", directory.stat().st_mode)
++        for name in sorted((name for name in files if name not in _EXCLUDED), key=os.fsencode):
++            path = directory / name
++            mode = path.stat().st_mode
++            if not stat.S_ISREG(mode):
++                raise OSError(f"Provider snapshot contains a non-regular file: {path}")
++            record(path, b"F", mode)
++            with path.open("rb") as stream:
++                digest.update(hashlib.file_digest(stream, "sha256").digest())
++    return digest.hexdigest()
++
++
++def _load_version(plugin_dir: Path, source: str, module_name: str, *,
++                  code_dir: Path, wait: bool = False) -> _LoadResult | None:
++    """Share only complete registrations; public discovery never waits on an import."""
+     import providers as P
+ 
++    with _versions_lock:
++        cached = _completed_versions.get(module_name)
++        if cached is not None:
++            if module_name in sys.modules or module_name in cached.layer.hosted:
++                return cached
++            del _completed_versions[module_name]  # an explicit provider/module reset
++        future = _loading_versions.get(module_name)
++        owner = future is None
++        if owner:
++            future = _loading_versions[module_name] = Future()
++    if not owner:
++        return future.result() if wait and not _active_import.get() else None
++
++    staging = P._HomeLayer()
++    registration = P._REGISTRATION_TARGET.set(staging)
++    active = _active_import.set(True)
++    try:
++        P._discover_providers()
++        complete = P._import_user_module(plugin_dir, source, module_name, code_dir=code_dir)
++        if not complete:
++            for name in [name for name in sys.modules if name == module_name or name.startswith(module_name + ".")]:
++                sys.modules.pop(name, None)
++        result = _LoadResult(staging, complete)
++        if complete:
++            with _versions_lock:
++                _completed_versions[module_name] = result
++        future.set_result(result)
++        return result
++    except BaseException as error:
++        future.set_exception(error)
++        raise
++    finally:
++        _active_import.reset(active)
++        P._REGISTRATION_TARGET.reset(registration)
++        with _versions_lock:
++            _loading_versions.pop(module_name, None)
++
++
++def import_into_layer(plugin_dir: Path, source: str, base_name: str) -> bool:
++    """Publish the latest requested complete version, retaining older objects and code."""
++    import providers as P
++    from hermes_cli.plugin_isolation import isolation_mode
++
+     layer = P._REGISTRATION_TARGET.get()
+-    fingerprint = tree_fingerprint(plugin_dir)
+-    live = layer.trees.get(base_name)
+-    if live is not None and live[0] == fingerprint:
+-        return
+-    module_name = f"{base_name}_{fingerprint}"
+-    staging = P._HomeLayer()
+-    token = P._REGISTRATION_TARGET.set(staging)
+-    try:
+-        # In-process code (including a hosted plugin's in-process profiles) reads the frozen copy; the plugin
+-        # host keeps the installed path, the stable key of its extraction cache.
+-        P._import_user_module(plugin_dir, source, module_name, code_dir=_snapshot(plugin_dir, module_name))
+-    except OSError as exc:  # the frozen copy could not be made: keep serving the previous version
+-        logger.warning("Could not stage provider plugin %s: %s", plugin_dir.name, exc)
+-        staging.errors[plugin_dir.name] = f"{type(exc).__name__}: {exc}"
+-    finally:
+-        P._REGISTRATION_TARGET.reset(token)
+-    if module_name in sys.modules or module_name in staging.hosted:
+-        _publish(layer, base_name, module_name, fingerprint, staging, replacing=live is not None)
+-        layer.errors.pop(plugin_dir.name, None)
+-        if live is not None:
+-            logger.info("Provider plugin %s changed on disk; new sessions use the updated version",
+-                        plugin_dir.name)
+-        return
+-    # A failed import leaves the previous version serving; drop what it half-loaded so a retry is clean.
+-    prefix = module_name + "."
+-    for name in [m for m in sys.modules if m.startswith(prefix)]:
+-        del sys.modules[name]
+-    if error := staging.errors.get(plugin_dir.name):
+-        layer.errors[plugin_dir.name] = error
++    with P._HOME_LAYERS_LOCK:
++        request = next(_requests)
++        layer.reload_requests[base_name] = (request, None)
++    try:
++        prefix = f"{base_name}_{isolation_mode()}"
++        code_dir, fingerprint = _snapshot(plugin_dir, prefix)
++        module_name = f"{prefix}_{fingerprint}"
++        with P._HOME_LAYERS_LOCK:
++            if layer.reload_requests[base_name][0] != request:
++                return False
++            layer.reload_requests[base_name] = (request, module_name)
++            live = layer.trees.get(base_name)
++            if live is not None and live[1] == module_name:
++                return True
++        result = _load_version(plugin_dir, source, module_name, code_dir=code_dir)
++    except OSError as error:
++        with P._HOME_LAYERS_LOCK:
++            if layer.reload_requests[base_name][0] == request:
++                layer.errors[plugin_dir.name] = f"{type(error).__name__}: {error}"
++        logger.warning("Could not stage provider plugin %s: %s", plugin_dir.name, error)
++        return True
++    if result is None:
++        return False
++    with P._HOME_LAYERS_LOCK:
++        if layer.reload_requests[base_name][1] != module_name:
++            return False
++        if result.complete:
++            _publish(layer, base_name, module_name, fingerprint, result.layer,
++                     replacing=base_name in layer.trees)
++            layer.errors.pop(plugin_dir.name, None)
++        else:
++            layer.errors[plugin_dir.name] = result.layer.errors.get(plugin_dir.name, "Provider import did not complete")
++    return True
+ 
+ 
+ def _publish(layer, base_name: str, module_name: str, fingerprint: str, staging, *, replacing: bool) -> None:
+@@ -119,23 +222,23 @@
+     name another plugin currently owns."""
+     import providers as P
+ 
+-    with P._HOME_LAYERS_LOCK:
+-        previous = {n for n, owner in layer.owner.items() if owner == base_name}
+-        for name, profile in staging.registry.items():
+-            if replacing and layer.owner.get(name, base_name) != base_name:
+-                continue
+-            layer.registry[name] = profile
+-            layer.owner[name] = base_name
+-        # The plugin's aliases go with its registrations: one the new release dropped stops resolving.
+-        aliases = {a: t for a, t in layer.aliases.items() if t not in previous}
+-        aliases.update({a: t for a, t in staging.aliases.items() if layer.owner.get(t) == base_name})
+-        layer.aliases = aliases
+-        for name in previous - staging.registry.keys():
+-            layer.registry.pop(name, None)
+-            del layer.owner[name]
+-        live = layer.trees.get(base_name)
+-        if live is not None:
+-            layer.hosted.discard(live[1])
+-        layer.hosted.update(staging.hosted)
+-        layer.trees[base_name] = (fingerprint, module_name)
+-        P._REGISTRY_GENERATION += 1
++    # The caller holds _HOME_LAYERS_LOCK across request validation and publication.
++    previous = {n for n, owner in layer.owner.items() if owner == base_name}
++    for name, profile in staging.registry.items():
++        if replacing and layer.owner.get(name, base_name) != base_name:
++            continue
++        layer.registry[name] = profile
++        layer.owner[name] = base_name
++    # The plugin's aliases go with its registrations: one the new release dropped stops resolving.
++    aliases = {a: t for a, t in layer.aliases.items() if t not in previous}
++    aliases.update({a: t for a, t in staging.aliases.items() if layer.owner.get(t) == base_name})
++    layer.aliases = aliases
++    for name in previous - staging.registry.keys():
++        layer.registry.pop(name, None)
++        del layer.owner[name]
++    live = layer.trees.get(base_name)
++    if live is not None:
++        layer.hosted.discard(live[1])
++    layer.hosted.update(staging.hosted)
++    layer.trees[base_name] = (fingerprint, module_name)
++    P._REGISTRY_GENERATION += 1
+diff --git a/providers/__init__.py b/providers/__init__.py
+--- a/providers/__init__.py
++++ b/providers/__init__.py
+@@ -99,6 +99,8 @@
+     # ``providers.plugin_reload`` compares and swaps when a plugin is updated (#153300)
+     trees: dict[str, tuple[str, str]] = field(default_factory=dict)
+     owner: dict[str, str] = field(default_factory=dict)
++    # Latest observation per plugin; incomplete imports cannot supersede it.
++    reload_requests: dict[str, tuple[int, str | None]] = field(default_factory=dict)
+ 
+ 
+ _HOME_LAYERS: dict[str, _HomeLayer] = {}
+@@ -159,18 +161,19 @@
+     only = _REGISTRATION_ONLY.get()
+     if only is not None and profile.name not in only:
+         return
+-    _REGISTRY_GENERATION += 1
+     layer = _REGISTRATION_TARGET.get()
+     if layer is not None:
+         layer.registry[profile.name] = profile
+         for alias in profile.aliases:
+             layer.aliases[alias] = profile.name
++        return
+     else:
+         _REGISTRY[profile.name] = profile
+         _SOURCES[profile.name] = _current_source or "runtime"
+         for alias in profile.aliases:
+             _ALIASES[alias] = profile.name
+         _PROVIDER_LIST_CACHE = None
++    _REGISTRY_GENERATION += 1
+     if _discovered and not _discovering:  # post-discovery registration: mirror it immediately
+         _sync_auth_registry()
+ 
+@@ -466,6 +469,8 @@
+     """
+     now = time.monotonic()
+     from agent.safe_worker_policy import safe_worker_enabled
++    if _REGISTRATION_TARGET.get() is not None:
++        return False  # import callbacks resolve the previous publication, never rescan it
+ 
+     # Safe mode fires zero user customization: same gate as ``_discover_providers``.
+     if home is None or safe_worker_enabled() or not (
+@@ -480,7 +485,10 @@
+         # look settled afterwards and get remembered over an install that landed mid-scan.
+         settled = _plugin_dir_stamps_settled(stamps)
+         layer.disabled = None  # the scan records it again if it still skips a plugin
+-        _scan_home_layer(layer, key)
++        if not _scan_home_layer(layer, key):
++            layer.stamps = ()
++            layer.stamp_checked_at = None
++            return True
+         # A stamp still inside its mtime tick may not move for an install landing in that same
+         # tick, which would hide the plugin until some later change: keep it unremembered so the
+         # next periodic check scans again, until the stamps settle.
+@@ -585,7 +593,7 @@
+     return _manifest_field(plugin_dir, "kind") == "model-provider"
+ 
+ 
+-def _scan_home_layer(layer: _HomeLayer, key: str) -> None:
++def _scan_home_layer(layer: _HomeLayer, key: str) -> bool:
+     """Import the bound home's not-yet-imported provider plugins into *layer*.
+ 
+     ``$HERMES_HOME/plugins/model-providers/<name>/`` first, then plugins cloned flat by
+@@ -596,22 +604,24 @@
+     global _discovering
+     token, prior_discovering = _REGISTRATION_TARGET.set(layer), _discovering
+     _discovering = True
++    complete = True
+     try:
+         user_dir = _user_plugins_dir()
+         if user_dir is not None:
+             for child in sorted(user_dir.iterdir()):
+                 if child.is_dir() and not child.name.startswith(("_", ".")):
+-                    _import_plugin_dir(child, "user", home_key=key)
++                    complete = _import_plugin_dir(child, "user", home_key=key) and complete
+         installed_dir = _installed_plugins_dir()
+         if installed_dir is not None:
+             for child in sorted(installed_dir.iterdir()):
+                 if not child.is_dir() or child.name.startswith(("_", ".")) or child.name == "model-providers":
+                     continue
+                 if _declares_model_provider_kind(child):
+-                    _import_plugin_dir(child, "user", home_key=key)
++                    complete = _import_plugin_dir(child, "user", home_key=key) and complete
+     finally:
+         _REGISTRATION_TARGET.reset(token)
+         _discovering = prior_discovering
++    return complete
+ 
+ 
+ def _plugin_disabled(plugin_dir: Path) -> bool:
+@@ -636,63 +646,61 @@
+     return f"_hermes_user_provider_{digest}_{plugin_dir.name.replace('-', '_')}"
+ 
+ 
+-def _import_plugin_dir(plugin_dir: Path, source: str, *, home_key: str = "") -> None:
++def _import_plugin_dir(plugin_dir: Path, source: str, *, home_key: str = "") -> bool:
+     """Import a single plugin directory so it self-registers.
+ 
+     ``source`` is "bundled" or "user"; it is recorded per registered profile (``_SOURCES``).
+     """
+     if not (plugin_dir / "__init__.py").exists():
+-        return
++        return True
+     if source != "bundled" and _plugin_disabled(plugin_dir):
+         logger.debug("Skipping disabled provider plugin %s (plugins.disabled)", plugin_dir.name)
+-        return
++        return True
+     if source == "bundled":
+         # A stable import path (``plugins.model_providers.<name>``) so relative imports work.
+         _exec_plugin_module(plugin_dir, source, f"plugins.model_providers.{plugin_dir.name.replace('-', '_')}")
+-        return
++        return True
+     # User plugins load under a per-home module name so profiles don't alias each other.
+-    _import_user_plugin_dir(plugin_dir, source, _user_module_name(plugin_dir, home_key))
+-
+-
+-def _import_user_plugin_dir(plugin_dir: Path, source: str, module_name: str) -> None:
++    return _import_user_plugin_dir(plugin_dir, source, _user_module_name(plugin_dir, home_key))
++
++
++def _import_user_plugin_dir(plugin_dir: Path, source: str, module_name: str) -> bool:
+     """Import a ``$HERMES_HOME`` plugin: into the layer being scanned through ``providers.plugin_reload``,
+     which also swaps in an updated tree whole (#153300); outside a scan (``plugin_dev``) directly."""
+     if _REGISTRATION_TARGET.get() is not None:
+         from providers.plugin_reload import import_into_layer
+-        import_into_layer(plugin_dir, source, module_name)
+-    else:
+-        _import_user_module(plugin_dir, source, module_name)
+-
+-
+-def _import_user_module(plugin_dir: Path, source: str, module_name: str, code_dir: Path | None = None) -> None:
++        return import_into_layer(plugin_dir, source, module_name)
++    return _import_user_module(plugin_dir, source, module_name)
++
++
++def _import_user_module(plugin_dir: Path, source: str, module_name: str, code_dir: Path | None = None) -> bool:
+     """*code_dir*: where in-process code is imported from (a frozen copy of *plugin_dir*), default the dir."""
+     from hermes_cli.plugin_isolation import ISOLATION_HOST, isolation_mode
+     if isolation_mode() == ISOLATION_HOST:  # the plugin's code runs in the plugin host
+-        _import_hosted_plugin_dir(plugin_dir, source, module_name, code_dir=code_dir)
+-    else:
+-        _exec_plugin_module(code_dir or plugin_dir, source, module_name)
++        return _import_hosted_plugin_dir(plugin_dir, source, module_name, code_dir=code_dir)
++    return _exec_plugin_module(code_dir or plugin_dir, source, module_name)
+ 
+ 
+ def _import_hosted_plugin_dir(plugin_dir: Path, source: str, module_name: str, *,
+-                              code_dir: Path | None = None) -> None:
++                              code_dir: Path | None = None) -> bool:
+     """Register a plugin's profiles as plugin-host proxies; a profile that cannot cross the host
+     boundary (e.g. it overrides ``create_client``) is imported in-process ALONE, with a warning,
+-    so it never takes its hosted siblings down with it. The host is keyed by *plugin_dir*; that in-process
+-    import reads *code_dir* (a frozen copy) when given."""
++    so it never takes its hosted siblings down with it. Extraction and calls read the same
++    frozen *code_dir* when supplied."""
+     global _current_source
+     from hermes_cli.plugin_host_profiles import load_hosted_profiles
+     layer = _REGISTRATION_TARGET.get()
+     if layer is not None and module_name in layer.hosted:
+-        return  # already imported into this home's layer
++        return False  # no registrations were collected by this import
+     _current_source = source
+     try:
+-        hosted, in_process = load_hosted_profiles(plugin_dir, module_name)
++        hosted, in_process = load_hosted_profiles(plugin_dir, module_name, code_dir=code_dir)
+         for profile in hosted:
+             register_provider(profile)
+     except Exception as exc:  # health: allow BLE001 -- plugin load boundary (moved from _import_plugin_dir): one broken plugin never breaks discovery
+         logger.warning("Failed to load user provider plugin %s in the plugin host: %s", plugin_dir.name, exc)
+         _note_load_result(plugin_dir, exc)
+-        return
++        return False
+     finally:
+         _current_source = None
+     if in_process:
+@@ -701,31 +709,44 @@
+                            "in-process, NOT isolated by plugins.isolation: host", plugin_dir.name, name, reason)
+         token = _REGISTRATION_ONLY.set(frozenset(in_process))
+         try:
+-            _exec_plugin_module(code_dir or plugin_dir, source, module_name)
++            complete = _exec_plugin_module(code_dir or plugin_dir, source, module_name)
+         finally:
+             _REGISTRATION_ONLY.reset(token)
+-        if module_name not in sys.modules:
+-            return  # the in-process import failed: the next scan retries the plugin
++        if not complete:
++            return False
+     if layer is not None:
+         layer.hosted.add(module_name)
+-
+-
+-def _exec_plugin_module(plugin_dir: Path, source: str, module_name: str) -> None:
++    return True
++
++
++def _exec_plugin_module(plugin_dir: Path, source: str, module_name: str) -> bool:
+     global _current_source
+     if module_name in sys.modules:
+-        return  # already imported
++        return False  # only the version loader can replay completed registrations
+ 
+     _current_source = source
+     try:
++        if source != "bundled":
++            from types import ModuleType
++            parts = module_name.split(".")[:-1]
++            for index in range(1, len(parts) + 1):
++                parent = ".".join(parts[:index])
++                if parent not in sys.modules:
++                    package = ModuleType(parent)
++                    package.__path__ = []
++                    package.__package__ = parent
++                    sys.modules[parent] = package
+         spec = importlib.util.spec_from_file_location(
+             module_name, plugin_dir / "__init__.py", submodule_search_locations=[str(plugin_dir)]
+         )
+         if spec is None or spec.loader is None:
+-            return
++            _note_load_result(plugin_dir, ImportError(f"Cannot create provider module spec: {plugin_dir}"))
++            return False
+         module = importlib.util.module_from_spec(spec)
+         sys.modules[module_name] = module
+         spec.loader.exec_module(module)
+         _note_load_result(plugin_dir, None)
++        return True
+     except Exception as exc:  # health: allow BLE001 -- plugin import boundary (moved from _import_plugin_dir): one broken plugin never breaks discovery
+         logger.warning(
+             "Failed to load %s provider plugin %s: %s", source, plugin_dir.name, exc
+@@ -734,6 +755,7 @@
+         _note_load_result(plugin_dir, exc)
+     finally:
+         _current_source = None
++    return False
+ 
+ 
+ def _note_load_result(plugin_dir: Path, exc: BaseException | None) -> None:
+@@ -931,11 +953,13 @@
+     if _discovered:
+         return
+     _discovered = True
++    registration = _REGISTRATION_TARGET.set(None)  # bundled registrations are process-wide
+     _discovering = True
+     try:
+         _run_discovery_steps()
+     finally:
+         _discovering = False
++        _REGISTRATION_TARGET.reset(registration)
+         # hermes_cli.auth may have been imported by a plugin during discovery and snapshotted a
+         # partial profile list — hand it the complete one (no-op unless auth is already loaded).
+         _sync_auth_registry()
+diff --git a/hermes_cli/plugin_host_profiles.py b/hermes_cli/plugin_host_profiles.py
+--- a/hermes_cli/plugin_host_profiles.py
++++ b/hermes_cli/plugin_host_profiles.py
+@@ -30,17 +30,20 @@
+ _CACHE_VERSION = 1
+ 
+ 
+-def load_hosted_profiles(plugin_dir: Path, module_name: str) -> tuple[list[Any], dict[str, str]]:
++def load_hosted_profiles(plugin_dir: Path, module_name: str, *,
++                         code_dir: Path | None = None) -> tuple[list[Any], dict[str, str]]:
+     """ProviderProfile proxies for a model-provider plugin whose code runs in the plugin host, plus
+     ``{profile name: reason}`` for its profiles that cannot cross the host boundary (the caller
+     loads those in-process)."""
+     from providers.base import ProviderProfile
+-    payload = _cached_extraction(Path(plugin_dir), module_name)
++    code = code_dir or plugin_dir
++    # Frozen paths are process-owned: do not persist fields containing their temporary paths.
++    payload = _extract(code, module_name) if code_dir is not None else _cached_extraction(code, module_name)
+     if payload.get("error"):
+         raise PluginHostUnavailable(str(payload["error"]))
+     entries = payload.get("profiles") or []
+     in_process = {str(e["name"]): str(e["in_process"]) for e in entries if e.get("in_process")}
+-    hosted = [_profile_proxy(ProviderProfile, str(plugin_dir), module_name, e)
++    hosted = [_profile_proxy(ProviderProfile, str(code), module_name, e)
+               for e in entries if not e.get("in_process")]
+     return hosted, in_process
+ 
+diff --git a/hermes_cli/plugin_host_child.py b/hermes_cli/plugin_host_child.py
+--- a/hermes_cli/plugin_host_child.py
++++ b/hermes_cli/plugin_host_child.py
+@@ -143,7 +143,6 @@
+         self.modules: dict[str, str] = {}
+         self.loads: dict[str, Optional[int]] = {}  # plugin_key -> its current load, as Hermes numbered it
+         self.asgi_apps: dict[str, Any] = {}
+-        self.profiles: dict[str, dict[str, Any]] = {}
+         self.instance_modules: dict[str, Any] = {}
+         self.stopped = threading.Event()
+         self.loop = asyncio.new_event_loop()
+@@ -317,10 +316,7 @@
+     def op_profile_call(self, params: dict[str, Any]) -> Any:
+         """Run one overridden method (or callable field) of a model-provider profile, loading the
+         plugin on first use in this host process. Addressed by name, so it survives host restarts."""
+-        profiles = self.profiles.get(str(params["path"]))
+-        if profiles is None:
+-            profiles = self.profiles[str(params["path"])] = {
+-                p.name: p for p in capture_profiles(str(params["path"]), str(params["module_name"]))}
++        profiles = _version_profiles(str(params["path"]), str(params["module_name"]))
+         target = getattr(profiles[str(params["profile"])], str(params["attr"]))
+         args, kwargs = self._decode_args(params)
+         return encode(self._run(target(*args, **kwargs)))
+@@ -551,18 +547,22 @@
+     return reader, writer
+ 
+ 
++def _version_profiles(path: str, module_name: str) -> dict[str, Any]:
++    """Resolve one complete version for both extraction and constant-time RPC lookup."""
++    import providers
++    from providers.plugin_reload import _load_version
++
++    result = _load_version(Path(path), "user", module_name, code_dir=Path(path), wait=True)
++    if result is None or not result.complete:
++        error = (next(iter(result.layer.errors.values()), "Provider import did not complete")
++                 if result is not None else "Provider import is already in progress")
++        raise RuntimeError(error)
++    return result.layer.registry
++
++
+ def capture_profiles(path: str, module_name: str) -> list[Any]:
+-    """Import a model-provider plugin and return the profiles it passes to ``register_provider``."""
+-    import providers
+-    providers.list_providers()  # bundled + known profiles register before the capture window
+-    captured: list[Any] = []
+-    original = providers.register_provider
+-    providers.register_provider = captured.append  # type: ignore[assignment]
+-    try:
+-        _import_plugin({"path": path, "module_name": module_name, "name": Path(path).name})
+-    finally:
+-        providers.register_provider = original  # type: ignore[assignment]
+-    return captured
++    """Materialize profiles of the completed version for metadata extraction."""
++    return list(_version_profiles(path, module_name).values())
+ 
+ 
+ def _host_unsupported_reason(profile: Any) -> str | None:
+@@ -640,6 +640,13 @@
+ if __name__ == "__main__":
+     code = (extract_profiles_main(sys.argv[2], sys.argv[3]) if sys.argv[1:2] == ["--extract-profiles"]
+             else main())
+-    sys.stderr.flush()
+-    # A plugin thread stuck in a handler must not keep the host alive once Hermes has gone.
+-    os._exit(code)
++    try:
++        reloader = sys.modules.get("providers.plugin_reload")
++        if reloader is not None:
++            reloader._cleanup_snapshots()
++    except OSError:
++        logger.exception("Could not clean owned provider snapshots")
++    finally:
++        sys.stderr.flush()
++        # A plugin thread stuck in a handler must not keep the host alive once Hermes has gone.
++        os._exit(code)

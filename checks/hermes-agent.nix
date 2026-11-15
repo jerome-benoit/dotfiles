@@ -243,6 +243,8 @@ pkgs.runCommand "check-hermes-agent"
   ''
     ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
       ${./hermes-provider.py} ${plugin}
+    ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
+      ${./hermes-provider-reload.py} ${plugin}
     # Run only public regressions for the source delta, one fresh installed process per file.
     # Copy tests alone: upstream child probes add their test root to PYTHONPATH.
     python3 - ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
