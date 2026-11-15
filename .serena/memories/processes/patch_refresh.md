@@ -50,6 +50,7 @@ explaining why it exists and when it can go:
 - `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
 - `patches/strata-setup-directory-roles.patch` — separate GGUF files from ready packs, QAD checkpoints/drafts and image VAE; runtime patch declared by the launcher, no prerequisite patches.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore opted-in gateway mise shims after local login PATH restoration, before snapshots and background commands; patched into the workspace wheel, no prerequisite patches.
+- `patches/hermes-agent-provider-snapshot.patch` — publish the writable staging parent so immutable Nix provider trees load on macOS; patched into the workspace wheel, no prerequisite patches.
 
 ## Local Patch Refresh
 
@@ -85,6 +86,11 @@ Keep the `hermes-agent` patch inside `nix/python.nix`'s workspace package overla
 the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
+
+Provider discovery snapshots immutable plugin trees before importing them. Publish
+the writable staging parent atomically, preserving plugin permissions and the
+previous live version on failed imports. Apply this wheel patch with or without
+mise; exercise canonical Copilot discovery with `checks/hermes-provider.py`.
 
 Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
 the configured mise package and returns PATH only; no path comes from the private

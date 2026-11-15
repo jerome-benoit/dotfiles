@@ -237,6 +237,8 @@ pkgs.runCommand "check-hermes-agent"
     ];
   }
   ''
+    ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
+      ${./hermes-provider.py} ${plugin}
     ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
       # Same wrapper fixup and exact locked wheel; no compiler on caller PATH.
       PATH=${pkgs.coreutils}/bin ${wrappedVoicePython}/bin/python - <<'PY'

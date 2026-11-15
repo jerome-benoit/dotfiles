@@ -1,0 +1,20 @@
+# base: hermes-agent f578714e0ee122179ec28fecb9af989583b71baf
+# prerequisites: none
+# intent: publish the writable staging parent without renaming read-only provider directories
+diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
+--- a/providers/plugin_reload.py
++++ b/providers/plugin_reload.py
+@@ -45,11 +45,10 @@
+     target = _snapshot_root / module_name / plugin_dir.name
+     if target.is_dir():
+         return target
+-    target.parent.mkdir(parents=True, exist_ok=True)
+-    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=target.parent))
++    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=_snapshot_root))
+     try:
+         shutil.copytree(plugin_dir, private / plugin_dir.name, ignore=_SNAPSHOT_IGNORE)
+-        os.rename(private / plugin_dir.name, target)
++        os.rename(private, target.parent)
+     except OSError:
+         if not target.is_dir():  # another scan publishing the same copy first is fine
+             raise
