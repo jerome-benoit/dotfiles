@@ -25,9 +25,10 @@ name of the package being patched, not an executable or module alias
 
 ## Current Patches
 
-Each patch records its base, intent, prerequisites and removal condition.
-Keep relevant upstream provenance and separately tracked issues; omit empty
-issue fields. Proposals are not fixes in the pin, and partial coverage stays explicit.
+Each patch records its base, intent and prerequisites. Keep relevant upstream
+provenance and tracked issues; omit empty issue fields. Document a concrete
+replacement condition when applicable, not a circular condition for local policy.
+Proposals are not fixes in the pin, and partial coverage stays explicit.
 Hermes provider causes are tracked by #156556 (identity), #156557 (hosted RPC),
 #156558 (activation), #156559 (namespaces) and #156560 (readonly POSIX cleanup)
 in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrency
@@ -42,7 +43,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
 - `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
 - `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
-- `patches/caveman-installer-settings-permissions.patch` — preserve existing settings permissions during atomic replacement; new files remain 0600.
+- `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
 - `patches/caveman-nix-installer-paths.patch` — use profile-local interpreters and isolate mutable Claude payload ownership. Prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent).
 - `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
 - `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
@@ -73,7 +74,8 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 Caveman Hermes parser, membership, ownership and restore remain one unit.
 OpenCode factories/cwd/Stop are separate. CLI and installer roots are physically
 separate with one raw-absolute-root policy; trailing spaces were already preserved
-in the pin. Settings modes are local ownership policy, not a security bug upstream.
+in the pin. Preserving existing settings modes is a local permissions policy;
+upstream deliberately applies 0600 instead.
 
 Strata workspace/source publication stays indivisible. Roles, forecasts and
 progress use one layout; budgets depend on roles. Validation uses the shared

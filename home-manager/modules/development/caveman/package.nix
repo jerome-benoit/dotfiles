@@ -30,12 +30,11 @@ let
     # Upstream --hook-node does not provide private runtimes or profile ownership.
     # Remove when upstream supports durable private paths and isolated ownership.
     patches = [
-      # Policy: atomic settings replacements preserve declarative file permissions.
-      # Remove when this ownership policy no longer requires mode preservation.
+      # Policy: preserve existing settings modes; new files use 0600.
       ../../../../patches/caveman-installer-settings-permissions.patch
       ../../../../patches/caveman-nix-installer-paths.patch
-      # Workaround: installer and copied plugin accept relative OPENCODE_CONFIG_DIR values.
-      # Remove when both preserve absolute values verbatim and reject relative overrides.
+      # Policy: OPENCODE_CONFIG_DIR overrides must be raw absolute paths.
+      # Remove both root patches when the pinned upstream sources enforce this contract.
       ../../../../patches/caveman-installer-config-root.patch
     ];
     dontBuild = true;
@@ -105,8 +104,8 @@ let
       # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event.
       # Remove when factories isolate state/cwd and V2 model-idle drives Stop.
       ../../../../patches/caveman-opencode-lifecycle.patch
-      # Policy shared with installer/plugin: overrides must be raw absolute roots.
-      # Remove both root patches when all surfaces enforce that same contract.
+      # Policy: OPENCODE_CONFIG_DIR overrides must be raw absolute paths.
+      # Remove both root patches when the pinned upstream sources enforce this contract.
       ../../../../patches/caveman-cli-config-root.patch
     ];
 

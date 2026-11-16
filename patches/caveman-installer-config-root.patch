@@ -3,7 +3,7 @@
 # intent: require raw absolute override in installer and copied plugin; preserve XDG fallback.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1485 historical; absolute-root refusal is local policy.
-# removal: retire CLI and installer root policies together when upstream enforces the same absolute raw-root contract.
+# removal: remove both CLI and installer root patches when their pinned upstream sources enforce the raw absolute-root contract.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js

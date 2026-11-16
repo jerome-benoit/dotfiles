@@ -1,8 +1,7 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: none
-# intent: preserve existing settings permissions during atomic replacement; new files remain 0600.
+# intent: preserve existing settings modes during atomic replacement; new files remain 0600.
 # upstream: upstream intentionally forces 0600; this is local permissions policy, not an upstream bug.
-# removal: remove when declarative settings ownership no longer requires mode preservation, not merely when an unrelated atomic writer merges.
 diff --git a/installer/lib/settings.js b/installer/lib/settings.js
 --- a/installer/lib/settings.js
 +++ b/installer/lib/settings.js
