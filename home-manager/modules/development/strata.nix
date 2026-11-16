@@ -11,9 +11,9 @@ let
   mutableDirectory = lib.types.addCheck lib.types.str (
     path: lib.hasPrefix "/" path && !(path == "/nix/store" || lib.hasPrefix "/nix/store/" path)
   );
-  # Workaround: upstream mixes GGUF/artifact directories and has no managed workspace lock lifecycle.
-  # Remove when upstream separates destinations and locks acquisition and monitor updates without locking services.
-  sourcePatch = ../../../patches/strata-setup-directory-roles.patch;
+  # Share one atomic dependency-ordered source ledger with checks.
+  # Preserve the helper publication and rollback protocol.
+  sourcePatch = import ./strata-source-patch.nix { inherit pkgs; };
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
     runtimeInputs = [

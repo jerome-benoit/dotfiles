@@ -1,6 +1,9 @@
 # base: NickvanDyke/opencode.nvim 4851ae503585dc5142ad66a98e8952a74e1f7b3a
 # prerequisites: none
 # intent: Register native OpenCode execution lifecycle events and map completion or interruption to idle status.
+# upstream: https://github.com/nickjvandyke/opencode.nvim/issues/341 open exact lifecycle; PR330 closed unmerged general V2 support is not this fix.
+# issues: See upstream coverage above; no additional exact issue established.
+# removal: Remove when registered execution events update busy/error/idle including interruption.
 --- a/lua/opencode/events/status.lua
 +++ b/lua/opencode/events/status.lua
 @@ -31,13 +31,10 @@

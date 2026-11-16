@@ -1,12 +1,10 @@
 # base: https://github.com/JuliusBrussee/caveman/archive/b4ee71d557d96e3cbc14f88fa6e953a1362865f5.tar.gz
 # base-hash: sha256-HcNc+iyIL/K4JOBBsJAS2eh0vcpW3CwL5CQMqY0LMh0= (fetchzip unpacked source)
+# prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent)
 # intent: use profile-local interpreters and isolate mutable Claude payload ownership.
-#   Preserve upstream atomic model writes for ordinary callers; prepared plugins
-#   collect writes into the ownership-journal transaction.
-#   Keep the upstream shell renderer for prepared-plugin statusline commands.
-#   Nix-managed hooks require the selected profile's private Node.
-#   Preserve the upstream entry-point guard and download-helper exports.
-#   Preserve existing settings permissions during atomic writes.
+# upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
+# issues: none exact established; do not retire on unrelated upstream changes.
+# removal: Remove when installers/prepared plugins preserve private runtimes, scoped payload ownership, transactional journals and detach-before-removal.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
@@ -808,35 +806,6 @@ diff --git a/installer/lib/owned-install.js b/installer/lib/owned-install.js
    uninstallOwned,
 +  updateOwnedFiles,
  };
-diff --git a/installer/lib/settings.js b/installer/lib/settings.js
---- a/installer/lib/settings.js
-+++ b/installer/lib/settings.js
-@@ -153,12 +153,14 @@
- }
- 
- // ── writeSettings ──────────────────────────────────────────────────────────
--// Atomic write: temp file + rename. mode 0600 (settings often contains tokens).
-+// Atomic write: temp file + rename. New files use 0600; existing permissions stay.
- // A UTF-8 BOM the file already had is kept, so the round trip is lossless.
- function writeSettings(p, obj) {
-   // A linked settings file (a dotfiles repo) is written at its target, or the
-   // rename would replace the link with a copy.
-   try { if (fs.lstatSync(p).isSymbolicLink()) p = fs.realpathSync(p); } catch (_) { /* new file */ }
-+  let mode = 0o600;
-+  try { mode = fs.statSync(p).mode & 0o7777; } catch (error) { if (error.code !== 'ENOENT') throw error; }
-   const dir = path.dirname(p);
-   fs.mkdirSync(dir, { recursive: true });
-   const tmp = path.join(dir, `.${path.basename(p)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
-@@ -166,6 +168,9 @@
-   try { if (fs.readFileSync(p).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) bom = '\ufeff'; } catch (_) {}
-   try {
-     fs.writeFileSync(tmp, bom + JSON.stringify(obj, null, 2) + '\n', { mode: 0o600 });
-+    // Apply after creation so the installer's umask cannot narrow an existing
-+    // user's permissions during an otherwise lossless atomic replacement.
-+    fs.chmodSync(tmp, mode);
-     fs.renameSync(tmp, p);
-   } catch (error) {
-     try { fs.unlinkSync(tmp); } catch (_) {}
 diff --git a/src/hooks/cavecrew-model-overrides.js b/src/hooks/cavecrew-model-overrides.js
 --- a/src/hooks/cavecrew-model-overrides.js
 +++ b/src/hooks/cavecrew-model-overrides.js

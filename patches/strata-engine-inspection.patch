@@ -1,0 +1,119 @@
+# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
+# prerequisites: none
+# intent: Inspect SYCL launcher and mapped host engine/argument paths without importing server.
+# upstream: https://github.com/Niko1221/Strata/issues/5395 open; https://github.com/Niko1221/Strata/issues/5193 open: related opposite-direction paths.
+# issues: 5395 partial: doctor surface only, not drafting.py or sycl_path.
+# removal: Remove when doctor resolves launcher, executable and /work arguments against actual host mounts.
+diff --git a/serve/server.py b/serve/server.py
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -3783,18 +3783,6 @@
+     return out
+ 
+ 
+-def engine_binary(exe: str, cfg: dict | None = None) -> str:
+-    """The file that holds the engine's own option strings, for a feature check that reads it.  The Intel launcher
+-    (sycl/serve/strata-sycl.sh) is a shell script that runs its repo's STRATA_SYCL_BIN (default build-sycl-aot/strata)
+-    in a container, so the check reads that binary, not the script.  Any other `exe` is the engine itself."""
+-    p = Path(exe)
+-    if p.name == "strata-sycl.sh":
+-        rel = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_BIN") or os.environ.get("STRATA_SYCL_BIN") \
+-            or "build-sycl-aot/strata"
+-        b = p.resolve().parents[2] / rel
+-        if b.is_file():
+-            return str(b)
+-    return exe
+ 
+ 
+ def effort_end_args(cfg: dict, exe: str, tok) -> list[str] | None:
+@@ -3808,6 +3796,7 @@
+     if pos == "start":
+         return None
+     try:
++        from strata_control.cfg_paths import engine_binary
+         with open(engine_binary(exe, cfg), "rb") as f:
+             known = b"--tail-role-token" in f.read()
+     except OSError:
+diff --git a/strata_control/cfg_paths.py b/strata_control/cfg_paths.py
+--- a/strata_control/cfg_paths.py
++++ b/strata_control/cfg_paths.py
+@@ -30,6 +30,35 @@
+ _VERSION = re.compile(r"^\d+(?:\.\d+)+")
+ SKIP_KEYS = ("log",)                      # paths the engine writes, not reads
+ SKIP_FLAGS = ("--expert-profile-save",)
++
++
++def engine_binary(exe: str, cfg: dict | None = None) -> str:
++    """Resolve the engine behind the Intel container launcher without importing the server."""
++    p = Path(exe)
++    if p.name == "strata-sycl.sh":
++        rel = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_BIN", os.environ.get("STRATA_SYCL_BIN")) \
++            or "build-sycl-aot/strata"
++        return str(engine_argument_path(rel, exe, cfg or {}))
++    return exe
++
++
++def engine_argument_path(raw: str, exe: str, cfg: dict) -> Path:
++    """Map only container engine arguments back to the wrapper's host mount."""
++    value = Path(raw).expanduser()
++    if Path(exe).name != "strata-sycl.sh":
++        return value
++    repo = Path(exe).resolve().parents[2]
++    mount = Path((cfg.get("env") or {}).get("STRATA_SYCL_ROOT", os.environ.get("STRATA_SYCL_ROOT"))
++                 or repo.parent).expanduser()
++    if not mount.is_absolute():
++        mount = (Path(cfg.get("cwd") or os.getcwd()) / mount).resolve()
++    if value == Path("/work"):
++        return mount
++    if value.is_relative_to("/work"):
++        return mount / value.relative_to("/work")
++    if not value.is_absolute():
++        return mount / repo.name / value
++    return value
+ 
+ 
+ def _key(name: str) -> tuple:
+diff --git a/strata_control/doctor.py b/strata_control/doctor.py
+--- a/strata_control/doctor.py
++++ b/strata_control/doctor.py
+@@ -156,7 +156,7 @@
+              "scope": "host card inventory only; engine execution, CUDA compatibility and topology unverified"}, issues)
+ 
+ 
+-def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bool = False) -> dict:
++def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bool = False, cwd: str | None = None) -> dict:
+     report = {"schema_version": 1, "profile": profile_id, "source_config": str(config_path) if config_path else None,
+               "components": [], "issues": [], "backend": None, "devices_selected": None,
+               "live_gpu_probe": None}
+@@ -173,9 +173,19 @@
+         return report
+ 
+     cfg = read_run_config(config_path)
++    if cwd is not None and not cfg.get("cwd"):
++        cfg = dict(cfg, cwd=cwd)
+     report["backend"] = cfg.get("backend") or "cuda_or_cpu_unverified"
+     report["devices_selected"] = cfg.get("gpu")
+-    exe = _location(cfg["exe"], cfg, config_path)
++    from strata_control.cfg_paths import engine_argument_path, engine_binary
++    launcher = _location(cfg["exe"], cfg, config_path)
++    engine_cfg = dict(cfg, cwd=str(_location(".", cfg, config_path)))
++    exe = Path(engine_binary(str(launcher), engine_cfg))
++    if launcher != exe:
++        components.append(_item("engine_launcher", launcher, "file"))
++        if components[-1]["status"] == "ok" and os.name != "nt" and not os.access(launcher, os.X_OK):
++            components[-1]["status"] = "invalid"
++            components[-1]["reason"] = "engine launcher is not executable"
+     components.append(_item("engine", exe, "file"))
+     if components[-1]["status"] == "ok" and os.name != "nt" and not os.access(exe, os.X_OK):
+         components[-1]["status"] = "invalid"
+@@ -218,7 +228,9 @@
+             kind = "file"
+         # The MTP layer is one of two drafters, never both: a model whose drafter is DFlash2 has no layer on disk, and the run config keeps `--mtp <folder>` for a
+         # later switch to the MTP. Its absence then does not make the model unusable (strata_control/drafting.py loads the drafter that is there).
+-        components.append(_item(arg.lstrip("-"), _location(raw, cfg, config_path), kind, required=not (arg == "--mtp" and _drafter_is_dflash2(cfg))))
++        argument = engine_argument_path(raw, str(launcher), engine_cfg)
++        components.append(_item(arg.lstrip("-"), _location(str(argument), cfg, config_path), kind,
++                                required=not (arg == "--mtp" and _drafter_is_dflash2(cfg))))
+ 
+     vision = cfg.get("vision")
+     if isinstance(vision, dict):

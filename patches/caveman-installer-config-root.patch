@@ -1,7 +1,9 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-nix-installer-paths.patch
-# intent: Preserve root precedence and reject relative OPENCODE_CONFIG_DIR overrides.
-#   Preserve nonempty override bytes and the upstream XDG_CONFIG_HOME fallback.
+# intent: Require raw absolute override in installer and copied plugin; preserve XDG fallback.
+# upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.
+# issues: https://github.com/JuliusBrussee/caveman/issues/1485 historical; absolute-root refusal is local policy.
+# removal: Retire CLI and installer root policies together when upstream enforces the same absolute raw-root contract.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js

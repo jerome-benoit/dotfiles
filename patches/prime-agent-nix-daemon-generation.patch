@@ -1,5 +1,9 @@
 # base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
+# prerequisites: none
 # intent: verify Nix executable identity on probes, session handshakes and reconnects.
+# upstream: https://github.com/PrimeIntellect-ai/prime-agent/issues/704 closed and PR723 merged are historical missing-binary recovery, not existing generation admission.
+# issues: See upstream coverage above; no additional exact issue established.
+# removal: Remove when managed admission verifies executable identity while management paths can inspect other generations without killing sessions.
 diff --git a/crates/pa-cli/src/interactive_mode/daemon.rs b/crates/pa-cli/src/interactive_mode/daemon.rs
 --- a/crates/pa-cli/src/interactive_mode/daemon.rs
 +++ b/crates/pa-cli/src/interactive_mode/daemon.rs

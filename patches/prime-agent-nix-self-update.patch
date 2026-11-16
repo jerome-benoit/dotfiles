@@ -1,7 +1,9 @@
 # base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
-# intent: refuse imperative self-update for Nix-managed builds (PRIME_AGENT_NIX_MANAGED);
-#   CLI entries return exit 75; TUI/core entries report the same refusal before side effects.
-#   Keep --check read-only and parse PI_OFFLINE through pa_models::offline::is_catalog_offline().
+# prerequisites: none
+# intent: Refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
+# upstream: Nix ownership policy; no generic upstream fix required.
+# issues: none exact; #2170 release integrity is unrelated.
+# removal: Remove when every managed update entry refuses before effects while --check remains read-only.
 diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
 --- a/crates/pa-cli/src/client_update.rs
 +++ b/crates/pa-cli/src/client_update.rs
@@ -188,27 +190,6 @@ diff --git a/crates/pa-core/src/update/installer.rs b/crates/pa-core/src/update/
      // `mut` serves the Windows handoff's post-pre-flight rewind; the
      // unix path only ever borrows the handle.
      #[cfg_attr(not(windows), allow(unused_mut))]
-diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/release.rs
---- a/crates/pa-core/src/update/release.rs
-+++ b/crates/pa-core/src/update/release.rs
-@@ -58,7 +58,7 @@ pub fn update_user_agent(version: &str) -> String {
- }
- 
- /// Fetch and validate the channel's latest release.
--/// `PI_SKIP_VERSION_CHECK`/`PI_OFFLINE` short-circuit to `None`; a missing or
-+/// `PI_SKIP_VERSION_CHECK` or enabled `PI_OFFLINE` short-circuit to `None`; a missing or
- /// malformed manifest is `None`, never an error - `Planning` decides skip.
- ///
- /// # Errors
-@@ -74,7 +74,7 @@ pub async fn latest_release(
-     base_url: &str,
-     timeout: Duration,
- ) -> Result<Option<LatestRelease>> {
--    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok() || std::env::var("PI_OFFLINE").is_ok() {
-+    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok() || pa_models::offline::is_catalog_offline() {
-         return Ok(None);
-     }
-     let manifest_path =
 diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/session_ui/commands.rs
 --- a/crates/pa-tui/src/session_ui/commands.rs
 +++ b/crates/pa-tui/src/session_ui/commands.rs

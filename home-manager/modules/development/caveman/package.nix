@@ -28,10 +28,11 @@ let
     inherit version src;
     # Workaround: installers persist generation paths and share Claude payloads.
     # Upstream --hook-node does not provide private runtimes or profile ownership.
-    # Settings writes also reset existing file permissions.
-    # Remove when upstream supports durable private paths, isolated ownership
-    # and permission-preserving settings writes.
+    # Remove when upstream supports durable private paths and isolated ownership.
     patches = [
+      # Policy: atomic settings replacements preserve declarative file permissions.
+      # Remove when this ownership policy no longer requires mode preservation.
+      ../../../../patches/caveman-installer-settings-permissions.patch
       ../../../../patches/caveman-nix-installer-paths.patch
       # Workaround: installer and copied plugin accept relative OPENCODE_CONFIG_DIR values.
       # Remove when both preserve absolute values verbatim and reject relative overrides.
@@ -101,11 +102,12 @@ let
       # Workaround: Hermes ownership readers accept ambiguous YAML and remove later siblings.
       # Remove when upstream validates owned values strictly and restores only those values.
       ../../../../patches/caveman-hermes-native-yaml.patch
-      # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event;
-      # Hermes membership checks accept ambiguous YAML.
-      # Remove when factories isolate state/cwd, model-idle drives Stop, roots stay absolute
-      # and membership fails closed.
-      ../../../../patches/caveman-opencode-hermes.patch
+      # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event.
+      # Remove when factories isolate state/cwd and V2 model-idle drives Stop.
+      ../../../../patches/caveman-opencode-lifecycle.patch
+      # Policy shared with installer/plugin: overrides must be raw absolute roots.
+      # Remove both root patches when all surfaces enforce that same contract.
+      ../../../../patches/caveman-cli-config-root.patch
     ];
 
     buildPhase = ''
