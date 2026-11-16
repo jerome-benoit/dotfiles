@@ -5,12 +5,12 @@
     "aarch64-darwin": "sha256-TigMUvnZX6AAlbjrCaenxwtVj5zlXwoX+ETuTwNF258="
   },
   "provenance": {
-    "sourceRevision": "d432a06b9c07bab0be4e8d642173b1cb14137f11",
+    "sourceRevision": "0ac0d7ee7260c3e711a481ceb4580bb60f4d9dd4",
     "hashSourceRevision": "9f1639c73223053c7e5bc6f2204995fcd39b15ad",
-    "nixpkgsRevision": "e126e9e73c335158ff8279ac14d5f4afec153716",
+    "nixpkgsRevision": "5d2b81a7a3be3e2f832879028e4d60abbf58e9a0",
     "bunVersion": "1.4.4",
     "reuse": {
-      "comparison": "Since 38bd73789a43bf043599d6196af96583228035d7, only shell output decoding, UI and tests changed. Manifests, locks, native entries, dependency recipes, filters and normalizers are unchanged. The selected Nixpkgs retains the exact Bun 1.4.4 output on all three targets; Linux stdenvNoCC derivations are unchanged.",
+      "comparison": "The selected-source delta d432a06b9c07bab0be4e8d642173b1cb14137f11 to 0ac0d7ee7260c3e711a481ceb4580bb60f4d9dd4 changes AI, ACP, SQLite adapters, UI and tests, not dependency manifests, locks, recipes, filters, normalizers or PTY/FFF/watcher/Photon entrypoints. Previous hash reuse is retained. The selected Nixpkgs provides identical Bun 1.4.4 outputs and stdenvNoCC derivations on all three targets.",
       "verification": "Hash values and calculation/calibration remain those of hashSourceRevision and Nixpkgs 2074cc672349f14240fb7ea90d509e0b643e9dd4. No hashes were recalculated for sourceRevision or the selected Nixpkgs revision."
     },
     "buildSystems": {

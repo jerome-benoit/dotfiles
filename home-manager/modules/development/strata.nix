@@ -88,7 +88,8 @@ in
         path selection and completion evidence. Retained sources remain usable through
         model preparation when the saved data directory changes. Plans account for
         native file merges; existing destination files and whole packs take priority.
-        DeepSeek checks remaining downloads per destination filesystem.
+        Image downloads and QAD preparation check their destination filesystems.
+        Unknown future split preparation outputs remain an explicit estimate.
         This default does not request a move or redirect installed starts, updates,
         checks or standalone actions.
       '';

@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
+# base: Niko1221/Strata c77572806996349b49995e4f98d41b5294d36a21
 # prerequisites: none
 # intent: inspect SYCL launcher and mapped host engine/argument paths without importing server.
 # upstream: https://github.com/Niko1221/Strata/issues/5395 open; https://github.com/Niko1221/Strata/issues/5193 open: related opposite-direction paths.
@@ -7,7 +7,7 @@
 diff --git a/serve/server.py b/serve/server.py
 --- a/serve/server.py
 +++ b/serve/server.py
-@@ -3783,18 +3783,6 @@
+@@ -3706,18 +3706,6 @@
      return out
  
  
@@ -26,7 +26,7 @@ diff --git a/serve/server.py b/serve/server.py
  
  
  def effort_end_args(cfg: dict, exe: str, tok) -> list[str] | None:
-@@ -3808,6 +3796,7 @@
+@@ -3731,6 +3719,7 @@
      if pos == "start":
          return None
      try:
@@ -37,7 +37,7 @@ diff --git a/serve/server.py b/serve/server.py
 diff --git a/strata_control/cfg_paths.py b/strata_control/cfg_paths.py
 --- a/strata_control/cfg_paths.py
 +++ b/strata_control/cfg_paths.py
-@@ -30,6 +30,35 @@
+@@ -29,6 +29,35 @@
  _VERSION = re.compile(r"^\d+(?:\.\d+)+")
  SKIP_KEYS = ("log",)                      # paths the engine writes, not reads
  SKIP_FLAGS = ("--expert-profile-save",)
@@ -76,7 +76,7 @@ diff --git a/strata_control/cfg_paths.py b/strata_control/cfg_paths.py
 diff --git a/strata_control/doctor.py b/strata_control/doctor.py
 --- a/strata_control/doctor.py
 +++ b/strata_control/doctor.py
-@@ -156,7 +156,7 @@
+@@ -170,7 +170,7 @@
               "scope": "host card inventory only; engine execution, CUDA compatibility and topology unverified"}, issues)
  
  
@@ -85,7 +85,7 @@ diff --git a/strata_control/doctor.py b/strata_control/doctor.py
      report = {"schema_version": 1, "profile": profile_id, "source_config": str(config_path) if config_path else None,
                "components": [], "issues": [], "backend": None, "devices_selected": None,
                "live_gpu_probe": None}
-@@ -173,9 +173,19 @@
+@@ -187,9 +187,19 @@
          return report
  
      cfg = read_run_config(config_path)
@@ -106,14 +106,14 @@ diff --git a/strata_control/doctor.py b/strata_control/doctor.py
      components.append(_item("engine", exe, "file"))
      if components[-1]["status"] == "ok" and os.name != "nt" and not os.access(exe, os.X_OK):
          components[-1]["status"] = "invalid"
-@@ -218,7 +228,9 @@
+@@ -232,7 +242,9 @@
              kind = "file"
-         # The MTP layer is one of two drafters, never both: a model whose drafter is DFlash2 has no layer on disk, and the run config keeps `--mtp <folder>` for a
-         # later switch to the MTP. Its absence then does not make the model unusable (strata_control/drafting.py loads the drafter that is there).
--        components.append(_item(arg.lstrip("-"), _location(raw, cfg, config_path), kind, required=not (arg == "--mtp" and _drafter_is_dflash2(cfg))))
+         # The MTP layer is one of two drafters, never both: a model whose drafter is DFlash2, or Off, has no layer on disk, and the run config keeps `--mtp <folder>`
+         # for a later switch to the MTP. Its absence then does not make the model unusable (strata_control/drafting.py loads the drafter that is there).
+-        components.append(_item(arg.lstrip("-"), _location(raw, cfg, config_path), kind, required=not (arg == "--mtp" and not _drafter_needs_mtp(cfg))))
 +        argument = engine_argument_path(raw, str(launcher), engine_cfg)
 +        components.append(_item(arg.lstrip("-"), _location(str(argument), cfg, config_path), kind,
-+                                required=not (arg == "--mtp" and _drafter_is_dflash2(cfg))))
++                                required=not (arg == "--mtp" and not _drafter_needs_mtp(cfg))))
  
      vision = cfg.get("vision")
      if isinstance(vision, dict):

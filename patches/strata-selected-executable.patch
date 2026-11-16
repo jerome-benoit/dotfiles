@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
+# base: Niko1221/Strata c77572806996349b49995e4f98d41b5294d36a21
 # prerequisites: none (consumed by the managed workspace helper)
 # intent: verify the selected manifest executable, hash and execute permission.
 # upstream: local selected-runtime validation capability; no exact upstream replacement established.
@@ -6,7 +6,7 @@
 diff --git a/strata_control/engine_component.py b/strata_control/engine_component.py
 --- a/strata_control/engine_component.py
 +++ b/strata_control/engine_component.py
-@@ -453,9 +453,12 @@
+@@ -436,9 +436,12 @@
      return actual
  
  
@@ -22,7 +22,7 @@ diff --git a/strata_control/engine_component.py b/strata_control/engine_componen
      # extended-length paths: under a long user name an AMD engine's files pass 259 characters, which Windows (long paths off)
      # reports as "missing" for an ordinary path
      folder = longpath.long_path(component.root)
-@@ -472,13 +475,15 @@
+@@ -455,13 +458,15 @@
              raise IntegrityProblem(f"{rel} resolves outside the component folder")
          if info.st_size != size:
              raise IntegrityProblem(f"{rel} is {info.st_size} bytes, the manifest says {size}")

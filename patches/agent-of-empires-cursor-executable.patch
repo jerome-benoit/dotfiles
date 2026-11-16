@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires 8056925f77619af3462d721c13a29d72ecf66482
+# base: agent-of-empires/agent-of-empires a74394c8541be9160a0a99e3384b738975f87aac
 # prerequisites: none
 # intent: detect and launch the packaged cursor-agent executable instead of agent.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/pull/285 merged: agent name intentional; no exact Nix naming fix.
