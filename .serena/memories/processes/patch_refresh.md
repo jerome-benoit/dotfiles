@@ -50,7 +50,8 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/colibri-cuda-glibc.patch` — Preserve the CUDA/glibc math exception specifications supplied by Nixpkgs. Prerequisites: none.
 - `patches/herdr-desktop-nix-cli-link.patch` — Keep Nix-managed macOS apps from installing user CLI links. Prerequisites: none.
 - `patches/hermes-agent-provider-activation-ui.patch` — do not classify pending provider activation as next-chat tools or prompts Prerequisites: none.
-- `patches/hermes-agent-provider-reload.patch` — preserve complete provider versions across rollback and hosted calls; Prerequisites: none.
+- `patches/hermes-agent-provider-reload.patch` — preserve complete provider versions and coherent published-reader views across rollback and hosted calls. Prerequisites: none.
+- `patches/hermes-agent-provider-update-tests.patch` — verify structured publication/error results and retained clients in the copied upstream check, not display wording. Check-only; prerequisites: none.
 - `patches/hermes-agent-terminal-mise-shims.patch` — Restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands. Prerequisites: none.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture. Prerequisites: none.
 - `patches/opencode-nvim-execution-lifecycle.patch` — Register native OpenCode execution lifecycle events and map completion or interruption to idle status. Prerequisites: none.
@@ -136,6 +137,9 @@ Provider discovery identifies the copied tree by names, modes and file contents,
 not source timestamps. Publish its writable staging parent, preserving the copied
 permissions. Cache only completed registrations, retain old versions for rollback
 and late calls, and never wait for an active import from a public lookup.
+Published registries are copied once per publication, not per lookup. Readers
+capture registry/alias state under the publication lock, then inspect profiles
+outside it. Never hold that lock across imports, callbacks or waits.
 The per-home publication status is independent of scan completion: loading is
 reported as deferred, failed carries the current error, and only ready is active.
 Read status without rescanning, using the manager home; gateway status wins over
@@ -155,6 +159,10 @@ identity of the consumed copy, not an atomic multi-file update of a mutable sour
 For source deltas in secret routing or offline TTS, copy only the selected upstream
 tests into an isolated directory and run them against the installed wheel with
 isolated Python imports. Keep pytest tooling outside the runtime environment.
+Apply the check-only provider-update patch after copying its upstream test.
+Keep publication status, structured failures and v2/v4 client coverage; do not
+pin user-facing wording. The concurrent-list regression delays a real identity
+lookup while a newer generation publishes and verifies both coherent views.
 
 Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
 the configured mise package and returns PATH only; no path comes from the private

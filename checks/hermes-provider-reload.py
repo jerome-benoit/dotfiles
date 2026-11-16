@@ -1,5 +1,6 @@
 """Consumer regressions for frozen provider versions, using the installed interpreter."""
 
+import builtins
 import concurrent.futures
 import json
 import os
@@ -232,6 +233,76 @@ def overlapping_import(fixture, kind):
     return {"after_overlap": expected, "complete_imports": gate.calls}
 
 
+def listing_during_update(fixture):
+    one = fixture.generation("one")
+    two = fixture.generation("second", tail='register_provider(ProviderProfile(name="review-added", base_url="https://second.invalid"))')
+    fixture.install(one)
+    old = fixture.profile()
+    fixture.providers.list_providers()
+    entered, release, published = threading.Event(), threading.Event(), threading.Event()
+    reader_errors, writer_errors, observed = [], [], []
+
+    def read():
+        try:
+            observed.extend(fixture.providers.list_providers())
+        except BaseException as error:
+            reader_errors.append(error)
+
+    def publish():
+        try:
+            fixture.refresh()
+        except BaseException as error:
+            writer_errors.append(error)
+        finally:
+            published.set()
+
+    reader = threading.Thread(target=read, daemon=True)
+    writer = threading.Thread(target=publish, daemon=True)
+
+    def gated_id(profile):
+        identity = builtins.id(profile)
+        if threading.current_thread() is reader and profile is old and not entered.is_set():
+            entered.set()
+            if not release.wait(15):
+                raise RuntimeError("provider list gate timed out")
+        return identity
+
+    # Delay a real identity lookup after the registry iterator yielded a profile.
+    missing = object()
+    previous_id = vars(fixture.providers).get("id", missing)
+    fixture.providers.id = gated_id
+    try:
+        reader.start()
+        assert entered.wait(15), "reader did not enter profile deduplication"
+        fixture.install(two)
+        writer.start()
+        assert published.wait(15), "publication blocked behind the reader"
+        assert not writer_errors, writer_errors
+    finally:
+        release.set()
+        try:
+            for worker in (reader, writer):
+                if worker.ident is not None:
+                    worker.join(15)
+        finally:
+            if previous_id is missing:
+                del fixture.providers.id
+            else:
+                fixture.providers.id = previous_id
+    assert not reader.is_alive() and not writer.is_alive(), "listing or publication deadlocked"
+    assert not reader_errors, reader_errors
+    before = {profile.name: profile for profile in observed if profile.name in ("review-provider", "review-added")}
+    assert set(before) == {"review-provider"} and before["review-provider"] is old
+    assert fixture.headers(old) == "one"
+    current = fixture.profile()
+    assert current is not old and fixture.headers(current) == "second"
+    assert fixture.providers.get_provider_profile("review-alias") is current
+    assert fixture.providers.get_provider_profile("review-added") is not None
+    after = {profile.name for profile in fixture.providers.list_providers()}
+    assert {"review-provider", "review-added"} <= after
+    return {"concurrent_listing": "old snapshot", "published_version": fixture.headers(current)}
+
+
 def reentrant_import(fixture):
     one = fixture.generation("one")
     fixture.install(one)
@@ -376,8 +447,6 @@ def activation_pending(fixture, fail):
         before, hint = activation_result(fixture, manager)
         assert "provider" not in before["activated_now"]
         assert before["deferred"]["provider"] == ["review-provider"]
-        assert "new sessions use this version" not in hint
-        assert "not confirmed yet" in hint
         assert fixture.profile() is old
     finally:
         gate.release.set()
@@ -492,6 +561,8 @@ def run_case(case, plugin):
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
             result = overlapping_import(fixture, case.removeprefix("overlap-"))
+        elif case == "listing-update":
+            result = listing_during_update(fixture)
         elif case == "reentrant":
             result = reentrant_import(fixture)
         elif case in {"host-live", "host-late"}:
@@ -547,6 +618,9 @@ class ProviderLifecycle(unittest.TestCase):
     def test_newer_version_wins(self):
         self.run_case("overlap-newer")
 
+
+    def test_list_during_completed_update(self):
+        self.run_case("listing-update")
     def test_live_rollback_cancels_pending_update(self):
         self.run_case("overlap-rollback")
 

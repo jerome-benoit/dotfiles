@@ -290,6 +290,13 @@ pkgs.runCommand "check-hermes-agent"
             test = root / "tests" / relative
             test.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(source_tests) / relative, test)
+            if relative == "providers/test_provider_plugin_update.py":
+                # Assert publication and error contracts, not user-facing wording.
+                subprocess.run(
+                    ["${pkgs.patch}/bin/patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i",
+                     "${../patches/hermes-agent-provider-update-tests.patch}"],
+                    cwd=root, check=True,
+                )
             environment = {
                 "HOME": str(root), "HERMES_HOME": str(root / "hermes"), "TMPDIR": str(root),
                 "PATH": "${lib.makeBinPath [ pkgs.coreutils pkgs.bash ]}",

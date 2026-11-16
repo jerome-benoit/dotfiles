@@ -1,13 +1,14 @@
 # base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
 # prerequisites: none
 # intent: preserve complete provider versions across rollback and hosted calls;
+# keep published reader views coherent and clean owned read-only copies.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 open proposed partial loader fix, rollback/concurrency evidence: https://github.com/NousResearch/hermes-agent/pull/156224#issuecomment-6919243021.
 # issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. Snapshot pruning PR156209/#156493 remains adjacent and NOT corrected here.
-# removal: Remove only when discovery and hosted RPC use the same frozen generations with rollback reuse, nonblocking lookup, per-home publication status and owned-copy cleanup.
+# removal: Remove only when discovery and hosted RPC use the same frozen generations with rollback reuse, coherent published-reader views, nonblocking lookup, per-home publication status and owned-copy cleanup.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py
-@@ -15,101 +15,218 @@
+@@ -15,127 +15,244 @@
  
  import atexit
  import hashlib
@@ -228,34 +229,6 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +
      layer = P._REGISTRATION_TARGET.get()
 -    fingerprint = tree_fingerprint(plugin_dir)
--    live = layer.trees.get(base_name)
--    if live is not None and live[0] == fingerprint:
--        return
--    module_name = f"{base_name}_{fingerprint}"
--    staging = P._HomeLayer()
--    token = P._REGISTRATION_TARGET.set(staging)
--    try:
--        # In-process code (including a hosted plugin's in-process profiles) reads the frozen copy; the plugin
--        # host keeps the installed path, the stable key of its extraction cache.
--        P._import_user_module(plugin_dir, source, module_name, code_dir=_snapshot(plugin_dir, module_name))
--    except OSError as exc:  # the frozen copy could not be made: keep serving the previous version
--        logger.warning("Could not stage provider plugin %s: %s", plugin_dir.name, exc)
--        staging.errors[plugin_dir.name] = f"{type(exc).__name__}: {exc}"
--    finally:
--        P._REGISTRATION_TARGET.reset(token)
--    if module_name in sys.modules or module_name in staging.hosted:
--        _publish(layer, base_name, module_name, fingerprint, staging, replacing=live is not None)
--        layer.errors.pop(plugin_dir.name, None)
--        if live is not None:
--            logger.info("Provider plugin %s changed on disk; new sessions use the updated version",
--                        plugin_dir.name)
--        return
--    # A failed import leaves the previous version serving; drop what it half-loaded so a retry is clean.
--    prefix = module_name + "."
--    for name in [m for m in sys.modules if m.startswith(prefix)]:
--        del sys.modules[name]
--    if error := staging.errors.get(plugin_dir.name):
--        layer.errors[plugin_dir.name] = error
 +    with P._HOME_LAYERS_LOCK:
 +        request = next(_requests)
 +        layer.reload_requests[base_name] = (request, None)
@@ -295,13 +268,66 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            layer.errors[plugin_dir.name] = result.layer.errors.get(plugin_dir.name, "Provider import did not complete")
 +            layer.activation_status[base_name] = ("failed", layer.errors[plugin_dir.name])
 +    return True
- 
- 
- def _publish(layer, base_name: str, module_name: str, fingerprint: str, staging, *, replacing: bool) -> None:
-@@ -119,23 +236,23 @@
-     name another plugin currently owns."""
-     import providers as P
- 
++
++
++def _publish(layer, base_name: str, module_name: str, fingerprint: str, staging, *, replacing: bool) -> None:
++    """Publish copied registrations without mutating tables captured by readers.
++    A first import keeps the scan's last-writer-wins order; a reload never takes another plugin's names."""
++    import providers as P
++
++    # The caller holds _HOME_LAYERS_LOCK across request validation and publication.
++    previous = {n for n, owner in layer.owner.items() if owner == base_name}
++    registry = layer.registry.copy()
++    for name, profile in staging.registry.items():
++        if replacing and layer.owner.get(name, base_name) != base_name:
++            continue
++        registry[name] = profile
++        layer.owner[name] = base_name
++    # The plugin's aliases go with its registrations: one the new release dropped stops resolving.
++    aliases = {a: t for a, t in layer.aliases.items() if t not in previous}
++    aliases.update({a: t for a, t in staging.aliases.items() if layer.owner.get(t) == base_name})
++    for name in previous - staging.registry.keys():
++        registry.pop(name, None)
++        del layer.owner[name]
++    layer.registry = registry
++    layer.aliases = aliases
+     live = layer.trees.get(base_name)
+-    if live is not None and live[0] == fingerprint:
+-        return
+-    module_name = f"{base_name}_{fingerprint}"
+-    staging = P._HomeLayer()
+-    token = P._REGISTRATION_TARGET.set(staging)
+-    try:
+-        # In-process code (including a hosted plugin's in-process profiles) reads the frozen copy; the plugin
+-        # host keeps the installed path, the stable key of its extraction cache.
+-        P._import_user_module(plugin_dir, source, module_name, code_dir=_snapshot(plugin_dir, module_name))
+-    except OSError as exc:  # the frozen copy could not be made: keep serving the previous version
+-        logger.warning("Could not stage provider plugin %s: %s", plugin_dir.name, exc)
+-        staging.errors[plugin_dir.name] = f"{type(exc).__name__}: {exc}"
+-    finally:
+-        P._REGISTRATION_TARGET.reset(token)
+-    if module_name in sys.modules or module_name in staging.hosted:
+-        _publish(layer, base_name, module_name, fingerprint, staging, replacing=live is not None)
+-        layer.errors.pop(plugin_dir.name, None)
+-        if live is not None:
+-            logger.info("Provider plugin %s changed on disk; new sessions use the updated version",
+-                        plugin_dir.name)
+-        return
+-    # A failed import leaves the previous version serving; drop what it half-loaded so a retry is clean.
+-    prefix = module_name + "."
+-    for name in [m for m in sys.modules if m.startswith(prefix)]:
+-        del sys.modules[name]
+-    if error := staging.errors.get(plugin_dir.name):
+-        layer.errors[plugin_dir.name] = error
+-
+-
+-def _publish(layer, base_name: str, module_name: str, fingerprint: str, staging, *, replacing: bool) -> None:
+-    """Swap *base_name*'s registrations in *layer* for *staging*'s. Lookups take no lock, so a name kept by the
+-    new release is overwritten in place and the alias table is replaced whole: a reader sees the old entry or
+-    the new one, never neither. A first import keeps the scan's last-writer-wins order; a reload never takes a
+-    name another plugin currently owns."""
+-    import providers as P
+-
 -    with P._HOME_LAYERS_LOCK:
 -        previous = {n for n, owner in layer.owner.items() if owner == base_name}
 -        for name, profile in staging.registry.items():
@@ -322,21 +348,6 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -        layer.hosted.update(staging.hosted)
 -        layer.trees[base_name] = (fingerprint, module_name)
 -        P._REGISTRY_GENERATION += 1
-+    # The caller holds _HOME_LAYERS_LOCK across request validation and publication.
-+    previous = {n for n, owner in layer.owner.items() if owner == base_name}
-+    for name, profile in staging.registry.items():
-+        if replacing and layer.owner.get(name, base_name) != base_name:
-+            continue
-+        layer.registry[name] = profile
-+        layer.owner[name] = base_name
-+    # The plugin's aliases go with its registrations: one the new release dropped stops resolving.
-+    aliases = {a: t for a, t in layer.aliases.items() if t not in previous}
-+    aliases.update({a: t for a, t in staging.aliases.items() if layer.owner.get(t) == base_name})
-+    layer.aliases = aliases
-+    for name in previous - staging.registry.keys():
-+        layer.registry.pop(name, None)
-+        del layer.owner[name]
-+    live = layer.trees.get(base_name)
 +    if live is not None:
 +        layer.hosted.discard(live[1])
 +    layer.hosted.update(staging.hosted)
@@ -376,7 +387,67 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      if _discovered and not _discovering:  # post-discovery registration: mirror it immediately
          _sync_auth_registry()
  
-@@ -466,6 +470,8 @@
+@@ -182,8 +186,10 @@
+     ``hermes_cli.auth.PROVIDER_REGISTRY`` too — a bundled profile never rewrites a built-in row.
+     """
+     layer = _home_layer()
+-    canonical = layer.aliases.get(name) or _ALIASES.get(name, name)
+-    if canonical in layer.registry:
++    with _HOME_LAYERS_LOCK:
++        canonical = layer.aliases.get(name) or _ALIASES.get(name, name)
++        is_user = canonical in layer.registry
++    if is_user:
+         return "user"
+     return _SOURCES.get(canonical)
+ 
+@@ -236,8 +242,10 @@
+     checked = _refresh_home_layer(layer, home, key)
+ 
+     def lookup(n: str) -> ProviderProfile | None:
+-        canonical = layer.aliases.get(n) or _ALIASES.get(n, n)
+-        return layer.registry.get(canonical) or _REGISTRY.get(canonical)
++        with _HOME_LAYERS_LOCK:
++            canonical = layer.aliases.get(n) or _ALIASES.get(n, n)
++            home_profile = layer.registry.get(canonical)
++        return home_profile or _REGISTRY.get(canonical)
+ 
+     profile = lookup(name)
+     # A newly installed provider is normally first requested by its new name, so a miss
+@@ -349,7 +357,8 @@
+         _discover_providers()
+     layer, home, key = _bound_home_layer()
+     _refresh_home_layer(layer, home, key)
+-    token = (_REGISTRY_GENERATION, id(_REGISTRY), len(_REGISTRY), len(layer.registry))
++    with _HOME_LAYERS_LOCK:
++        token = (_REGISTRY_GENERATION, id(_REGISTRY), len(_REGISTRY), len(layer.registry))
+     memo_key = (key, host, metadata)
+     cached = _HOST_PROFILE_MEMO.get(memo_key)
+     if cached is not None and cached[0] == token:
+@@ -384,8 +393,10 @@
+                 seen.add(id(profile))
+                 cache.append(profile)
+         _PROVIDER_LIST_CACHE = cache
+-    result = [p for p in _PROVIDER_LIST_CACHE if p.name not in layer.registry]
+-    result.extend({id(p): p for p in layer.registry.values()}.values())
++    with _HOME_LAYERS_LOCK:
++        registry = layer.registry
++    result = [p for p in _PROVIDER_LIST_CACHE if p.name not in registry]
++    result.extend({id(p): p for p in registry.values()}.values())
+     return result
+ 
+ 
+@@ -420,7 +431,9 @@
+ 
+     def resolve(name: str) -> tuple[ProviderProfile | None, ProviderProfile | None]:
+         shared = _ALIASES.get(name, name)
+-        return layer.registry.get(layer.aliases.get(name) or shared), _REGISTRY.get(shared)
++        with _HOME_LAYERS_LOCK:
++            home_profile = layer.registry.get(layer.aliases.get(name) or shared)
++        return home_profile, _REGISTRY.get(shared)
+     return resolve
+ 
+ 
+@@ -466,6 +479,8 @@
      """
      now = time.monotonic()
      from agent.safe_worker_policy import safe_worker_enabled
@@ -385,7 +456,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      # Safe mode fires zero user customization: same gate as ``_discover_providers``.
      if home is None or safe_worker_enabled() or not (
-@@ -480,7 +486,10 @@
+@@ -480,7 +495,10 @@
          # look settled afterwards and get remembered over an install that landed mid-scan.
          settled = _plugin_dir_stamps_settled(stamps)
          layer.disabled = None  # the scan records it again if it still skips a plugin
@@ -397,7 +468,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
          # A stamp still inside its mtime tick may not move for an install landing in that same
          # tick, which would hide the plugin until some later change: keep it unremembered so the
          # next periodic check scans again, until the stamps settle.
-@@ -585,7 +594,7 @@
+@@ -585,7 +603,7 @@
      return _manifest_field(plugin_dir, "kind") == "model-provider"
  
  
@@ -406,7 +477,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      """Import the bound home's not-yet-imported provider plugins into *layer*.
  
      ``$HERMES_HOME/plugins/model-providers/<name>/`` first, then plugins cloned flat by
-@@ -596,22 +605,24 @@
+@@ -596,22 +614,24 @@
      global _discovering
      token, prior_discovering = _REGISTRATION_TARGET.set(layer), _discovering
      _discovering = True
@@ -433,7 +504,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _plugin_disabled(plugin_dir: Path) -> bool:
-@@ -632,67 +643,80 @@
+@@ -632,67 +652,80 @@
  
  
  def _user_module_name(plugin_dir: Path, home_key: str) -> str:
@@ -541,7 +612,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      finally:
          _current_source = None
      if in_process:
-@@ -701,19 +725,20 @@
+@@ -701,19 +734,20 @@
                             "in-process, NOT isolated by plugins.isolation: host", plugin_dir.name, name, reason)
          token = _REGISTRATION_ONLY.set(frozenset(in_process))
          try:
@@ -569,7 +640,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      _current_source = source
      try:
-@@ -721,11 +746,13 @@
+@@ -721,11 +755,13 @@
              module_name, plugin_dir / "__init__.py", submodule_search_locations=[str(plugin_dir)]
          )
          if spec is None or spec.loader is None:
@@ -584,7 +655,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      except Exception as exc:  # health: allow BLE001 -- plugin import boundary (moved from _import_plugin_dir): one broken plugin never breaks discovery
          logger.warning(
              "Failed to load %s provider plugin %s: %s", source, plugin_dir.name, exc
-@@ -734,6 +761,7 @@
+@@ -734,6 +770,7 @@
          _note_load_result(plugin_dir, exc)
      finally:
          _current_source = None
@@ -592,7 +663,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _note_load_result(plugin_dir: Path, exc: BaseException | None) -> None:
-@@ -752,6 +780,24 @@
+@@ -752,6 +789,24 @@
  def plugin_load_error(plugin: str) -> str:
      """The error the bound home's provider plugin dir *plugin* raised on its last import, else ``""``."""
      return _home_layer().errors.get(plugin, "")
@@ -617,7 +688,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _discover_entry_point_providers() -> None:
-@@ -931,11 +977,13 @@
+@@ -931,11 +986,13 @@
      if _discovered:
          return
      _discovered = True
