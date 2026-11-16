@@ -2,8 +2,7 @@
 # prerequisites: none
 # intent: preserve typed startup causes and offer container recreation without adapter-install instructions.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/issues/5652 open exact cause; PR5666 merged historical, #5715 broader UI.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove when typed causes reach the banner and Retry gives recreation guidance without adapter installation.
+# removal: remove when typed causes reach the banner and Retry gives recreation guidance without adapter installation.
 diff --git a/src/components/acp/SessionBanners.tsx b/src/components/acp/SessionBanners.tsx
 index 0b31ef3..514d011 100644
 --- a/src/components/acp/SessionBanners.tsx

@@ -1,11 +1,9 @@
 # base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
 # prerequisites: none
-# intent: preserve complete provider versions across rollback and hosted calls;
-# keep published reader views coherent and clean owned read-only copies.
-# keep home discovery context-local without weakening process-wide initialization.
+# intent: preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 open proposed partial loader fix, rollback/concurrency evidence: https://github.com/NousResearch/hermes-agent/pull/156224#issuecomment-6919243021.
-# issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. Snapshot pruning PR156209/#156493 remains adjacent and NOT corrected here.
-# removal: Remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
+# issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. Snapshot pruning PR156209/#156493 remains adjacent and not corrected here.
+# removal: remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py

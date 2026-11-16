@@ -2,8 +2,7 @@
 # prerequisites: none
 # intent: bind Nix kernel imports to selected non-project skill sources without installing dependencies.
 # upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3971 existing; PR3907 merged project isolation is partial, not selected-source priority.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove when selected non-project skills import their chosen package_path without weakening project exclusion or dependency checks.
+# removal: remove when selected non-project skills import their chosen package_path without weakening project exclusion or dependency checks.
 diff --git a/crates/pa-core/src/kernel/bootstrap/mod.rs b/crates/pa-core/src/kernel/bootstrap/mod.rs
 --- a/crates/pa-core/src/kernel/bootstrap/mod.rs
 +++ b/crates/pa-core/src/kernel/bootstrap/mod.rs

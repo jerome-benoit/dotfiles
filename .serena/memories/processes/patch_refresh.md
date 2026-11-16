@@ -25,48 +25,48 @@ name of the package being patched, not an executable or module alias
 
 ## Current Patches
 
-Each patch records `# base:`, `# prerequisites:`, `# intent:`, `# upstream:`,
-`# issues:` and a behavior-specific `# removal:` condition. Proposals are not
-fixes in the pin; historical and partial coverage stay explicit.
+Each patch records its base, intent, prerequisites and removal condition.
+Keep relevant upstream provenance and separately tracked issues; omit empty
+issue fields. Proposals are not fixes in the pin, and partial coverage stays explicit.
 Hermes provider causes are tracked by #156556 (identity), #156557 (hosted RPC),
 #156558 (activation), #156559 (namespaces) and #156560 (readonly POSIX cleanup)
 in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrency
 coverage; PR156209/#156493 pruning remains adjacent and is not corrected locally.
 OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
-- `patches/agent-of-empires-container-recovery.patch` — preserve typed startup causes and offer container recreation without adapter-install instructions. Prerequisites: none.
-- `patches/agent-of-empires-cursor-executable.patch` — Detect and launch the packaged cursor-agent executable instead of agent. Prerequisites: none.
-- `patches/caveman-blocks-config-root.patch` — Resolve the OpenCode hook profile against the absolute effective config root. Prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order).
-- `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook without copying Prerequisites: none.
-- `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs. Prerequisites: none.
-- `patches/caveman-cli-config-root.patch` — Require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
-- `patches/caveman-hermes-native-yaml.patch` — Use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
-- `patches/caveman-installer-config-root.patch` — Require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
-- `patches/caveman-installer-settings-permissions.patch` — Preserve existing settings permissions during atomic replacement; new files remain 0600. Prerequisites: none.
+- `patches/agent-of-empires-container-recovery.patch` — preserve typed startup causes and offer container recreation without adapter-install instructions.
+- `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
+- `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the absolute effective config root. Prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order).
+- `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
+- `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
+- `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
+- `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
+- `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
+- `patches/caveman-installer-settings-permissions.patch` — preserve existing settings permissions during atomic replacement; new files remain 0600.
 - `patches/caveman-nix-installer-paths.patch` — use profile-local interpreters and isolate mutable Claude payload ownership. Prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent).
-- `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the package-managed CLI, Prerequisites: none.
-- `patches/caveman-nix-registration-paths.patch` — separate Nix execution-time closure paths from durable agent Prerequisites: caveman-nix-managed-install.patch.
-- `patches/caveman-opencode-lifecycle.patch` — Keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
-- `patches/colibri-cuda-glibc.patch` — Preserve the CUDA/glibc math exception specifications supplied by Nixpkgs. Prerequisites: none.
-- `patches/herdr-desktop-nix-cli-link.patch` — Keep Nix-managed macOS apps from installing user CLI links. Prerequisites: none.
-- `patches/hermes-agent-provider-activation-ui.patch` — do not classify pending provider activation as next-chat tools or prompts Prerequisites: none.
-- `patches/hermes-agent-provider-reload.patch` — preserve complete provider versions and coherent published-reader views across rollback and hosted calls. Prerequisites: none.
-- `patches/hermes-agent-provider-update-tests.patch` — verify structured publication/error results and retained clients in the copied upstream check, not display wording. Check-only; prerequisites: none.
-- `patches/hermes-agent-terminal-mise-shims.patch` — Restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands. Prerequisites: none.
-- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture. Prerequisites: none.
-- `patches/opencode-nvim-execution-lifecycle.patch` — Register native OpenCode execution lifecycle events and map completion or interruption to idle status. Prerequisites: none.
-- `patches/prime-agent-bundled-docs.patch` — point provider login guidance at the bundled, version-matched upstream README. Prerequisites: none.
-- `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when /bin/ps cannot read the live process. Prerequisites: none.
-- `patches/prime-agent-nix-daemon-generation.patch` — verify Nix executable identity on probes, session handshakes and reconnects. Prerequisites: none.
-- `patches/prime-agent-nix-self-update.patch` — Refuse managed CLI/core/TUI self-update before effects; preserve read-only --check. Prerequisites: none.
-- `patches/prime-agent-python-skill-source.patch` — bind Nix kernel imports to selected non-project skill sources without installing dependencies. Prerequisites: none.
-- `patches/prime-agent-release-offline.patch` — Use the catalog boolean parser for release-check PI_OFFLINE. Prerequisites: none.
-- `patches/strata-cli-validation.patch` — Validate serve and monitor arguments before optional dependencies. Prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract).
-- `patches/strata-destination-budgets.patch` — Account remaining downloads and preparation by destination filesystem. Prerequisites: strata-setup-directory-roles.patch.
-- `patches/strata-engine-inspection.patch` — Inspect SYCL launcher and mapped host engine/argument paths without importing server. Prerequisites: none.
-- `patches/strata-selected-executable.patch` — Verify the selected manifest executable, hash and execute permission. Prerequisites: none (consumed by the managed workspace helper).
-- `patches/strata-setup-directory-roles.patch` — Share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir. Prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch).
-- `patches/strata-workspace-source-lifecycle.patch` — Keep source CLI/bootstrap and complete workspace/source lease handoff protocol together. Prerequisites: none.
+- `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
+- `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
+- `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
+- `patches/colibri-cuda-glibc.patch` — preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
+- `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
+- `patches/hermes-agent-provider-activation-ui.patch` — do not classify pending provider activation as next-chat tools or prompts.
+- `patches/hermes-agent-provider-reload.patch` — preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
+- `patches/hermes-agent-provider-update-tests.patch` — verify provider publication, structured errors and retained clients without pinning display wording. Check-only.
+- `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
+- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
+- `patches/opencode-nvim-execution-lifecycle.patch` — register native OpenCode execution lifecycle events and map completion or interruption to idle status.
+- `patches/prime-agent-bundled-docs.patch` — point provider login guidance at the bundled, version-matched upstream README.
+- `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when /bin/ps cannot read the live process.
+- `patches/prime-agent-nix-daemon-generation.patch` — verify Nix executable identity on probes, session handshakes and reconnects.
+- `patches/prime-agent-nix-self-update.patch` — refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
+- `patches/prime-agent-python-skill-source.patch` — bind Nix kernel imports to selected non-project skill sources without installing dependencies.
+- `patches/prime-agent-release-offline.patch` — use the catalog boolean parser for release-check PI_OFFLINE.
+- `patches/strata-cli-validation.patch` — validate serve and monitor arguments before optional dependencies. Prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract).
+- `patches/strata-destination-budgets.patch` — account remaining downloads and preparation by destination filesystem. Prerequisites: strata-setup-directory-roles.patch.
+- `patches/strata-engine-inspection.patch` — inspect SYCL launcher and mapped host engine/argument paths without importing server.
+- `patches/strata-selected-executable.patch` — verify the selected manifest executable, hash and execute permission.
+- `patches/strata-setup-directory-roles.patch` — share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir. Prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch).
+- `patches/strata-workspace-source-lifecycle.patch` — keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
 
 ### Partition and source equivalence
 
@@ -81,17 +81,14 @@ source parser; SYCL inspection and selected-executable verification are distinct
 `home-manager/modules/development/strata-source-patch.nix` defines the same ordered
 atomic composite for launcher and checks, without changing the helper API.
 
-Partition proofs compare complete touched-file bytes against the original stack,
-then reverse the atomic composite to the exact base. They are not runtime tests.
-After those proofs, the existing DeepSeek consumer regression exposed a Darwin
-forecast mismatch: Control setup honors `--models-dir`, but the catalog ignored
-the managed models directory. The roles patch now removes that platform guard;
-this two-line destination-parity correction is the only behavioral delta from
-the proven original stack. Keep the complete existing regression unchanged.
-Cross-validation rejected the alleged DeepSeek shared-file double count:
-ordinary forecasts count all selected files once; the shared-only loop requires
-`own_files`, whose explicit-path branch returns before ordinary weights. Keep the
-existing consumer regression for ordinary and explicit-path plans.
+Compare the complete applied stack with its previous composition, then reverse
+the composite to the pinned base. This proves application and source equivalence,
+not runtime behavior. In Strata's initial a00be3c8 → f96717e87c partition, the only
+behavioral change was Control --models-dir parity on Darwin. Keep its complete
+consumer regression; later provider corrections are outside that comparison.
+Ordinary DeepSeek forecasts count the selected files once. Explicit model paths
+return before ordinary weights and use the shared-only download path. Keep the
+consumer regression for both plans.
 
 ## Local Patch Refresh
 

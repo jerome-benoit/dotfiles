@@ -1,9 +1,9 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-opencode-lifecycle.patch
-# intent: Require raw absolute OpenCode override with existing root precedence.
+# intent: require raw absolute OpenCode override with existing root precedence.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1485 historical; absolute-root refusal is local policy.
-# removal: Retire CLI and installer root policies together when upstream enforces the same absolute raw-root contract.
+# removal: retire CLI and installer root policies together when upstream enforces the same absolute raw-root contract.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts

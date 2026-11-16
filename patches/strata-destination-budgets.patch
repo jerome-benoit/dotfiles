@@ -1,9 +1,8 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # prerequisites: strata-setup-directory-roles.patch
-# intent: Account remaining downloads and preparation by destination filesystem.
-# upstream: https://github.com/Niko1221/Strata/pull/4989 open: destination accounting related, sparse resume rules not equivalent.
-# issues: PR4989 partially covers capacity; not a roles-layout implementation.
-# removal: Remove when selected-source destination and split preparation checks match all role destinations.
+# intent: account remaining downloads and preparation by destination filesystem.
+# upstream: https://github.com/Niko1221/Strata/pull/4989 related destination accounting; sparse resume rules and role layout are not equivalent.
+# removal: remove when selected-source destination and split preparation checks match all role destinations.
 diff --git a/setup.py b/setup.py
 --- a/setup.py
 +++ b/setup.py

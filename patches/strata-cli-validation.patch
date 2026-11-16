@@ -1,9 +1,8 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract)
-# intent: Validate serve and monitor arguments before optional dependencies.
-# upstream: No exact upstream fix established; local shared parser consumers.
-# issues: none exact established.
-# removal: Remove when preflight and native dispatch share equivalent dependency-free validation.
+# intent: validate serve and monitor arguments before optional dependencies.
+# upstream: no exact upstream fix established; local shared parser consumers.
+# removal: remove when preflight and native dispatch share equivalent dependency-free validation.
 diff --git a/strata.py b/strata.py
 --- a/strata.py
 +++ b/strata.py

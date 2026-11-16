@@ -2,8 +2,7 @@
 # prerequisites: none
 # intent: point provider login guidance at the bundled, version-matched upstream README.
 # upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3889 existing; PR3007 merged removes docs but only partially updates messages.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove when both no-model/provider diagnostics reference shipped version-matched guidance.
+# removal: remove when both no-model/provider diagnostics reference shipped version-matched guidance.
 diff --git a/crates/pa-cli/src/list_models.rs b/crates/pa-cli/src/list_models.rs
 --- a/crates/pa-cli/src/list_models.rs
 +++ b/crates/pa-cli/src/list_models.rs

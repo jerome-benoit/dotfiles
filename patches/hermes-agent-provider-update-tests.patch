@@ -2,8 +2,7 @@
 # prerequisites: none; check-only, applied after copying the selected upstream test.
 # intent: verify provider publication, structured errors and retained clients without pinning display wording.
 # upstream: https://github.com/NousResearch/hermes-agent/pull/153318 introduced the selected regression.
-# issues: local check adaptation for the provider activation contract; not a separate product defect.
-# removal: Remove when the selected upstream regression asserts the same behavioral contracts.
+# removal: remove when the selected upstream regression asserts the same behavioral contracts.
 diff --git a/tests/providers/test_provider_plugin_update.py b/tests/providers/test_provider_plugin_update.py
 --- a/tests/providers/test_provider_plugin_update.py
 +++ b/tests/providers/test_provider_plugin_update.py

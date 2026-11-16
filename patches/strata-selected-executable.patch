@@ -1,9 +1,8 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # prerequisites: none (consumed by the managed workspace helper)
-# intent: Verify the selected manifest executable, hash and execute permission.
-# upstream: Local selected-runtime validation capability; no exact upstream replacement established.
-# issues: none exact established.
-# removal: Remove when selected executable verification is supplied by the pinned component API.
+# intent: verify the selected manifest executable, hash and execute permission.
+# upstream: local selected-runtime validation capability; no exact upstream replacement established.
+# removal: remove when selected executable verification is supplied by the pinned component API.
 diff --git a/strata_control/engine_component.py b/strata_control/engine_component.py
 --- a/strata_control/engine_component.py
 +++ b/strata_control/engine_component.py

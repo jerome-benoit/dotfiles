@@ -1,9 +1,9 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch
-# intent: Use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration.
+# intent: use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposed, partial strict-parser coverage.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1486 through /1492 open; #1405/#1410 historical, PR1529 partial proposed.
-# removal: Remove only when pinned enable/repair/disable/status share strict scalar/list ownership, deny-list validation and lossless foreign restoration.
+# removal: remove only when pinned enable/repair/disable/status share strict scalar/list ownership, deny-list validation and lossless foreign restoration.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts

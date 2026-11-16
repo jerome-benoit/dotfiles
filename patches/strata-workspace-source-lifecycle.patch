@@ -1,9 +1,8 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # prerequisites: none
-# intent: Keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
+# intent: keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
 # upstream: https://github.com/Niko1221/Strata/issues/5586 open: bootstrap need only partially related; no engine build supplied.
-# issues: none exact for local managed workspace protocol.
-# removal: Remove only with equivalent helper publication, acquisition receipts and service/import lease lifecycle.
+# removal: remove only with equivalent helper publication, acquisition receipts and service/import lease lifecycle.
 diff --git a/serve/server.py b/serve/server.py
 --- a/serve/server.py
 +++ b/serve/server.py

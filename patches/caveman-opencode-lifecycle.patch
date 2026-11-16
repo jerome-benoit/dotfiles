@@ -1,9 +1,9 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
-# intent: Keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs.
+# intent: keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs.
 # upstream: PR1395 merged historical; PR1529 open does not fix factory isolation.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1484 exact factory; #1443 historical cwd; https://github.com/JuliusBrussee/caveman/issues/1539 exact V2 Stop routing; no host runtime reproduction claimed.
-# removal: Remove only when both APIs isolate factories, preserve cwd and V2 emits Stop from experimental.idle.
+# removal: remove only when both APIs isolate factories, preserve cwd and V2 emits Stop from experimental.idle.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts

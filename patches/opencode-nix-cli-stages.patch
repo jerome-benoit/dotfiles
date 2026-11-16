@@ -1,9 +1,8 @@
 # base: anomalyco/opencode d432a06b9c07bab0be4e8d642173b1cb14137f11
 # prerequisites: none
 # intent: isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
-# upstream: https://github.com/anomalyco/opencode/pull/60683 open PARTIAL: channel isolation and retention, not same-version/channel closure identity.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove only when same-version/architecture/channel rebuilds are isolated and bundled/adopted stages retained.
+# upstream: https://github.com/anomalyco/opencode/pull/60683 open partial: channel isolation and retention, not same-version/channel closure identity.
+# removal: remove only when same-version/architecture/channel rebuilds are isolated and bundled/adopted stages retained.
 diff --git a/packages/desktop/src/main/service/cli-version.ts b/packages/desktop/src/main/service/cli-version.ts
 --- a/packages/desktop/src/main/service/cli-version.ts
 +++ b/packages/desktop/src/main/service/cli-version.ts

@@ -1,9 +1,8 @@
 # base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
 # prerequisites: none
-# intent: Refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
+# intent: refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
 # upstream: Nix ownership policy; no generic upstream fix required.
-# issues: none exact; #2170 release integrity is unrelated.
-# removal: Remove when every managed update entry refuses before effects while --check remains read-only.
+# removal: remove when every managed update entry refuses before effects while --check remains read-only.
 diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
 --- a/crates/pa-cli/src/client_update.rs
 +++ b/crates/pa-cli/src/client_update.rs

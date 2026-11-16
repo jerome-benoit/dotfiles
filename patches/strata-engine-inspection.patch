@@ -1,9 +1,9 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # prerequisites: none
-# intent: Inspect SYCL launcher and mapped host engine/argument paths without importing server.
+# intent: inspect SYCL launcher and mapped host engine/argument paths without importing server.
 # upstream: https://github.com/Niko1221/Strata/issues/5395 open; https://github.com/Niko1221/Strata/issues/5193 open: related opposite-direction paths.
 # issues: 5395 partial: doctor surface only, not drafting.py or sycl_path.
-# removal: Remove when doctor resolves launcher, executable and /work arguments against actual host mounts.
+# removal: remove when doctor resolves launcher, executable and /work arguments against actual host mounts.
 diff --git a/serve/server.py b/serve/server.py
 --- a/serve/server.py
 +++ b/serve/server.py

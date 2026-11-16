@@ -3,8 +3,7 @@
 # prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent)
 # intent: use profile-local interpreters and isolate mutable Claude payload ownership.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
-# issues: none exact established; do not retire on unrelated upstream changes.
-# removal: Remove when installers/prepared plugins preserve private runtimes, scoped payload ownership, transactional journals and detach-before-removal.
+# removal: remove when installers/prepared plugins preserve private runtimes, scoped payload ownership, transactional journals and detach-before-removal.
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js

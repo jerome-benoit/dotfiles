@@ -1,9 +1,8 @@
 # base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
 # prerequisites: none
-# intent: Use the catalog boolean parser for release-check PI_OFFLINE.
-# upstream: Discussion 3735 OPEN: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3735
-# issues: 3735 exact; proposal not in pin
-# removal: Remove when release checks use the catalog boolean contract.
+# intent: use the catalog boolean parser for release-check PI_OFFLINE.
+# upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3735 tracks the release-check boolean contract; not supplied by the pin.
+# removal: remove when release checks use the catalog boolean contract.
 diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/release.rs
 --- a/crates/pa-core/src/update/release.rs
 +++ b/crates/pa-core/src/update/release.rs

@@ -1,9 +1,8 @@
 # base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
 # prerequisites: none
 # intent: skip the Darwin ps comparison when /bin/ps cannot read the live process.
-# upstream: Local sandbox test accommodation; #879/#1971 process identity changes are not this exemption.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove when the sandbox reliably supplies ps ground truth for this comparison.
+# upstream: local sandbox accommodation for unavailable ps ground truth.
+# removal: remove when the sandbox reliably supplies ps ground truth for this comparison.
 diff --git a/crates/pa-types/src/platform/process.rs b/crates/pa-types/src/platform/process.rs
 --- a/crates/pa-types/src/platform/process.rs
 +++ b/crates/pa-types/src/platform/process.rs

@@ -1,9 +1,8 @@
 # base: agent-of-empires/agent-of-empires 8056925f77619af3462d721c13a29d72ecf66482
 # prerequisites: none
-# intent: Detect and launch the packaged cursor-agent executable instead of agent.
+# intent: detect and launch the packaged cursor-agent executable instead of agent.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/pull/285 merged: agent name intentional; no exact Nix naming fix.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove when the selected package exports the upstream agent name or upstream supports cursor-agent directly.
+# removal: remove when the selected package exports the upstream agent name or upstream supports cursor-agent directly.
 diff --git a/src/agents.rs b/src/agents.rs
 --- a/src/agents.rs
 +++ b/src/agents.rs

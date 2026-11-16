@@ -1,9 +1,9 @@
 # base: caveman-ai/blocks v0.1.0-rc.5
 # prerequisites: none
 # intent: support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
-# upstream: https://github.com/caveman-ai/blocks/pull/17 open ec71197; PR9/PR23 open alternatives, not equivalent dual-API fixes.
-# issues: See upstream coverage above; no additional exact issue established.
-# removal: Remove only with both APIs, invocation identity, stale-hint cleanup and project-relative/tilde workdirs.
+# upstream: https://github.com/caveman-ai/blocks/pull/17 at ec71197d39c6e61813ceaeb1571781565318fdb4; PR9/PR23 are alternative API ports.
+# issues: https://github.com/caveman-ai/blocks/issues/18 hint identity; https://github.com/caveman-ai/blocks/issues/19 workdir resolution.
+# removal: remove only with both APIs, invocation identity, stale-hint cleanup and project-relative/tilde workdirs.
 diff --git a/internal/hook/profiles.toml b/internal/hook/profiles.toml
 --- a/internal/hook/profiles.toml
 +++ b/internal/hook/profiles.toml

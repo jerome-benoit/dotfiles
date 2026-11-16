@@ -1,9 +1,9 @@
 # base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
-# intent: Share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir.
+# intent: share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open other cause; local split-layout feature.
 # issues: Local Darwin forecast mismatch established: Control setup honors --models-dir but catalog previously ignored it; checks/strata.py test_deepseek_plan_uses_native_effective_shards_and_shared_files covers demanded destinations. No new upstream ticket claimed.
-# removal: Remove only when setup, forecast, progress, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
+# removal: remove only when setup, forecast, progress, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
 diff --git a/setup.py b/setup.py
 --- a/setup.py
 +++ b/setup.py
