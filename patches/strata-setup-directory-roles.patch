@@ -2,7 +2,7 @@
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
 # intent: share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open other cause; local split-layout feature.
-# issues: Local Darwin forecast/acquisition parity: checks/strata.py test_darwin_control_forecast_filtered_arguments_and_destinations covers Qwen, Unsloth and Gyro with retained, partial, requested and personal files. No new upstream ticket claimed.
+# issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events. No new upstream ticket claimed.
 # removal: remove only when setup, forecast, progress, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
 diff --git a/setup.py b/setup.py
 --- a/setup.py
@@ -1404,7 +1404,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      """The files setup fetches for one install, with the sizes it can know before the download starts:
      [{path, bytes|None, role}] where role is "model" (the shards or the pack's files) or "vision" (the picture reader).
      Empty when the setup module cannot say (the caller then falls back to the folder scan)."""
-@@ -1527,29 +1527,40 @@
+@@ -1527,43 +1527,58 @@
      try:
          own = (getattr(S, "OWN_PATH_FAMILIES", None) or {}).get(family)
          if own:                                         # Qwen3.6: the GGUF and the picture reader in the model's folder
@@ -1441,7 +1441,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
 +                Path(models_dir) / (fam.get("tag", "") + model) / S.model_file(fam, model, i)
 +                for i in range(1, S.model_shards(fam, model) + 1)]
 +            for path in paths:
-+                out.append({"path": str(path), "bytes": None, "role": "model"})
++                out.append({"path": str(path), "bytes": None, "role": "model", "accept_unmarked": False})
          if vision:                                      # beside the model folders, not inside them (setup step 5)
              size = (fam.get("mmproj_sha256") or (None,))[0] or DEFAULT_MMPROJ_BYTES
 -            out.append({"path": str(Path(models_dir) / fam.get("mmproj", S.MMPROJ)), "bytes": size, "role": "vision"})
@@ -1456,23 +1456,27 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      """One honest download figure for a model in parts: every part counted (finished, partial, waiting), the picture reader as a part
      of its own, and a part list the screen can name ("part 2 of 4").  The finished state needs EVERY part: a first shard that is whole
      does not make the model downloaded."""
-@@ -1560,10 +1571,13 @@
+     log = prog.get("download") or {}
+     cur_gb = float(log.get("total_gb") or 0)
+     rows = []
++    download_complete = getattr(setup_module, "download_complete", None)
+     for f in files:
          p = Path(f["path"])
          part = p.with_name(p.name + ".part")
++        requires_completion = "accept_unmarked" in f and download_complete is not None
          try:
 -            if part.is_file():
-+            if "accept_unmarked" in f and setup_module is not None and \
-+                    setup_module.download_complete(p, own=f["accept_unmarked"]):
++            if requires_completion and download_complete(p, own=f["accept_unmarked"]):
 +                state, have = "done", p.stat().st_size
 +            elif part.is_file():
                  state, have = "downloading", part.stat().st_size
              elif p.is_file():
 -                state, have = "done", p.stat().st_size
-+                state, have = ("downloading", 0) if "accept_unmarked" in f and setup_module is not None else ("done", p.stat().st_size)
++                state, have = ("downloading", 0) if requires_completion else ("done", p.stat().st_size)
              else:
                  state, have = "waiting", 0
          except OSError:
-@@ -1604,13 +1618,13 @@
+@@ -1604,13 +1619,13 @@
      return prog
  
  
@@ -1488,7 +1492,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
          parts = [dict(p, state="done", done_gb=p["total_gb"]) for p in base.get("parts", []) if p.get("state") == "done"]
      parts.append({"kind": "draft", "name": "Draft layer", "state": "done" if int(dl.get("percent") or 0) >= 100 else "downloading",
                    "done_gb": round(done_gb, 3), "total_gb": round(total_gb, 3)})
-@@ -1623,7 +1637,7 @@
+@@ -1623,7 +1638,7 @@
      return prog
  
  
@@ -1497,7 +1501,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      """One total for the whole model: the bytes of all its files (finished, partial and the one in flight, read from the
      model's folder) over the download size, instead of each file's own 0-100% (a two-file model went 70 GB -> 0 -> up
      again). Only while the download step runs; later steps are not a download."""
-@@ -1631,20 +1645,20 @@
+@@ -1631,20 +1646,20 @@
      step = str(prog.get("step") or "")
      dl = prog.get("download") or {}
      if step.startswith("6/") and str(dl.get("file", "")).startswith("MTP draft layer"):

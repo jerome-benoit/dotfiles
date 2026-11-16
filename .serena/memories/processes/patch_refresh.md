@@ -108,6 +108,9 @@ and keep missing readers and preparation outputs at their requested destinations
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Progress keeps completed parts through steps 6/7 and
 reaches 100 only when every part is complete; incomplete parts remain below 100.
+Managed ordinary shards need native finish evidence when the helper is available,
+not merely a final filename. Preserve explicit personal acceptance and legacy
+helper-free progress; do not impose this predicate on ready SHA or reader selection.
 The native GGUF tools use tools/_paths.py, strata_gguf.py and strata_quants.py by
 default, and the vendored third_party/strata-gguf-py converter where required.
 Keep gguf_py_env(): llama overrides can now be None. Validate compiled source

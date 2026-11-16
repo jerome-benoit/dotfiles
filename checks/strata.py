@@ -6379,4 +6379,145 @@ for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyr
         self.assertFalse((root / ".git/strata-runtime-revision").exists())
 
 
+
+    def test_managed_download_progress_requires_native_completion(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import types
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog
+root = Path.cwd()
+cat = Catalog(src=root, root=root, hardware={})
+mod = cat.strata.setup_module()
+base = root.parent.parent / "native-completion"
+for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyro-S")):
+    count = mod.model_shards(mod.FAMILIES[family], model)
+    cases = ("unmarked", "marked", "residual-part", "active-part", "missing") + (("mixed",) if count > 1 else ())
+    for case in cases:
+        models = base / family / case
+        files = cat.mcp.expected_files(mod, family, model, models, False)
+        for i, item in enumerate(files):
+            path = Path(item["path"])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("wb") as stream:
+                stream.truncate(100_000_000)  # Keep the native 0.05 GB display gate observable.
+            if case in ("marked", "residual-part", "missing") or (case == "mixed" and i == 0):
+                mod.mark(path)
+        first = Path(files[0]["path"])
+        if case in ("residual-part", "active-part"):
+            first.with_name(first.name + ".part").write_bytes(b"partial")
+        if case == "missing":
+            first.unlink()  # A finish mark without its final file is not complete.
+        job = {"files": files, "total_gb": count * 0.1}
+        shown = cat.mcp.combined_progress(cat.mcp.install_progress(["=== Step 5: downloading model ==="]), job, setup_module=mod)
+        part = next(p for p in shown["parts"] if p["kind"] == "model")
+        native = sum(mod.download_complete(Path(item["path"])) for item in files)
+        assert part["files_done"] == native, (family, case, shown)
+        if case in ("marked", "residual-part"):
+            assert shown["download"]["percent"] == 100 and part["state"] == "done", (family, case, shown)
+        else:
+            assert shown["download"]["percent"] < 99.5 and part["state"] != "done", (family, case, shown)
+        if case == "active-part":
+            assert part["state"] == "downloading", (family, case, shown)
+personal = base / "personal.gguf"
+with personal.open("wb") as stream:
+    stream.truncate(100_000_000)
+for helper, accept in ((mod, True), (None, False), (types.SimpleNamespace(), False)):
+    job = {"files": [{"path": str(personal), "bytes": 100_000_000, "role": "model", "accept_unmarked": accept}], "total_gb": 0.1}
+    shown = cat.mcp.combined_progress({"step": "5/7: downloading"}, job, setup_module=helper)
+    assert shown["download"]["percent"] == 100 and shown["parts"][0]["state"] == "done", shown
+''')
+
+    def test_launch_progress_does_not_latch_incomplete_files_as_already(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import json, os, socket
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog, ModelRow
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.launch.runner import Runner
+root = Path.cwd()
+base = root.parent.parent / "completion-latch"
+base.mkdir()
+for complete in (False, True):
+    home = base / ("complete" if complete else "incomplete")
+    models, data = home / "models", home / "data"
+    settings = home / "settings.json"
+    home.mkdir()
+    settings.write_text("{}")
+    os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+        STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "data_directory": str(data), "models_directory": str(models)}))
+    cat = Catalog(src=root, root=root, hardware={})
+    mod = cat.strata.setup_module()
+    family, model = "qwen", "Q2_0"
+    tag = cat.tag_of(family, model)
+    files = [models / model / mod.model_file(mod.FAMILIES[family], model, i)
+             for i in range(1, mod.model_shards(mod.FAMILIES[family], model) + 1)]
+    files[0].parent.mkdir(parents=True)
+    for path in files:
+        with path.open("wb") as stream:
+            stream.truncate(100_000_000)
+        if complete:
+            mod.mark(path)
+    row = ModelRow(family=family, family_title="Qwen", model=model, id=tag, about="", download_gb=len(files) * 0.1,
+        need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits", experimental=False, images=False, installed=False)
+    cat.rows = lambda: [row]
+    config = root / ("strata-" + tag + ".json")
+    producer = home / "producer.py"
+    producer.write_text(r"""
+import json, socket, sys
+from pathlib import Path
+import setup as mod
+parsed = []
+assert mod.main(sys.argv[3:], after_parse=lambda a, argv: (parsed.append(a), 0)[1]) == 0
+a = parsed[0]
+data, retained = mod.data_folder_for(a)
+layout = mod.model_download_layout(a.family, a.model, Path(a.models_dir), data_dir=data, elsewhere=retained)
+with socket.socket(socket.AF_UNIX) as gate:
+    gate.connect(sys.argv[2])
+    mod.step(5, "downloading model")
+    sys.stdout.flush()
+    assert gate.recv(1) == b"g"  # No completion or config publication before the first visible event.
+for path in layout[3]:
+    mod.mark(path)
+mod.step(6, "writing config")
+pack = data / "packs" / "fixture"
+pack.mkdir(parents=True)
+Path(sys.argv[1]).write_text(json.dumps({"exe": sys.executable,
+    "args": ["--native", str(layout[3][0]), "--pack", str(pack), "--max-context", "8192", "--kv", "fp16"]}))
+""")
+    events, peer, observed = [], {}, []
+    def emit(event):
+        events.append(event)
+        if str(event.data.get("step") or "").startswith("5/") and event.pct is not None and not observed:
+            observed.append(event)
+            peer["socket"].sendall(b"g")
+    runner = Runner(LaunchSettings(family=family, model=model, context=8192, vision="off", mtp="off", drafting="off"), catalog=cat, emit=emit)
+    spawn, read_lines = runner._spawn, runner._read_lines
+    gate_path = home / "gate.sock"
+    def spawn_fixture(argv, **kwargs):
+        return spawn([argv[0], str(producer), str(config), str(gate_path), *argv[2:]], **kwargs)
+    def read_fixture(process):
+        with listener.accept()[0] as gate:
+            gate.settimeout(30)
+            peer["socket"] = gate
+            yield from read_lines(process)
+    runner._spawn, runner._read_lines = spawn_fixture, read_fixture
+    try:
+        with socket.socket(socket.AF_UNIX) as listener:
+            listener.settimeout(15)
+            listener.bind(str(gate_path))
+            listener.listen(1)
+            assert runner.ensure_model() == config
+    finally:
+        runner._stop_children()
+    assert observed
+    first = observed[0]
+    if complete:
+        assert first.pct == 100 and "already on this computer" in first.text, first
+    else:
+        assert first.pct < 99.5 and "already on this computer" not in first.text, first
+    config.unlink()
+''')
+
 unittest.main()
