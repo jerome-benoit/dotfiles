@@ -4902,7 +4902,6 @@ with contextlib.ExitStack() as guards:
     guards.enter_context(patch.object(Runner, "intel_chosen", return_value=False))
     guards.enter_context(patch.object(Runner, "preflight_words", return_value=[]))
     guards.enter_context(patch.object(Runner, "drafting_plan_line", return_value=""))
-    guards.enter_context(patch.object(Runner, "speed_line", return_value=""))
     guards.enter_context(patch.object(C, "Catalog", return_value=cat))
     guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
     for scenario in ("native", "data", "models", "both", "explicit", "retained"):
@@ -5198,7 +5197,7 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
         guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
         guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
-        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", ""), ("speed_line", "")):
+        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", "")):
             guards.enter_context(patch.object(Runner, name, return_value=value))
         guards.enter_context(patch.object(C, "Catalog", return_value=cat))
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
@@ -5289,7 +5288,6 @@ for scenario, has_helper, collision in (("move", True, False), ("collision", Tru
         guards.enter_context(patch.object(Runner, "intel_chosen", return_value=False))
         guards.enter_context(patch.object(Runner, "preflight_words", return_value=[]))
         guards.enter_context(patch.object(Runner, "drafting_plan_line", return_value=""))
-        guards.enter_context(patch.object(Runner, "speed_line", return_value=""))
         guards.enter_context(patch.object(C, "Catalog", return_value=cat))
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
         public_plan()
@@ -6270,6 +6268,95 @@ for case, explicit, split in (("managed", False, True), ("explicit", True, True)
         assert selected == [expected], (selected, expected)
         if split:
             assert not (expected_data / "models/Q2_0").exists()
+
+# Native setup and progress must consume the same complete source, not just the requested root.
+def seed_shards(folder, family, model, finished):
+    folder.mkdir(parents=True, exist_ok=True)
+    fam = setup.FAMILIES[family]
+    paths = [folder / setup.model_file(fam, model, i)
+             for i in range(1, setup.model_shards(fam, model) + 1)]
+    for i, path in enumerate(paths, 1):
+        with path.open("wb") as stream:
+            stream.truncate(1_000_000)
+        if i in finished:
+            setup.mark(path)
+    return paths
+
+for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyro-S")):
+    fam = setup.FAMILIES[family]
+    count = setup.model_shards(fam, model)
+    complete = tuple(range(1, count + 1))
+    for case in ("retained", "requested-partial", "requested-complete", "remembered", "incomplete", "personal"):
+        home = base / (family + "-" + case)
+        data, models, personal = (home / name for name in ("data", "requested", "personal"))
+        retained = home / "old-data" if case == "remembered" else data
+        source = retained / "models" / (fam["tag"] + model)
+        requested = models / (fam["tag"] + model)
+        source_finished = (count,) if case == "incomplete" and count > 1 else () if case == "incomplete" else complete
+        source_files = seed_shards(source, family, model, source_finished)
+        requested_files = [requested / path.name for path in source_files]
+        if case == "requested-complete":
+            seed_shards(requested, family, model, complete)
+        elif case in ("requested-partial", "incomplete"):
+            seed_shards(requested, family, model, tuple(range(1, count)))
+        own = seed_shards(personal, family, model, ()) if case == "personal" else None
+        settings = home / "settings.json"
+        settings.write_text(json.dumps({"data_dir": str(retained)}))
+        os.environ.update(STRATA_SETTINGS_FILE=str(settings), STRATA_WORKSPACE_CONTEXT=json.dumps({
+            "state": str(root.parent), "data_directory": str(data), "models_directory": str(models)}))
+        cat = Catalog(src=root, root=root, hardware={"mac": True, "ram_gb": 256, "gpus": []})
+        row = ModelRow(family=family, family_title=fam["title"], model=model, id=cat.tag_of(family, model), about="",
+            download_gb=setup.MODELS[model]["download_gb"], need_vram_gb=0, need_ram_gb=1,
+            spill_gb=0, verdict="fits", words="fits", experimental=False, images=False, installed=False)
+        cat.rows = lambda: [row]
+        s = LaunchSettings(family=family, model=model, context=8192, vision="off", drafting="off", mtp="off",
+            data_dir=str(data), model_path=str(personal) if own else None, tune="skip")
+        runner = Runner(s, catalog=cat)
+        expected = own if own else requested_files if case in ("requested-complete", "incomplete") else source_files
+        downloads, checked = [], []
+        def download_selected(url, destination, *args, **kwargs):
+            downloads.append(Path(destination))
+            raise Selected()
+        def check_selected(files):
+            checked.extend(files)
+            raise Selected()
+        with contextlib.ExitStack() as guards:
+            guards.enter_context(patch.object(sys, "platform", "darwin"))
+            guards.enter_context(patch.object(ec, "host_platform", return_value="macos-arm64"))
+            guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("metal", [])))
+            guards.enter_context(patch.object(mac_fit, "mac_info", return_value={
+                "chip": "Test Apple Silicon", "ram_gb": 256, "macos": "27.0", "rosetta_python": False}))
+            guards.enter_context(patch.object(mac_fit, "mac_problems", return_value=[]))
+            guards.enter_context(patch.object(setup, "download", side_effect=download_selected))
+            guards.enter_context(patch.object(setup, "check_shards", side_effect=check_selected))
+            guards.enter_context(patch.object(setup, "run", side_effect=forbidden))
+            guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
+            guards.enter_context(patch.object(socket, "create_connection", side_effect=forbidden))
+            before = settings.read_bytes()
+            plan = runner.download_plan()
+            job = runner.progress_job()
+            if own:
+                assert Path(job["folder"]) == personal, (family, case, job)
+            else:
+                assert [Path(item["path"]) for item in job["files"] if item.get("role", "model") == "model"] == expected, (family, case, job)
+            assert settings.read_bytes() == before
+            assert (plan["gb"] > 0) == (case == "incomplete"), (family, case, plan)
+            argv = runner.setup_args()
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    setup.main(argv)
+                except Selected:
+                    pass
+                else:
+                    raise AssertionError("native setup skipped the selected file boundary")
+            if case == "incomplete":
+                assert downloads == [requested_files[-1]] and not checked, (family, case, downloads, checked)
+            else:
+                assert not downloads and checked == expected, (family, case, downloads, checked, expected)
+        assert all(path.exists() and path.stat().st_size == 1_000_000 for path in source_files)
+        if case in ("retained", "remembered"):
+            assert not requested.exists(), (family, case)
+
 ''')
 
 

@@ -99,10 +99,11 @@ can remove the file. Exercise the real monitor worker and `cfg_paths.repair`
 after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
-Darwin Control forecasts, the filtered Runner setup arguments and native setup
-must select the same models root. Keep --models-dir and the flag-only
---separate-model-artifacts through the Darwin filter; exercise supported Qwen
-choices, implicit defaults and explicit data choices without acquiring models.
+Darwin Control forecasts, progress and setup share requested destinations and
+native completed-file selection. Keep --models-dir and --separate-model-artifacts
+through the Darwin filter. Complete requested sets precede retained sets; partial
+sets are never combined across roots. Preserve explicit personal-file selection
+and keep missing readers and preparation outputs at their requested destinations.
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Progress keeps completed parts through steps 6/7 and
