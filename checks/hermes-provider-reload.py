@@ -25,7 +25,7 @@ class ReviewProfile(ProviderProfile):
 {gate}
 if VERSION != "empty":
     register_provider(ReviewProfile(name="review-provider", aliases=("review-alias",),
-                                   base_url="https://" + VERSION + ".invalid"))
+                                   base_url="https://" + VERSION + ".invalid"{options}))
 {tail}
 '''
 
@@ -70,13 +70,14 @@ class Fixture:
         self.reloader = plugin_reload
         self.generation_number = 0
 
-    def generation(self, version, *, gate="", tail="", headers=DEFAULT_HEADERS, mutable=False):
+    def generation(self, version, *, gate="", tail="", headers=DEFAULT_HEADERS, mutable=False, mirror=False):
         path = self.root / f"generation-{self.generation_number}"
         self.generation_number += 1
         path.mkdir()
         (path / "plugin.yaml").write_text("name: review-provider\nkind: model-provider\n")
         (path / "version.json").write_text(json.dumps({"version": version}))
-        (path / "__init__.py").write_text(DECLARATION.format(gate=gate, tail=tail, headers=headers))
+        options = ', auth_type="api_key", env_vars=("REVIEW_PROVIDER_API_KEY",)' if mirror else ""
+        (path / "__init__.py").write_text(DECLARATION.format(gate=gate, tail=tail, headers=headers, options=options))
         (path / "empty-directory").mkdir()
         for item in path.iterdir():
             os.utime(item, ns=(self.stamp, self.stamp))
@@ -545,6 +546,207 @@ def long_names(fixture):
     result["directory_name_length"] = len(fixture.link.name)
     assert not list(fixture.reloader._snapshot_root.glob(".copy-*"))
     return result
+
+
+EXTRA_PROVIDER = 'register_provider(ProviderProfile(name="review-added", aliases=("review-added-alias",), base_url="https://four.invalid", auth_type="api_key", env_vars=("REVIEW_ADDED_API_KEY",)))'
+
+
+def discovery_clock(fixture):
+    # Control only provider cadence; thread deadlines keep their real clocks.
+    original = fixture.providers.time
+    clock = types.SimpleNamespace(now=original.monotonic())
+    fixture.providers.time = types.SimpleNamespace(monotonic=lambda: clock.now, time_ns=original.time_ns)
+    return clock, original
+
+
+def discovery_gate():
+    gate = types.ModuleType("provider_discovery_scope_gate")
+    gate.entered = {name: threading.Event() for name in ("older", "newer")}
+    gate.release = {name: threading.Event() for name in ("older", "newer")}
+    def pause(name):
+        gate.entered[name].set()
+        if not gate.release[name].wait(15):
+            raise RuntimeError("discovery import gate timed out")
+    gate.pause = pause
+    sys.modules[gate.__name__] = gate
+    return gate
+
+
+def discovery_completion_order(fixture, first, *, auth_first=False):
+    fixture.install(fixture.generation("one", mirror=True))
+    old = fixture.profile()
+    from hermes_cli.auth import PROVIDER_REGISTRY
+    assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://one.invalid"
+    clock, original_time = discovery_clock(fixture)
+    gate = discovery_gate()
+    errors, workers = [], {}
+    def refresh():
+        try:
+            fixture.refresh()
+        except BaseException as error:
+            errors.append(error)
+    try:
+        for name, version in (("older", "second"), ("newer", "newest")):
+            tail = f'import provider_discovery_scope_gate as g\ng.pause("{name}")'
+            fixture.install(fixture.generation(version, tail=tail, mirror=True))
+            worker = workers[name] = threading.Thread(target=refresh, daemon=True)
+            worker.start()
+            assert gate.entered[name].wait(15), (name, errors)
+        second = "newer" if first == "older" else "older"
+        for name in (first, second):
+            gate.release[name].set()
+            workers[name].join(15)
+            assert not workers[name].is_alive(), name
+        assert not errors, errors
+        current = fixture.providers.bound_profile_resolver()("review-provider")[0]
+        assert current.base_url == "https://newest.invalid" and fixture.headers(current) == "newest"
+        assert fixture.headers(old) == "one"
+        fixture.install(fixture.generation("four", tail=EXTRA_PROVIDER, mirror=True))
+        clock.now += fixture.providers._PLUGIN_DIR_STAMP_TTL_SECONDS + 1
+        # Discovery must happen before any direct lookup or explicit refresh.
+        if auth_first:
+            assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://four.invalid"
+        added = fixture.providers.bound_profile_resolver()("review-added")[0]
+        assert added is not None and added.base_url == "https://four.invalid"
+        assert fixture.providers.bound_profile_resolver()("review-added-alias")[0] is added
+        current = fixture.providers.bound_profile_resolver()("review-provider")[0]
+        assert fixture.headers(current) == "four" and fixture.headers(old) == "one"
+        assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://four.invalid"
+        assert PROVIDER_REGISTRY.get("review-added-alias").id == "review-added"
+        return {"completion_order": [first, second], "future_resolver": added.base_url, "auth_first": auth_first}
+    finally:
+        for event in gate.release.values():
+            event.set()
+        for worker in workers.values():
+            worker.join(15)
+        fixture.providers.time = original_time
+        sys.modules.pop(gate.__name__, None)
+
+
+def discovery_callback_scope(fixture):
+    fixture.install(fixture.generation("one", mirror=True))
+    old = fixture.profile()
+    from hermes_cli.auth import PROVIDER_REGISTRY
+    assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://one.invalid"
+    gate = discovery_gate()
+    clock, original_time = discovery_clock(fixture)
+    tail = '''
+register_provider(ProviderProfile(name="review-staged", base_url="https://second.invalid", auth_type="api_key", env_vars=("REVIEW_STAGED_API_KEY",)))
+from providers import bound_profile_resolver, list_providers, refresh_bound_home
+from hermes_cli.auth import PROVIDER_REGISTRY
+PROVIDER_REGISTRY.sync_before_first_read()
+assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://one.invalid"
+assert bound_profile_resolver()("review-provider")[0].base_url == "https://one.invalid"
+assert bound_profile_resolver()("review-staged")[0] is None
+assert not any(p.name == "review-staged" for p in list_providers())
+refresh_bound_home()
+import provider_discovery_scope_gate as g
+g.pause("older")
+'''
+    fixture.install(fixture.generation("second", tail=tail, mirror=True))
+    errors = []
+    def refresh():
+        try:
+            fixture.refresh()
+        except BaseException as error:
+            errors.append(error)
+    worker = threading.Thread(target=refresh, daemon=True)
+    try:
+        worker.start()
+        assert gate.entered["older"].wait(15), errors
+        extra = fixture.root / "independent-provider"
+        extra.mkdir()
+        (extra / "plugin.yaml").write_text("name: review-added\nkind: model-provider\n")
+        (extra / "__init__.py").write_text("from providers import register_provider\nfrom providers.base import ProviderProfile\n" + EXTRA_PROVIDER)
+        (fixture.home / "plugins" / "independent-provider").symlink_to(extra, target_is_directory=True)
+        clock.now += fixture.providers._PLUGIN_DIR_STAMP_TTL_SECONDS + 1
+        assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://one.invalid"
+        added = fixture.providers.bound_profile_resolver()("review-added")[0]
+        assert added is not None and added.base_url == "https://four.invalid"
+        assert fixture.providers.bound_profile_resolver()("review-staged")[0] is None
+        assert fixture.headers(old) == "one"
+    finally:
+        gate.release["older"].set()
+        worker.join(15)
+        fixture.providers.time = original_time
+        sys.modules.pop(gate.__name__, None)
+    assert not worker.is_alive() and not errors, errors
+    assert PROVIDER_REGISTRY.get("review-provider").inference_base_url == "https://second.invalid"
+    assert fixture.providers.get_provider_profile("review-staged") is not None
+    assert fixture.providers.get_provider_profile("review-added") is added
+    return {"import_callback": "previous publication", "observer": "independent discovery"}
+
+
+def discovery_failure_scope(fixture, *, cancel=False):
+    fixture.install(fixture.generation("one", mirror=True))
+    old = fixture.profile()
+    clock, original_time = discovery_clock(fixture)
+    errors = []
+    tail = 'raise SystemExit("cancelled import")' if cancel else 'raise RuntimeError("failed import")'
+    fixture.install(fixture.generation("second", tail=tail, mirror=True))
+    def refresh():
+        try:
+            fixture.refresh()
+        except BaseException as error:
+            errors.append(error)
+    worker = threading.Thread(target=refresh, daemon=True)
+    try:
+        worker.start()
+        worker.join(15)
+        assert not worker.is_alive()
+        if cancel:
+            assert len(errors) == 1 and isinstance(errors[0], SystemExit), errors
+        else:
+            assert not errors and "failed import" in fixture.providers.plugin_load_error("review-provider")
+        assert fixture.providers.bound_profile_resolver()("review-provider")[0] is old
+        fixture.install(fixture.generation("four", tail=EXTRA_PROVIDER, mirror=True))
+        clock.now += fixture.providers._PLUGIN_DIR_STAMP_TTL_SECONDS + 1
+        added = fixture.providers.bound_profile_resolver()("review-added-alias")[0]
+        assert added is not None and added.name == "review-added"
+        assert fixture.headers(fixture.providers.bound_profile_resolver()("review-provider")[0]) == "four"
+        assert fixture.headers(old) == "one"
+        return {"cancelled": cancel, "recovery": added.base_url}
+    finally:
+        worker.join(15)
+        fixture.providers.time = original_time
+
+
+def discovery_global_guard(fixture):
+    fixture.install(fixture.generation("one", mirror=True))
+    from hermes_cli.auth import PROVIDER_REGISTRY
+    PROVIDER_REGISTRY.sync_before_first_read()
+    entered, release = threading.Event(), threading.Event()
+    original_steps = fixture.providers._run_discovery_steps
+    errors = []
+    def paused_steps():
+        entered.set()
+        if not release.wait(15):
+            raise RuntimeError("global discovery gate timed out")
+        return original_steps()
+    def discover():
+        try:
+            fixture.providers.list_providers()
+        except BaseException as error:
+            errors.append(error)
+    fixture.providers._run_discovery_steps = paused_steps
+    worker = threading.Thread(target=discover, daemon=True)
+    try:
+        worker.start()
+        assert entered.wait(15), errors
+        assert PROVIDER_REGISTRY.get("review-provider") is None
+        assert dict.get(PROVIDER_REGISTRY, "review-provider") is None
+    finally:
+        release.set()
+        worker.join(15)
+        fixture.providers._run_discovery_steps = original_steps
+    assert not worker.is_alive() and not errors, errors
+    row = PROVIDER_REGISTRY.get("review-provider")
+    assert row is not None and row.inference_base_url == "https://one.invalid"
+    assert PROVIDER_REGISTRY.get("review-alias") is row
+    assert fixture.headers(fixture.profile()) == "one"
+    return {"global_pending_mirror": "deferred", "final_provider": row.id}
+
+
 def run_case(case, plugin):
     if case == "normal-exit":
         normal_exit(plugin)
@@ -581,6 +783,15 @@ def run_case(case, plugin):
             result = interrupted_host(fixture)
         elif case in {"long-native", "long-host"}:
             result = long_names(fixture)
+        elif case in {"discovery-old-first", "discovery-new-first", "discovery-auth"}:
+            first = "newer" if case == "discovery-new-first" else "older"
+            result = discovery_completion_order(fixture, first, auth_first=case == "discovery-auth")
+        elif case == "discovery-callback":
+            result = discovery_callback_scope(fixture)
+        elif case in {"discovery-failure", "discovery-cancel"}:
+            result = discovery_failure_scope(fixture, cancel=case == "discovery-cancel")
+        elif case == "discovery-global":
+            result = discovery_global_guard(fixture)
         else:
             raise ValueError(case)
         print(json.dumps(result))
@@ -662,6 +873,27 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_long_plugin_name_hosted(self):
         self.run_case("long-host")
+
+    def test_discovery_old_import_finishes_first(self):
+        self.run_case("discovery-old-first")
+
+    def test_discovery_new_import_finishes_first(self):
+        self.run_case("discovery-new-first")
+
+    def test_auth_discovers_after_overlapping_imports(self):
+        self.run_case("discovery-auth")
+
+    def test_import_callback_and_observer_contexts(self):
+        self.run_case("discovery-callback")
+
+    def test_failed_import_restores_discovery_context(self):
+        self.run_case("discovery-failure")
+
+    def test_cancelled_import_restores_discovery_context(self):
+        self.run_case("discovery-cancel")
+
+    def test_global_discovery_defers_pending_auth_mirror(self):
+        self.run_case("discovery-global")
 
 
 if __name__ == "__main__":

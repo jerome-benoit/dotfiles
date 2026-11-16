@@ -2,9 +2,10 @@
 # prerequisites: none
 # intent: preserve complete provider versions across rollback and hosted calls;
 # keep published reader views coherent and clean owned read-only copies.
+# keep home discovery context-local without weakening process-wide initialization.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 open proposed partial loader fix, rollback/concurrency evidence: https://github.com/NousResearch/hermes-agent/pull/156224#issuecomment-6919243021.
 # issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. Snapshot pruning PR156209/#156493 remains adjacent and NOT corrected here.
-# removal: Remove only when discovery and hosted RPC use the same frozen generations with rollback reuse, coherent published-reader views, nonblocking lookup, per-home publication status and owned-copy cleanup.
+# removal: Remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py
@@ -356,7 +357,15 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 diff --git a/providers/__init__.py b/providers/__init__.py
 --- a/providers/__init__.py
 +++ b/providers/__init__.py
-@@ -99,6 +99,9 @@
+@@ -63,6 +63,7 @@
+ # Bumped by every registration (process-wide or per-home layer): memos over the registry key on it.
+ _REGISTRY_GENERATION = 0
+ _discovered = False
++# Only process-wide discovery owns this flag; home scans use the registration context.
+ _discovering = False
+ _PLUGIN_DIR_STAMP_TTL_SECONDS = 1.0
+ # Widest directory mtime granularity in use (FAT rounds to 2 s, HFS+ to 1 s; a kernel without
+@@ -99,6 +100,9 @@
      # ``providers.plugin_reload`` compares and swaps when a plugin is updated (#153300)
      trees: dict[str, tuple[str, str]] = field(default_factory=dict)
      owner: dict[str, str] = field(default_factory=dict)
@@ -366,7 +375,20 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  _HOME_LAYERS: dict[str, _HomeLayer] = {}
-@@ -159,18 +162,19 @@
+@@ -114,6 +118,12 @@
+ # profiles that cannot cross the host boundary are imported here: its hosted siblings stay hosted.
+ _REGISTRATION_ONLY: ContextVar[frozenset[str] | None] = ContextVar("_provider_registration_only", default=None)
+ 
++
++def discovery_in_progress() -> bool:
++    """Process-wide discovery or a home import in the calling context."""
++    return _discovering or _REGISTRATION_TARGET.get() is not None
++
++
+ # Repo-root ``plugins/model-providers/`` — populated at discovery time.
+ _BUNDLED_PLUGINS_DIR = get_bundled_plugins_dir() / "model-providers"
+ 
+@@ -159,19 +169,20 @@
      only = _REGISTRATION_ONLY.get()
      if only is not None and profile.name not in only:
          return
@@ -383,11 +405,13 @@ diff --git a/providers/__init__.py b/providers/__init__.py
          for alias in profile.aliases:
              _ALIASES[alias] = profile.name
          _PROVIDER_LIST_CACHE = None
+-    if _discovered and not _discovering:  # post-discovery registration: mirror it immediately
 +    _REGISTRY_GENERATION += 1
-     if _discovered and not _discovering:  # post-discovery registration: mirror it immediately
++    if _discovered and not discovery_in_progress():  # post-discovery registration: mirror it immediately
          _sync_auth_registry()
  
-@@ -182,8 +186,10 @@
+ 
+@@ -182,8 +193,10 @@
      ``hermes_cli.auth.PROVIDER_REGISTRY`` too — a bundled profile never rewrites a built-in row.
      """
      layer = _home_layer()
@@ -400,7 +424,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
          return "user"
      return _SOURCES.get(canonical)
  
-@@ -236,8 +242,10 @@
+@@ -236,8 +249,10 @@
      checked = _refresh_home_layer(layer, home, key)
  
      def lookup(n: str) -> ProviderProfile | None:
@@ -413,7 +437,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      profile = lookup(name)
      # A newly installed provider is normally first requested by its new name, so a miss
-@@ -349,7 +357,8 @@
+@@ -349,7 +364,8 @@
          _discover_providers()
      layer, home, key = _bound_home_layer()
      _refresh_home_layer(layer, home, key)
@@ -423,7 +447,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      memo_key = (key, host, metadata)
      cached = _HOST_PROFILE_MEMO.get(memo_key)
      if cached is not None and cached[0] == token:
-@@ -384,8 +393,10 @@
+@@ -384,8 +400,10 @@
                  seen.add(id(profile))
                  cache.append(profile)
          _PROVIDER_LIST_CACHE = cache
@@ -436,7 +460,12 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      return result
  
  
-@@ -420,7 +431,9 @@
+@@ -416,11 +434,13 @@
+     periodic plugin-dir stamp check, skipped mid-scan so a plugin reading the mirror while it imports
+     cannot re-enter its own scan.
+     """
+-    layer = _bound_home_layer()[0] if _discovering else _home_layer()
++    layer = _bound_home_layer()[0] if discovery_in_progress() else _home_layer()
  
      def resolve(name: str) -> tuple[ProviderProfile | None, ProviderProfile | None]:
          shared = _ALIASES.get(name, name)
@@ -447,7 +476,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      return resolve
  
  
-@@ -466,6 +479,8 @@
+@@ -466,6 +486,8 @@
      """
      now = time.monotonic()
      from agent.safe_worker_policy import safe_worker_enabled
@@ -456,7 +485,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      # Safe mode fires zero user customization: same gate as ``_discover_providers``.
      if home is None or safe_worker_enabled() or not (
-@@ -480,7 +495,10 @@
+@@ -480,7 +502,10 @@
          # look settled afterwards and get remembered over an install that landed mid-scan.
          settled = _plugin_dir_stamps_settled(stamps)
          layer.disabled = None  # the scan records it again if it still skips a plugin
@@ -468,7 +497,16 @@ diff --git a/providers/__init__.py b/providers/__init__.py
          # A stamp still inside its mtime tick may not move for an install landing in that same
          # tick, which would hide the plugin until some later change: keep it unremembered so the
          # next periodic check scans again, until the stamps settle.
-@@ -585,7 +603,7 @@
+@@ -490,7 +515,7 @@
+         # unpublished stamp rescanned forever; an unpublished check time
+         # re-stats the plugin dirs inside the TTL.
+         layer.stamp_checked_at = now
+-        if _discovered and not _discovering:
++        if _discovered and not discovery_in_progress():
+             _sync_auth_registry()
+     layer.stamp_checked_at = now
+     return True
+@@ -585,7 +610,7 @@
      return _manifest_field(plugin_dir, "kind") == "model-provider"
  
  
@@ -477,10 +515,14 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      """Import the bound home's not-yet-imported provider plugins into *layer*.
  
      ``$HERMES_HOME/plugins/model-providers/<name>/`` first, then plugins cloned flat by
-@@ -596,22 +614,24 @@
-     global _discovering
-     token, prior_discovering = _REGISTRATION_TARGET.set(layer), _discovering
-     _discovering = True
+@@ -593,25 +618,24 @@
+     ``kind: model-provider`` (PluginManager owns every other kind there). Per-home module names
+     let two profiles carry the same plugin without aliasing each other's registrations.
+     """
+-    global _discovering
+-    token, prior_discovering = _REGISTRATION_TARGET.set(layer), _discovering
+-    _discovering = True
++    token = _REGISTRATION_TARGET.set(layer)
 +    complete = True
      try:
          user_dir = _user_plugins_dir()
@@ -499,12 +541,12 @@ diff --git a/providers/__init__.py b/providers/__init__.py
 +                    complete = _import_plugin_dir(child, "user", home_key=key) and complete
      finally:
          _REGISTRATION_TARGET.reset(token)
-         _discovering = prior_discovering
+-        _discovering = prior_discovering
 +    return complete
  
  
  def _plugin_disabled(plugin_dir: Path) -> bool:
-@@ -632,67 +652,80 @@
+@@ -632,67 +656,80 @@
  
  
  def _user_module_name(plugin_dir: Path, home_key: str) -> str:
@@ -612,7 +654,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      finally:
          _current_source = None
      if in_process:
-@@ -701,19 +734,20 @@
+@@ -701,19 +738,20 @@
                             "in-process, NOT isolated by plugins.isolation: host", plugin_dir.name, name, reason)
          token = _REGISTRATION_ONLY.set(frozenset(in_process))
          try:
@@ -640,7 +682,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
      _current_source = source
      try:
-@@ -721,11 +755,13 @@
+@@ -721,11 +759,13 @@
              module_name, plugin_dir / "__init__.py", submodule_search_locations=[str(plugin_dir)]
          )
          if spec is None or spec.loader is None:
@@ -655,7 +697,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
      except Exception as exc:  # health: allow BLE001 -- plugin import boundary (moved from _import_plugin_dir): one broken plugin never breaks discovery
          logger.warning(
              "Failed to load %s provider plugin %s: %s", source, plugin_dir.name, exc
-@@ -734,6 +770,7 @@
+@@ -734,6 +774,7 @@
          _note_load_result(plugin_dir, exc)
      finally:
          _current_source = None
@@ -663,7 +705,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _note_load_result(plugin_dir: Path, exc: BaseException | None) -> None:
-@@ -752,6 +789,24 @@
+@@ -752,6 +793,24 @@
  def plugin_load_error(plugin: str) -> str:
      """The error the bound home's provider plugin dir *plugin* raised on its last import, else ``""``."""
      return _home_layer().errors.get(plugin, "")
@@ -688,7 +730,7 @@ diff --git a/providers/__init__.py b/providers/__init__.py
  
  
  def _discover_entry_point_providers() -> None:
-@@ -931,11 +986,13 @@
+@@ -931,11 +990,13 @@
      if _discovered:
          return
      _discovered = True
@@ -909,3 +951,24 @@ diff --git a/tui_gateway/methods_tools.py b/tui_gateway/methods_tools.py
              break
      return result
  
+diff --git a/hermes_cli/auth_plugin_providers.py b/hermes_cli/auth_plugin_providers.py
+--- a/hermes_cli/auth_plugin_providers.py
++++ b/hermes_cli/auth_plugin_providers.py
+@@ -75,13 +75,13 @@
+ 
+     def _ready(self) -> None:
+         """Run the pending mirror on this read. No lock is held across it (it lists providers,
+-        which reads config): concurrent first readers each run the idempotent sync. Never while
+-        ``providers`` is mid-discovery: a partial profile list would mirror a provider that a
+-        later, higher-priority registration replaces (discovery's completion sync runs then)."""
++        which reads config): concurrent first readers each run the idempotent sync. Do not mirror
++        process-wide discovery or a home import still active in this context; completion
++        sync supplies the definitive profiles."""
+         if not self._sync_pending or getattr(_SYNCING, "active", False):
+             return
+         import providers
+-        if getattr(providers, "_discovering", False):
++        if providers.discovery_in_progress():
+             return
+         _SYNCING.active = True  # the sync reads the registry
+         try:

@@ -140,6 +140,10 @@ and late calls, and never wait for an active import from a public lookup.
 Published registries are copied once per publication, not per lookup. Readers
 capture registry/alias state under the publication lock, then inspect profiles
 outside it. Never hold that lock across imports, callbacks or waits.
+Home scans use the registration ContextVar and restore its token in `finally`.
+Reserve the global discovery flag for process-wide initialization; it must not
+be saved/restored by concurrent home scans. Resolver and auth guards combine
+that global state with the current registration context.
 The per-home publication status is independent of scan completion: loading is
 reported as deferred, failed carries the current error, and only ready is active.
 Read status without rescanning, using the manager home; gateway status wins over
@@ -155,6 +159,10 @@ names do not expand internal storage components or collide after normalization.
 `checks/hermes-provider-reload.py` covers generations, RPC, concurrency and exit
 cleanup against the installed interpreter. Copying then hashing guarantees the
 identity of the consumed copy, not an atomic multi-file update of a mutable source.
+Exercise both concurrent completion orders, subsequent resolver/auth discovery,
+import callbacks versus independent observers, failure/cancellation and the
+global pending-auth guard. Advance only the provider clock; do not sleep or
+mutate stamp caches to make those checks due.
 
 For source deltas in secret routing or offline TTS, copy only the selected upstream
 tests into an isolated directory and run them against the installed wheel with

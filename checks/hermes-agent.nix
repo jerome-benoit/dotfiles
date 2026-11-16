@@ -262,6 +262,13 @@ pkgs.runCommand "check-hermes-agent"
             "test_an_update_serves_new_sessions_whole_while_old_clients_stay_on_their_version[in-process]",
             "test_a_broken_update_keeps_the_previous_version_and_says_so",
         ],
+        "providers/test_auth_registry_lazy_mirror.py": [
+            "test_registry_read_during_entry_point_discovery_keeps_the_final_winner",
+        ],
+        "providers/test_auth_registry_mid_discovery.py": [
+            "test_post_discovery_registration_is_mirrored",
+            "test_user_plugin_alias_repoints_and_display_name_follows",
+        ],
         "agent/test_redact_secret_sources_lifecycle.py": [
             "test_removed_routed_source_releases_mask",
             "test_startup_publish_leaves_the_redact_secrets_bridge_in_charge",
