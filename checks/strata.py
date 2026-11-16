@@ -103,7 +103,7 @@ class WorkspaceTests(unittest.TestCase):
         terminal_tests = self.repo / "tests/terminal"
         terminal_tests.mkdir(parents=True)
         for name in ("test_discovery.py", "test_net_own_folder.py", "test_model_folder_case.py",
-                     "test_fix3_0212.py", "test_flow2_022.py", "test_dsv41_mac_unsloth.py"):
+                     "test_fix3_0212.py", "test_flow2_022.py"):
             shutil.copyfile(Path(UPSTREAM) / "tests/terminal" / name, terminal_tests / name)
         shutil.copyfile(Path(UPSTREAM) / "strata.py", self.repo / "strata.py")
         shutil.copyfile(Path(UPSTREAM) / "setup.sh", self.repo / "setup.sh")
@@ -114,7 +114,7 @@ class WorkspaceTests(unittest.TestCase):
         shutil.copyfile(Path(UPSTREAM) / "tools/iq_pack.py", self.repo / "tools/iq_pack.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/strata_mcp.py", self.repo / "tools/strata_mcp.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/gguf_reader.py", self.repo / "tools/gguf_reader.py")
-        for name in ("test_setup_qwen36.py", "test_setup_feed_models.py", "test_setup_dsv41.py", "test_setup_amd_cards.py"):
+        for name in ("test_setup_qwen36.py", "test_setup_feed_models.py"):
             shutil.copyfile(Path(UPSTREAM) / "tools" / name, self.repo / "tools" / name)
         (self.repo / "sycl").mkdir()
         shutil.copyfile(Path(UPSTREAM) / "sycl/setup_intel.py", self.repo / "sycl/setup_intel.py")
@@ -1238,6 +1238,7 @@ if __name__ != "__main__" and (ROOT / "setup-fixture.py").exists():
         return module
 
     def test_native_root_help_errors_and_source_passthrough(self):
+        self.env["STRATA_CONTROL_INSTALL"] = "1"
         root = self.prepare(self.old)
         command = self.command(self.old) + ["run"]
         for argv, code in ((["--help"], 0), ([], 2), (["unknown-command"], 2),
@@ -1747,13 +1748,29 @@ cli._run = run
         self.assert_mutator_child_keeps_lock(self.command(self.old) + ["run", "launch"])
 
     def test_monitor_update_workers_lock_both_doors_and_release_after_failure(self):
+        self.monitor_update_worker_case()
+
+    def test_monitor_update_uses_cached_retirement_after_source_rollback(self):
+        self.monitor_update_worker_case(rollback_source=True)
+
+    def monitor_update_worker_case(self, *, rollback_source=False):
+        if rollback_source:
+            # The source publisher removes a module the live monitor's native updater imports later.
+            (self.repo / "strata_control/retired.py").unlink()
+            rollback_revision = self.commit()
+        observed_revision = rollback_revision if rollback_source else self.old
         for door in ("launch", "monitor"):
             with self.subTest(door=door):
                 self.state = self.base / door
                 root = self.prepare(self.old)
+                old_engine = root / "components/engine/1.0-linux-x86_64-cuda/strata"
+                new_engine = old_engine.parent.parent / "2.0-linux-x86_64-cuda/strata"
+                new_engine.parent.mkdir(parents=True)
+                new_engine.write_bytes(b"engine=0.1.46\n")
+                (root / "launch-model.json").write_text(json.dumps({"exe": str(old_engine), "args": ["--parallel", "1"]}))
                 self.make_terminal(root, f'''
 import contextlib, fcntl, json, os, socket, threading, types
-from strata_control import acquisition, dsv41_paths, engine_update, profiles, runtime, updater
+from strata_control import acquisition, cfg_paths, engine_update, profiles, runtime, updater
 # Replace rendering only; keep LaunchMonitor, its worker and both command entry points.
 for name in ("textual", "textual.app", "textual.binding", "textual.widgets", "rich", "rich.text",
              "strata_cli.monitor", "strata_cli.overview", "strata_cli.launch.screens", "strata_cli.launch.widgets"):
@@ -1765,16 +1782,16 @@ sys.modules["rich.text"].Text = object
 screens = sys.modules["strata_cli.launch.screens"]
 for name in ("AccessScreen", "AdvancedScreen", "CardsScreen", "ConfirmScreen", "ContextScreen",
              "DraftingScreen", "FolderScreen", "ModelScreen", "ParallelScreen", "PicturesScreen",
-             "RunScreen", "SaveScreen", "SpeedScreen", "StartScreen", "TuningScreen", "flow_for"):
+             "RunScreen", "SaveScreen", "StartScreen", "TuningScreen", "flow_for"):
     setattr(screens, name, object)
 widgets = sys.modules["strata_cli.launch.widgets"]
 widgets.CSS, widgets.Glyphs, widgets.DARK, widgets.LIGHT = "", object, None, None
 protocol = ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT")
 state = Path({str(self.state)!r})
 config = Path({str(root / "launch-model.json")!r})
-old = Path({str(root / "engine-dsv41/1.0-linux-x86_64-cuda/strata-dsv41")!r})
+old = Path({str(root / "components/engine/1.0-linux-x86_64-cuda/strata")!r})
 new = old.parent.parent / "2.0-linux-x86_64-cuda" / old.name
-config.write_text(json.dumps({{"exe": str(old), "args": ["--parallel", "1"]}}))
+os.environ["STRATA_COMPONENTS_DIR"] = str(old.parent.parent.parent)
 def assert_locked():
     with (state / ".source.lock").open("a") as probe:
         try:
@@ -1806,6 +1823,8 @@ class MonitorBase:
             assert not any(key in os.environ for key in protocol)
             peer.sendall(b"b")
             assert peer.recv(1) == b"u"
+            if {rollback_source!r}:
+                assert not (Path({str(root)!r}) / "strata_control/retired.py").exists()
             reached, resume = threading.Event(), threading.Event()
             atomic = profiles._atomic
             def publish(path, data):
@@ -1820,11 +1839,12 @@ class MonitorBase:
                 assert_locked()
                 with updater.update_lock(config.parent):
                     ctx.gate.stopped = [model]
-                    assert dsv41_paths.repoint_all([config], new) == 1
+                    notes, problems = cfg_paths.repair([config])
+                    assert len(notes) == 1 and not problems, (notes, problems)
+                    assert json.loads(config.read_text())["exe"] == str(new)
                     raise updater.UpdateError("fixture update failure after mutation")
             updater.run_update = update
             runtime._repair_config_paths = lambda *args: (None, None)
-            runtime._repair_dsv41_paths = lambda *args: None
             runtime._check_start_candidate = lambda *args: ({{}}, [])
             runtime._engine_preflight = lambda *args: None
             runtime._paths = lambda *args: (None, None, config.parent / "runtime.log")
@@ -1832,7 +1852,7 @@ class MonitorBase:
             runtime.procs.end_leftovers = lambda **kwargs: None
             runtime._await_start = lambda *args: {{}}
             children = []
-            runtime._read_state = lambda *args: {{}} if children else None
+            runtime._read_state = lambda *args, pending_ok=False: {{}} if children else None
             popen = __import__("subprocess").Popen
             def spawn(command, **kwargs):
                 fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
@@ -1897,15 +1917,18 @@ cli._run = run
                 peer.settimeout(60)
                 self.assertEqual(pid, process.pid)
                 self.assert_workspace_unlocked()
+                if rollback_source:
+                    self.assertEqual(self.prepare(rollback_revision), root)
+                    self.assertFalse((root / "strata_control/retired.py").exists())
                 with (self.state / ".source.lock").open("a") as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX)
                     peer.sendall(b"b")
                     self.assertEqual(peer.recv(1), b"b")
-                    self.assert_observers_answer(self.old)
+                    self.assert_observers_answer(observed_revision)
                 peer.sendall(b"u")
                 self.assertEqual(peer.recv(1), b"w")
                 self.assert_workspace_locked()
-                contender = subprocess.Popen(self.command(self.old), env=self.env,
+                contender = subprocess.Popen(self.command(observed_revision), env=self.env,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 def cleanup_contender(process=contender):
                     if process.poll() is None:
@@ -1913,7 +1936,7 @@ cli._run = run
                     process.communicate(timeout=10)
                 self.addCleanup(cleanup_contender)
                 self.assertRaises(subprocess.TimeoutExpired, contender.wait, timeout=0.2)
-                self.assert_observers_answer(self.old)
+                self.assert_observers_answer(observed_revision)
                 peer.sendall(b"p")
                 response = peer.recv(1)
                 if response != b"f":
@@ -2105,14 +2128,13 @@ def run(a):
     if a.command != "launch":
         return original_run(a)
     runtime._repair_config_paths = lambda *args: (None, None)
-    runtime._repair_dsv41_paths = lambda *args: None
     runtime._check_start_candidate = lambda *args: ({{}}, [])
     runtime._engine_preflight = lambda *args: None
     runtime._paths = lambda *args: (None, None, Path({str(self.base / "runtime.log")!r}))
     profiles._lock = lambda *args: contextlib.nullcontext()
     runtime.procs.end_leftovers = lambda **kwargs: None
     children = []
-    runtime._read_state = lambda *args: {{}} if children else None
+    runtime._read_state = lambda *args, pending_ok=False: {{}} if children else None
     popen = subprocess.Popen
     def spawn(command, **kwargs):
         child = popen([sys.executable, {str(gate)!r}], **kwargs)
@@ -3049,6 +3071,7 @@ def main(argv, **kwargs):
         engine.chmod(0o700)
         wrapper = root / "sycl/serve/strata-sycl.sh"
         launcher = wrapper.read_bytes()
+        wrapper.parent.chmod(wrapper.parent.stat().st_mode | 0o200)
         for failure in ("empty", "nonexecutable", "missing"):
             with self.subTest(launcher=failure):
                 if failure == "empty":
@@ -4467,6 +4490,7 @@ sys.exit(setup.main())
         self.assertIn("--separate-model-artifacts", argv)
 
     def test_real_setup_hook_accepts_signed_feed_and_help_never_fetches(self):
+        self.env["STRATA_CONTROL_INSTALL"] = "1"
         root = self.prepare(self.old)
         self.run_source_script(root, '''
 import contextlib, io, json, os, socket
@@ -4878,7 +4902,6 @@ with contextlib.ExitStack() as guards:
     guards.enter_context(patch.object(Runner, "intel_chosen", return_value=False))
     guards.enter_context(patch.object(Runner, "preflight_words", return_value=[]))
     guards.enter_context(patch.object(Runner, "drafting_plan_line", return_value=""))
-    guards.enter_context(patch.object(Runner, "speed_line", return_value=""))
     guards.enter_context(patch.object(C, "Catalog", return_value=cat))
     guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
     for scenario in ("native", "data", "models", "both", "explicit", "retained"):
@@ -5107,131 +5130,6 @@ with patch.object(drafting, "detect_hardware", return_value=("cpu", [])):
     asyncio.run(exercise(None))
 ''')
 
-    def test_deepseek_plan_uses_native_effective_shards_and_shared_files(self):
-        root = self.prepare(self.old)
-        self.run_source_script(root, '''
-import contextlib, io, json, os, socket, subprocess
-from pathlib import Path
-from unittest.mock import patch
-from strata_cli import cli
-from strata_cli.launch import catalog as C, cmd
-from strata_cli.launch.runner import Runner
-from strata_control import drafting, engine_component
-root = Path.cwd()
-base = root.parent.parent / "deepseek-plan"
-data, models = base / "data", base / "gguf"
-data.mkdir(parents=True)
-models.mkdir()
-settings = base / "settings.json"
-settings.write_text(json.dumps({"data_dir": str(data)}))
-os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
-    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "data_directory": str(data), "models_directory": str(models)}))
-cat = C.Catalog(src=root, root=root, hardware={})
-mod = cat.strata.setup_module()
-family, model = "deepseek41", "IST-DAS-2.00bpw"
-fam = mod.MULTI_FILE_FAMILIES[family]
-row = C.ModelRow(family=family, family_title="DeepSeek", model=model, id=cat.tag_of(family, model), about="",
-    download_gb=sum(item["bytes"] for item in mod.dsv41_download_files(model, models, vision=False)) / 1e9,
-    need_vram_gb=0, need_ram_gb=1, spill_gb=0,
-    verdict="fits", words="fits", experimental=False, images=True, installed=False)
-cat.rows = lambda: [row]
-def seed(path, size, sha):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as stream:
-        stream.truncate(size)
-    assert path.stat().st_blocks == 0
-    mod.mark(path, "sha256 " + sha)
-def seed_selected(directory, vision=False):
-    selected = mod.dsv41_download_layout(model, directory, vision=vision)
-    for path in selected["shards"]:
-        seed(path, *fam["sha256"][path.name])
-    for name, path in selected["shared"].items():
-        seed(path, *fam["sha256"][name])
-    return selected
-legacy = mod.dsv41_download_layout(model, data / "models", vision=False)
-for path in legacy["shards"]:
-    seed(path, *fam["sha256"][path.name])
-for name in legacy["shared"]:
-    seed(legacy["folder"] / name, *fam["sha256"][name])
-def forbidden(*args, **kwargs):
-    raise AssertionError("read-only plan attempted acquisition or data mutation")
-def plan(vision="off", model_path=None):
-    output = io.StringIO()
-    before = settings.read_bytes()
-    with contextlib.redirect_stdout(output):
-        assert cmd.run_launch(cli.parse_args(["launch", "--family", family, "--model", model, "--context", "8192",
-            "--vision", vision, "--mtp", "off", "--drafting", "off", "--no-api-key", "--plan", "--output", "json",
-            *(["--model-path", str(model_path)] if model_path else [])])) == 0
-    assert settings.read_bytes() == before
-    return json.loads(output.getvalue())["plan"]["download"]["gb"]
-with contextlib.ExitStack() as guards:
-    for name in ("data_folder", "data_folder_for", "save_settings"):
-        guards.enter_context(patch.object(mod, name, side_effect=forbidden))
-    guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
-    guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
-    guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
-    guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
-    guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
-    for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", ""), ("speed_line", "")):
-        guards.enter_context(patch.object(Runner, name, return_value=value))
-    guards.enter_context(patch.object(C, "Catalog", return_value=cat))
-    guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
-    assert plan() == 0
-    # The retained set is usable; remove it before exercising completion of the requested set in isolation.
-    for path in [*legacy["shards"], *(legacy["folder"] / name for name in legacy["shared"])]:
-        path.unlink()
-        path.with_name(path.name + ".done").unlink()
-    selected = seed_selected(models)
-    assert plan() == 0
-    job = {"files": mod.dsv41_download_files(model, models, vision=False), "total_gb": row.download_gb}
-    def progress(job):
-        shown = cat.mcp.combined_progress({"step": "5/7: downloading"}, job, setup_module=mod)
-        return next(part for part in shown["parts"] if part["kind"] == "model")
-    first = selected["shards"][0]
-    first.with_name(first.name + ".part").write_bytes(b"stale partial")
-    assert plan() == 0
-    assert progress(job)["state"] == "done"
-    first.with_name(first.name + ".done").unlink()
-    assert plan() > 0
-    assert progress(job)["state"] != "done"
-    pending = {"files": mod.dsv41_download_files(model, models, vision=False), "total_gb": row.download_gb}
-    mod.mark(first, "sha256 " + fam["sha256"][first.name][1])
-    assert progress(pending)["state"] == "done"
-    first.unlink()
-    assert plan() > 0
-    seed(first, *fam["sha256"][first.name])
-    shared = selected["shared"][mod.DSV41_DSPARK]
-    shared.unlink()
-    expected_shared = round(fam["sha256"][mod.DSV41_DSPARK][0] / 1e9, 1)
-    assert plan() == expected_shared
-    assert plan(model_path=selected["folder"]) == expected_shared
-    seed(shared, *fam["sha256"][mod.DSV41_DSPARK])
-    assert plan("on") > 0
-    seed_selected(models, vision=True)
-    assert plan("on") == 0
-    canonical = next(path for path in selected["shards"] if path.name in mod.DSV41_LEGACY_NAMES)
-    legacy = canonical.with_name(mod.DSV41_LEGACY_NAMES[canonical.name])
-    canonical.rename(legacy)
-    assert plan() == 0
-    legacy.rename(canonical)
-    engram = selected["shared"][mod.DSV41_ISTA_ENGRAM]
-    legacy_engram = engram.with_name(mod.DSV41_LEGACY_NAMES[mod.DSV41_ISTA_ENGRAM])
-    engram.rename(legacy_engram)
-    assert plan() > 0
-    assert mod.DSV41_ISTA_ENGRAM in dict(mod.dsv41_shared_missing(model, models, vision=False))
-    legacy_engram.rename(engram)
-    for path in selected["shards"]:
-        path.unlink()
-    six = fam["models"][model]["shards6"]
-    folder = selected["folder"]
-    seed(folder / six[0], *fam["sha256"][six[0]])
-    assert mod.dsv41_download_layout(model, models)["layout"] == "four"
-    for name in six[1:]:
-        seed(folder / name, *fam["sha256"][name])
-    assert mod.dsv41_download_layout(model, models)["layout"] == "six"
-    assert plan() == 0
-''')
 
     def test_installed_move_plan_credits_only_complete_native_destinations(self):
         root = self.prepare(self.old)
@@ -5299,7 +5197,7 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
         guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
         guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
-        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", ""), ("speed_line", "")):
+        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", "")):
             guards.enter_context(patch.object(Runner, name, return_value=value))
         guards.enter_context(patch.object(C, "Catalog", return_value=cat))
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
@@ -5390,7 +5288,6 @@ for scenario, has_helper, collision in (("move", True, False), ("collision", Tru
         guards.enter_context(patch.object(Runner, "intel_chosen", return_value=False))
         guards.enter_context(patch.object(Runner, "preflight_words", return_value=[]))
         guards.enter_context(patch.object(Runner, "drafting_plan_line", return_value=""))
-        guards.enter_context(patch.object(Runner, "speed_line", return_value=""))
         guards.enter_context(patch.object(C, "Catalog", return_value=cat))
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
         public_plan()
@@ -5827,7 +5724,7 @@ engine = root / "engine/strata"
 engine.parent.mkdir()
 engine.write_bytes(b"engine=0.1.46\\n")
 engine.chmod(0o700)
-for family, model in (("qwen", "IQ3_XXS"), ("qwen36", "UD-Q4_K_XL"), ("deepseek41", "IST-DAS-2.00bpw")):
+for family, model in (("qwen", "IQ3_XXS"), ("qwen36", "UD-Q4_K_XL")):
     home = base / family
     data, requested = home / "data", home / "requested"
     data.mkdir(parents=True)
@@ -5857,13 +5754,9 @@ for family, model in (("qwen", "IQ3_XXS"), ("qwen36", "UD-Q4_K_XL"), ("deepseek4
     pack = data / "packs" / tag
     pack.mkdir(parents=True)
     args = ["--pack", str(pack), "--max-context", "8192", "--kv", "fp16"]
-    if family != "deepseek41":
-        args += ["--native", old_files[0]["path"]]
-    else:
-        args += ["--vision", "off"]
+    args += ["--native", old_files[0]["path"]]
     config = root / ("strata-" + tag + ".json")
-    config.write_text(json.dumps({"exe": str(engine), "args": args,
-                                 **({"arch": family} if family == "deepseek41" else {})}))
+    config.write_text(json.dumps({"exe": str(engine), "args": args}))
     s = LaunchSettings(family=family, model=model, context=32768, vision="off", mtp="off", drafting="off")
     runner = Runner(s, catalog=cat)
     installed, desc = runner.installed_state()
@@ -5881,16 +5774,6 @@ for family, model in (("qwen", "IQ3_XXS"), ("qwen36", "UD-Q4_K_XL"), ("deepseek4
     pictures = select(requested, retained, vision=True)
     reader = next(item for item in pictures if item["role"] == "vision")
     assert Path(reader["path"]).is_relative_to(requested), reader
-    # Removing a managed shared mark must not reclassify that file as a personal unmarked file.
-    if family == "deepseek41":
-        shared = next(item for item in selected if "shared" in str(Path(item["path"]).parent))
-        path = Path(shared["path"])
-        path.with_name(path.name + ".done").unlink()
-        current = select(requested, retained)
-        replacement = next(item for item in current if Path(item["path"]).name == path.name)
-        assert Path(replacement["path"]).is_relative_to(requested)
-        assert not replacement["accept_unmarked"]
-        mod.mark(path)
     # A complete explicitly requested set stays ahead of retained files.
     requested_files = select(requested)
     for item in requested_files:
@@ -6002,86 +5885,6 @@ async def edit():
 asyncio.run(edit())
 ''')
 
-    def test_deepseek_install_budgets_missing_shared_files_at_their_destination(self):
-        root = self.prepare(self.old)
-        self.run_source_script(root, '''
-import contextlib, io, json, os
-from pathlib import Path
-from unittest.mock import patch
-from strata_cli.launch.catalog import Catalog
-root = Path.cwd()
-base = root.parent.parent / "deepseek-disk"
-old, requested = base / "old", base / "requested"
-old.mkdir(parents=True)
-requested.mkdir()
-settings = base / "settings.json"
-settings.write_text(json.dumps({"data_dir": str(old)}))
-os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
-    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "models_directory": str(requested)}))
-mod = Catalog(src=root, root=root, hardware={}).strata.setup_module()
-model = "IST-DAS-2.00bpw"
-fam = mod.MULTI_FILE_FAMILIES["deepseek41"]
-def seed(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as stream:
-        stream.truncate(fam["sha256"][path.name][0])
-    assert path.stat().st_blocks == 0
-    mod.mark(path, "sha256 " + fam["sha256"][path.name][1])
-for path in mod.dsv41_download_layout(model, old / "models", vision=False)["shards"]:
-    seed(path)
-selected = mod.dsv41_download_layout(model, requested, vision=False, elsewhere=[old])
-assert selected["folder"].is_relative_to(old)
-assert all(path.is_relative_to(requested) for path in selected["shared"].values())
-parsed = []
-with contextlib.redirect_stdout(io.StringIO()):
-    assert mod.main(["--family", "deepseek41", "--model", model, "--context", "8192", "--vision", "no",
-        "--models-dir", str(requested), "--data-dir", str(old), "--separate-model-artifacts", "--no-start", "--yes"],
-        after_parse=lambda a, argv: (parsed.append(a), 0)[1]) == 0
-card = {"index": 0, "name": "CPU fixture GPU", "vram_gb": 80, "arch": "89", "count": 1}
-class ReachedAcquisition(Exception):
-    pass
-def stop(*args, **kwargs):
-    raise ReachedAcquisition()
-def install(old_free, new_free, allowed, probe=True):
-    probes, output = [], io.StringIO()
-    def capacity(path):
-        path = Path(path)
-        probes.append(path)
-        return old_free if path.is_relative_to(old) else new_free
-    with patch.object(mod, "free_gb", side_effect=capacity), patch.object(mod, "pip_install", side_effect=stop), \
-            patch.object(mod, "dsv41_cards", return_value=[card]), contextlib.redirect_stdout(output):
-        try:
-            mod.install_dsv41(parsed[0], "deepseek41", card, False, [], 13, [], 8080, 2000, None, [card], data=old, elsewhere=[old])
-        except ReachedAcquisition:
-            assert allowed, output.getvalue()
-        except SystemExit as error:
-            assert not allowed and error.code == 1, output.getvalue()
-            assert f"not enough free disk space in {requested}" in output.getvalue(), output.getvalue()
-        else:
-            raise AssertionError("fixture did not stop at the acquisition boundary")
-    assert bool(probes) == probe, probes
-    assert all(path.is_relative_to(requested) for path in probes), probes
-install(0, 1000, True)
-install(1000, 0, False)
-needed = sum(fam["sha256"][name][0] for name in selected["shared"]) / 1e9
-install(0, needed, True)
-install(1000, needed - 0.001, False)
-for path in selected["shared"].values():
-    seed(path)
-install(0, 0, True, probe=False)
-pending = selected["shared"][mod.DSV41_DSPARK]
-pending.unlink()
-part = pending.with_name(pending.name + ".part")
-size = fam["sha256"][pending.name][0]
-with part.open("wb") as stream:
-    stream.truncate(size // 2)
-remaining = (size - part.stat().st_size) / 1e9
-install(0, remaining, True)
-install(1000, remaining - 0.001, False)
-with part.open("r+b") as stream:
-    stream.truncate(size + 1)
-install(0, 0, True, probe=False)
-''')
 
     def test_launch_progress_follows_native_automatic_migration(self):
         root = self.prepare(self.old)
@@ -6182,7 +5985,7 @@ before = [job for step, job, shown in observed if step.startswith(("3/", "4/"))]
 assert before and all(not job for job in before), before
 assert all(job == downloads[-1][0] for step, job, shown in observed if step.startswith("6/"))
 shown = [event for event in events if str(event.data.get("step") or "").startswith("5/") and event.pct is not None]
-assert shown and all(event.pct == 99 for event in shown), shown
+assert shown and all(event.pct == 100 for event in shown), shown
 assert events[-1].pct == 100
 assert not folder.exists()
 ''')
@@ -6291,7 +6094,7 @@ for snapshot in observed:
     assert part["done_gb"] == part["total_gb"] > 0, part
     assert [item["path"] for item in snapshot["job"]["files"] if item.get("role", "model") == "model"] == [str(retained)]
 shown = [event for event in events if str(event.data.get("step") or "").startswith("5/") and event.pct is not None]
-assert shown and all(event.pct == 99 for event in shown), shown
+assert shown and all(event.pct == 100 for event in shown), shown
 assert events[-1].pct == 100
 assert retained.is_file() and not (models / (fam["tag"] + model) / filename).exists()
 ''')
@@ -6321,8 +6124,7 @@ class Prepared(Exception):
 def forbidden(*args, **kwargs):
     raise AssertionError("unexpected acquisition, process or network")
 for family, model, vision in (("qwen36", "UD-Q4_K_XL", "no"),
-                              ("qwen36", "UD-Q4_K_XL", "yes"),
-                              ("deepseek41", "IST-DAS-2.00bpw", "no")):
+                              ("qwen36", "UD-Q4_K_XL", "yes")):
     for move in (False, True):
         name = f"{family}-{vision}-{move}"
         data, models = base / name / "data", base / name / "gguf"
@@ -6331,15 +6133,11 @@ for family, model, vision in (("qwen36", "UD-Q4_K_XL", "no"),
         settings = base / name / "settings.json"
         settings.write_text(json.dumps({"data_dir": str(root)}))
         os.environ["STRATA_SETTINGS_FILE"] = str(settings)
-        if family == "qwen36":
-            fam = setup.OWN_PATH_FAMILIES[family]
-            folder = root / "models" / (fam["tag"] + model)
-            originals = [folder / fam["file"].format(q=model)]
-            if vision == "yes":
-                originals.append(folder / fam["mmproj"])
-        else:
-            fam = setup.MULTI_FILE_FAMILIES[family]
-            originals = [Path(item["path"]) for item in setup.dsv41_download_files(model, root / "models", vision=False)]
+        fam = setup.OWN_PATH_FAMILIES[family]
+        folder = root / "models" / (fam["tag"] + model)
+        originals = [folder / fam["file"].format(q=model)]
+        if vision == "yes":
+            originals.append(folder / fam["mmproj"])
         for path in originals:
             path.parent.mkdir(parents=True, exist_ok=True)
             size, sha = fam["sha256"][path.name]
@@ -6356,10 +6154,7 @@ for family, model, vision in (("qwen36", "UD-Q4_K_XL", "no"),
             assert all((data / path.relative_to(root)).exists() == move for path in originals), name
             assert json.loads(settings.read_text())["data_dir"] == str(data)
             assert command[command.index("--out") + 1] == str(data / "packs" / (fam["tag"] + model).lower()), command
-            if family == "qwen36":
-                assert command[command.index("--gguf") + 1] == str(expected[0]), command
-            else:
-                assert str(expected[0].parent) in list(map(str, command)), command
+            assert command[command.index("--gguf") + 1] == str(expected[0]), command
             reached.append(True)
             raise Prepared()
         with contextlib.ExitStack() as guards:
@@ -6368,8 +6163,6 @@ for family, model, vision in (("qwen36", "UD-Q4_K_XL", "no"),
             guards.enter_context(patch.object(setup, "engine_step",
                 side_effect=lambda a, gpu, hip, amd, tk, choice: (root, root / "engine", {"version": "99.0.0"}, [], gpu, choice)))
             guards.enter_context(patch.object(setup, "engine_families", return_value=[setup.OWN_PATH_FAMILIES["qwen36"]["arch"]]))
-            guards.enter_context(patch.object(setup, "dsv41_exe", return_value=root / "engine/strata-dsv41"))
-            guards.enter_context(patch.object(setup, "dsv41_cards", return_value=[card]))
             guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
             guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
             guards.enter_context(patch.object(socket, "create_connection", side_effect=forbidden))
@@ -6386,145 +6179,345 @@ for family, model, vision in (("qwen36", "UD-Q4_K_XL", "no"),
         shutil.rmtree(data / "models", ignore_errors=True)
 '''.replace("@HARDWARE@", HARDWARE_SETUP))
 
-    def test_deepseek_move_plan_projects_native_selection_without_mutation(self):
+
+
+    def test_darwin_control_forecast_filtered_arguments_and_destinations(self):
         root = self.prepare(self.old)
         self.run_source_script(root, '''
-import contextlib, io, json, os, shutil, socket, subprocess
+import contextlib, hashlib, io, json, os, socket, sys
 from pathlib import Path
 from unittest.mock import patch
-from strata_cli import cli
-from strata_cli.launch import catalog as C, cmd
+from strata_cli.launch.catalog import Catalog, ModelRow
 from strata_cli.launch.runner import Runner
-from strata_control import discovery, drafting, engine_component
+from strata_cli.launch.settings import LaunchSettings
+from strata_control import drafting, engine_component as ec, mac_fit
 root = Path.cwd()
-base = root.parent.parent / "deepseek-move-plan"
+base = root.parent.parent / "darwin-control"
 base.mkdir()
-cases = ("move", "missing-pack", "incomplete-pack", "conflicting-pack", "missing-shard", "unfinished-shard",
-         "marker-only", "part-only", "missing-shared", "unfinished-shared", "split", "split-complete",
-         "merged", "unfinished-destination", "six", "partial-six", "legacy", "vision")
-for scenario in cases:
-    home = base / scenario
-    data, models = home / "data", home / "gguf"
-    data.mkdir(parents=True)
-    models.mkdir()
-    settings = home / "settings.json"
-    settings.write_text(json.dumps({"data_dir": str(root)}))
-    split = scenario in ("split", "split-complete")
-    os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
-        STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent),
-            **({"models_directory": str(models)} if split else {})}))
-    cat = C.Catalog(src=root, root=root, hardware={})
-    mod = cat.strata.setup_module()
-    family, model = "deepseek41", "IST-DAS-2.00bpw"
-    fam = mod.MULTI_FILE_FAMILIES[family]
-    def seed(path):
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        size, sha = fam["sha256"][path.name]
-        with path.open("wb") as stream:
-            stream.truncate(size)
-        assert path.stat().st_blocks == 0
-        mod.mark(path, "sha256 " + sha)
-    selected = mod.dsv41_download_layout(model, root / "models", vision=False)
-    for path in [*selected["shards"], *selected["shared"].values()]:
-        seed(path)
-    tag = cat.tag_of(family, model)
-    pack = root / "packs" / tag
-    (pack / "tokenizer").mkdir(parents=True)
-    (pack / "tokenizer/vocab.json").write_text("{}")
-    (pack / "tensors.txt").write_text("fixture")
-    config = root / ("strata-" + tag + ".json")
-    config.write_text(json.dumps({"exe": str(root / "engine/strata-dsv41"), "arch": family,
-        "args": ["--pack", str(pack), "--max-context", "8192", "--vision", "off"]}))
-    row = C.ModelRow(family=family, family_title="DeepSeek", model=model, id=tag, about="",
-        download_gb=sum(item["bytes"] for item in mod.dsv41_download_files(model, root / "models", vision=False)) / 1e9,
-        need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits",
-        experimental=False, images=True, installed=True)
+components = base / "components"
+engine = components / "engine/99.0.0-macos-arm64-metal"
+engine.mkdir(parents=True)
+# A real local payload and manifest exercise native component selection and integrity without execution.
+import shutil
+shutil.copyfile(shutil.which("true"), engine / "strata")
+(engine / "strata").chmod(0o700)
+payload = (engine / "strata").read_bytes()
+(engine / ec.MANIFEST).write_text(json.dumps({"schema_version": 1, "id": ec.COMPONENT_ID,
+    "version": "99.0.0", "platform": "macos-arm64", "backend": "metal", "entrypoint": "strata",
+    "files": [{"path": "strata", "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}]}))
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root),
+    STRATA_COMPONENTS_DIR=str(components), STRATA_ENGINE_BACKEND="metal")
+import setup
+row = ModelRow(family="qwen", family_title="Qwen", model="Q2_0", id="q2_0", about="",
+    download_gb=setup.MODELS["Q2_0"]["download_gb"], need_vram_gb=0, need_ram_gb=1,
+    spill_gb=0, verdict="fits", words="fits", experimental=False, images=False, installed=False)
+class Selected(Exception):
+    pass
+for case, explicit, split in (("managed", False, True), ("explicit", True, True), ("native", False, False)):
+    data, models, override = (base / case / name for name in ("data", "GGUF's folder", "explicit"))
+    settings = base / case / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("{}")
+    os.environ.update(STRATA_SETTINGS_FILE=str(settings), STRATA_WORKSPACE_CONTEXT=json.dumps({
+        "state": str(root.parent), "data_directory": str(data),
+        "models_directory": str(models) if split else None}))
+    cat = Catalog(src=root, root=root, hardware={"mac": True, "ram_gb": 256, "gpus": []})
     cat.rows = lambda: [row]
-    cat.strata.describe_config = lambda path: {"images": "off"}
-    first = selected["shards"][0]
-    missing = None
-    if scenario == "missing-pack":
-        shutil.rmtree(pack)
-    if scenario == "incomplete-pack":
-        (pack / "tokenizer/vocab.json").unlink()
-    if scenario == "conflicting-pack":
-        destination = data / "packs" / tag
-        destination.mkdir(parents=True)
-        (destination / "tensors.txt").write_text("destination only")
-    if scenario in ("missing-shard", "marker-only", "part-only"):
-        first.unlink()
-        missing = first
-        if scenario == "missing-shard":
-            first.with_name(first.name + ".done").unlink()
-        if scenario == "part-only":
-            first.with_name(first.name + ".done").unlink()
-            with first.with_name(first.name + ".part").open("wb") as stream:
-                stream.truncate(fam["sha256"][first.name][0])
-    if scenario == "unfinished-shard":
-        first.with_name(first.name + ".done").unlink()
-        missing = first
-    if scenario in ("missing-shared", "unfinished-shared"):
-        missing = selected["shared"][mod.DSV41_DSPARK]
-        (missing if scenario == "missing-shared" else missing.with_name(missing.name + ".done")).unlink()
-    if scenario == "split-complete":
-        for item in mod.dsv41_download_files(model, models, vision=False):
-            seed(item["path"])
-    if scenario in ("merged", "unfinished-destination"):
-        destination = data / first.relative_to(root)
-        destination.parent.mkdir(parents=True)
-        if scenario == "merged":
-            first.rename(destination)
-            first.with_name(first.name + ".done").rename(destination.with_name(destination.name + ".done"))
-        else:
-            destination.write_bytes(b"unfinished destination wins")
-            missing = first
-    if scenario in ("six", "partial-six"):
-        names = fam["models"][model]["shards6"]
-        for name in names if scenario == "six" else names[:1]:
-            seed(selected["folder"] / name)
-    if scenario == "legacy":
-        legacy = first.with_name(mod.DSV41_LEGACY_NAMES[first.name])
-        first.rename(legacy)
-    if scenario == "vision":
-        missing = mod.dsv41_download_layout(model, root / "models", vision=True)["shared"][mod.DSV41_MMPROJ]
-    footprint = discovery.footprint(json.loads(config.read_text()), config)
-    assert footprint.weights == [] and footprint.data_dir == root
+    s = LaunchSettings(family="qwen", model="Q2_0", context=8192, vision="off", drafting="off", mtp="off",
+        data_dir=str(override) if explicit else None, tune="skip")
+    runner = Runner(s, catalog=cat)
+    expected_data = override if explicit else data
+    expected_models = models if split else expected_data / "models"
+    selected = []
+    def download(url, destination, *args, **kwargs):
+        selected.append(Path(destination))
+        raise Selected()
     def forbidden(*args, **kwargs):
-        raise AssertionError("plan attempted acquisition, mutation or a process")
-    def plan():
-        output = io.StringIO()
-        before = settings.read_bytes(), config.read_bytes()
-        with patch.object(mod, "data_folder", side_effect=forbidden), patch.object(mod, "data_folder_for", side_effect=forbidden), \
-                patch.object(mod, "save_settings", side_effect=forbidden), contextlib.redirect_stdout(output):
-            assert cmd.run_launch(cli.parse_args(["launch", "--family", family, "--model", model, "--context", "8192",
-                "--data-dir", str(data), "--move-data", "--vision", "on" if scenario == "vision" else "off",
-                "--mtp", "off", "--drafting", "off", "--no-api-key", "--plan", "--output", "json"])) == 0
-        assert before == (settings.read_bytes(), config.read_bytes())
-        return json.loads(output.getvalue())["plan"]["download"]
+        raise AssertionError("Darwin directory selection acquired, built or connected")
     with contextlib.ExitStack() as guards:
-        guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
+        guards.enter_context(patch.object(sys, "platform", "darwin"))
+        guards.enter_context(patch.object(ec, "host_platform", return_value="macos-arm64"))
+        guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("metal", [])))
+        guards.enter_context(patch.object(mac_fit, "mac_info", return_value={
+            "chip": "Test Apple Silicon", "ram_gb": 256, "macos": "27.0", "rosetta_python": False}))
+        guards.enter_context(patch.object(mac_fit, "mac_problems", return_value=[]))
+        guards.enter_context(patch.object(setup, "download", side_effect=download))
+        guards.enter_context(patch.object(setup, "run", side_effect=forbidden))
         guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
-        guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
-        guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
-        guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
-        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", ""), ("speed_line", "")):
-            guards.enter_context(patch.object(Runner, name, return_value=value))
-        guards.enter_context(patch.object(C, "Catalog", return_value=cat))
-        guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
-        before = plan()
-        expected = round(fam["sha256"][missing.name][0] / 1e9, 1) if missing else \
-            round(row.download_gb, 1) if scenario == "split" else 0
-        assert before["gb"] == expected, (scenario, before, expected)
-        assert not any(part["kind"] == "shared" for part in before["parts"]), before
-        if scenario in ("move", "six", "partial-six", "legacy", "merged"):
+        guards.enter_context(patch.object(socket, "create_connection", side_effect=forbidden))
+        directories = cat.launch_directories(s.family, s.model, data_dir=s.data_dir)
+        assert directories.data_dir == expected_data and directories.models_dir == expected_models
+        assert not expected_data.exists() and not expected_models.exists()
+        plan = runner.download_plan()
+        assert plan["gb"] > 0 and not expected_data.exists() and not expected_models.exists()
+        argv = runner.setup_args()
+        assert argv[argv.index("--data-dir") + 1] == str(expected_data), argv
+        assert ("--models-dir" in argv) == split, argv
+        assert ("--separate-model-artifacts" in argv) == split, argv
+        assert "--move-data" not in argv
+        if split:
+            assert argv[argv.index("--models-dir") + 1] == str(expected_models), argv
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                setup.main(argv)
+            except Selected:
+                pass
+            else:
+                raise AssertionError("native Control setup did not reach the selected download")
+        expected = expected_models / "Q2_0" / setup.model_file(setup.FAMILIES["qwen"], "Q2_0", 1)
+        assert selected == [expected], (selected, expected)
+        if split:
+            assert not (expected_data / "models/Q2_0").exists()
+
+# Native setup and progress must consume the same complete source, not just the requested root.
+def seed_shards(folder, family, model, finished):
+    folder.mkdir(parents=True, exist_ok=True)
+    fam = setup.FAMILIES[family]
+    paths = [folder / setup.model_file(fam, model, i)
+             for i in range(1, setup.model_shards(fam, model) + 1)]
+    for i, path in enumerate(paths, 1):
+        with path.open("wb") as stream:
+            stream.truncate(1_000_000)
+        if i in finished:
+            setup.mark(path)
+    return paths
+
+for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyro-S")):
+    fam = setup.FAMILIES[family]
+    count = setup.model_shards(fam, model)
+    complete = tuple(range(1, count + 1))
+    for case in ("retained", "requested-partial", "requested-complete", "remembered", "incomplete", "personal"):
+        home = base / (family + "-" + case)
+        data, models, personal = (home / name for name in ("data", "requested", "personal"))
+        retained = home / "old-data" if case == "remembered" else data
+        source = retained / "models" / (fam["tag"] + model)
+        requested = models / (fam["tag"] + model)
+        source_finished = (count,) if case == "incomplete" and count > 1 else () if case == "incomplete" else complete
+        source_files = seed_shards(source, family, model, source_finished)
+        requested_files = [requested / path.name for path in source_files]
+        if case == "requested-complete":
+            seed_shards(requested, family, model, complete)
+        elif case in ("requested-partial", "incomplete"):
+            seed_shards(requested, family, model, tuple(range(1, count)))
+        own = seed_shards(personal, family, model, ()) if case == "personal" else None
+        settings = home / "settings.json"
+        settings.write_text(json.dumps({"data_dir": str(retained)}))
+        os.environ.update(STRATA_SETTINGS_FILE=str(settings), STRATA_WORKSPACE_CONTEXT=json.dumps({
+            "state": str(root.parent), "data_directory": str(data), "models_directory": str(models)}))
+        cat = Catalog(src=root, root=root, hardware={"mac": True, "ram_gb": 256, "gpus": []})
+        row = ModelRow(family=family, family_title=fam["title"], model=model, id=cat.tag_of(family, model), about="",
+            download_gb=setup.MODELS[model]["download_gb"], need_vram_gb=0, need_ram_gb=1,
+            spill_gb=0, verdict="fits", words="fits", experimental=False, images=False, installed=False)
+        cat.rows = lambda: [row]
+        s = LaunchSettings(family=family, model=model, context=8192, vision="off", drafting="off", mtp="off",
+            data_dir=str(data), model_path=str(personal) if own else None, tune="skip")
+        runner = Runner(s, catalog=cat)
+        expected = own if own else requested_files if case in ("requested-complete", "incomplete") else source_files
+        downloads, checked = [], []
+        def download_selected(url, destination, *args, **kwargs):
+            downloads.append(Path(destination))
+            raise Selected()
+        def check_selected(files):
+            checked.extend(files)
+            raise Selected()
+        with contextlib.ExitStack() as guards:
+            guards.enter_context(patch.object(sys, "platform", "darwin"))
+            guards.enter_context(patch.object(ec, "host_platform", return_value="macos-arm64"))
+            guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("metal", [])))
+            guards.enter_context(patch.object(mac_fit, "mac_info", return_value={
+                "chip": "Test Apple Silicon", "ram_gb": 256, "macos": "27.0", "rosetta_python": False}))
+            guards.enter_context(patch.object(mac_fit, "mac_problems", return_value=[]))
+            guards.enter_context(patch.object(setup, "download", side_effect=download_selected))
+            guards.enter_context(patch.object(setup, "check_shards", side_effect=check_selected))
+            guards.enter_context(patch.object(setup, "run", side_effect=forbidden))
+            guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
+            guards.enter_context(patch.object(socket, "create_connection", side_effect=forbidden))
+            before = settings.read_bytes()
+            plan = runner.download_plan()
+            job = runner.progress_job()
+            if own:
+                assert Path(job["folder"]) == personal, (family, case, job)
+            else:
+                assert [Path(item["path"]) for item in job["files"] if item.get("role", "model") == "model"] == expected, (family, case, job)
+            assert settings.read_bytes() == before
+            assert (plan["gb"] > 0) == (case == "incomplete"), (family, case, plan)
+            argv = runner.setup_args()
             with contextlib.redirect_stdout(io.StringIO()):
-                mod.data_folder(str(data), move=True, yes=True, set_default=True)
-            assert plan()["gb"] == 0, scenario
-    config.unlink()
-    shutil.rmtree(root / "models", ignore_errors=True)
-    shutil.rmtree(root / "packs", ignore_errors=True)
+                try:
+                    setup.main(argv)
+                except Selected:
+                    pass
+                else:
+                    raise AssertionError("native setup skipped the selected file boundary")
+            if case == "incomplete":
+                assert downloads == [requested_files[-1]] and not checked, (family, case, downloads, checked)
+            else:
+                assert not downloads and checked == expected, (family, case, downloads, checked, expected)
+        assert all(path.exists() and path.stat().st_size == 1_000_000 for path in source_files)
+        if case in ("retained", "remembered"):
+            assert not requested.exists(), (family, case)
+
 ''')
 
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux source acquisition")
+    def test_retired_configs_do_not_select_managed_install_runtime(self):
+        root = self.make_acquisition_workspace()
+        retired = root / "strata-deepseek-v4.1-flash-ist-das-2.00bpw.json"
+        retained = json.dumps({"arch": "deepseek41", "exe": "engine-dsv41/strata-dsv41", "args": []}).encode()
+        retired.write_bytes(retained)
+        data, models = self.base / "new data", self.base / "new GGUF"
+        result = subprocess.run(self.command(self.old) + ["run", "source", "--yes", "--no-browser",
+            "--context", "8192", "--vision", "no", "--experimental-speed-projection", "off"],
+            env=dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models)),
+            capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        selected = json.loads((root / "destinations.json").read_text())
+        self.assertEqual(Path(selected["data"]), data)
+        self.assertTrue(Path(selected["models"]).is_relative_to(models))
+        self.assertEqual(retired.read_bytes(), retained)
+        self.assertFalse((root / ".git/strata-runtime-revision").exists())
+
+
+
+    def test_managed_download_progress_requires_native_completion(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import types
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog
+root = Path.cwd()
+cat = Catalog(src=root, root=root, hardware={})
+mod = cat.strata.setup_module()
+base = root.parent.parent / "native-completion"
+for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyro-S")):
+    count = mod.model_shards(mod.FAMILIES[family], model)
+    cases = ("unmarked", "marked", "residual-part", "active-part", "missing") + (("mixed",) if count > 1 else ())
+    for case in cases:
+        models = base / family / case
+        files = cat.mcp.expected_files(mod, family, model, models, False)
+        for i, item in enumerate(files):
+            path = Path(item["path"])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("wb") as stream:
+                stream.truncate(100_000_000)  # Keep the native 0.05 GB display gate observable.
+            if case in ("marked", "residual-part", "missing") or (case == "mixed" and i == 0):
+                mod.mark(path)
+        first = Path(files[0]["path"])
+        if case in ("residual-part", "active-part"):
+            first.with_name(first.name + ".part").write_bytes(b"partial")
+        if case == "missing":
+            first.unlink()  # A finish mark without its final file is not complete.
+        job = {"files": files, "total_gb": count * 0.1}
+        shown = cat.mcp.combined_progress(cat.mcp.install_progress(["=== Step 5: downloading model ==="]), job, setup_module=mod)
+        part = next(p for p in shown["parts"] if p["kind"] == "model")
+        native = sum(mod.download_complete(Path(item["path"])) for item in files)
+        assert part["files_done"] == native, (family, case, shown)
+        if case in ("marked", "residual-part"):
+            assert shown["download"]["percent"] == 100 and part["state"] == "done", (family, case, shown)
+        else:
+            assert shown["download"]["percent"] < 99.5 and part["state"] != "done", (family, case, shown)
+        if case == "active-part":
+            assert part["state"] == "downloading", (family, case, shown)
+personal = base / "personal.gguf"
+with personal.open("wb") as stream:
+    stream.truncate(100_000_000)
+for helper, accept in ((mod, True), (None, False), (types.SimpleNamespace(), False)):
+    job = {"files": [{"path": str(personal), "bytes": 100_000_000, "role": "model", "accept_unmarked": accept}], "total_gb": 0.1}
+    shown = cat.mcp.combined_progress({"step": "5/7: downloading"}, job, setup_module=helper)
+    assert shown["download"]["percent"] == 100 and shown["parts"][0]["state"] == "done", shown
+''')
+
+    def test_launch_progress_does_not_latch_incomplete_files_as_already(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import json, os, socket
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog, ModelRow
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.launch.runner import Runner
+root = Path.cwd()
+base = root.parent.parent / "completion-latch"
+base.mkdir()
+for complete in (False, True):
+    home = base / ("complete" if complete else "incomplete")
+    models, data = home / "models", home / "data"
+    settings = home / "settings.json"
+    home.mkdir()
+    settings.write_text("{}")
+    os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(settings),
+        STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent), "data_directory": str(data), "models_directory": str(models)}))
+    cat = Catalog(src=root, root=root, hardware={})
+    mod = cat.strata.setup_module()
+    family, model = "qwen", "Q2_0"
+    tag = cat.tag_of(family, model)
+    files = [models / model / mod.model_file(mod.FAMILIES[family], model, i)
+             for i in range(1, mod.model_shards(mod.FAMILIES[family], model) + 1)]
+    files[0].parent.mkdir(parents=True)
+    for path in files:
+        with path.open("wb") as stream:
+            stream.truncate(100_000_000)
+        if complete:
+            mod.mark(path)
+    row = ModelRow(family=family, family_title="Qwen", model=model, id=tag, about="", download_gb=len(files) * 0.1,
+        need_vram_gb=0, need_ram_gb=1, spill_gb=0, verdict="fits", words="fits", experimental=False, images=False, installed=False)
+    cat.rows = lambda: [row]
+    config = root / ("strata-" + tag + ".json")
+    producer = home / "producer.py"
+    producer.write_text(r"""
+import json, socket, sys
+from pathlib import Path
+import setup as mod
+parsed = []
+assert mod.main(sys.argv[3:], after_parse=lambda a, argv: (parsed.append(a), 0)[1]) == 0
+a = parsed[0]
+data, retained = mod.data_folder_for(a)
+layout = mod.model_download_layout(a.family, a.model, Path(a.models_dir), data_dir=data, elsewhere=retained)
+with socket.socket(socket.AF_UNIX) as gate:
+    gate.connect(sys.argv[2])
+    mod.step(5, "downloading model")
+    sys.stdout.flush()
+    assert gate.recv(1) == b"g"  # No completion or config publication before the first visible event.
+for path in layout[3]:
+    mod.mark(path)
+mod.step(6, "writing config")
+pack = data / "packs" / "fixture"
+pack.mkdir(parents=True)
+Path(sys.argv[1]).write_text(json.dumps({"exe": sys.executable,
+    "args": ["--native", str(layout[3][0]), "--pack", str(pack), "--max-context", "8192", "--kv", "fp16"]}))
+""")
+    events, peer, observed = [], {}, []
+    def emit(event):
+        events.append(event)
+        if str(event.data.get("step") or "").startswith("5/") and event.pct is not None and not observed:
+            observed.append(event)
+            peer["socket"].sendall(b"g")
+    runner = Runner(LaunchSettings(family=family, model=model, context=8192, vision="off", mtp="off", drafting="off"), catalog=cat, emit=emit)
+    spawn, read_lines = runner._spawn, runner._read_lines
+    gate_path = home / "gate.sock"
+    def spawn_fixture(argv, **kwargs):
+        return spawn([argv[0], str(producer), str(config), str(gate_path), *argv[2:]], **kwargs)
+    def read_fixture(process):
+        with listener.accept()[0] as gate:
+            gate.settimeout(30)
+            peer["socket"] = gate
+            yield from read_lines(process)
+    runner._spawn, runner._read_lines = spawn_fixture, read_fixture
+    try:
+        with socket.socket(socket.AF_UNIX) as listener:
+            listener.settimeout(15)
+            listener.bind(str(gate_path))
+            listener.listen(1)
+            assert runner.ensure_model() == config
+    finally:
+        runner._stop_children()
+    assert observed
+    first = observed[0]
+    if complete:
+        assert first.pct == 100 and "already on this computer" in first.text, first
+    else:
+        assert first.pct < 99.5 and "already on this computer" not in first.text, first
+    config.unlink()
+''')
 
 unittest.main()

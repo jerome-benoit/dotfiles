@@ -260,6 +260,7 @@ pkgs.runCommand "check-hermes-agent"
     cases = {
         "providers/test_provider_plugin_update.py": [
             "test_an_update_serves_new_sessions_whole_while_old_clients_stay_on_their_version[in-process]",
+            "test_an_update_serves_new_sessions_whole_while_old_clients_stay_on_their_version[host]",
             "test_a_broken_update_keeps_the_previous_version_and_says_so",
         ],
         "providers/test_auth_registry_lazy_mirror.py": [
@@ -268,6 +269,19 @@ pkgs.runCommand "check-hermes-agent"
         "providers/test_auth_registry_mid_discovery.py": [
             "test_post_discovery_registration_is_mirrored",
             "test_user_plugin_alias_repoints_and_display_name_follows",
+        ],
+        "hermes_cli/test_plugin_host_mixed_profiles.py": [
+            "test_create_client_profile_loads_in_process_and_its_sibling_stays_hosted",
+            "test_a_rescan_keeps_the_hosted_plugin_it_already_loaded",
+        ],
+        "agent/test_prompt_cache_clock.py": [
+            "test_nous_ceiling_is_data_on_the_wire_and_in_the_clock",
+            "test_a_configured_ceiling_applies_on_the_measured_provider_path_too",
+            "test_the_cache_moves_with_the_full_route_and_dies_at_compaction",
+        ],
+        "tools/test_local_env_cwd_recovery_executes.py": [
+            "test_dead_cwd_runs_in_fallback_and_reports_it_once",
+            "test_terminal_tool_recovers_a_dead_session_cwd_with_a_model_notice",
         ],
         "agent/test_redact_secret_sources_lifecycle.py": [
             "test_removed_routed_source_releases_mask",
@@ -285,7 +299,11 @@ pkgs.runCommand "check-hermes-agent"
     import sys
     from pathlib import Path
     import providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider
-    for module in (providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider):
+    import utils, providers.base, agent.prompt_caching, agent.prompt_cache_clock
+    import tools.environments.local, tools.process_registry_wait
+    for module in (providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider,
+                   utils, providers.base, agent.prompt_caching, agent.prompt_cache_clock,
+                   tools.environments.local, tools.process_registry_wait):
         assert "site-packages" in Path(module.__file__).parts, module.__file__
     sys.path.append(sys.argv.pop(1))
     import pytest

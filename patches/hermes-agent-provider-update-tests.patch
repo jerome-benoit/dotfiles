@@ -1,4 +1,4 @@
-# base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
+# base: hermes-agent e2fb450adcf74421fe9514f048319dfcbb5af6c1
 # prerequisites: none; check-only, applied after copying the selected upstream test.
 # intent: verify provider publication, structured errors and retained clients without pinning display wording.
 # upstream: https://github.com/NousResearch/hermes-agent/pull/153318 introduced the selected regression.

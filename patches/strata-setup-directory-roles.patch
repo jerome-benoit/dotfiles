@@ -1,13 +1,13 @@
-# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
+# base: Niko1221/Strata c77572806996349b49995e4f98d41b5294d36a21
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
 # intent: share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open other cause; local split-layout feature.
-# issues: Local Darwin forecast mismatch established: Control setup honors --models-dir but catalog previously ignored it; checks/strata.py test_deepseek_plan_uses_native_effective_shards_and_shared_files covers demanded destinations. No new upstream ticket claimed.
+# issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events. No new upstream ticket claimed.
 # removal: remove only when setup, forecast, progress, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
 diff --git a/setup.py b/setup.py
 --- a/setup.py
 +++ b/setup.py
-@@ -1299,6 +1299,11 @@
+@@ -1048,6 +1048,11 @@
      return mark_text(path) is not None
  
  
@@ -19,7 +19,7 @@ diff --git a/setup.py b/setup.py
  def mark(path: Path, text=""):
      """Write the finish mark.  A folder that cannot be written (--gguf-dir on a read-only share, #570, a read-only model disk) keeps the mark
      in Strata's own folder instead (marks/), so a 110 GB Engram is hashed once, not on every launch; only when that cannot be written either
-@@ -3772,41 +3777,47 @@
+@@ -3536,41 +3541,47 @@
      return [(role, repo, t["revision"], path, size, sha) for path, (role, size, sha) in t["files"].items()]
  
  
@@ -89,7 +89,7 @@ diff --git a/setup.py b/setup.py
          if f[0] == "pack" and p.name == "index.txt":
              out["pack"] = p.parent
          elif f[0] in ("dense", "ple", "embd"):
-@@ -3822,13 +3833,67 @@
+@@ -3586,13 +3597,67 @@
          return False
  
  
@@ -161,7 +161,7 @@ diff --git a/setup.py b/setup.py
          if ready_verified(dst, sha):
              ok(f"{f[3]} already downloaded")
              continue
-@@ -5651,7 +5716,7 @@
+@@ -5445,7 +5510,7 @@
      return backend, quant, gb
  
  
@@ -170,7 +170,7 @@ diff --git a/setup.py b/setup.py
      """--images qwen-image: sd-cli for this GPU and Qwen-Image-2.1-Turbo's three files -> the run config's "images"
      section (serve/images.py); None for --images no, or when not wanted after all."""
      if not a.images or a.images == "no":
-@@ -5663,17 +5728,20 @@
+@@ -5457,9 +5522,11 @@
      need = sum(QI.FILES[k][2] for k in (quant, "vae", "llm")) / 1e9
      if ask(f"Download the image model ({need:.1f} GB) and set up image generation?", ["y", "n"], "y", a.yes) != "y":
          return None
@@ -182,7 +182,11 @@ diff --git a/setup.py b/setup.py
 +    for parent, gb in destination_budgets([(destinations[name], QI.FILES[name][2] / 1e9) for name in destinations]):
 +        if free_gb(parent) < gb + 5:
 +            warn(f"less than {gb + 5:.0f} GB free at {parent} for the image model: the download may run out of disk space")
-     exe, lib_dirs = build_image_engine(backend, gpu or {})
+     noise = getattr(a, "image_noise", None) == "on"
+     vae = getattr(a, "image_vae", None) == "on"
+     if vae and backend not in QI.VAE_BACKENDS:         # the owner's wording, 11-11
+@@ -5469,12 +5536,13 @@
+     exe, lib_dirs = build_image_engine(backend, gpu or {}, noise, vae)
      for name in (quant, "vae", "llm"):
          repo, path, size, sha = QI.FILES[name]
 -        dst = QI.local_path(models_dir, name)
@@ -190,12 +194,13 @@ diff --git a/setup.py b/setup.py
          download(QI.file_url(name, hf_endpoint()), dst, f"image model: {Path(path).name}")
          verify_sha256(dst, size, sha)
      cfg = QI.image_config(backend, quant, exe, models_dir, uma=QI.is_apu(gpu), lib_dirs=lib_dirs,
-                           policy=a.image_gpu_policy or "auto", native=getattr(a, "image_native", None) == "on")
+                           policy=a.image_gpu_policy or "auto", native=getattr(a, "image_native", None) == "on",
+                           noise=noise, vae=vae)
 +    cfg["vae"] = str(destinations["vae"])
      ok(f"image generation: {quant} on {backend}, GPU policy {cfg['gpu_policy']}")
      return cfg
  
-@@ -6920,11 +6988,12 @@
+@@ -6730,11 +6798,12 @@
      return False
  
  
@@ -210,7 +215,7 @@ diff --git a/setup.py b/setup.py
          try:
              for d in base.iterdir():
                  if d.is_dir() and d.name.lower().startswith("strata"):
-@@ -6936,7 +7005,7 @@
+@@ -6746,7 +6815,7 @@
      for d in cands:
          try:
              d = d.resolve()
@@ -219,7 +224,7 @@ diff --git a/setup.py b/setup.py
                  found.append(d)
          except OSError:
              pass
-@@ -7018,6 +7087,39 @@
+@@ -6828,6 +6897,39 @@
          return os.path.samefile(a, b)
      except OSError:
          return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
@@ -259,7 +264,7 @@ diff --git a/setup.py b/setup.py
  
  
  def data_folder(requested: str | None, move: bool = False, yes: bool = True, set_default: bool = False) -> tuple:
-@@ -7048,12 +7150,8 @@
+@@ -6858,12 +6960,8 @@
      elsewhere = []
      # #198: the data folder remembered before (a --data-dir to a new place) is a source too, and so is a Strata-data
      # folder nested in any of them (an install that kept its models one level down)
@@ -273,7 +278,7 @@ diff --git a/setup.py b/setup.py
          # a different folder than the one in use: nothing is moved unless the person says so
          held = []
          for folder in dict.fromkeys(sources):
-@@ -7114,10 +7212,17 @@
+@@ -6924,10 +7022,17 @@
      return dest, elsewhere
  
  
@@ -293,7 +298,7 @@ diff --git a/setup.py b/setup.py
  
  
  def data_folder_in_place() -> tuple:
-@@ -8938,7 +9043,22 @@
+@@ -8723,7 +8828,22 @@
      return lines
  
  
@@ -317,7 +322,7 @@ diff --git a/setup.py b/setup.py
      """Steps 2-7 for a family with its own engine path (OWN_PATH_FAMILIES: Qwen3.6-35B-A3B): the size, the context, the
      engine, the GGUF (pinned revision, size and SHA-256), the tokenizer from the GGUF, the config and the start
      script.  The engine places the experts itself (every one in VRAM when they fit, else the most-used ones there and
-@@ -9010,12 +9130,12 @@
+@@ -8795,12 +8915,12 @@
      if a.rope_scaling or a.rope_scale or a.kv or a.resident_budget_gib is not None or a.low_ram not in (None, "auto"):
          warn(f"--rope-scaling / --kv / --resident-budget-gib / --low-ram are Flash-Next settings: {fam['title']} "
               "does not use them")
@@ -334,7 +339,7 @@ diff --git a/setup.py b/setup.py
      left = 0 if have(gguf) else (size - (part.stat().st_size if part.is_file() else 0)) / 1e9
      if left and free_gb(folder) < left:
          fail(f"not enough free disk space in {folder}: need ~{left:.0f} GB, {free_gb(folder):.0f} GB free", ("use --data-dir on a bigger drive (strata launch --data-dir)" if CONTROL else "use --models-dir on a bigger drive"))
-@@ -9051,7 +9171,7 @@
+@@ -8839,7 +8959,7 @@
          download(fam["hf"] + gguf.name, gguf)
      verify_sha256(gguf, *fam["sha256"][gguf.name], own=bool(a.gguf_dir))
      ok(f"model file: {gguf}")
@@ -343,7 +348,7 @@ diff --git a/setup.py b/setup.py
      if vision != "none":                               # the image encoder: Unsloth's mmproj, pinned, size + SHA-256 checked
          if not a.gguf_dir and not have(mmproj) and not mmproj.with_name(mmproj.name + ".part").exists():
              # another size of this model has it already (the same file, kept beside each size): linked here, not fetched again
-@@ -9067,7 +9187,6 @@
+@@ -8855,7 +8975,6 @@
          ok(f"vision encoder: {mmproj}")
  
      step(6, "preparing the model for Strata")
@@ -351,192 +356,28 @@ diff --git a/setup.py b/setup.py
      pack = data / "packs" / tag.lower()            # only the tokenizer: the engine reads the GGUF itself
      if not (pack / "tokenizer" / "vocab.json").exists():
          run([sys.executable, str(ROOT / "tools" / "strata_tokenizer.py"), "--gguf", str(gguf), "--out", str(pack)],
-@@ -9270,13 +9389,13 @@
-     return Path(a.models_dir) / tag
+@@ -9206,9 +9325,9 @@
+     ok("images: " + {"none": "off", "gpu": "on (read on the Mac's GPU)", "cpu": "on (read on the CPU)"}[vision])
  
- 
--def dsv41_pick(folder: Path, name: str) -> Path:
-+def dsv41_pick(folder: Path, name: str, *, where=Path) -> Path:
-     """`name` in `folder`, or the file it was called in the first release (DSV41_LEGACY_NAMES; the same weights) when only that one is there;
-     else `name` (where it will be downloaded to)."""
--    if (folder / name).exists():
-+    if where(folder / name).exists():
-         return folder / name
-     old = DSV41_LEGACY_NAMES.get(name)
--    if old and (folder / old).exists():
-+    if old and where(folder / old).exists():
-         return folder / old
-     return folder / name
- 
-@@ -9323,7 +9442,7 @@
-     return Path(a.models_dir) / (fam["tag"] + "shared")
- 
- 
--def dsv41_find_shared(a, name: str, folder: Path, shared: Path, alt: tuple = ()) -> Path:
-+def dsv41_find_shared(a, name: str, folder: Path, shared: Path, alt: tuple = (), *, where=Path) -> Path:
-     """The file `name` (an Engram, the drafter, ...) the person already has: in the shared folder, beside the shards, or (--gguf-dir) in the
-     folder above them or one folder level down from either; else where it will be downloaded to (the shared folder).  The size must be the
-     pinned one, so a half-copied file is not taken for the file."""
-@@ -9344,29 +9463,77 @@
-         for k in kids:
-             for n in names:
-                 f = k / n
-+                found = where(f)
-                 try:
--                    if f.is_file() and f.stat().st_size in (DSV41_ALL_FILES[n][0], *(v[0] for v in DSV41_ALT_FILES.get(n, ()))):
-+                    if found.is_file() and found.stat().st_size in (DSV41_ALL_FILES[n][0], *(v[0] for v in DSV41_ALT_FILES.get(n, ()))):
-                         return f
-                 except OSError:
-                     pass
-     return shared / name
- 
- 
--def dsv41_shared_missing(model: str, models_dir, gguf_dir=None, vision: bool = True) -> list:
--    """[(name, bytes still to fetch)] of the shared files (the Engram, the DSpark drafter, the metadata shard, the picture file) that install_dsv41 would download for
--    `model` with these choices; the same search as the install (dsv41_find_shared), so the launcher's plan and the acquisition cannot disagree.  Files the person has
--    (--gguf-dir) or that are already complete in the shared folder are not listed; a half-fetched one counts what is left."""
-+def dsv41_download_layout(model: str, models_dir, gguf_dir=None, *, vision: bool = True, elsewhere=(), where=Path) -> dict:
-+    """Read the installer's shard and shared-file selection without creating, moving or downloading files."""
-     from types import SimpleNamespace
-     fam = MULTI_FILE_FAMILIES["deepseek41"]
-     md = fam["models"][model]
-     a = SimpleNamespace(gguf_dir=str(gguf_dir) if gguf_dir else None, models_dir=str(models_dir))
-     folder = dsv41_folder(a, fam, fam["tag"] + model, model)
-+    layout = dsv41_layout_of(md, lambda name: where(folder / name).exists()) if md.get("recipe") in ("ista", "udlow", "coder") else "four"
-+    if layout == "six" and not a.gguf_dir and not all(where(folder / name).exists() for name in md["shards6"]):
-+        layout = "four"                 # (setup downloads only the pinned four-shard files: a part of the six-shard set in setup's own folder is not used)
-+    shards = [dsv41_pick(folder, name, where=where) for name in (md["shards6"] if layout == "six" else md["shards"])]
-+    sources = [dsv41_download_layout(model, Path(root) / "models", vision=vision, where=where)
-+               for root in elsewhere if not gguf_dir and not same_folder(Path(root) / "models", models_dir)]
-+    if not gguf_dir and not all(download_complete(where(p), own=p.name in DSV41_LEGACY_FILES) for p in shards):
-+        source = next((item for item in sources
-+                       if all(download_complete(where(p), own=p.name in DSV41_LEGACY_FILES) for p in item["shards"])), None)
-+        if source is not None:
-+            folder, layout, shards = source["folder"], source["layout"], source["shards"]
-     shared_dir = dsv41_shared_dir(a, fam)
-     udlow = md.get("recipe") in ("udlow", "coder")
-+    shared = {name: dsv41_find_shared(a, name, folder, shared_dir,
-+                                    (md["engram_shard"],) if udlow and name == DSV41_ISTA_ENGRAM else (), where=where)
-+              for name in [*md.get("shared", []), *([DSV41_MMPROJ] if vision else [])]}
-+    shared_dirs = tuple(dict.fromkeys([shared_dir, *(item["shared_dir"] for item in sources)]))
-+    for name, path in shared.items():
-+        if download_complete(where(path), own=bool(gguf_dir) or path.parent not in shared_dirs):
-+            continue
-+        for source in sources:
-+            candidate = source["shared"][name]
-+            if download_complete(where(candidate), own=candidate.parent not in source["shared_dirs"]):
-+                shared[name] = candidate
-+                break
-+    return {"folder": folder, "layout": layout, "shards": shards, "shared": shared,
-+            "shared_dir": shared_dir, "shared_dirs": shared_dirs}
-+
-+
-+def dsv41_download_files(model: str, models_dir, gguf_dir=None, *, vision: bool = True, elsewhere=(), where=Path) -> list:
-+    """Selected files and native completion evidence for launch forecasts and download progress."""
-+    fam = MULTI_FILE_FAMILIES["deepseek41"]
-+    selected = dsv41_download_layout(model, models_dir, gguf_dir, vision=vision, elsewhere=elsewhere, where=where)
-+    files = []
-+    for path in selected["shards"]:
-+        accepted = bool(gguf_dir) or path.name in DSV41_LEGACY_FILES
-+        files.append({"path": str(path), "bytes": fam["sha256"][path.name][0], "role": "model",
-+                      "accept_unmarked": accepted, "complete": download_complete(where(path), own=accepted)})
-+    for name, path in selected["shared"].items():
-+        accepted = bool(gguf_dir) or path.parent not in selected["shared_dirs"]
-+        files.append({"path": str(path), "bytes": fam["sha256"][name][0],
-+                      "role": "vision" if name == DSV41_MMPROJ else "model",
-+                      "accept_unmarked": accepted, "complete": download_complete(where(path), own=accepted)})
-+    return files
-+
-+
-+def dsv41_shared_missing(model: str, models_dir, gguf_dir=None, vision: bool = True, *, elsewhere=()) -> list:
-+    """[(name, bytes still to fetch)] of the shared files (the Engram, the DSpark drafter, the metadata shard, the picture file) that install_dsv41 would download for
-+    `model` with these choices; the same search as the install (dsv41_find_shared), so the launcher's plan and the acquisition cannot disagree.  Files the person has
-+    (--gguf-dir) or that are already complete in the shared folder are not listed; a half-fetched one counts what is left."""
-+    fam = MULTI_FILE_FAMILIES["deepseek41"]
-+    selected = dsv41_download_layout(model, models_dir, gguf_dir, vision=vision, elsewhere=elsewhere)
-     out = []
--    for n in [*md.get("shared", []), *([DSV41_MMPROJ] if vision else [])]:
--        f = dsv41_find_shared(a, n, folder, shared_dir, (md["engram_shard"],) if (udlow and n == DSV41_ISTA_ENGRAM) else ())
--        if f.exists() and (done(f) or a.gguf_dir or f.parent != shared_dir):
-+    for n, f in selected["shared"].items():
-+        if download_complete(f, own=bool(gguf_dir) or f.parent not in selected["shared_dirs"]):
-             continue
-         part = f.with_name(f.name + ".part")
-         have = part.stat().st_size if part.is_file() else 0
-@@ -9692,7 +9859,7 @@
-     return list(all_cards)
- 
- 
--def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards=None):
-+def install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards=None, *, data, elsewhere=()):
-     """Steps 2-7 for DeepSeek-V4.1-Flash (MULTI_FILE_FAMILIES): where it fits (strata_control/dsv41_fit.py, said plainly: a 508 GB
-     download and a model larger than most computers' memory are warnings, never a refusal), the engine (strata-dsv41), the nine
-     pinned shards (or your own, --gguf-dir), the engine's pack folder, the tokenizer and chat template from the GGUF, the config.  The
-@@ -9740,33 +9907,28 @@
-         fail(dsv41_context.problem(ctx), "--context takes 8192 up to 1048576 (8K, 32K, 64K, 128K, 256K, 512K, 1M); the default is 131072 (128K)")
-     if dsv41_context.note(ctx):
-         warn(f"context {dsv41_context.label(ctx)}: {dsv41_context.note(ctx)}")
--    folder = dsv41_folder(a, fam, tag, model)
--    layout = dsv41_layout_of(md, lambda n: (folder / n).exists()) if ista else "four"
--    if layout == "six" and not a.gguf_dir and not all((folder / n).exists() for n in md["shards6"]):
--        layout = "four"                 # (setup downloads only the pinned four-shard files: a part of the six-shard set in setup's own folder is not used)
-+    selected = dsv41_download_layout(model, a.models_dir, a.gguf_dir, vision=a.vision not in ("no", "off"),
-+                                     elsewhere=elsewhere if getattr(a, "separate_model_artifacts", False) else ())
-+    folder, layout, shards = selected["folder"], selected["layout"], selected["shards"]
-     if layout == "six" and any((folder / n).exists() for n in md["shards"]):
-         say(f"  {folder} holds both the older four-shard files and the six-shard files ISTA's converter wrote: the six-shard files are used (they carry the current chat template).")
--    shards = [dsv41_pick(folder, n) for n in (md["shards6"] if layout == "six" else md["shards"])]
-     if layout == "six":
-         say(f"  {folder} holds ISTA-DASLab's six-shard files of 2026-10-27 ({len(shards)} files and the Engram as the sixth): they are used where they are.")
--    shared_dir = dsv41_shared_dir(a, fam)
-     # Pictures are on by default (owner rule): the engine reads them with its own vision tower, which the pack carries when the tower's weights
-     # (mmproj-BF16.gguf, a shared file) were there when it was made.  --vision no leaves the file out and the pack text-only.
-     ds_vision = "off" if a.vision in ("no", "off") else "on"           # (on a Mac this is settled again once the engine is known, below)
--    shared_names = list(md.get("shared", [])) + ([DSV41_MMPROJ] if ds_vision == "on" else [])
--    shared = [dsv41_find_shared(a, n, folder, shared_dir, (md["engram_shard"],) if (udlow and n == DSV41_ISTA_ENGRAM) else ()) for n in shared_names]
-+    shared = list(selected["shared"].values())
-     mmproj_file = shared[len(md.get("shared", []))] if ds_vision == "on" else None
--    own_files = {f: bool(a.gguf_dir) or f.parent != shared_dir for f in shared}         # a file found outside setup's own folder is the person's
-+    own_files = {f: bool(a.gguf_dir) or f.parent not in selected["shared_dirs"] for f in shared}  # retained managed files still require finish marks
- 
-     def partial(f: Path) -> int:
-         p = f.with_name(f.name + ".part")
-         return p.stat().st_size if p.is_file() else 0
- 
--    left = sum(0 if f.exists() and (done(f) or a.gguf_dir or own_files.get(f) or f.name in DSV41_LEGACY_FILES) else fam["sha256"][f.name][0] - partial(f)
--               for f in [*shards, *shared]) / 1e9
--    probe = folder if folder.exists() else (folder.parent if folder.parent.exists() else Path(a.models_dir))
--    free = free_gb(probe)
--    plan = dsv41_fit.plan([{**c, "vram_gb": float(c.get("vram_gb") or 0)} for c in cards], ram, free if left else None, ctx, model=model,
-+    needs = [(f, 0 if f.exists() and (done(f) or a.gguf_dir or own_files.get(f) or f.name in DSV41_LEGACY_FILES)
-+              else max(0, fam["sha256"][f.name][0] - partial(f)) / 1e9) for f in [*shards, *shared]]
-+    left = sum(gb for _, gb in needs)
-+    plan = dsv41_fit.plan([{**c, "vram_gb": float(c.get("vram_gb") or 0)} for c in cards], ram, None, ctx, model=model,
-                          named=True)               # `cards` are decided above (dsv41_auto_cards / the person's): the plan describes them
-     say()
-     for line in plan["lines"]:
-@@ -9899,10 +10061,10 @@
-         else:
-             download(DSV41_SHARED[f.name] + f.name, f)
-         verify_sha256(f, *dsv41_pin_of(f, fam["sha256"][f.name]), own=own_files[f], also=dsv41_also(f.name))
--    ok(f"model files: {folder} ({len(shards)} shards" + (f"; shared files: {shared_dir if any(not own_files[f] for f in shared) else shared[0].parent}" if shared else "") + ")")
-+    shared_folders = ", ".join(dict.fromkeys(str(f.parent) for f in shared))
-+    ok(f"model files: {folder} ({len(shards)} shards" + (f"; shared files: {shared_folders}" if shared else "") + ")")
- 
-     step(6, "preparing the model for Strata")
--    data, _ = data_folder_for(a)
-     pack = data / "packs" / tag.lower()            # the engine's map of the shards, the hash tables, the tokenizer: a few MB
-     have_pack = (pack / "tokenizer" / "vocab.json").exists() and (pack / "tensors.txt").exists()
-     if have_pack and ds_vision == "on" and mmproj_file is not None and not dsv41_pack_has_tower(pack):
-@@ -10502,6 +10664,7 @@
+     step(5, f"downloading {fam['title']} {model}")
+-    models_dir = Path(a.gguf_dir) if a.gguf_dir else models_root / tag
+-    files = gguf_dir_shards(models_dir, fam, model) if a.gguf_dir else \
+-        [models_dir / model_file(fam, model, i) for i in range(1, model_shards(fam, model) + 1)]
++    models_dir, _, _, files = model_download_layout(
++        family, model, models_root, data_dir=data if getattr(a, "separate_model_artifacts", False) else None,
++        elsewhere=elsewhere, gguf_dir=a.gguf_dir)
+     problem = gguf_dir_problem(models_dir, files[0], fam, model) if a.gguf_dir else None
+     if problem:                                        # files Strata cannot run, or another choice's files
+         fail(*problem)
+@@ -9434,6 +9553,7 @@
      ap.add_argument("--set-default-data-dir", action="store_true",
                      help="with --data-dir: remember the new folder as the data folder without moving anything")
      ap.add_argument("--models-dir", help="where the GGUF files go (default: <data folder>/models)")
 +    ap.add_argument("--separate-model-artifacts", action="store_true", help=argparse.SUPPRESS)
-     ap.add_argument("--dsv41-package", metavar="FILE", help="DeepSeek: the engine package you downloaded from the release page (a .tar.gz or .zip, "
-                                                            "or its unpacked folder); it is checked and installed instead of being fetched")
+     ap.add_argument("--dsv41-package", metavar="FILE", help=argparse.SUPPRESS)      # DeepSeek's: answered with retired.NOT_OFFERED
      ap.add_argument("--feed", metavar="URL|DIR",
-@@ -10736,7 +10899,8 @@
+                     help="where the signed update feed is: default STRATA_UPDATE_FEED, a remembered https feed, "
+@@ -9674,7 +9794,8 @@
              return start(have[pick - 1], a.port, run_gpu, yes=a.yes, layer_split=a.layer_split,
                       keep={"host": a.host, "api_key": a.api_key, "draft_vocab": a.draft_vocab,
                             "vram_reserve_mib": a.vram_reserve_mib, "open_browser": a.browser})
@@ -546,21 +387,16 @@ diff --git a/setup.py b/setup.py
          roots = [data, *elsewhere]
          if not models_dir_given:
              a.models_dir = str(data / "models")
-@@ -10990,11 +11154,11 @@
+@@ -9912,7 +10033,7 @@
          family = allf[int(ask("Which model?", [str(i) for i in range(1, len(allf) + 1)],
                                str(allf.index(rec_fam) + 1), a.yes)) - 1]
      if family in OWN_PATH_FAMILIES:                    # Qwen3.6: its own engine path, its own steps 2-7
 -        return install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted)
 +        return install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, data=data, elsewhere=elsewhere)
-     if family in MULTI_FILE_FAMILIES:                  # DeepSeek-V4.1-Flash: nine shards, its own engine, several cards
-         all_cards = (None if (WIN or getattr(a, "_cards_named", False)) else dsv41_auto_cards(amd, ROOT / "engine")) if hip else [g for g in found if gpu_problem(g) is None]
-         gpu = {**gpu, "cards": chosen}
--        return install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards)
-+        return install_dsv41(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted, all_cards, data=data, elsewhere=elsewhere)
      fam = FAMILIES[family]
      SHAPE_ENGINE.clear()
      if fam.get("shape"):                               # a feed model of its own shape: its own engine component (strata_control/shape_engine.py)
-@@ -11257,39 +11421,26 @@
+@@ -10175,39 +10296,26 @@
      elif esp_choice.lower() not in ("", "off", "no", "n", "0"):
          warn("the experimental speed projection is made for the original Qwen3.8-Flash-Next, not Swift 1.5: left off"
               if family == "swift" else f"the experimental speed projection is not tested with {model}: left off")
@@ -610,7 +446,7 @@ diff --git a/setup.py b/setup.py
      # count only what step 6 will still write: a pack whose experts.bin is already there (the AVX-512 Q2_0
      # conversion, or the low-RAM mode's copy) and an existing MTP draft layer need no new room
      pack_now = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-@@ -11297,7 +11448,7 @@
+@@ -10215,7 +10323,7 @@
      mtp_have = find_in(roots, "mtp/rt/experts.bin") is not None
      q2_avx = model == "Q2_0" and avx512 and family == "qwen"
      prep_gb = MODELS[model].get("prepare_gb", 0.0) if ready and MODELS[model].get("prepare") and \
@@ -619,7 +455,7 @@ diff --git a/setup.py b/setup.py
      margin = 2 if mtp_have else 8                      # working room: a guess, not bytes that will be written
      mtp_fetch = 5.2 if (not mtp_have and not ready and a.mtp != "off" and getattr(a, "drafter", None) != "dflash2") else 0.0      # the draft layer's tensors step 6 fetches (strata_control.discovery.MTP_FETCH_GB)
      copy_gb = MODELS[model]["arena_gb"] + 1 if low_ram and not q2_avx and not pack_bin else 0      # the low-RAM mode's copy of the experts (goes to the data folder's packs)
-@@ -11343,10 +11494,10 @@
+@@ -10261,10 +10369,10 @@
      # ---- 5. the model files
      step(5, f"downloading {fam['title']} {model}")
      if ready:                                          # pinned files of the pack's repository, each SHA-256-checked
@@ -632,9 +468,9 @@ diff --git a/setup.py b/setup.py
      elif not a.gguf_dir:
          missing = [s.name for s in shards if not (s.exists() and done(s))]
          if missing:                                    # #495: files downloaded by hand go here, or --gguf-dir
-@@ -11403,17 +11554,18 @@
+@@ -10321,17 +10429,18 @@
      pack = find_in(roots, f"packs/{tag.lower()}") or data / "packs" / tag.lower()
-     env = dict(os.environ, STRATA_GGUF_PY=str(llama / "gguf-py"))
+     env = dict(os.environ, **gguf_py_env())
      prepared = bool(ready and MODELS[model].get("prepare"))
 -    if prepared and not prepared_done(model, models_dir):
 +    if prepared and not prepared_done(model, models_dir, ready_data_dir):
@@ -656,7 +492,7 @@ diff --git a/setup.py b/setup.py
      elif model == "Q2_0" and avx512 and family == "qwen":
          # the Q2_0 experts repacked for the AVX-512 kernel (the measured speed): a one-time ~40 GB conversion
          if not (pack / "index.txt").exists() or not (pack / "experts.bin").exists():   # index.txt is written last
-@@ -11434,7 +11586,7 @@
+@@ -10352,7 +10461,7 @@
          run([sys.executable, str(ROOT / "tools" / "iq_pack.py"), "--gguf", str(shards[0]), "--out", str(pack),
               "--experts-bin", *fam.get("pack_args", [])], env=env)       # #3193: Gyro needs --compat-bf16 here too
      ok(f"model prepared: {pack}")
@@ -665,7 +501,7 @@ diff --git a/setup.py b/setup.py
          (find_in(roots, "mtp/rt/experts.bin") or data / "mtp/rt/experts.bin").parent.parent
      rt = mtp / "rt"
      corrupt = (rt / "experts.bin").exists() and not prepared and mtp_corrupt(mtp, env)
-@@ -11468,7 +11620,7 @@
+@@ -10386,7 +10495,7 @@
      sys.path.insert(0, str(ROOT / "tools"))
      from gguf_reader import GGUFFile                   # the PLE table's shard: shard 2 (original) or 1 (Swift)
      if ready:   # the dense GGUF as --native and --native-dense-gguf (--native alone would look for a second shard),
@@ -674,7 +510,7 @@ diff --git a/setup.py b/setup.py
          ple = rp["ple"]
          model_args = ["--pack", str(pack), "--native", str(rp["dense"]), "--native-dense-gguf", str(rp["dense"]),
                        "--ple-gguf", str(ple), *(["--embd-gguf", str(rp["embd"])] if "embd" in rp else [])]
-@@ -11481,7 +11633,7 @@
+@@ -10399,7 +10508,7 @@
                        *(["--ple-gguf", str(ple)] if len(shards) <= 2 else [])]
      from strata_control import setup_config            # the seam: the lines that built the run config live in strata_control/setup_config.py
      _built = setup_config.config_for(setup_config.SetupInputs(
@@ -686,7 +522,7 @@ diff --git a/setup.py b/setup.py
 diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
 --- a/strata_cli/launch/app.py
 +++ b/strata_cli/launch/app.py
-@@ -113,26 +113,17 @@
+@@ -107,26 +107,17 @@
          """The chosen model's state (installed, what helper files are missing, sizes) for these choices."""
          from strata_cli.launch import modelstate
          s = self.settings
@@ -696,7 +532,7 @@ diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
 +                                                       model_path=s.model_path, move=self.move_data)
 +        return modelstate.assess(self.catalog, directories.family, directories.model, vision=s.vision, model_path=s.model_path,
 +                                 directories=directories, data_dir=data_dir if data_dir is not None else s.data_dir, rows=self.rows, mtp=s.mtp,
-                                  drafting=modelstate.resolved_drafting(s.drafting, s.family))
+                                  drafting=modelstate.resolved_drafting(s.drafting, s.family, **auto_signals(self.catalog, s, s.family)))
  
      def default_folder(self) -> Path:
          """The folder the Folder step starts with: where the chosen model already is (installed, or the person's own files with their
@@ -718,7 +554,7 @@ diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
  
      def invalidate_rows(self) -> None:
          self._adv = None
-@@ -293,7 +284,11 @@
+@@ -281,7 +272,11 @@
                               confirm_restart=self._ask_restart, after_check=self._save_pending)
          gb = getattr(self.runner, "download_gb", lambda: 0.0)() if not confirmed else 0.0
          if gb >= 1.0:
@@ -734,7 +570,7 @@ diff --git a/strata_cli/launch/app.py b/strata_cli/launch/app.py
 diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
 --- a/strata_cli/launch/catalog.py
 +++ b/strata_cli/launch/catalog.py
-@@ -255,14 +255,66 @@
+@@ -243,14 +243,66 @@
      return cards
  
  
@@ -803,7 +639,7 @@ diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
          mcp = self.src / "tools" / "strata_mcp.py"
          if not mcp.is_file() or not (self.src / "setup.py").is_file():
              raise CatalogUnavailable(
-@@ -599,19 +651,119 @@
+@@ -543,19 +595,106 @@
      def data_dir(self) -> Path:
          return self.data_dir_choice()[0]
  
@@ -893,20 +729,7 @@ diff --git a/strata_cli/launch/catalog.py b/strata_cli/launch/catalog.py
 +        mod = self.strata.setup_module()
 +        family, model = directories.family, directories.model
 +        if not footprint.weights:
-+            if family not in getattr(mod, "MULTI_FILE_FAMILIES", {}) or footprint.pack is None:
-+                return False
-+            pack_name = self.tag_of(family, model)
-+            if normalized(footprint.pack) != normalized(Path(root) / "packs" / pack_name):
-+                return False
-+            packs = (directories.data_dir / "packs" / pack_name,
-+                     *(source / "packs" / pack_name for source in directories.moving_sources))
-+            pack = next((path for path in packs if path.exists()), packs[0])
-+            if not ((pack / "tokenizer/vocab.json").is_file() and (pack / "tensors.txt").is_file()):
-+                return False
-+            files = mod.dsv41_download_files(model, directories.models_dir, vision=vision,
-+                                             elsewhere=directories.elsewhere if directories.models_argument else (),
-+                                             where=directories.model_file)
-+            return all(item["complete"] for item in files)
++            return False
 +        source_models = Path(root).resolve() / "models"
 +        destination_models = directories.data_dir.resolve() / "models"
 +        try:
@@ -947,7 +770,7 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
  from dataclasses import dataclass, field
  from pathlib import Path
  
-@@ -134,9 +133,11 @@
+@@ -142,24 +141,27 @@
  
  def assess(catalog, family: str | None, model: str | None, *, vision: str = "off", model_path: str | None = None,
             data_dir: str | Path | None = None, config: Path | None = None, desc: dict | None = None, rows: list | None = None,
@@ -960,10 +783,8 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
      st = ModelState()
      mtp = mtp_choice(mtp, drafting)
      row = next((r for r in (rows if rows is not None else catalog.rows()) if r.family == family and r.model == model), None) if (family and model) else None
-@@ -145,16 +146,17 @@
-     multi = getattr(getattr(catalog, "strata", None), "multi_family", None)
-     own_tower = bool(family) and multi is not None and bool(multi(family))
-     wants_pictures = vision != "off" and (row is None or row.images) and not own_tower
+     st.total_gb = float(row.download_gb) if row else 0.0
+     wants_pictures = vision != "off" and (row is None or row.images)
 -    data = Path(data_dir) if data_dir else None
 +    data = directories.data_dir
 +    homes = directories.data_roots
@@ -982,7 +803,7 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
              st.parts.append(Part("mmproj", "the picture reader", MMPROJ_GB))
          return st
      if config is None and family and model and use_installed:          # (False: the installed copy is in another data folder than the one this launch uses)
-@@ -168,6 +170,9 @@
+@@ -173,6 +175,9 @@
              cfg = None
      if cfg is not None:
          fp = discovery.footprint(cfg, Path(config))
@@ -992,7 +813,7 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
          st.installed = True
          st.folder = fp.data_dir
          gone = [m for m in fp.missing() if m.kind == "weights"]
-@@ -182,41 +187,53 @@
+@@ -187,41 +192,46 @@
                  st.parts.append(Part("mmproj", "the picture reader", MMPROJ_GB))
          images = (desc or {}).get("images") if desc is not None else ("cpu" if fp.mmproj else "off")
          if wants_pictures and (images in (None, "off")) and not any(p.kind == "mmproj" for p in st.parts):
@@ -1027,13 +848,6 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
 +            if ready:
 +                remaining = sum(f[4] for f in mod.ready_needed(model, folder, ready_data)
 +                                if not mod.ready_verified(mod.ready_where(folder, f, ready_data, checkpoint), f[5])) / 1e9
-+        elif own_tower:
-+            files = mod.dsv41_download_files(model, directories.models_dir, vision=vision != "off",
-+                                             elsewhere=directories.elsewhere if directories.models_argument else (),
-+                                             where=directories.model_file)
-+            folder = Path(files[0]["path"]).parent if files else directories.models_dir
-+            got = sum(item["bytes"] for item in files if item["complete"])
-+            remaining = sum(item["bytes"] for item in files if not item["complete"]) / 1e9
 +        elif family in getattr(mod, "OWN_PATH_FAMILIES", {}):
 +            selected = mod.own_path_download_layout(family, model, directories.models_dir,
 +                                                    elsewhere=directories.elsewhere if directories.models_argument else ())
@@ -1071,7 +885,7 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
  
  
  def mmproj_size(catalog, family: str | None, name: str) -> int | None:
-@@ -232,12 +249,14 @@
+@@ -237,12 +247,14 @@
          return None
  
  
@@ -1087,7 +901,7 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
      for base in data_folders:
          if not base:
              continue
-@@ -265,6 +284,8 @@
+@@ -270,6 +282,8 @@
          if alt is None:
              return False
          places = [Path(b) / sub / alt[0] for b in data_folders if b for sub in ("models", "Models")]
@@ -1099,7 +913,7 @@ diff --git a/strata_cli/launch/modelstate.py b/strata_cli/launch/modelstate.py
 diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
 --- a/strata_cli/launch/runner.py
 +++ b/strata_cli/launch/runner.py
-@@ -990,6 +990,7 @@
+@@ -927,6 +927,7 @@
              self.notices.append(note)
              self.emit("model", note, 100, level="warn")
  
@@ -1107,7 +921,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
      def setup_args(self) -> list[str]:
          cat, s = self.catalog, self.s
          fam, model = s.family, s.model
-@@ -1012,13 +1013,16 @@
+@@ -952,13 +953,16 @@
              args += ["--mtp", mtp_word]                      # round 8, N3: "--mtp off" never reached setup, which then fetched the 5.2 GB draft layer
          if resolved == "dflash2" and fam in modelstate.HELPER_FAMILIES and mtp_word != "off":
              args += ["--drafter", "dflash2"]                 # one drafter per run: a new install fetches DFlash2's pack (below), not the MTP layer
@@ -1125,7 +939,19 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
          if s.model_path:
              p = Path(s.model_path)
              args += ["--gguf-dir", str(p if p.is_dir() else p.parent)]
-@@ -1106,30 +1110,6 @@
+@@ -973,9 +977,9 @@
+         if sys.platform == "darwin":
+             # a Mac's setup (Control mode, strata_control/mac_fit.py) takes fewer options (no --kv, --gpu, speed projection)
+             keep = {"--yes", "--no-start", "--family", "--model", "--context", "--vision", "--data-dir", "--gguf-dir", "--move-data",
+-                    "--set-default-data-dir", "--feed", "--drafter", "--mtp"}     # --drafter / --mtp: setup.py's Mac step fetches the draft layer only where the
++                    "--set-default-data-dir", "--feed", "--drafter", "--mtp", "--models-dir", "--separate-model-artifacts"}     # --drafter / --mtp: setup.py's Mac step fetches the draft layer only where the
+                                                                                   # start runs the MTP, and not after a Drafting Off (`--mtp off`)
+-            flags = ("--yes", "--no-start", "--move-data", "--set-default-data-dir")
++            flags = ("--yes", "--no-start", "--move-data", "--set-default-data-dir", "--separate-model-artifacts")
+             out, i = [], 0
+             while i < len(args):
+                 if args[i] in keep:
+@@ -1062,30 +1066,6 @@
          except Exception:                                    # noqa: BLE001 - when in doubt do what was asked: run setup with the given folders
              return False
  
@@ -1156,7 +982,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
      def _first_own_gguf(self) -> Path | None:
          s = self.s
          if not s.model_path:
-@@ -1169,8 +1149,10 @@
+@@ -1125,8 +1105,10 @@
                  # the copy that is installed is not what this launch uses (another --data-dir): the start runs setup with the given folder, so
                  # the plan counts what setup fetches there, not the other copy (lane NET 4a)
                  path, desc, installed = None, None, False
@@ -1169,7 +995,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
  
      def other_copy(self) -> Path | None:
          """The data folder of an installed copy of this model that this launch does not use, else None: another --data-dir was given, and the
-@@ -1184,18 +1166,12 @@
+@@ -1140,18 +1122,12 @@
              if path is None or self.installed_serves_request(path):
                  return None
              from strata_control import discovery
@@ -1192,7 +1018,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
          except Exception:                                    # noqa: BLE001 - a plan line, never a reason to stop
              return None
  
-@@ -1251,19 +1227,25 @@
+@@ -1207,19 +1183,25 @@
                  return
              yield ln
  
@@ -1227,7 +1053,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
                  first = next((f for f in job["files"] if f.get("role") == "model"), None)
                  if first:                                    # the folder setup names it (Q2_0), not the lower-case run-config tag (q2_0)
                      job["folder"] = str(Path(first["path"]).parent)
-@@ -1322,10 +1304,13 @@
+@@ -1278,10 +1260,13 @@
          for k in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
              env.pop(k, None)
          env["PYTHONPATH"] = str(cat.src)
@@ -1242,28 +1068,28 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
          step_seen, step_since, quiet_since, said = None, time.monotonic(), time.monotonic(), None
          for line in self._read_lines(p):
              if self.cancel.is_set():
-@@ -1350,7 +1335,9 @@
-                     self.notices.append(note[1])
-                 self.emit("model", note[1], None, level=note[0], step=step_seen)
+@@ -1300,7 +1285,9 @@
+             lines.append(line)
+             lines[:] = lines[-1500:]
              prog = cat.mcp.install_progress(lines)
 -            prog = cat.mcp.combined_progress(prog, job)
 +            if str(prog.get("step") or "").startswith("5/") and not str(step_seen or "").startswith("5/"):
-+                job = self.progress_job(elsewhere=sources)    # setup has migrated and selected the native download paths by step 5
++                job = self.progress_job(elsewhere=sources)    # setup has migrated and selected its download paths by step 5
 +            prog = cat.mcp.combined_progress(prog, job, setup_module=cat.strata.setup_module())
              dl, phase, label = prog.get("download"), prog.get("phase"), prog.get("label")
              if prog.get("step") != step_seen:
                  step_seen, step_since = prog.get("step"), time.monotonic()
-@@ -1708,7 +1695,8 @@
-             except Exception:                                # noqa: BLE001 - an unreadable table is only the old, generic plan
-                 name = None
+@@ -1602,7 +1589,8 @@
+             sig = self.drafting_signals(cfg, {"backend": backend, "archs": archs})
+             slot_drafts = drafting.slot_drafts_by_default(mode, backend=backend, archs=archs, vram_mib=sig["vram_mib"], args=sig["args"], slots=int(self.s.parallel or 0), split=split)   # the drafter is fetched before the start (ensure_drafter)
          return {"mode": mode, "klass": drafting.card_class(archs), "model_name": name, "family": self.s.family,
 -                "data_dir": drafting.data_dir_of(args) or (Path(self.s.data_dir) if self.s.data_dir else None),
 +                "data_dir": drafting.data_dir_of(args) or self.catalog.launch_directories(
 +                    self.s.family, self.s.model, data_dir=self.s.data_dir, model_path=self.s.model_path, move=self.move_data).data_dir,
                  "backend": backend, "archs": archs, "mtp_here": drafting.mtp_ready(args) if cfg else None,
-                 "blocked": drafting.blocked_by(args, split=bool(self.s.gpus and len(self.s.gpus) > 1), slots=int(self.s.parallel or 0), named=drafting.normalize(mode) == "dflash2", backend=backend)}
- 
-@@ -2458,6 +2446,7 @@
+                 "blocked": drafting.blocked_by(args, split=split, slots=int(self.s.parallel or 0), named=drafting.normalize(mode) == "dflash2", backend=backend, slot_drafts=slot_drafts),
+                 "slots_none": drafting.slots_draft_nothing(drafting.merged_args(cfg), int(self.s.parallel or 0))}
+@@ -2267,6 +2255,7 @@
          from strata_control import discovery
          from strata_control.discovery import MMPROJ_GB, MTP_FETCH_GB
          s = self.s
@@ -1271,7 +1097,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
          st = self.model_state()
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
-@@ -2468,9 +2457,7 @@
+@@ -2277,9 +2266,7 @@
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -1282,7 +1108,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
                  if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
                      parts.append({"kind": "mtp", "label": "the draft layer", "gb": MTP_FETCH_GB})
                  own = None
-@@ -2478,7 +2465,7 @@
+@@ -2287,7 +2274,7 @@
                      own = Path(s.model_path)
                      own = own if own.is_dir() else own.parent
                  # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
@@ -1291,7 +1117,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
                  if wants_pictures and "mmproj" not in have and not has_reader:
                      parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
-@@ -2489,7 +2476,6 @@
+@@ -2298,7 +2285,6 @@
              if _b is not None and self.other_copy() is not None:
                  _cfg = None                                  # another data folder's copy: its drafter is not the one this launch uses
              want = self.drafting_inputs(_cfg or {})
@@ -1299,20 +1125,7 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
              sig = self.drafting_signals(_cfg or {}, want)
              if drafting.needs_pack(**want, **sig) or drafting.needs_tuned(**want, **sig):            # chosen DFlash2 (or Auto picking it) and the drafter (the tuned one, where the set has it) is not here: it is part of the download
                  parts.append({"kind": "dflash2", "label": "the DFlash2 drafter",
-@@ -2509,10 +2495,10 @@
-             # them with the same search setup makes (setup.dsv41_shared_missing), so the plan is the download (0.2.9.1: "Nothing to download" and then 8 GB)
-             try:
-                 mod = self.catalog.strata.setup_module()
--                data = Path(s.data_dir) if s.data_dir else (self.existing_data_dir() or self.catalog.data_dir())
-+                models_dir = directories.models_dir
-                 labels = {getattr(mod, "DSV41_DSPARK", ""): "the DSpark drafter", getattr(mod, "DSV41_ISTA_ENGRAM", ""): "the n-gram table",
-                           getattr(mod, "DSV41_MMPROJ", ""): "the picture reader"}
--                for name, size in mod.dsv41_shared_missing(s.model, Path(data) / "models", s.model_path, vision=s.vision not in ("off", "no")):
-+                for name, size in mod.dsv41_shared_missing(directories.model, models_dir, s.model_path, vision=s.vision not in ("off", "no")):
-                     if size >= 5e7:
-                         parts.append({"kind": "shared", "label": labels.get(name, name), "gb": round(size / 1e9, 1)})
-             except Exception:                                # noqa: BLE001 - the plan still shows the rest
-@@ -2579,17 +2565,20 @@
+@@ -2365,17 +2351,20 @@
              _m, families, _c, _src = self.catalog.tables()
              if mod is None or not (families.get(s.family or "") or {}).get("ready") or not hasattr(mod, "ready_needed"):
                  return None
@@ -1339,19 +1152,10 @@ diff --git a/strata_cli/launch/runner.py b/strata_cli/launch/runner.py
          except Exception:                                    # noqa: BLE001 - a plan that cannot work this out still shows the rest
              return None
  
-@@ -2840,7 +2829,7 @@
-         s = self.s
-         hw = self.catalog.hardware()
-         try:
--            data = Path(s.data_dir) if s.data_dir else self.catalog.data_dir()
-+            data = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data).models_dir
-             free = None if (s.model_path or self.model_state().remaining_gb < 1) else self.catalog.disk_free(data)
-         except Exception:                                    # noqa: BLE001 - a plan that cannot read the disk still shows the rest
-             free = None
 diff --git a/strata_cli/launch/screens.py b/strata_cli/launch/screens.py
 --- a/strata_cli/launch/screens.py
 +++ b/strata_cli/launch/screens.py
-@@ -848,10 +848,13 @@
+@@ -795,10 +795,13 @@
              value = self.query_one("#folderpath", Input).value.strip()
          except Exception:                                    # noqa: BLE001
              return
@@ -1367,7 +1171,7 @@ diff --git a/strata_cli/launch/screens.py b/strata_cli/launch/screens.py
          out = Text()
          if s.model_path:
              out.append(f"Your model files stay where they are: {s.model_path}\n", style=FG)
-@@ -913,7 +916,8 @@
+@@ -860,7 +863,8 @@
      def commit(self) -> None:
          value = self.typed()
          default = str(self.ctx.default_folder())
@@ -1435,69 +1239,39 @@ diff --git a/tests/terminal/test_discovery.py b/tests/terminal/test_discovery.py
  
  
  if __name__ == "__main__":
-diff --git a/tests/terminal/test_dsv41_mac_unsloth.py b/tests/terminal/test_dsv41_mac_unsloth.py
---- a/tests/terminal/test_dsv41_mac_unsloth.py
-+++ b/tests/terminal/test_dsv41_mac_unsloth.py
-@@ -243,7 +243,7 @@
-         out = io.StringIO()
-         with mock.patch.object(sys, "platform", platform), mock.patch("platform.machine", return_value=machine or "x86_64"),                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-             try:
--                setup.install_dsv41(a, "deepseek41", {}, False, False, 13, True, 8080, 128.0, False)
-+                setup.install_dsv41(a, "deepseek41", {}, False, False, 13, True, 8080, 128.0, False, data=Path("/nonexistent/data"))
-             except BaseException as exc:                      # noqa: BLE001 - fail() exits; anything after the check would raise something else
-                 return type(exc).__name__, out.getvalue()
-         return None, out.getvalue()
 diff --git a/tests/terminal/test_fix3_0212.py b/tests/terminal/test_fix3_0212.py
 --- a/tests/terminal/test_fix3_0212.py
 +++ b/tests/terminal/test_fix3_0212.py
-@@ -134,14 +134,6 @@
-         self.assertEqual([p.kind for p in st.parts], [])
- 
-     # the plan as `strata launch --plan` prints it (check (a))
--    def test_plan_says_nothing_to_download_for_a_model_folder_outside_the_data_dir(self):
--        data = self.base / "data"
--        self.layer_in(data)
--        folder = self.model_files(self.base / "ext" / "IQ3_XXS")
--        with mock.patch.object(Runner, "existing_data_dir", return_value=None), mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
--            out = self.plan_text("--model-path", str(folder), "--data-dir", str(data), "--vision", "off")
--        self.assertIn("download  Nothing to download: your model files are used where they are.", out)
--
-     def test_plan_with_a_models_ancestor_outside_the_data_dir_is_the_same(self):
+@@ -138,7 +138,7 @@
          data = self.base / "data"
          self.layer_in(data)
-@@ -155,16 +147,6 @@
-         with mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"),                 mock.patch.object(Runner, "intel_chosen", lambda self: False):       # an Intel Arc in the box that runs the test would plan its own engine
-             out = self.plan_text("--model-path", str(folder), "--data-dir", str(self.base / "data"), "--vision", "off")
-         self.assertIn("About 5.2 GB to download: the draft layer (5.2 GB).", out)
--
--    def test_the_picture_reader_in_the_data_dir_is_found_too(self):
--        data = self.base / "data"
--        self.layer_in(data)
--        (data / "models").mkdir()
--        (data / "models" / "mmproj-Qwen3.8-Flash-Next-BF16.gguf").write_bytes(b"x")
--        folder = self.model_files(self.base / "ext" / "IQ3_XXS")
+         folder = self.model_files(self.base / "ext" / "IQ3_XXS")
 -        with mock.patch.object(Runner, "existing_data_dir", return_value=None), mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
--            out = self.plan_text("--model-path", str(folder), "--data-dir", str(data), "--vision", "on")
--        self.assertIn("download  Nothing to download", out)
++        with mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
+             out = self.plan_text("--model-path", str(folder), "--data-dir", str(data), "--vision", "off")
+         self.assertIn("download  Nothing to download: your model files are used where they are.", out)
  
-     def test_the_import_preview_sees_the_layer_in_the_data_folder_in_use(self):
-         from strata_control import models
+@@ -162,7 +162,7 @@
+         (data / "models").mkdir()
+         (data / "models" / "mmproj-Qwen3.8-Flash-Next-BF16.gguf").write_bytes(b"x")
+         folder = self.model_files(self.base / "ext" / "IQ3_XXS")
+-        with mock.patch.object(Runner, "existing_data_dir", return_value=None), mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
++        with mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
+             out = self.plan_text("--model-path", str(folder), "--data-dir", str(data), "--vision", "on")
+         self.assertIn("download  Nothing to download", out)
+ 
 diff --git a/tests/terminal/test_flow2_022.py b/tests/terminal/test_flow2_022.py
 --- a/tests/terminal/test_flow2_022.py
 +++ b/tests/terminal/test_flow2_022.py
-@@ -199,12 +199,6 @@
-         folder.rename(moved)
-         out = self.plan_text("--model-path", str(moved))
-         self.assertIn("download  Nothing to download: your model files are used where they are.", out)
--
--    def test_own_files_with_no_draft_layer_say_what_is_fetched(self):
--        folder = self.files(self.base / "IQ3_XXS", IQ3XXS, "IQ3_XXS")
--        with mock.patch.object(Runner, "existing_data_dir", return_value=None),                 mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
--            out = self.plan_text("--model-path", str(folder), "--vision", "off")
--        self.assertIn("About 5.2 GB to download: the draft layer (5.2 GB). Your model files are used where they are.", out)
+@@ -202,7 +202,7 @@
  
-     def test_a_model_whose_files_are_all_on_disk_does_not_list_a_zero_download(self):
-         from strata_cli.launch.modelstate import ModelState, Part
+     def test_own_files_with_no_draft_layer_say_what_is_fetched(self):
+         folder = self.files(self.base / "IQ3_XXS", IQ3XXS, "IQ3_XXS")
+-        with mock.patch.object(Runner, "existing_data_dir", return_value=None),                 mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
++        with                 mock.patch.object(Catalog, "data_dir", return_value=self.base / "emptydata"):
+             out = self.plan_text("--model-path", str(folder), "--vision", "off")
+         self.assertIn("About 5.2 GB to download: the draft layer (5.2 GB). Your model files are used where they are.", out)
+ 
 diff --git a/tests/terminal/test_model_folder_case.py b/tests/terminal/test_model_folder_case.py
 --- a/tests/terminal/test_model_folder_case.py
 +++ b/tests/terminal/test_model_folder_case.py
@@ -1554,7 +1328,7 @@ diff --git a/tests/terminal/test_net_own_folder.py b/tests/terminal/test_net_own
 diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
 --- a/tools/nvfp4_local_pack.py
 +++ b/tools/nvfp4_local_pack.py
-@@ -585,20 +585,25 @@
+@@ -583,20 +583,25 @@
  # ------------------------------------------------------------------------------------------------------- prepare (setup)
  def cmd_prepare(a) -> int:
      """Everything setup needs from the downloaded checkpoint, each step skipped when its mark is there:
@@ -1583,7 +1357,7 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
          if r.returncode:
              sys.exit("prepare: %s failed (exit %d)" % (cmd[1] if len(cmd) > 1 else cmd[0], r.returncode))
  
-@@ -611,12 +616,12 @@
+@@ -609,12 +614,12 @@
          fn()
          mark.write_text("done %.0f s\n" % (time.time() - t0))
  
@@ -1612,7 +1386,7 @@ diff --git a/tools/nvfp4_local_pack.py b/tools/nvfp4_local_pack.py
 diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
 --- a/tools/strata_mcp.py
 +++ b/tools/strata_mcp.py
-@@ -1676,7 +1676,7 @@
+@@ -1484,7 +1484,7 @@
          log_path = Path(j.get("log", ""))
          tail = read_tail(log_path, 1500) if log_path.name else []   # a step's heading must stay inside it: the pack tools print hundreds of lines
          prog = install_progress(tail)
@@ -1621,7 +1395,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
          out = {"running": running, "started": j.get("started"), "model": j.get("model"), "family": j.get("family"),
                 "log": str(log_path), **prog}
          if not running:
-@@ -1711,43 +1711,51 @@
+@@ -1519,7 +1519,7 @@
      return gaps
  
  
@@ -1630,16 +1404,8 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      """The files setup fetches for one install, with the sizes it can know before the download starts:
      [{path, bytes|None, role}] where role is "model" (the shards or the pack's files) or "vision" (the picture reader).
      Empty when the setup module cannot say (the caller then falls back to the folder scan)."""
-     out = []
+@@ -1527,43 +1527,58 @@
      try:
-         big = (getattr(S, "MULTI_FILE_FAMILIES", None) or {}).get(family)
--        if big:                                         # DeepSeek-V4.1-Flash: its nine shards in the model's folder
--            folder = Path(models_dir) / (big["tag"] + model)
--            shared = Path(models_dir) / (big["tag"] + "shared")        # the Engram, the drafter and the metadata shard of the official sets
--            return ([{"path": str(folder / n), "bytes": big["sha256"][n][0], "role": "model"} for n in big["models"][model]["shards"]]
--                    + [{"path": str(shared / n), "bytes": big["sha256"][n][0], "role": "model"} for n in big["models"][model].get("shared", [])])
-+        if big:                                         # DeepSeek-V4.1-Flash: the installer's selected shards and reusable shared files
-+            return S.dsv41_download_files(model, models_dir, vision=vision, elsewhere=elsewhere if data_dir is not None else ())
          own = (getattr(S, "OWN_PATH_FAMILIES", None) or {}).get(family)
          if own:                                         # Qwen3.6: the GGUF and the picture reader in the model's folder
 -            folder = Path(models_dir) / (own["tag"] + model)
@@ -1675,7 +1441,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
 +                Path(models_dir) / (fam.get("tag", "") + model) / S.model_file(fam, model, i)
 +                for i in range(1, S.model_shards(fam, model) + 1)]
 +            for path in paths:
-+                out.append({"path": str(path), "bytes": None, "role": "model"})
++                out.append({"path": str(path), "bytes": None, "role": "model", "accept_unmarked": False})
          if vision:                                      # beside the model folders, not inside them (setup step 5)
              size = (fam.get("mmproj_sha256") or (None,))[0] or DEFAULT_MMPROJ_BYTES
 -            out.append({"path": str(Path(models_dir) / fam.get("mmproj", S.MMPROJ)), "bytes": size, "role": "vision"})
@@ -1690,23 +1456,27 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      """One honest download figure for a model in parts: every part counted (finished, partial, waiting), the picture reader as a part
      of its own, and a part list the screen can name ("part 2 of 4").  The finished state needs EVERY part: a first shard that is whole
      does not make the model downloaded."""
-@@ -1758,10 +1766,13 @@
+     log = prog.get("download") or {}
+     cur_gb = float(log.get("total_gb") or 0)
+     rows = []
++    download_complete = getattr(setup_module, "download_complete", None)
+     for f in files:
          p = Path(f["path"])
          part = p.with_name(p.name + ".part")
++        requires_completion = "accept_unmarked" in f and download_complete is not None
          try:
 -            if part.is_file():
-+            if "accept_unmarked" in f and setup_module is not None and \
-+                    setup_module.download_complete(p, own=f["accept_unmarked"]):
++            if requires_completion and download_complete(p, own=f["accept_unmarked"]):
 +                state, have = "done", p.stat().st_size
 +            elif part.is_file():
                  state, have = "downloading", part.stat().st_size
              elif p.is_file():
 -                state, have = "done", p.stat().st_size
-+                state, have = ("downloading", 0) if "accept_unmarked" in f and setup_module is not None else ("done", p.stat().st_size)
++                state, have = ("downloading", 0) if requires_completion else ("done", p.stat().st_size)
              else:
                  state, have = "waiting", 0
          except OSError:
-@@ -1800,13 +1811,13 @@
+@@ -1604,13 +1619,13 @@
      return prog
  
  
@@ -1722,7 +1492,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
          parts = [dict(p, state="done", done_gb=p["total_gb"]) for p in base.get("parts", []) if p.get("state") == "done"]
      parts.append({"kind": "draft", "name": "Draft layer", "state": "done" if int(dl.get("percent") or 0) >= 100 else "downloading",
                    "done_gb": round(done_gb, 3), "total_gb": round(total_gb, 3)})
-@@ -1819,7 +1830,7 @@
+@@ -1623,7 +1638,7 @@
      return prog
  
  
@@ -1731,7 +1501,7 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      """One total for the whole model: the bytes of all its files (finished, partial and the one in flight, read from the
      model's folder) over the download size, instead of each file's own 0-100% (a two-file model went 70 GB -> 0 -> up
      again). Only while the download step runs; later steps are not a download."""
-@@ -1827,16 +1838,16 @@
+@@ -1631,20 +1646,20 @@
      step = str(prog.get("step") or "")
      dl = prog.get("download") or {}
      if step.startswith("6/") and str(dl.get("file", "")).startswith("MTP draft layer"):
@@ -1748,41 +1518,14 @@ diff --git a/tools/strata_mcp.py b/tools/strata_mcp.py
      if job.get("files") and step.startswith("5/"):      # the install knows its files: count each of them
 -        return files_progress(prog, job, job["files"])
 +        return files_progress(prog, job, job["files"], setup_module=setup_module)
-     if not folder or not total or not step.startswith("5/"):
+     if job.get("files") and step.startswith(("6/", "7/")):
+         # after the download: no download figure (setup prepares the files), but the parts stay, all whole, so the app's one bar is complete
+         # (DL99: they were dropped and the app counted the engine's part alone, "99% · 0.7 / 0.7 GB")
+-        prog = files_progress(prog, job, job["files"])
++        prog = files_progress(prog, job, job["files"], setup_module=setup_module)
          prog.pop("download", None)
          return prog
-diff --git a/tools/test_setup_amd_cards.py b/tools/test_setup_amd_cards.py
---- a/tools/test_setup_amd_cards.py
-+++ b/tools/test_setup_amd_cards.py
-@@ -183,7 +183,7 @@
-         self.exe.write_text("x")
-         a = D.args(models_dir=str(self.root / "models"), model="UD-Q8_K_XL", vision="no", **kw)
-         a._cards_named = named
--        rc, out = D.run(setup.install_dsv41, a, "deepseek41", gpu, hip, [], 13, [], 8080, 251.0, None, all_cards)
-+        rc, out = D.run(setup.install_dsv41, a, "deepseek41", gpu, hip, [], 13, [], 8080, 251.0, None, all_cards, data=self.root / "data")
-         self.assertEqual(rc, 0, out)
-         return out
- 
-diff --git a/tools/test_setup_dsv41.py b/tools/test_setup_dsv41.py
---- a/tools/test_setup_dsv41.py
-+++ b/tools/test_setup_dsv41.py
-@@ -184,7 +184,6 @@
-                    mock.patch.object(setup, "pip_install", lambda *a, **k: None),
-                    mock.patch.object(setup, "engine_step", engine_step),
-                    mock.patch.object(setup, "run", lambda cmd, **k: self.calls.append(("run", cmd))),
--                   mock.patch.object(setup, "data_folder", lambda d, *a, **k: (self.root / "data", [])),
-                    mock.patch.object(setup, "write_setup_config", write_cfg),
-                    mock.patch.object(setup, "write_run_script", lambda tag, p, port, o=True: self.root / f"run-{tag}.sh"),
-                    mock.patch.object(setup, "ROOT", self.root),
-@@ -207,7 +206,7 @@
-         kw.setdefault("vision", "no")            # the older tests are about the files of the model; pictures-on has its own tests (PicturesByDefault)
-         gpu = {"index": 0, "count": len(cards), "vram_gb": 32.0, "name": "R9700", "cards": cards}
-         return run(setup.install_dsv41, args(models_dir=str(self.root / "models"), **kw), "deepseek41", gpu, True, [], 13, [], 8080, ram,
--                   None, cards)
-+                   None, cards, data=self.root / "data")
- 
-     def test_installs_the_nine_pinned_shards_and_writes_the_config(self):
-         rc, out = self.install()
+     if not folder or not total or not step.startswith("5/"):
 diff --git a/tools/test_setup_feed_models.py b/tools/test_setup_feed_models.py
 --- a/tools/test_setup_feed_models.py
 +++ b/tools/test_setup_feed_models.py

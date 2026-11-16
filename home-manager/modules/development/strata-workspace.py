@@ -157,6 +157,9 @@ def prepare_workspace(state, revision, remote=REMOTE, source_patch=None):
 
 def model_configs(root):
     """Find the same run-config shape as upstream, without needing a bootstrapped interpreter."""
+    sys.path.insert(0, str(root))
+    from strata_control import retired
+
     configs = []
     for path in root.glob("strata-*.json"):
         if path.name.endswith(".shared-settings.json"):
@@ -165,7 +168,8 @@ def model_configs(root):
             cfg = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
             continue
-        if isinstance(cfg, dict) and cfg.get("exe") and isinstance(cfg.get("args"), list):
+        if (isinstance(cfg, dict) and cfg.get("exe") and isinstance(cfg.get("args"), list)
+                and not retired.config_file_reason(path)):
             configs.append(path)
     return configs
 

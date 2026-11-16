@@ -35,7 +35,6 @@ in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrenc
 coverage; PR156209/#156493 pruning remains adjacent and is not corrected locally.
 OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
-- `patches/agent-of-empires-container-recovery.patch` — preserve typed startup causes and offer container recreation without adapter-install instructions.
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
 - `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the absolute effective config root. Prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order).
 - `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
@@ -88,9 +87,35 @@ the composite to the pinned base. This proves application and source equivalence
 not runtime behavior. In Strata's initial a00be3c8 → f96717e87c partition, the only
 behavioral change was Control --models-dir parity on Darwin. Keep its complete
 consumer regression; later provider corrections are outside that comparison.
-Ordinary DeepSeek forecasts count the selected files once. Explicit model paths
-return before ordinary weights and use the shared-only download path. Keep the
-consumer regression for both plans.
+At Strata c77572806996349b49995e4f98d41b5294d36a21, DeepSeek is deliberately
+retired by the parser, installer, catalog, runtime, server and updater. Remove
+only local hunks and test slices whose consumers disappeared; do not recreate
+its tables, helpers or dispatch branches. Keep supported Qwen and Qwen36 source
+reuse, moves, ready/QAD outputs, vision and image VAE role destinations.
+
+Cache retirement checks before a monitor releases its source read lease: its
+updater and runtime import `strata_control.retired` later, after a source rollback
+can remove the file. Exercise the real monitor worker and `cfg_paths.repair`
+after independently publishing that rollback. Preserve the workspace/source FD
+handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
+
+Darwin Control forecasts, progress and setup share requested destinations and
+native completed-file selection. Keep --models-dir and --separate-model-artifacts
+through the Darwin filter. Complete requested sets precede retained sets; partial
+sets are never combined across roots. Preserve explicit personal-file selection
+and keep missing readers and preparation outputs at their requested destinations.
+
+Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
+when rebasing role changes. Progress keeps completed parts through steps 6/7 and
+reaches 100 only when every part is complete; incomplete parts remain below 100.
+Managed ordinary shards need native finish evidence when the helper is available,
+not merely a final filename. Preserve explicit personal acceptance and legacy
+helper-free progress; do not impose this predicate on ready SHA or reader selection.
+The native GGUF tools use tools/_paths.py, strata_gguf.py and strata_quants.py by
+default, and the vendored third_party/strata-gguf-py converter where required.
+Keep gguf_py_env(): llama overrides can now be None. Validate compiled source
+identity with the actual CMake project version, source hashes and binary marker,
+not a release label or BUILD.json alone.
 
 ## Local Patch Refresh
 
@@ -163,8 +188,8 @@ import callbacks versus independent observers, failure/cancellation and the
 global pending-auth guard. Advance only the provider clock; do not sleep or
 mutate stamp caches to make those checks due.
 
-For source deltas in secret routing or offline TTS, copy only the selected upstream
-tests into an isolated directory and run them against the installed wheel with
+For source deltas in provider cache ceilings, cwd recovery, secret routing or
+offline TTS, copy only the selected upstream tests and run the installed wheel with
 isolated Python imports. Keep pytest tooling outside the runtime environment.
 Apply the check-only provider-update patch after copying its upstream test.
 Keep publication status, structured failures and v2/v4 client coverage; do not

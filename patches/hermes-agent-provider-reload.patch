@@ -1,4 +1,4 @@
-# base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
+# base: hermes-agent e2fb450adcf74421fe9514f048319dfcbb5af6c1
 # prerequisites: none
 # intent: preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 open proposed partial loader fix, rollback/concurrency evidence: https://github.com/NousResearch/hermes-agent/pull/156224#issuecomment-6919243021.

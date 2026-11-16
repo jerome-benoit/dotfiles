@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
+# base: Niko1221/Strata c77572806996349b49995e4f98d41b5294d36a21
 # prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract)
 # intent: validate serve and monitor arguments before optional dependencies.
 # upstream: no exact upstream fix established; local shared parser consumers.
