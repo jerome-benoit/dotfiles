@@ -49,15 +49,22 @@ let
       }
     else
       pkgs.callPackage;
-  # Workaround: local login profiles can put their tools ahead of inherited shims.
   # Patch the workspace wheel, not the outer wrapper or its filtered lock source.
-  # Remove when Hermes provides an additive post-login PATH hook.
-  miseOverlay = _final: previous: {
+  runtimeOverlay = _final: previous: {
     hermes-agent = previous.hermes-agent.overrideAttrs (old: {
-      patches = (old.patches or [ ]) ++ [
-        ../../../patches/hermes-agent-terminal-mise-shims.patch
-      ];
-      postPatch = (old.postPatch or "") + ''
+      patches =
+        (old.patches or [ ])
+        ++ [
+          # Workaround: provider reloads lose complete versions and leak read-only snapshots.
+          # Remove when upstream preserves frozen versions through publication, RPC and cleanup.
+          ../../../patches/hermes-agent-provider-reload.patch
+        ]
+        ++ lib.optionals miseEnabled [
+          # Workaround: local login profiles can put their tools ahead of inherited shims.
+          # Remove when Hermes provides an additive post-login PATH hook.
+          ../../../patches/hermes-agent-terminal-mise-shims.patch
+        ];
+      postPatch = (old.postPatch or "") + lib.optionalString miseEnabled ''
         substituteInPlace tools/environments/local.py \
           --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
       '';
@@ -68,11 +75,11 @@ let
       callPackage =
         path: args:
         hermesCallPackage path (
-          # Workaround: terminal hooks invalidate the icon interpreter and frontend builds.
+          # Workaround: runtime patches invalidate the icon interpreter and frontend builds.
           # Remove when upstream separates icon dependencies from the runtime environment.
-          if miseEnabled && toString path == "${inputs.hermes-agent}/nix/icons.nix" then
+          if toString path == "${inputs.hermes-agent}/nix/icons.nix" then
             args // { venv = inputs.hermes-agent.packages.${system}.minimal.hermesVenv; }
-          else if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
+          else if toString path == "${inputs.hermes-agent}/nix/python.nix" then
             args
             // {
               uv2nix = args.uv2nix // {
@@ -86,10 +93,26 @@ let
                       workspace
                       // {
                         mkPyprojectOverlay =
-                          options: lib.composeExtensions (workspace.mkPyprojectOverlay options) miseOverlay;
+                          options: lib.composeExtensions (workspace.mkPyprojectOverlay options) runtimeOverlay;
                       };
                   };
                 };
+              };
+            }
+          else if lib.elem (toString path) [
+            "${inputs.hermes-agent}/nix/desktop.nix"
+            "${inputs.hermes-agent}/nix/webapp.nix"
+          ] then
+            args // {
+              hermesNpmLib = args.hermesNpmLib // {
+                # Workaround: pending provider activation is not a next-chat tool report.
+                # Remove when the renderer classifies only tools and prompt sections here.
+                buildPnpmPackage = options:
+                  (args.hermesNpmLib.buildPnpmPackage options).overrideAttrs (old: {
+                    patches = (old.patches or [ ]) ++ [
+                      ../../../patches/hermes-agent-provider-activation-ui.patch
+                    ];
+                  });
               };
             }
           else

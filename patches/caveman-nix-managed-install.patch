@@ -1,6 +1,8 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
-# intent: refuse executable installation and self-update in the package-managed CLI,
-#   durable npm installer and module downloader; Nix owns those executables.
+# prerequisites: none
+# intent: refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
+# upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
+# removal: remove when setupInstall, durable CLI installation and module downloads all refuse managed replacement before effects.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts

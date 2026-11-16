@@ -1,0 +1,26 @@
+# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
+# prerequisites: none
+# intent: use the catalog boolean parser for release-check PI_OFFLINE.
+# upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3735 tracks the release-check boolean contract; not supplied by the pin.
+# removal: remove when release checks use the catalog boolean contract.
+diff --git a/crates/pa-core/src/update/release.rs b/crates/pa-core/src/update/release.rs
+--- a/crates/pa-core/src/update/release.rs
++++ b/crates/pa-core/src/update/release.rs
+@@ -58,7 +58,7 @@ pub fn update_user_agent(version: &str) -> String {
+ }
+ 
+ /// Fetch and validate the channel's latest release.
+-/// `PI_SKIP_VERSION_CHECK`/`PI_OFFLINE` short-circuit to `None`; a missing or
++/// `PI_SKIP_VERSION_CHECK` or enabled `PI_OFFLINE` short-circuit to `None`; a missing or
+ /// malformed manifest is `None`, never an error - `Planning` decides skip.
+ ///
+ /// # Errors
+@@ -74,7 +74,7 @@ pub async fn latest_release(
+     base_url: &str,
+     timeout: Duration,
+ ) -> Result<Option<LatestRelease>> {
+-    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok() || std::env::var("PI_OFFLINE").is_ok() {
++    if std::env::var("PI_SKIP_VERSION_CHECK").is_ok() || pa_models::offline::is_catalog_offline() {
+         return Ok(None);
+     }
+     let manifest_path =

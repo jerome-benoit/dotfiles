@@ -5,7 +5,7 @@
   home-manager,
 }:
 let
-  sourcePatch = ../patches/strata-setup-directory-roles.patch;
+  sourcePatch = import ../home-manager/modules/development/strata-source-patch.nix { inherit pkgs; };
   supportedPlatform = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
   configureWith =
     selectedPkgs: settings:

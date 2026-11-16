@@ -1,6 +1,8 @@
 # base: caveman-ai/blocks v0.1.0-rc.5
-# intent: keep the profile-selected Nix wrapper as the installed hook without copying
-#   os.Executable(), preserving its dependencies across profile generations.
+# prerequisites: none
+# intent: link the selected profile wrapper as the installed hook without copying the executable.
+# upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
+# removal: remove when hook installation links the selected profile wrapper atomically and refreshes existing hooks without copying the executable.
 diff --git a/internal/repo/repo.go b/internal/repo/repo.go
 --- a/internal/repo/repo.go
 +++ b/internal/repo/repo.go

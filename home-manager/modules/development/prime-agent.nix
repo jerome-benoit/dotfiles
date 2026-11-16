@@ -191,10 +191,12 @@ let
         inherit (pins) cargoHash;
         cargoDepsName = "prime-agent";
         patches = [
-          # Workaround: installer-funnel and TUI updates ignore Nix ownership;
-          # release checks also treat PI_OFFLINE=0 as offline.
-          # Remove when upstream fixes both Nix ownership and PI_OFFLINE parsing.
+          # Workaround: installer-funnel and TUI updates ignore Nix ownership.
+          # Remove when every managed update entry refuses before side effects.
           ../../../patches/prime-agent-nix-self-update.patch
+          # Workaround: release checks treat PI_OFFLINE=0 as offline (Discussion #3735).
+          # Remove when release checks share the catalog boolean parser.
+          ../../../patches/prime-agent-release-offline.patch
           # Workaround: Darwin's /bin/ps probe can fail in the Nix sandbox.
           # Remove when upstream skips comparisons without process ground truth.
           ../../../patches/prime-agent-darwin-tests.patch

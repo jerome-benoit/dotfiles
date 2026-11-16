@@ -1,10 +1,9 @@
 # base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
 # prerequisites: caveman-nix-managed-install.patch
-# intent: separate Nix execution-time closure paths from durable agent
-#   registrations through a lexical CAVEMAN_REGISTRATION_ROOT profile prefix.
-#   Preserve upstream host-shell rendering; temporary wrap/runtime paths stay local.
-#   Migrate active journal fields written before this resolver; ignore restore data.
-#   See dotfiles#264.
+# intent: separate closure-local execution from durable profile registrations and migrate active journal paths.
+# upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
+# issues: https://github.com/jerome-benoit/dotfiles/issues/264 historical durability contract.
+# removal: remove when all durable registrations and active journal commands use lexical profile paths while ephemeral execution remains closure-local.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts

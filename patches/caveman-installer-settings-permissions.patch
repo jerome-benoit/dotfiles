@@ -1,0 +1,33 @@
+# base: JuliusBrussee/caveman b4ee71d557d96e3cbc14f88fa6e953a1362865f5
+# prerequisites: none
+# intent: preserve existing settings modes during atomic replacement; new files remain 0600.
+# upstream: upstream intentionally forces 0600; this is local permissions policy, not an upstream bug.
+diff --git a/installer/lib/settings.js b/installer/lib/settings.js
+--- a/installer/lib/settings.js
++++ b/installer/lib/settings.js
+@@ -153,12 +153,14 @@
+ }
+ 
+ // ── writeSettings ──────────────────────────────────────────────────────────
+-// Atomic write: temp file + rename. mode 0600 (settings often contains tokens).
++// Atomic write: temp file + rename. New files use 0600; existing permissions stay.
+ // A UTF-8 BOM the file already had is kept, so the round trip is lossless.
+ function writeSettings(p, obj) {
+   // A linked settings file (a dotfiles repo) is written at its target, or the
+   // rename would replace the link with a copy.
+   try { if (fs.lstatSync(p).isSymbolicLink()) p = fs.realpathSync(p); } catch (_) { /* new file */ }
++  let mode = 0o600;
++  try { mode = fs.statSync(p).mode & 0o7777; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+   const dir = path.dirname(p);
+   fs.mkdirSync(dir, { recursive: true });
+   const tmp = path.join(dir, `.${path.basename(p)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
+@@ -166,6 +168,9 @@
+   try { if (fs.readFileSync(p).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) bom = '\ufeff'; } catch (_) {}
+   try {
+     fs.writeFileSync(tmp, bom + JSON.stringify(obj, null, 2) + '\n', { mode: 0o600 });
++    // Apply after creation so the installer's umask cannot narrow an existing
++    // user's permissions during an otherwise lossless atomic replacement.
++    fs.chmodSync(tmp, mode);
+     fs.renameSync(tmp, p);
+   } catch (error) {
+     try { fs.unlinkSync(tmp); } catch (_) {}

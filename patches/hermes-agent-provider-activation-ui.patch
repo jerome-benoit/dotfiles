@@ -1,0 +1,17 @@
+# base: hermes-agent 77a30e9127998c0277306c361663f63c0694b88b
+# prerequisites: none
+# intent: do not classify pending provider activation as next-chat tools or prompts.
+# upstream: https://github.com/NousResearch/hermes-agent/issues/156558 open tracks publication-vs-next-chat activation; no fix in the pin or exact desktop/webapp replacement established.
+# removal: remove when desktop and webapp distinguish current publication from next-chat tools and prompts.
+diff --git a/apps/desktop/src/store/agent-plugins.ts b/apps/desktop/src/store/agent-plugins.ts
+--- a/apps/desktop/src/store/agent-plugins.ts
++++ b/apps/desktop/src/store/agent-plugins.ts
+@@ -392,7 +392,7 @@
+         // `<namespace>:<skill>` is what the model loads; the toast shows the skill's own name.
+         skills: liveSkills.map(skill => skill.name.split(':').pop() ?? skill.name)
+       },
+-      nextChat: Object.keys(result.activation?.deferred ?? {}).length > 0
++      nextChat: ['tools', 'prompt'].some(kind => (result.activation?.deferred?.[kind]?.length ?? 0) > 0)
+     }
+   } catch (e) {
+     const message = e instanceof Error ? e.message : String(e)

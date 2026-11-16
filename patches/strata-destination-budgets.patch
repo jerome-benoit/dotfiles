@@ -1,0 +1,99 @@
+# base: Niko1221/Strata 13eedf552417a6a791a7d13c6597e24300ee3a09
+# prerequisites: strata-setup-directory-roles.patch
+# intent: account remaining downloads and preparation by destination filesystem.
+# upstream: https://github.com/Niko1221/Strata/pull/4989 related destination accounting; sparse resume rules and role layout are not equivalent.
+# removal: remove when selected-source destination and split preparation checks match all role destinations.
+diff --git a/setup.py b/setup.py
+--- a/setup.py
++++ b/setup.py
+@@ -3825,6 +3825,49 @@
+     return out
+ 
+ 
++def destination_budgets(needs):
++    """Group known remaining GB by the filesystem of each destination's nearest existing parent."""
++    groups = {}
++    for destination, gb in needs:
++        if gb <= 0:
++            continue
++        parent = Path(destination).parent
++        while not parent.exists():
++            parent = parent.parent
++        device = parent.stat().st_dev
++        previous = groups.get(device, (parent, 0.0))
++        groups[device] = (previous[0], previous[1] + gb)
++    return list(groups.values())
++
++
++def ready_disk_problem(model, models_dir, data_dir=None, vision_file=None, checkpoint_dir=None):
++    """Check disk space for remaining downloads and estimated preparation."""
++    needs = []
++    for f in ready_needed(model, models_dir, data_dir):
++        dst = ready_where(models_dir, f, data_dir, checkpoint_dir)
++        if not ready_verified(dst, f[5]):
++            present = sum(p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part")) if p.is_file())
++            needs.append((dst, max(0, f[4] - present) / 1e9))
++    if vision_file is not None and not vision_file.exists():
++        needs.append((vision_file, 1.0))                 # same vision allowance as the ordinary setup path
++    if MODELS[model].get("prepare") and not prepared_done(model, models_dir, data_dir):
++        paths = ready_paths(model, models_dir, data_dir)
++        if len(destination_budgets([(paths["dense"], 1), (paths["pack"] / "index.txt", 1)])) == 1:
++            needs.append((paths["dense"], MODELS[model]["prepare_gb"]))  # aggregate estimate applies once on one filesystem
++        else:
++            if not (paths["pack"].parent / "pack.done").is_file():
++                needs.append((paths["pack"] / "index.txt", MODELS[model]["arena_gb"]))  # at least the expert arena
++            warn(f"preparation writes about {MODELS[model]['prepare_gb']:.0f} GB across {models_dir} and "
++                 f"{Path(data_dir) / 'models' if data_dir is not None else models_dir}; the remaining split is unknown. "
++                 "Disk checks cover pinned downloads and the expert arena, not all future preparation outputs")
++    for parent, gb in destination_budgets(needs):
++        free = free_gb(parent)
++        if free < gb:
++            return (f"not enough free disk space in {parent}: need ~{gb:.0f} GB, {free:.0f} GB free",
++                    "use --data-dir or --models-dir on a bigger drive for the files stored there")
++    return None
++
++
+ def ready_verified(p: Path, sha: str) -> bool:
+     """Downloaded whole and checked: its finish mark holds the pinned SHA-256 (verify_sha256)."""
+     try:
+@@ -9962,12 +10005,14 @@
+                      f"{model} needs about {plan['ram_needed_gb']:.0f} GB of RAM", f"more RAM or cards fix it; --model {model} --yes "
+                      "installs it anyway", "  Install it anyway?")
+         warn(f"installing {model} with {ram:.0f} GB of RAM, as you chose")
+-    if left and free < left:
+-        fail(f"not enough free disk space in {folder}: need ~{left:.0f} GB, {free:.0f} GB free",
+-             "use --models-dir on a bigger drive (an NVMe drive is best: the n-gram table is read from it while the model "
+-             "answers), or --gguf-dir for files you already have")
+-    if left and free < left + dsv41_fit.DISK_HEADROOM_GB:
+-        warn(f"little free disk space in {folder}: {free:.1f} GB free for about {left:.1f} GB. Setup goes on and should fit")
++    for parent, needed in destination_budgets(needs):
++        free = free_gb(parent)
++        if free < needed:
++            fail(f"not enough free disk space in {parent}: need ~{needed:.0f} GB, {free:.0f} GB free",
++                 "use --models-dir on a bigger drive (an NVMe drive is best: the n-gram table is read from it while the model "
++                 "answers), or --gguf-dir for files you already have")
++        if free < needed + dsv41_fit.DISK_HEADROOM_GB:
++            warn(f"little free disk space in {parent}: {free:.1f} GB free for about {needed:.1f} GB. Setup goes on and should fit")
+     if ctx > DSV41_CONTEXT:       # 128K is the default now (owner, 2026-11-01); only a longer one the person asked for is said to be untested
+         warn(f"{ctx // 1024}K tokens of context: longer than the {DSV41_CONTEXT // 1024}K the engine is checked at; kept as you chose, but untested")
+     # Pictures are on by default (owner rule): the engine reads them with its own vision tower (319 MiB, loaded with the model, no separate
+@@ -11456,11 +11501,16 @@
+         (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
+     need = real + margin
+     free_now = free_gb(models_dir)
+-    problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
+-                                (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
++    if ready and ready_data_dir is not None:
++        problem = ready_disk_problem(model, models_dir, ready_data_dir,
++                                     Path(a.models_dir) / fam.get("mmproj", MMPROJ) if vision != "none" else None,
++                                     checkpoint_dir=checkpoint_dir)
++    else:
++        problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
++                                    (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
+     if problem:
+         fail(*problem)
+-    if free_now < need:
++    if not (ready and ready_data_dir is not None) and free_now < need:
+         warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
+              "Setup goes on and should fit; free up space if it stops")
+ 

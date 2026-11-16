@@ -25,31 +25,72 @@ name of the package being patched, not an executable or module alias
 
 ## Current Patches
 
-Each patch has `# base:` and `# intent:` headers, plus a comment at its use site
-explaining why it exists and when it can go:
+Each patch records its base, intent and prerequisites. Keep relevant upstream
+provenance and tracked issues; omit empty issue fields. Document a concrete
+replacement condition when applicable, not a circular condition for local policy.
+Proposals are not fixes in the pin, and partial coverage stays explicit.
+Hermes provider causes are tracked by #156556 (identity), #156557 (hosted RPC),
+#156558 (activation), #156559 (namespaces) and #156560 (readonly POSIX cleanup)
+in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrency
+coverage; PR156209/#156493 pruning remains adjacent and is not corrected locally.
+OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
-- `patches/prime-agent-nix-self-update.patch` — refuse Nix-managed self-update and fix `PI_OFFLINE` parsing.
-- `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when process ground truth is unavailable.
-- `patches/prime-agent-nix-daemon-generation.patch` — reject different or unverifiable daemon executables without stopping existing sessions.
-- `patches/prime-agent-bundled-docs.patch` — point login guidance to the bundled upstream README.
-- `patches/prime-agent-python-skill-source.patch` — bind imports to selected non-project skill sources without installing dependencies.
-- `patches/caveman-nix-managed-install.patch` — refuse every executable install and self-update path.
-- `patches/caveman-nix-registration-paths.patch` — serialize profile references separately from runtime closure paths; apply after `caveman-nix-managed-install.patch`.
-- `patches/caveman-nix-installer-paths.patch` — preserve private interpreters, payload ownership and existing settings permissions during atomic writes in standalone installers and prepared local plugins.
-- `patches/caveman-blocks-nix-hooks.patch` — keep the profile-selected Nix wrapper as the installed hook.
-- `patches/caveman-blocks-opencode2.patch` — adapt Blocks PR #17 for OpenCode 1/2, with local fixes for issues #18/#19.
-- `patches/caveman-hermes-native-yaml.patch` — retain upstream document/list helpers, enforce strict normalized ownership and restore only owned values while preserving later siblings.
-- `patches/caveman-opencode-hermes.patch` — isolate OpenCode factories/workdirs, emit Stop through the model-idle hook, preserve absolute roots and enforce strict Hermes membership/deny-list checks; apply after managed-install, registration-paths and hermes-native-yaml.
-- `patches/caveman-installer-config-root.patch` — preserve `OPENCODE_CONFIG_DIR` bytes and reject relative values in the installer and copied plugin; retain the upstream `XDG_CONFIG_HOME` fallback; apply after nix-installer-paths.
-- `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the effective root; apply after blocks-nix-hooks and blocks-opencode2.
-- `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged `cursor-agent` executable; no prerequisite patches.
-- `patches/agent-of-empires-container-recovery.patch` — preserve typed startup causes in the web frontend and offer container recreation instead of adapter installation; no prerequisite patches.
-- `patches/herdr-desktop-nix-cli-link.patch` — disable automatic macOS CLI-link installation, including copied application bundles; no prerequisite patches.
-- `patches/opencode-nvim-execution-lifecycle.patch` — map native execution lifecycle events to editor status; no prerequisite patches.
-- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and preserve adopted stages; no prerequisite patches.
-- `patches/colibri-cuda-glibc.patch` — remove the forced `__THROW` shim that conflicts with the selected Nixpkgs/NVIDIA math headers; no prerequisite patches.
-- `patches/strata-setup-directory-roles.patch` — separate GGUF files from ready packs, QAD checkpoints/drafts and image VAE; runtime patch declared by the launcher, no prerequisite patches.
-- `patches/hermes-agent-terminal-mise-shims.patch` — restore opted-in gateway mise shims after local login PATH restoration, before snapshots and background commands; patched into the workspace wheel, no prerequisite patches.
+- `patches/agent-of-empires-container-recovery.patch` — preserve typed startup causes and offer container recreation without adapter-install instructions.
+- `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
+- `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the absolute effective config root. Prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order).
+- `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
+- `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
+- `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
+- `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
+- `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
+- `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
+- `patches/caveman-nix-installer-paths.patch` — use profile-local interpreters and isolate mutable Claude payload ownership. Prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent).
+- `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
+- `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
+- `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
+- `patches/colibri-cuda-glibc.patch` — preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
+- `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
+- `patches/hermes-agent-provider-activation-ui.patch` — do not classify pending provider activation as next-chat tools or prompts.
+- `patches/hermes-agent-provider-reload.patch` — preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
+- `patches/hermes-agent-provider-update-tests.patch` — verify provider publication, structured errors and retained clients without pinning display wording. Check-only.
+- `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
+- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
+- `patches/opencode-nvim-execution-lifecycle.patch` — register native OpenCode execution lifecycle events and map completion or interruption to idle status.
+- `patches/prime-agent-bundled-docs.patch` — point provider login guidance at the bundled, version-matched upstream README.
+- `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when /bin/ps cannot read the live process.
+- `patches/prime-agent-nix-daemon-generation.patch` — verify Nix executable identity on probes, session handshakes and reconnects.
+- `patches/prime-agent-nix-self-update.patch` — refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
+- `patches/prime-agent-python-skill-source.patch` — bind Nix kernel imports to selected non-project skill sources without installing dependencies.
+- `patches/prime-agent-release-offline.patch` — use the catalog boolean parser for release-check PI_OFFLINE.
+- `patches/strata-cli-validation.patch` — validate serve and monitor arguments before optional dependencies. Prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract).
+- `patches/strata-destination-budgets.patch` — account remaining downloads and preparation by destination filesystem. Prerequisites: strata-setup-directory-roles.patch.
+- `patches/strata-engine-inspection.patch` — inspect SYCL launcher and mapped host engine/argument paths without importing server.
+- `patches/strata-selected-executable.patch` — verify the selected manifest executable, hash and execute permission.
+- `patches/strata-setup-directory-roles.patch` — share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir. Prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch).
+- `patches/strata-workspace-source-lifecycle.patch` — keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
+
+### Partition and source equivalence
+
+Caveman Hermes parser, membership, ownership and restore remain one unit.
+OpenCode factories/cwd/Stop are separate. CLI and installer roots are physically
+separate with one raw-absolute-root policy; trailing spaces were already preserved
+in the pin. Preserving existing settings modes is a local permissions policy;
+upstream deliberately applies 0600 instead.
+
+Strata workspace/source publication stays indivisible. Roles, forecasts and
+progress use one layout; budgets depend on roles. Validation uses the shared
+source parser; SYCL inspection and selected-executable verification are distinct.
+`home-manager/modules/development/strata-source-patch.nix` defines the same ordered
+atomic composite for launcher and checks, without changing the helper API.
+
+Compare the complete applied stack with its previous composition, then reverse
+the composite to the pinned base. This proves application and source equivalence,
+not runtime behavior. In Strata's initial a00be3c8 → f96717e87c partition, the only
+behavioral change was Control --models-dir parity on Darwin. Keep its complete
+consumer regression; later provider corrections are outside that comparison.
+Ordinary DeepSeek forecasts count the selected files once. Explicit model paths
+return before ordinary weights and use the shared-only download path. Keep the
+consumer regression for both plans.
 
 ## Local Patch Refresh
 
@@ -66,6 +107,11 @@ explaining why it exists and when it can go:
    For another lock update in an open PR, compare against the branch's current
    lock, preserving its pin and patch corrections. Recheck external consumers
    even when the patch's own source is unchanged.
+   Freeze pre-existing main edits without moving them; compose them with the PR
+   only in an isolated validation tree. Keep those edits out of the PR commit.
+   For Nixpkgs updates, trace effective package aliases, runtime closures and
+   toolchain derivations, not version labels alone. Home Manager updates also
+   require checking the activation, profile and shell-integration consumers.
 3. Check whether upstream now supplies each fix. Remove only superseded hunks;
    retire the whole patch only when every carried change is covered upstream.
 4. Apply prerequisite patches in the builder's declared order before regenerating
@@ -85,6 +131,45 @@ Keep the `hermes-agent` patch inside `nix/python.nix`'s workspace package overla
 the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
+
+Provider discovery identifies the copied tree by names, modes and file contents,
+not source timestamps. Publish its writable staging parent, preserving the copied
+permissions. Cache only completed registrations, retain old versions for rollback
+and late calls, and never wait for an active import from a public lookup.
+Published registries are copied once per publication, not per lookup. Readers
+capture registry/alias state under the publication lock, then inspect profiles
+outside it. Never hold that lock across imports, callbacks or waits.
+Home scans use the registration ContextVar and restore its token in `finally`.
+Reserve the global discovery flag for process-wide initialization; it must not
+be saved/restored by concurrent home scans. Resolver and auth guards combine
+that global state with the current registration context.
+The per-home publication status is independent of scan completion: loading is
+reported as deferred, failed carries the current error, and only ready is active.
+Read status without rescanning, using the manager home; gateway status wins over
+backend status. Keep provider deferrals out of next-chat tools/prompt notices.
+Extraction and RPC must use the same frozen code; the host shares the complete
+version loader instead of replacing the process-wide registration function.
+Cleanup restores owner access only in owned copies, including before the host
+exits without atexit. Apply the wheel patch with or without mise.
+Interrupted imports discard only the failed module family before waking waiters.
+Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
+names do not expand internal storage components or collide after normalization.
+`checks/hermes-provider.py` exercises canonical Copilot discovery;
+`checks/hermes-provider-reload.py` covers generations, RPC, concurrency and exit
+cleanup against the installed interpreter. Copying then hashing guarantees the
+identity of the consumed copy, not an atomic multi-file update of a mutable source.
+Exercise both concurrent completion orders, subsequent resolver/auth discovery,
+import callbacks versus independent observers, failure/cancellation and the
+global pending-auth guard. Advance only the provider clock; do not sleep or
+mutate stamp caches to make those checks due.
+
+For source deltas in secret routing or offline TTS, copy only the selected upstream
+tests into an isolated directory and run them against the installed wheel with
+isolated Python imports. Keep pytest tooling outside the runtime environment.
+Apply the check-only provider-update patch after copying its upstream test.
+Keep publication status, structured failures and v2/v4 client coverage; do not
+pin user-facing wording. The concurrent-list regression delays a real identity
+lookup while a newer generation publishes and verifies both coherent views.
 
 Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
 the configured mise package and returns PATH only; no path comes from the private
@@ -123,6 +208,10 @@ trusting new outputs. If calibration is performed afterwards, record it as
 retrospective without rewriting the initial execution history. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose
 NAR hash and fixed-output store path match the selected derivation.
+
+Copy-free NAR calculation requires an exact format check against Nix and calibration
+against the previous per-target reference. Preserve output paths, symlinks and
+executable bits; this byte proof does not establish fixed-output registration.
 
 Use `inputs.opencode` from this repository's evaluated flake so its
 `nixpkgs.follows` supplies the actual Bun toolchain. CLI `--override-input`

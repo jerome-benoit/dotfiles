@@ -1,5 +1,8 @@
 # base: herdrdev/herdr-app 93b097f6e29fcb2d90a30dea2f03ce4e5dee7981
-# intent: Keep Nix-managed macOS apps from installing user CLI links.
+# prerequisites: none
+# intent: keep Nix-managed macOS apps from installing user CLI links.
+# upstream: local Nix packaging policy; no selected CLI-link opt-out is used.
+# removal: remove when packaged bare startup can disable user CLI-link installation including copied bundles.
 diff --git a/src/core_bin.rs b/src/core_bin.rs
 --- a/src/core_bin.rs
 +++ b/src/core_bin.rs
