@@ -209,7 +209,10 @@ stdenvNoCC.mkDerivation {
     homepage = "https://github.com/JuliusBrussee/caveman";
     license = lib.licenses.asl20;
     mainProgram = "caveman";
-    sourceProvenance = [ lib.sourceTypes.fromSource ];
+    sourceProvenance = with lib.sourceTypes; [
+      fromSource
+      binaryNativeCode
+    ];
     platforms = [
       "aarch64-darwin"
       "aarch64-linux"

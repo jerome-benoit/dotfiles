@@ -26,6 +26,7 @@ def activation_count(home):
 def consumer(case):
     import tools.environments.local as local
     from tools.process_registry import ProcessRegistry
+    from tools.file_operations import ShellFileOperations
 
     home = Path(os.environ["HOME"])
     config = Path(os.environ["HERMES_HOME"]) / "config.yaml"
@@ -92,6 +93,24 @@ def consumer(case):
         try:
             assert terminal._snapshot_ready
             assert terminal.execute("exit 37")["returncode"] == 37
+            # A failed cwd must not silently redirect internal commands or file reads.
+            with tempfile.TemporaryDirectory(prefix="hermes-cwd-", dir=case["projects"][0]) as temporary:
+                ancestor = Path(temporary)
+                (ancestor / "README.md").write_text("ANCESTOR\n")
+                doomed = ancestor / "deleted"
+                doomed.mkdir()
+                result = terminal.execute("cd " + shlex.quote(str(doomed)))
+                assert result["returncode"] == 0 and terminal.cwd == str(doomed), result
+                doomed.rmdir()
+                result = terminal.execute("true")
+                assert result["returncode"] != 0 and "cwd_fallback" not in result, result
+                read = ShellFileOperations(terminal, cwd=str(doomed)).read_file("README.md")
+                assert read.error and "ANCESTOR" not in (read.content or ""), read
+                assert terminal.cwd == str(doomed), "internal commands must not move the session"
+                result = terminal.execute("pwd", allow_cwd_fallback=True)
+                assert result["returncode"] == 0, result
+                assert result["cwd_fallback"] == {"requested": str(doomed), "used": str(ancestor)}, result
+                assert result["output"].strip() == terminal.cwd == str(ancestor), result
         finally:
             terminal.cleanup()
 
@@ -109,7 +128,7 @@ def consumer(case):
         for mode, contents in configurations:
             config.write_text(contents)
             session(mode)
-        status_session()
+    status_session()
 
     # Upstream background shells are interactive. Use dedicated fixture profiles
     # without weakening the non-interactive gateway/foreground assertion.
@@ -283,8 +302,8 @@ def main():
                     cwd=home, capture_output=True, text=True, timeout=15,
                 )
                 assert failure.returncode == 43, (failure.returncode, failure.stdout, failure.stderr)
-    print("gateway mise: real packaged snapshots, Node 22/24/24, Bash/Zsh, five shim layouts, "
-          "runtime/configFile profiles, background opt-in and disabled/null/outside isolation passed")
+    print("gateway mise: real packaged snapshots, Node 22/24, Bash/Zsh, five shim layouts, "
+          "runtime/configFile profiles, strict cwd and explicit recovery, background opt-in and disabled/null/outside isolation passed")
 
 
 if __name__ == "__main__":

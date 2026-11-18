@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 9b243662ff98d392bc0a95b865a554583d71be75
+# base: JuliusBrussee/caveman a192894723a8f47e7f504c7b5041967ff1f18e55
 # prerequisites: caveman-nix-installer-paths.patch
 # intent: require raw absolute override in installer and copied plugin; preserve XDG fallback.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.

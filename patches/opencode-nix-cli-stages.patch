@@ -1,4 +1,4 @@
-# base: anomalyco/opencode 0ac0d7ee7260c3e711a481ceb4580bb60f4d9dd4
+# base: anomalyco/opencode 3aaac7731360a7be32cc69b65c95add4080f04a9
 # prerequisites: none
 # intent: isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 # upstream: https://github.com/anomalyco/opencode/pull/60683 open partial: channel isolation and retention, not same-version/channel closure identity.

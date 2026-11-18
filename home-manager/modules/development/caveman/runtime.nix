@@ -66,6 +66,8 @@ stdenvNoCC.mkDerivation {
     runHook postInstall
   '';
 
+  passthru = { inherit browserExecutable; };
+
   meta = {
     description = "Pinned Caveman companion binaries and source-built Blocks with native runtime dependencies";
     homepage = "https://github.com/JuliusBrussee/caveman";
