@@ -1,4 +1,4 @@
-# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
+# base: v0.10.4 (8980e66f2f07762d62a6c1d73b347a4cac5275cc)
 # prerequisites: none
 # intent: skip the Darwin ps comparison when /bin/ps cannot read the live process.
 # upstream: local sandbox accommodation for unavailable ps ground truth.

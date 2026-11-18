@@ -23,6 +23,7 @@ let
     "httpx2"
     "mcp"
     "mcp-types"
+    "opentelemetry-api"
   ];
 in
 assert builtins.attrNames ompData.hashes == expectedOmpKeys;

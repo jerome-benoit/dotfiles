@@ -1,4 +1,4 @@
-"""Exercise kernel overrides and daemon generations in the installed Nix package."""
+"""Exercise kernel overrides, MCP and daemon generations in the installed Nix package."""
 
 import json
 import pathlib
@@ -25,6 +25,43 @@ def run(command, env, cwd):
         capture_output=True,
         timeout=30,
     )
+
+def check_mcp(root, env):
+    server = root / "mcp-server.py"
+    server.write_text(
+        "from mcp.server.mcpserver import MCPServer\n"
+        "server = MCPServer('nix-runtime')\n"
+        "@server.tool()\ndef echo(value: str) -> dict[str, str]: return {'value': value}\n"
+        "@server.tool()\ndef reject() -> str: raise ValueError('rejected')\n"
+        "server.run(transport='stdio')\n"
+    )
+    (root / "agent/settings.json").write_text(json.dumps({"mcpServers": {
+        "nix-runtime": {"type": "stdio", "command": str(python), "args": ["-I", "-B", str(server)]},
+    }}))
+    result_file = root / "mcp-result.json"
+    code = (
+        "import json, pathlib\nfrom rlm import McpToolError\n"
+        "tools = sorted(tool['name'] for tool in await mcp.list_tools('nix-runtime'))\n"
+        "value = await mcp.call_tool('nix-runtime', 'echo', {'value': 'installed-runtime'})\n"
+        "rejected = False\ntry:\n    await mcp.call_tool('nix-runtime', 'reject')\n"
+        "except McpToolError:\n    rejected = True\n"
+        f"pathlib.Path({str(result_file)!r}).write_text(json.dumps({{'tools': tools, 'value': value, 'rejected': rejected}}))"
+    )
+    script = {"responses": [
+        {"content": [{"type": "toolCall", "name": "ipython", "arguments": {"code": code}}]},
+        "MCP check complete",
+    ]}
+    result = run(
+        [binary, "--no-session", "-p", "Check installed MCP runtime"],
+        {**env, "PRIME_AGENT_FAUX_SCRIPT": json.dumps(script)},
+        root,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert json.loads(result_file.read_text()) == {
+        "tools": ["echo", "reject"], "value": {"value": "installed-runtime"}, "rejected": True,
+    }
+    print("MCP: installed kernel discovers and calls the real SDK server; structured results and tool errors survive")
+
 
 def check_selected_sources(root, env):
     skills = root / "agent/skills"
@@ -371,5 +408,6 @@ with tempfile.TemporaryDirectory(prefix="pa-check-", dir="/tmp") as temporary:
     }
     check_selected_sources(root, env)
     check_kernel(root, env)
+    check_mcp(root, env)
     check_extension_updates(root, env)
     check_daemon(root, env)

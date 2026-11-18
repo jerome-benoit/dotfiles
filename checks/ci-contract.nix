@@ -395,6 +395,7 @@ let
         $(printf 'b%.0s' {1..64})) hash=sha256-2222222222222222222222222222222222222222222= ;;
         $(printf 'c%.0s' {1..64})) hash=sha256-3333333333333333333333333333333333333333333= ;;
         $(printf 'd%.0s' {1..64})) hash=sha256-4444444444444444444444444444444444444444444= ;;
+        $(printf 'e%.0s' {1..64})) hash=sha256-5555555555555555555555555555555555555555555= ;;
         *)
           echo "unexpected hash conversion:$7" >&2
           exit 1
@@ -566,7 +567,7 @@ pkgs.runCommandLocal "check-ci-contract"
     [project]
     name = "prime-agent-runtime"
     version = "0.1.0"
-    dependencies = ["mcp>=2,<3", "tyro"]
+    dependencies = ["mcp>=2,<3", "opentelemetry-api>=1,<2", "pyjwt>=2,<3", "tyro"]
     EOF
     cat > "$primeFixture/prime-agent-runtime/uv.lock" <<EOF
     version = 1
@@ -590,6 +591,11 @@ pkgs.runCommandLocal "check-ci-contract"
     name = "mcp-types"
     version = "20.0.4"
     wheels = [{ url = "https://files.pythonhosted.org/mock/mcp_types-20.0.4-py3-none-any.whl", hash = "sha256:$(printf 'd%.0s' {1..64})" }]
+
+    [[package]]
+    name = "opentelemetry-api"
+    version = "20.0.5"
+    wheels = [{ url = "https://files.pythonhosted.org/mock/opentelemetry_api-20.0.5-py3-none-any.whl", hash = "sha256:$(printf 'e%.0s' {1..64})" }]
     EOF
     tar czf "$TMPDIR/prime-source.tgz" -C "$TMPDIR/prime-source" prime-agent-9.9.9
     export MOCK_PRIME_TARBALL="$TMPDIR/prime-source.tgz"
@@ -636,6 +642,7 @@ pkgs.runCommandLocal "check-ci-contract"
       and .python.httpx2.version == "20.0.2"
       and .python.mcp.version == "20.0.3"
       and .python["mcp-types"].version == "20.0.4"
+      and .python["opentelemetry-api"].version == "20.0.5"
     ' "$primePin" >/dev/null
     before=$(git rev-parse HEAD)
     remoteBefore=$(remote_head)

@@ -1,4 +1,4 @@
-# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
+# base: v0.10.4 (8980e66f2f07762d62a6c1d73b347a4cac5275cc)
 # prerequisites: none
 # intent: bind Nix kernel imports to selected non-project skill sources without installing dependencies.
 # upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3971 existing; PR3907 merged project isolation is partial, not selected-source priority.

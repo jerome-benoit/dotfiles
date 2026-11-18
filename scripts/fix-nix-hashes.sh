@@ -57,7 +57,7 @@ validate_pin_files() {
     and (.bundledCatalogs | keys == ["hash", "url"])
     and (.bundledCatalogs.hash | test($hash))
     and (.bundledCatalogs.url | test("^https://github\\.com/PrimeIntellect-ai/prime-agent-catalog/archive/[0-9a-f]{40}\\.tar\\.gz$"))
-    and (.python | keys == ["httpcore2", "httpx2", "mcp", "mcp-types"])
+    and (.python | keys == ["httpcore2", "httpx2", "mcp", "mcp-types", "opentelemetry-api"])
     and ([.python[] | keys == ["hash", "url", "version"]] | all)
     and ([.python[].hash | test($hash)] | all)
     and ([.python[].url | test("^https://files\\.pythonhosted\\.org/.+\\.whl$")] | all)
