@@ -3,9 +3,9 @@
   "version": "0.10.4",
   "src": {
     "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz",
-    "hash": "sha256-c66TMI0XsWQvc0VNljmPMC1RdbDvTR8SOGTN66aAVvY="
+    "hash": "sha256-QiwRxohabwzWFUfQaX1IDpqakuWTwRhzdX54rrJfJ9M="
   },
-  "cargoHash": "sha256-EGVXJfU6F46VOXXySEn0yV8OI4eyXmeynxDfuPQWHmQ=",
+  "cargoHash": "sha256-lKwH4lybjdwIbfVJRjy3EN9aASMBxhRviaNZRKdIkVQ=",
   "bundledCatalogs": {
     "url": "https://github.com/PrimeIntellect-ai/prime-agent-catalog/archive/d4a099cf2aae7ea8c231298e93fd535756ef43c9.tar.gz",
     "hash": "sha256-dRDI9/Og95wM9MCYPcgoCP20P2kSKUnTwfMgxoPT5fg="
@@ -22,14 +22,14 @@
       "hash": "sha256-zItu7LhmHBRrj4mmDpdFbuCG6Rp4TtMaxFDDqeYT3TY="
     },
     "mcp": {
-      "version": "2.0.0",
-      "url": "https://files.pythonhosted.org/packages/67/72/7d7897418912c1d12e87556630dfb7bf0eac71160e9bef8b447960804ee3/mcp-2.0.0-py3-none-any.whl",
-      "hash": "sha256-HLTHXS0se4wddWNV5dgqOfKCLMfxPiKiBR18o1kjSdY="
+      "version": "2.3.0",
+      "url": "https://files.pythonhosted.org/packages/20/d7/4a2878f128df729db3ca04e71bfce26405cc2e0c9ebe19c592feeb4c61b9/mcp-2.3.0-py3-none-any.whl",
+      "hash": "sha256-3QxEwInRZFPorjGjh3oAVNeiMUyqqB9eBUG5sXNLI3c="
     },
     "mcp-types": {
-      "version": "2.0.0",
-      "url": "https://files.pythonhosted.org/packages/f5/4c/c78d78c3d52b0ac594ad7cc8ef5972adfe070e3597a8a4c6ce0cd39196ea/mcp_types-2.0.0-py3-none-any.whl",
-      "hash": "sha256-ay3nl8onl/Vot5Up4bJZSONN5RG8wL2C/vEDmm0bjrA="
+      "version": "2.3.0",
+      "url": "https://files.pythonhosted.org/packages/ce/48/32583066b155bb5d4507e7887dc88ee23118cc4de8e2a12870c49719e2a8/mcp_types-2.3.0-py3-none-any.whl",
+      "hash": "sha256-lo79va7fqwatrkDTeKNDlfEJDFkh1L48nN4oOq922R0="
     }
   },
   "rlmExtraPackages": [
