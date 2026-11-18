@@ -1,4 +1,4 @@
-# base: hermes-agent e2fb450adcf74421fe9514f048319dfcbb5af6c1
+# base: hermes-agent b1db37d2b950d6baee178d0d329e94775af3c527
 # prerequisites: none
 # intent: preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 open proposed partial loader fix, rollback/concurrency evidence: https://github.com/NousResearch/hermes-agent/pull/156224#issuecomment-6919243021.
@@ -915,7 +915,7 @@ diff --git a/hermes_cli/plugins_activation.py b/hermes_cli/plugins_activation.py
 diff --git a/tui_gateway/methods_tools.py b/tui_gateway/methods_tools.py
 --- a/tui_gateway/methods_tools.py
 +++ b/tui_gateway/methods_tools.py
-@@ -1715,8 +1715,8 @@
+@@ -1717,8 +1717,8 @@
  
      def _on_loaded(summaries) -> None:
          for entry in summaries:
@@ -926,7 +926,7 @@ diff --git a/tui_gateway/methods_tools.py b/tui_gateway/methods_tools.py
      manager.on_plugin_loaded(_on_loaded)
  
  
-@@ -1725,9 +1725,20 @@
+@@ -1727,9 +1727,20 @@
      copy carries ``live_now``, which the listener's load-time summary cannot)."""
      if result.get("activation"):
          return result

@@ -160,6 +160,8 @@ class Fixture:
             # callback's native socket may be absent; Core output must not be.
             "CAVE_GATEWAY_URL": "https://gateway.example.invalid",
         }
+        if browser := os.environ.get("CAVEMAN_TEST_CHROME"):
+            self.env["CAVEMAN_BROWSE_CHROME"] = browser
         self.a = self.generation("generation-A")
         self.b = self.generation("generation-B")
         self.switch(self.a)
@@ -1488,8 +1490,8 @@ assert.equal(typeof idle, "function", "V2 must register the model-idle hook");
 await event("session.execution.started");
 await idle({sessionID, background:[]});
 assert.equal(stops(), 1);
-// An idle hook may admit continuation input: a second completed model turn is another Stop.
-await idle({sessionID, background:[]});
+// Continuations trigger another Stop even with OpenCode 2's background Code Mode job.
+await idle({sessionID, background:[{kind:"codemode", sessionID, jobID:"background-code-mode"}]});
 assert.equal(stops(), 2);
 await event("session.execution.succeeded");
 assert.equal(stops(), 2, "terminal success must not duplicate model Stop");

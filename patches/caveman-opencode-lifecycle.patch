@@ -1,13 +1,13 @@
-# base: JuliusBrussee/caveman 9b243662ff98d392bc0a95b865a554583d71be75
+# base: JuliusBrussee/caveman a192894723a8f47e7f504c7b5041967ff1f18e55
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
 # intent: keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs.
-# upstream: PR1395 merged historical; PR1529 open does not fix factory isolation.
+# upstream: PR1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposed V1 factory fix, not V2 Stop.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1484 exact factory; #1443 historical cwd; https://github.com/JuliusBrussee/caveman/issues/1539 exact V2 Stop routing; no host runtime reproduction claimed.
 # removal: remove only when both APIs isolate factories, preserve cwd and V2 emits Stop from experimental.idle.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -9304,16 +9304,13 @@
+@@ -9294,16 +9294,13 @@
  
  const command = ${JSON.stringify(cmd)};
  const prefix = ${JSON.stringify(pre)};
@@ -26,7 +26,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    try {
      const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
        input: JSON.stringify({ event_name: event, ...(cwd ? { cwd } : {}), ...payload }),
-@@ -9381,108 +9378,108 @@
+@@ -9371,108 +9368,108 @@
    return /^(?:please\\s+)?(?:continue|go ahead|keep going|proceed|do (?:it|that)|fix (?:it|that)|retry|try again|explain (?:it|that)|what do you mean|yes|yep|yeah|why\\??|how\\??)[.!?\\s]*$/.test(prompt);
  }
  
@@ -233,7 +233,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return hostHooks;
  };
  `;
-@@ -9503,9 +9500,8 @@
+@@ -9493,9 +9490,8 @@
  // the served project travels with every call: in the payload, which
  // nativeRuntimeRequest reads as the session cwd, and as the child's working
  // directory, so anything it resolves relatively resolves there (#1443).
@@ -245,7 +245,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    try {
      const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
        input: JSON.stringify({ event_name: event, ...(cwd ? { cwd } : {}), ...payload }),
-@@ -9585,7 +9581,7 @@
+@@ -9575,7 +9571,7 @@
      const projectCwd = typeof ctx.location?.directory === "string" && ctx.location.directory
        ? ctx.location.directory
        : undefined;
@@ -254,7 +254,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  
      function sessionContext(sessionID) {
        if (!contexts.has(sessionID)) {
-@@ -9624,7 +9620,6 @@
+@@ -9614,7 +9610,6 @@
        const sessionID = event.data?.sessionID;
        if (typeof sessionID !== "string" || !sessionID) return;
        if (type === "session.created") sessionContext(sessionID);
@@ -262,7 +262,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        // "session.compacted" is the V1 event name; V2 reports compaction
        // through "session.compaction.ended". Handle both.
        if (type === "session.compaction.ended" || type === "session.compacted") {
-@@ -9638,6 +9633,11 @@
+@@ -9628,6 +9623,11 @@
          pending.delete(sessionID);
        }
      }
@@ -274,7 +274,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  
      await ctx.session.hook("prompt", (event) => {
        const prompt = event.prompt ?? {};
-@@ -19070,11 +19070,12 @@
+@@ -19060,11 +19060,12 @@
  import { execFileSync } from "node:child_process";
  
  // Returns the rewritten command, or undefined to leave the original alone.
@@ -288,7 +288,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        encoding: "utf8",
        windowsHide: true,
      });
-@@ -19092,10 +19093,10 @@
+@@ -19082,10 +19083,10 @@
  // V1: a named factory returning a hook map, mutating output.args.command.
  function opencodeShrinkPluginHookMapV1(): string {
    return `
@@ -301,7 +301,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      if (next) output.args.command = next;
    },
  });
-@@ -19116,7 +19117,7 @@
+@@ -19106,7 +19107,7 @@
        if (event?.tool !== "bash" && event?.tool !== "shell") return;
        const input = event.input;
        if (!input || typeof input !== "object") return;

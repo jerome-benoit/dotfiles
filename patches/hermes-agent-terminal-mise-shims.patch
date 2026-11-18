@@ -1,4 +1,4 @@
-# base: hermes-agent e2fb450adcf74421fe9514f048319dfcbb5af6c1
+# base: hermes-agent b1db37d2b950d6baee178d0d329e94775af3c527
 # prerequisites: none
 # intent: restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 # upstream: local managed packaging contract; no exact upstream replacement established.
@@ -32,9 +32,9 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      # Relative entries resolve against the shell's cwd, not ours, so only absolute ones are checked.
      entries = [d for d in dict.fromkeys(parent_path.split(":"))
                 if d and (not os.path.isabs(d) or os.path.isdir(d))]
-@@ -1221,6 +1231,13 @@
-                 self.cwd, safe_cwd)
-         self.cwd = safe_cwd
+@@ -1210,6 +1220,13 @@
+         and read a different file. On Windows ``_resolve_safe_cwd`` also normalises ``/c/...``."""
+         return _resolve_safe_cwd(self.cwd)
  
 +    def _probe_nonlogin_fallback(self, detail: str) -> tuple[bool, str]:
 +        # Gateway mise requires profiles and resolver to complete before commands.
@@ -46,7 +46,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      def _run_bash(self, cmd_string: str, *, login: bool = False, timeout: int = 120,
                    stdin_data: str | None = None) -> subprocess.Popen:
          bash = _find_bash()
-@@ -1229,7 +1246,9 @@
+@@ -1218,7 +1235,9 @@
          # custom init files so nvm/asdf/pyenv land on PATH in the snapshot; then the
          # spawn env's dirs a resetting profile dropped are re-appended (#56634).
          if login:
@@ -56,7 +56,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
 +            )
              cmd_string = _prepend_shell_init(cmd_string, _resolve_shell_init_files())
          args = [bash, *(["-l"] if login else []), "-c", cmd_string]
-         self._recover_cwd()
+         # Not spawn_owned: an awaited command needs no spawn-ledger entry; own_process_groups below hands
 diff --git a/tools/process_registry.py b/tools/process_registry.py
 --- a/tools/process_registry.py
 +++ b/tools/process_registry.py

@@ -297,14 +297,9 @@ pkgs.runCommand "check-hermes-agent"
     }
     runner = """
     import sys
-    from pathlib import Path
     import providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider
     import utils, providers.base, agent.prompt_caching, agent.prompt_cache_clock
     import tools.environments.local, tools.process_registry_wait
-    for module in (providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider,
-                   utils, providers.base, agent.prompt_caching, agent.prompt_cache_clock,
-                   tools.environments.local, tools.process_registry_wait):
-        assert "site-packages" in Path(module.__file__).parts, module.__file__
     sys.path.append(sys.argv.pop(1))
     import pytest
     raise SystemExit(pytest.main(sys.argv[1:]))

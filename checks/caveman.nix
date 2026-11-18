@@ -9,6 +9,11 @@ let
     url = "https://registry.npmjs.org/typebox/-/typebox-1.3.18.tgz";
     hash = "sha256-U998vnfjsMa2RLRI+zYrIScZxTdy+Aj6IeaqF5JTUuw=";
   };
+  # Chrome cannot nest its sandbox inside Nix's; only this check uses the launcher.
+  testChrome = pkgs.writeShellScript "caveman-test-chrome" ''
+    export CFFIXED_USER_HOME="$HOME"
+    exec ${pkgs.lib.escapeShellArg package.runtime.browserExecutable} --no-sandbox "$@"
+  '';
   filteredProfile = pkgs.buildEnv {
     name = "caveman-filtered-profile";
     paths = [ package ];
@@ -44,6 +49,7 @@ pkgs.runCommand "check-caveman-runtime"
     profileTmp="$(mktemp -d "$TMPDIR/caveman-profiles-XXXXXXXX")"
     longTmp="$profileTmp/native-socket-regression-requires-a-temporary-parent-that-exceeds-the-portable-unix-domain-socket-path-limit"
     mkdir "$longTmp"
+    ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "CAVEMAN_TEST_CHROME=${testChrome}"} \
     TMPDIR="$longTmp" python3 ${./caveman-profiles.py} ${package} ${pkgs.lib.getExe pkgs.git} ${pkgs.lib.getExe pkgs.nodejs_22} ${typebox} ${filteredProfile} ${nestedProfile}
     rmdir "$longTmp" "$profileTmp"
     python3 ${./caveman-installer.py} ${package} ${pkgs.lib.getExe pkgs.nodejs_22} ${pkgs.lib.getExe pkgs.bash} ${package.installerSource.src}
