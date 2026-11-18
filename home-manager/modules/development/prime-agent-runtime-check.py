@@ -1,5 +1,6 @@
-"""Exercise kernel overrides and daemon generations in the installed Nix package."""
+"""Exercise installed runtime identity, MCP, kernel overrides and daemon generations."""
 
+import hashlib
 import json
 import pathlib
 import shutil
@@ -9,10 +10,12 @@ import sys
 import threading
 import tempfile
 import time
+import tomllib
 
 binary = pathlib.Path(sys.argv[1]).resolve()
 python = pathlib.Path(sys.argv[2])
 git = pathlib.Path(sys.argv[3])
+expected_version = sys.argv[4]
 
 
 def run(command, env, cwd):
@@ -25,6 +28,69 @@ def run(command, env, cwd):
         capture_output=True,
         timeout=30,
     )
+
+def check_distribution(root, env):
+    raw = binary.parent.parent / "libexec/prime-agent"
+    for executable in (binary, raw):
+        result = run([executable, "--version"], env, root)
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert result.stdout.strip() == expected_version, result.stdout
+    source = binary.parent.parent / "share/prime-agent/prime-agent-runtime"
+    lock = tomllib.loads((source / "uv.lock").read_text())
+    names = ("httpcore2", "httpx2", "mcp", "mcp-types", "opentelemetry-api", "pyjwt")
+    expected = {package["name"]: package["version"] for package in lock["package"] if package["name"] in names}
+    probe = (
+        "import hashlib, importlib.metadata, json, pathlib, rlm, rlm.bash, rlm.mcp, rlm.mcp_base\n"
+        "files = [pathlib.Path(rlm.__file__)] + [pathlib.Path(importlib.import_module('rlm.' + name).__file__) for name in ('bash', 'mcp', 'mcp_base')]\n"
+        "print(json.dumps({'versions': {name: importlib.metadata.version(name) for name in "
+        f"{names!r}" + "}, 'files': {path.name: {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in files}}))"
+    )
+    result = run([python, "-I", "-B", "-c", probe], env, root)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    installed = json.loads(result.stdout)
+    assert installed["versions"] == expected, installed["versions"]
+    for name, actual in installed["files"].items():
+        assert actual["path"].startswith("/nix/store/"), actual
+        assert actual["sha256"] == hashlib.sha256((source / "src/rlm" / name).read_bytes()).hexdigest(), actual
+    print(f"Distribution: native CLI {expected_version}; installed runtime matches bundled source and locked MCP dependency versions")
+
+
+def check_mcp(root, env):
+    server = root / "mcp-server.py"
+    server.write_text(
+        "from mcp.server.mcpserver import MCPServer\n"
+        "server = MCPServer('nix-runtime')\n"
+        "@server.tool()\ndef echo(value: str) -> dict[str, str]: return {'value': value}\n"
+        "@server.tool()\ndef reject() -> str: raise ValueError('rejected')\n"
+        "server.run(transport='stdio')\n"
+    )
+    (root / "agent/settings.json").write_text(json.dumps({"mcpServers": {
+        "nix-runtime": {"type": "stdio", "command": str(python), "args": ["-I", "-B", str(server)]},
+    }}))
+    result_file = root / "mcp-result.json"
+    code = (
+        "import json, pathlib\nfrom rlm import McpToolError\n"
+        "tools = sorted(tool['name'] for tool in await mcp.list_tools('nix-runtime'))\n"
+        "value = await mcp.call_tool('nix-runtime', 'echo', {'value': 'installed-runtime'})\n"
+        "rejected = False\ntry:\n    await mcp.call_tool('nix-runtime', 'reject')\n"
+        "except McpToolError:\n    rejected = True\n"
+        f"pathlib.Path({str(result_file)!r}).write_text(json.dumps({{'tools': tools, 'value': value, 'rejected': rejected}}))"
+    )
+    script = {"responses": [
+        {"content": [{"type": "toolCall", "name": "ipython", "arguments": {"code": code}}]},
+        "MCP check complete",
+    ]}
+    result = run(
+        [binary, "--no-session", "-p", "Check installed MCP runtime"],
+        {**env, "PRIME_AGENT_FAUX_SCRIPT": json.dumps(script)},
+        root,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert json.loads(result_file.read_text()) == {
+        "tools": ["echo", "reject"], "value": {"value": "installed-runtime"}, "rejected": True,
+    }
+    print("MCP: installed kernel discovers and calls the real SDK server; structured results and tool errors survive")
+
 
 def check_selected_sources(root, env):
     skills = root / "agent/skills"
@@ -369,7 +435,9 @@ with tempfile.TemporaryDirectory(prefix="pa-check-", dir="/tmp") as temporary:
         "XDG_DATA_HOME": str(root / "data"), "PRIME_AGENT_CODING_AGENT_DIR": str(root / "agent"),
         "DO_NOT_TRACK": "1", "PI_OFFLINE": "1", "NO_COLOR": "1",
     }
+    check_distribution(root, env)
     check_selected_sources(root, env)
     check_kernel(root, env)
+    check_mcp(root, env)
     check_extension_updates(root, env)
     check_daemon(root, env)

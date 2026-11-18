@@ -617,6 +617,11 @@ For other packages, resolve the source and ordered patch list from the selected 
 
 Inspect the applied files and patch log. Application alone does not verify syntax, compilation or runtime behavior. Run the affected syntax and package or behavior checks when patched code or upstream assumptions change; choose checks for the actual package rather than defaulting to the current user's full activation build.
 
+Package-specific refresh checks:
+
+- Prime Agent: compare the runtime's `pyproject.toml` and `uv.lock` with the installed Python closure, not just the Rust tag. Keep direct runtime dependencies, locked MCP wheels, the pin schema and updater fixtures aligned. For v0.10.4, use the locked `opentelemetry-api` wheel because nixpkgs is below the runtime's minimum; nixpkgs PyJWT satisfies the lock. Exercise installed MCP calls and errors, selected skill sources, kernel overrides and daemon admission after rebasing reconnect changes. A closed upstream PR is not evidence of a merge.
+- OMP: compare exact release assets and tag sources. The prebuilt assets bundle their own Bun and version-stamped native addons; local nixpkgs Bun does not establish their provenance. Exercise the installed CLI and smoke test. On both Linux assets, apply the selected patchelf operations and verify `DT_VERDEF` equals `.gnu.version_d` after repair, with readable version tables and the C++ preload retained. Keep the repair until the selected patchelf contains PR #665, even though upstream merged it; keep `dontStrip` while the bundled Bun is affected by oven-sh/bun#48405.
+
 ### 6. Check for offset/fuzz warnings
 
 ```bash

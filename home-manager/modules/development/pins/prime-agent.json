@@ -30,6 +30,11 @@
       "version": "2.3.0",
       "url": "https://files.pythonhosted.org/packages/ce/48/32583066b155bb5d4507e7887dc88ee23118cc4de8e2a12870c49719e2a8/mcp_types-2.3.0-py3-none-any.whl",
       "hash": "sha256-lo79va7fqwatrkDTeKNDlfEJDFkh1L48nN4oOq922R0="
+    },
+    "opentelemetry-api": {
+      "version": "1.45.2",
+      "url": "https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl",
+      "hash": "sha256-LL1zc3fnEO50DSYclOk/oPCObQN8GPF1E8wKLZRHmjQ="
     }
   },
   "rlmExtraPackages": [

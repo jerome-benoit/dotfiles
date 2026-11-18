@@ -40,12 +40,13 @@ let
         pname = "omp";
         inherit version;
 
+        # Release assets include Bun and version-stamped platform addons.
         src = pins.sources.${platformKey};
 
         dontUnpack = true;
         dontBuild = true;
-        # Workaround: stripping runs the bundled Bun runtime instead of omp.
-        # Remove when stripping preserves Bun's embedded application.
+        # Workaround (oven-sh/bun#48405): stripping runs Bun instead of omp.
+        # Remove when stripping preserves the embedded application graph.
         dontStrip = true;
 
         nativeBuildInputs = [
@@ -78,8 +79,8 @@ let
 
         preFixup =
           lib.optionalString hp.isLinux ''
-            # Workaround: patchelf relocates Bun's version table without updating DT_VERDEF.
-            # Remove when patchelf preserves version-definition pointers.
+            # Workaround (NixOS/patchelf#664): relocation leaves DT_VERDEF stale.
+            # Remove when the selected patchelf includes the fix from PR #665.
             repairOmpVersionDefinitions() {
               ${elfPython}/bin/python3 ${./omp-fix-dt-verdef.py} "$out/bin/.omp-wrapped"
             }

@@ -80,6 +80,8 @@ let
         py.pkgs.typing-extensions
       ]
       [ ];
+  opentelemetryApi =
+    mkLockedWheel "opentelemetry-api" [ py.pkgs.typing-extensions ] [ "opentelemetry.trace" ];
   mcp2 =
     mkLockedWheel "mcp"
       [
@@ -87,7 +89,7 @@ let
         httpx2
         py.pkgs.jsonschema
         mcpTypes
-        py.pkgs.opentelemetry-api
+        opentelemetryApi
         py.pkgs.pydantic
         py.pkgs.pyjwt
         py.pkgs.cryptography
@@ -103,6 +105,7 @@ let
     inherit httpcore2 httpx2;
     mcp = mcp2;
     mcp-types = mcpTypes;
+    opentelemetry-api = opentelemetryApi;
   };
 
   # Workaround: tyro's completion tests flake on aarch64-darwin.
@@ -123,6 +126,8 @@ let
     build-system = [ py.pkgs.hatchling ];
     dependencies = [
       mcp2
+      opentelemetryApi
+      py.pkgs.pyjwt
       tyro
     ];
     doCheck = false;
@@ -331,7 +336,7 @@ let
           cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
           # Exercise read-only checks through the wrapper with isolated environments.
           ${kernelPython}/bin/python3 ${./prime-agent-update-readonly.py} "$out/bin/prime-agent"
-          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3" "${lib.getExe pkgs.git}"
+          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3" "${lib.getExe pkgs.git}" "${version}"
           for target in nightly rollback archive coordinator; do
             case "$target" in
               nightly) set -- update --nightly ;;

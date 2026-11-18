@@ -1,4 +1,4 @@
-# base: v0.10.3 (efb25e2be62507f8a13a157545d031da213abac9)
+# base: v0.10.4 (8980e66f2f07762d62a6c1d73b347a4cac5275cc)
 # prerequisites: none
 # intent: refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
 # upstream: Nix ownership policy; no generic upstream fix required.
@@ -267,7 +267,7 @@ diff --git a/crates/pa-tui/src/session_ui/commands.rs b/crates/pa-tui/src/sessio
              }
              // `/factory [on|off|status]`: the factory's opt-in gate (the
              // operator's directive: the factory is disabled until the
-@@ -525,6 +549,10 @@ impl SessionUi {
+@@ -523,6 +547,10 @@ impl SessionUi {
                      self.error_row("Usage: /update", view);
                      return Ok(());
                  }
