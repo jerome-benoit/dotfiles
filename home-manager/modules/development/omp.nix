@@ -45,8 +45,8 @@ let
 
         dontUnpack = true;
         dontBuild = true;
-        # Workaround (oven-sh/bun#48405): stripping runs Bun instead of omp.
-        # Remove when stripping preserves the embedded application graph.
+        # Workaround: stripping runs Bun instead of omp (oven-sh/bun#48405).
+        # Remove when stripping preserves Bun's embedded application.
         dontStrip = true;
 
         nativeBuildInputs = [
@@ -79,8 +79,8 @@ let
 
         preFixup =
           lib.optionalString hp.isLinux ''
-            # Workaround (NixOS/patchelf#664): relocation leaves DT_VERDEF stale.
-            # Remove when the selected patchelf includes the fix from PR #665.
+            # Workaround: patchelf leaves DT_VERDEF stale after relocation (NixOS/patchelf#664).
+            # Remove when the selected patchelf contains the fix from PR #665.
             repairOmpVersionDefinitions() {
               ${elfPython}/bin/python3 ${./omp-fix-dt-verdef.py} "$out/bin/.omp-wrapped"
             }

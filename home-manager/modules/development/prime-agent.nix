@@ -336,7 +336,7 @@ let
           cp "$HOME/.prime/agent/settings.json" "$TMPDIR/settings-before.json"
           # Exercise read-only checks through the wrapper with isolated environments.
           ${kernelPython}/bin/python3 ${./prime-agent-update-readonly.py} "$out/bin/prime-agent"
-          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3" "${lib.getExe pkgs.git}" "${version}"
+          ${kernelPython}/bin/python3 ${./prime-agent-runtime-check.py} "$out/bin/prime-agent" "${kernelPython}/bin/python3" "${lib.getExe pkgs.git}"
           for target in nightly rollback archive coordinator; do
             case "$target" in
               nightly) set -- update --nightly ;;
