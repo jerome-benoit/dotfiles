@@ -1,6 +1,6 @@
 {
   "renovate": "datasource=github-releases depName=PrimeIntellect-ai/prime-agent",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "src": {
     "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz",
     "hash": "sha256-c66TMI0XsWQvc0VNljmPMC1RdbDvTR8SOGTN66aAVvY="
