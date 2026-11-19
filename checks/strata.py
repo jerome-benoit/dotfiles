@@ -164,6 +164,50 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip())
 
+
+    def make_local_runtime(self, root):
+        """Create an offline real venv whose base interpreter belongs to the managed layout."""
+        base = root / ".python"
+        (base / "bin").mkdir(parents=True)
+        shutil.copy2(sys._base_executable, base / "bin/python")
+        (base / "lib").symlink_to(Path(sys.base_prefix) / "lib", target_is_directory=True)
+        subprocess.run([str(base / "bin/python"), "-m", "venv", "--without-pip",
+                        str(root / ".venv")], env=self.env, check=True, capture_output=True)
+        version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        package = root / ".venv/lib" / version / "site-packages/relocation_fixture.py"
+        package.write_text("VALUE = 'retained package'\n")
+        package.chmod(0o640)
+        entry = root / ".venv/bin/relocation-fixture"
+        entry.write_text("#!/bin/sh\n"
+                         + f"'''exec' {shlex.quote(str(root / '.venv/bin/python'))} \"$0\" \"$@\"\n"
+                         + "' '''\n"
+                         + "import relocation_fixture; print(relocation_fixture.VALUE)\n")
+        entry.chmod(0o750)
+        subprocess.run([str(entry)], env=self.env, check=True, capture_output=True)
+        return {path.relative_to(root): (path.read_bytes(), path.stat().st_mode & 0o777,
+                                        path.stat().st_ino)
+                for path in (root / ".venv").rglob("*")
+                if path.is_file() and ("site-packages" in path.parts)}
+
+    def assert_local_runtime(self, root, retained):
+        result = subprocess.run([str(root / ".venv/bin/relocation-fixture")], env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "retained package")
+        python = root / ".venv/bin/python"
+        self.assertTrue(python.resolve().is_relative_to(root / ".python"))
+        result = subprocess.run([str(python), "-c",
+                                 "import json, sys; print(json.dumps([sys.prefix, sys.base_prefix]))"],
+                                env=self.env, capture_output=True, text=True, check=True)
+        prefix, base = json.loads(result.stdout)
+        self.assertEqual(Path(prefix), root / ".venv")
+        self.assertEqual(Path(base), root / ".python")
+        self.assertEqual((root / ".venv/bin/relocation-fixture").stat().st_mode & 0o777, 0o750)
+        metadata = (root / ".venv/pyvenv.cfg").read_text()
+        self.assertIn(str(root / ".python/bin"), metadata)
+        for relative, expected in retained.items():
+            path = root / relative
+            self.assertEqual((path.read_bytes(), path.stat().st_mode & 0o777, path.stat().st_ino), expected)
     def test_module_launcher_quotes_all_directories_and_preserves_user_arguments(self):
         for fixture in LAUNCHERS:
             with self.subTest(expected=fixture["expected"]):
@@ -850,6 +894,60 @@ assert set(downloads) == {paths["dense"], dst}, downloads
 assert all(setup.ready_verified(setup.ready_where(models, f, data), f[5]) for f in setup.ready_files("fixture"))
 ''')
 
+    def test_unmarked_final_budget_verifies_once_without_download_or_payload_write(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r"""
+import hashlib
+from pathlib import Path
+from unittest.mock import patch
+import setup
+models, data = Path("final-models").resolve(), Path("final-data").resolve()
+models.mkdir()
+data.mkdir()
+payload = b"complete pinned payload"
+sha = hashlib.sha256(payload).hexdigest()
+setup.MODELS = {"fixture": {"repo": "owner/final"}}
+setup.NVFP4_REPOS = {"owner/final": {"revision": "local", "files": {
+    "dense.gguf": ("dense", len(payload), sha)}}}
+f = setup.ready_files("fixture")[0]
+dst = setup.ready_where(models, f, data)
+dst.parent.mkdir(parents=True)
+dst.write_bytes(payload)
+before = (dst.read_bytes(), dst.stat().st_ino, dst.stat().st_mtime_ns)
+native_hash = setup._hash_file
+with patch.object(setup, "free_gb", return_value=0), \
+     patch.object(setup, "download", side_effect=AssertionError("unneeded acquisition")), \
+     patch.object(setup, "_hash_file", wraps=native_hash) as hashes:
+    assert setup.ready_disk_problem("fixture", models, data) is None
+    assert setup.ready_verified(dst, sha)
+    assert hashes.call_count == 1
+    setup.ready_fetch("fixture", models, data)
+    assert setup.ready_disk_problem("fixture", models, data) is None
+    assert hashes.call_count == 1
+assert (dst.read_bytes(), dst.stat().st_ino, dst.stat().st_mtime_ns) == before
+# A complete length is not a certificate, including a sparse final full of zeroes.
+for sparse in (False, True):
+    dst.unlink(missing_ok=True)
+    for marker in (dst.with_name(dst.name + ".done"), setup._kept_mark(dst)):
+        if marker is not None:
+            marker.unlink(missing_ok=True)
+    with dst.open("wb") as stream:
+        if sparse:
+            stream.truncate(len(payload))
+        else:
+            stream.write(b"x" * len(payload))
+    with patch.object(setup, "free_gb", return_value=0), \
+         patch.object(setup, "download", side_effect=AssertionError("budget acquired bytes")):
+        try:
+            problem = setup.ready_disk_problem("fixture", models, data)
+        except SystemExit:
+            pass
+        else:
+            assert problem is not None, "wrong final credited by length"
+    assert not setup.ready_verified(dst, sha)
+    assert dst.with_name(dst.name + ".bad").read_bytes() != payload
+""")
+
     def test_sparse_chunk_resume_evidence_is_read_only_and_not_logical_size(self):
         root = self.prepare(self.old)
         self.run_source_script(root, """
@@ -877,6 +975,10 @@ assert setup.resume_bytes(model, total) == 0 and side.read_text() == "[]"
 source = part.with_name(part.name + ".src")
 source.write_text(json.dumps({"url": "https://wrong.invalid/revision"}))
 assert setup.resume_bytes(model, total, url="https://chosen.invalid/revision") == 0
+side.unlink()
+assert setup.resume_bytes(model, total) == 0
+assert setup.resume_bytes(model) == 0
+assert part.stat().st_size == total
 """)
 
     def test_qad_downloaded_checkpoint_keeps_preparation_disk_guards(self):
@@ -964,23 +1066,24 @@ with patch.object(setup.os, "stat", side_effect=stat):
         import hashlib
         root = self.prepare(self.old)
         git_dir = root.parent / ".git"
-        ledger = (git_dir / "strata-source.patch").read_text()
-        digest = hashlib.sha256(ledger.encode()).hexdigest()
+        ledger = (git_dir / "strata-source.patch").read_bytes()
+        digest = hashlib.sha256(ledger).hexdigest()
         cache = git_dir / "strata-source-patches"
         self.assertEqual((cache / f"{self.old}.sha256").read_text().strip(), digest)
         payload = cache / f"{self.old}-{digest}.patch"
-        self.assertEqual(payload.read_text(), ledger)
-        payload.write_text(ledger + "corrupted publication bytes\n")
+        self.assertEqual(payload.read_bytes(), ledger)
+        payload.write_bytes(ledger + b"corrupted publication bytes\n")
         result = subprocess.run(self.command(self.new), env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Cached source patch", result.stderr)
-        self.assertEqual((git_dir / "strata-source.patch").read_text(), ledger)
+        self.assertEqual((git_dir / "strata-source.patch").read_bytes(), ledger)
         self.assertEqual(subprocess.check_output(["git", "-C", str(root.parent), "rev-parse", "HEAD"],
                                                 text=True).strip(), self.old)
 
     def test_native_managed_runtime_layout_renames_and_inverse_preserve_payload_identity(self):
         root = self.prepare(self.old)
         repository = root.parent
+        retained = self.make_local_runtime(repository)
         config = repository / "strata-layout.json"
         original = {"exe": str(repository / "engine/strata"), "cwd": str(repository),
                     "args": ["--native", str(repository / "models/model.gguf")],
@@ -998,6 +1101,7 @@ with patch.object(setup.os, "stat", side_effect=stat):
         approval.write_text("old path approval")
         self.assertEqual(self.prepare(self.old), root)
         self.assertFalse(approval.exists())
+        self.assert_local_runtime(root, retained)
         for name, data in paths.items():
             path = root / name
             self.assertEqual(path.read_bytes(), data)
@@ -1013,6 +1117,7 @@ os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(setup.ROOT.par
 setup.move_over_old_layout(reverse=True)
 """)
         self.assertEqual(json.loads(config.read_text()), original)
+        self.assert_local_runtime(repository, retained)
         for name, data in paths.items():
             path = repository / name
             self.assertEqual(path.read_bytes(), data)
@@ -1125,6 +1230,13 @@ for name, path in (("managed", source), ("independent", other)):
     profiles.create(name, str(path))
     profiles.set_values(name, ["port=9123", "parallel=3"])
 independent = profiles.load("independent")
+initial, initial_revision = profiles.load("managed")
+profiles.set_values("managed", ["port=9234"])
+updated, updated_revision = profiles.load("managed")
+profiles.rollback("managed", initial_revision)
+assert profiles.load("managed")[0]["overrides"] == initial["overrides"]
+immutable = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+             for p in (profiles.profile_dir() / ".history").rglob("*.json")}
 external = repository.parent / "external/model.gguf"
 external.parent.mkdir()
 external.write_bytes(b"complete external weights")
@@ -1135,6 +1247,12 @@ identity = setup._kept_mark(external).stat().st_ino
 setup.ROOT = repository / "terminal"
 for reverse in (False, True, False):
     setup.move_over_old_layout(reverse=reverse)
+    for target, expected in ((updated_revision, updated), (initial_revision, initial)):
+        profiles.rollback("managed", target)
+        assert profiles.load("managed")[0]["overrides"] == expected["overrides"]
+    for path, original in immutable.items():
+        assert (path.read_bytes(), path.stat().st_mtime_ns) == original
+        assert profiles._revision(path.read_bytes()) == path.stem
     destination = source if reverse else setup.ROOT / source.name
     resolved, profile, revision = profiles.resolve("managed")
     assert resolved == destination, (resolved, destination)
@@ -1240,8 +1358,9 @@ for source, cached_build, fresh in ((setup.ROOT.parent, build, True),
 
     def test_native_profile_publication_failure_restores_layout_and_profile_revisions(self):
         root = self.prepare(self.old)
+        retained = self.make_local_runtime(root.parent)
         self.run_source_script(root, r'''
-import json, os
+import json, os, subprocess
 import setup
 from strata_control import profiles
 repository = setup.ROOT.parent
@@ -1262,10 +1381,12 @@ for reverse in (False, True):
     source = setup.ROOT if reverse else repository
     destination = repository if reverse else setup.ROOT
     paths = [source / "strata-transaction.json", source / "engine/.previous/strata", source / "build/user-cache"]
+    paths += [source / ".venv/pyvenv.cfg", source / ".venv/bin/relocation-fixture"]
     originals = [(p, p.read_bytes(), p.stat().st_ino) for p in paths]
     current = {name: profiles.load(name) for name in ("first", "second")}
-    profile_bytes = {p: p.read_bytes() for p in profiles.profile_dir().glob("*.json")}
-    history = {p: p.read_bytes() for p in (profiles.profile_dir() / ".history").rglob("*.json")}
+    profile_bytes = {p: p.read_bytes() for p in profiles.profile_dir().rglob("*.json")}
+    links = {p.relative_to(source): os.readlink(p) for p in (source / ".venv/bin").iterdir()
+             if p.is_symlink()}
     real_save = profiles._save_locked
     saves = []
     def fail_second(name, proposed, **kwargs):
@@ -1284,20 +1405,133 @@ for reverse in (False, True):
     finally:
         profiles._save_locked = real_save
     assert len(saves) == 2, saves
+    result = subprocess.run([str(source / ".venv/bin/relocation-fixture")],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "retained package"
+    runtime = subprocess.check_output([str(source / ".venv/bin/python"), "-c",
+        "import json,sys; print(json.dumps([sys.prefix,sys.base_prefix]))"], text=True)
+    assert json.loads(runtime) == [str(source / ".venv"), str(source / ".python")]
     for path, data, inode in originals:
         assert path.read_bytes() == data
         assert path.stat().st_ino == inode
         assert not (destination / path.relative_to(source)).exists()
+    assert {p.relative_to(source): os.readlink(p) for p in (source / ".venv/bin").iterdir()
+            if p.is_symlink()} == links
     for name, expected in current.items():
         assert profiles.load(name) == expected
         resolved, profile, revision = profiles.resolve(name)
         assert resolved == paths[0]
         assert profiles.read_run_config(resolved)["cwd"] == str(source)
         assert profile["overrides"] == {"port": 9123, "parallel": 3}
-    for path, data in {**profile_bytes, **history}.items():
-        assert path.read_bytes() == data
+    assert {p: p.read_bytes() for p in profiles.profile_dir().rglob("*.json")} == profile_bytes
     setup.move_over_old_layout(reverse=reverse)
 ''')
+        self.assert_local_runtime(root.parent, retained)
+
+    def test_profile_create_waits_for_relocation_and_never_publishes_dangling_source(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r"""
+import errno, fcntl, json, os, signal, socket
+from pathlib import Path
+from strata_control import profiles
+source = Path("../strata-race.json").resolve()
+destination = Path("strata-race.json").resolve()
+config = {"exe": "/fixture/engine", "tokenizer": "/fixture/tokenizer", "args": []}
+source.write_text(json.dumps(config))
+profiles.create("existing", str(source))
+parent, child = socket.socketpair()
+parent.settimeout(15)
+pid = None
+reaped = False
+try:
+    pid = os.fork()
+    if pid == 0:
+        parent.close()
+        child.settimeout(15)
+        assert child.recv(1) == b"g"
+        native_flock = fcntl.flock
+        announced = False
+        def observed_flock(fd, operation):
+            global announced
+            if operation & fcntl.LOCK_EX and not operation & fcntl.LOCK_NB:
+                try:
+                    return native_flock(fd, operation | fcntl.LOCK_NB)
+                except OSError as error:
+                    if error.errno not in (errno.EAGAIN, errno.EACCES):
+                        raise
+                    if not announced:
+                        child.sendall(b"b")
+                        announced = True
+            return native_flock(fd, operation)
+        fcntl.flock = observed_flock
+        # A second installation has no managed workspace lease to serialize it.
+        os.environ.pop("STRATA_WORKSPACE_CONTEXT", None)
+        try:
+            profiles.create("concurrent", str(source))
+            resolved, _, _ = profiles.resolve("concurrent")
+            result = {"created": True, "resolved": str(resolved), "exists": resolved.is_file()}
+        except profiles.ProfileError:
+            result = {"created": False}
+        except BaseException as error:
+            result = {"error": repr(error)}
+        child.sendall(json.dumps(result).encode())
+        child.close()
+        os._exit(0)
+    child.close()
+    with profiles.relocate_sources([(source, destination)]) as publish:
+        parent.sendall(b"g")
+        # Sent only after a real nonblocking flock fails: no scheduler/timing assumption.
+        assert parent.recv(1) == b"b", "create did not block on the relocation namespace"
+        source.rename(destination)
+        publish()
+    result = json.loads(parent.recv(65536))
+    assert "error" not in result, result
+    if result["created"]:
+        assert result["exists"] and result["resolved"] == str(destination), result
+    else:
+        assert not (profiles.profile_dir() / "concurrent.json").exists()
+    assert profiles.resolve("existing")[0] == destination
+    waited, status = os.waitpid(pid, 0)
+    reaped = True
+    assert waited == pid and status == 0, status
+finally:
+    parent.close()
+    child.close()
+    if pid is not None and pid > 0 and not reaped:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        os.waitpid(pid, 0)
+""")
+
+    def test_native_without_overlay_prepares_and_removal_migrates_real_payloads(self):
+        def native_prepare():
+            result = subprocess.run(self.command(self.old), env=dict(self.env, TEST_SOURCE_PATCH=""),
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return Path(result.stdout.strip())
+        root = native_prepare()
+        for overlay in (False, True):
+            if overlay:
+                self.assertEqual(self.prepare(self.old), root)
+            source = root.parent / "models/native.gguf"
+            source.parent.mkdir(exist_ok=True)
+            source.write_bytes(b"native retained payload")
+            inode = source.stat().st_ino
+            config = root.parent / "strata-native.json"
+            config.write_text(json.dumps({"exe": "/fixture/engine", "args": [str(source)]}))
+            self.assertEqual(native_prepare(), root)
+            destination = root / "models/native.gguf"
+            self.assertFalse(source.exists())
+            self.assertEqual(destination.read_bytes(), b"native retained payload")
+            self.assertEqual(destination.stat().st_ino, inode)
+            self.assertEqual(json.loads((root / config.name).read_text())["args"], [str(destination)])
+            self.assertEqual((root / "setup.py").read_bytes(), (Path(UPSTREAM) / "setup.py").read_bytes())
+            self.assertFalse((root.parent / ".git/strata-source.patch").exists())
+            destination.unlink()
+            destination.parent.rmdir()
+            (root / config.name).unlink()
 
     def test_flat_checkout_refusal_after_reverse_restores_managed_runtime(self):
         self.git("mv", "terminal/setup.py", "setup.py")
@@ -1323,10 +1557,7 @@ for reverse in (False, True):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
             identities[name] = (path.stat().st_dev, path.stat().st_ino)
-        python = root / ".venv/bin/python"
-        python.parent.mkdir(parents=True)
-        python.symlink_to(sys.executable)
-        interpreter = python.lstat().st_ino
+        retained = self.make_local_runtime(root)
         config = root / "strata-refused.json"
         expected = {"exe": str(root / "engine/strata"), "cwd": str(root), "args": []}
         config.write_text(json.dumps(expected))
@@ -1339,7 +1570,7 @@ for reverse in (False, True):
                                                 text=True).strip(), self.old)
         self.assertEqual(json.loads(config.read_text()), expected)
         self.assertFalse((repository / config.name).exists())
-        self.assertEqual(python.lstat().st_ino, interpreter)
+        self.assert_local_runtime(root, retained)
         self.assertFalse((repository / ".venv").exists())
         for name, data in payloads.items():
             path = root / name
@@ -4739,7 +4970,7 @@ profiles.create("external-model", {str(target)!r})
                 else:
                     previous = self.base / "previous-overlay.patch"
                     previous.write_text(Path(SOURCE_PATCH).read_bytes().decode("utf-8") + (
-                        "diff --git a/code.py b/code.py\n--- a/code.py\n+++ b/code.py\n"
+                        "diff --git a/terminal/code.py b/terminal/code.py\n--- a/terminal/code.py\n+++ b/terminal/code.py\n"
                         "@@ -1 +1 @@\n-old source\n+older overlay source\n"))
                     self.env["TEST_SOURCE_PATCH"] = str(previous)
                 root = self.prepare(self.old)

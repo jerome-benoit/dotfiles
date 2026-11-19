@@ -892,7 +892,8 @@ if __name__ == "__main__":
         elif sys.argv[1] == "--migrate-layout":
             sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
             import setup
-            moved = setup.move_over_old_layout(reverse="--reverse" in sys.argv[3:])
+            moved = (setup.move_over_old_layout(reverse=True) if "--reverse" in sys.argv[3:]
+                     else setup.move_over_old_layout())
             if moved:
                 (repository_root(Path(sys.argv[2]).resolve()) / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
         elif sys.argv[1] == "--launch-exec":

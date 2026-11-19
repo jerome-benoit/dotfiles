@@ -1,10 +1,10 @@
 # base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: none
-# intent: keep source CLI/bootstrap, lease handoffs, reversible runtime/profile state and relocation-safe builds together.
+# intent: keep source CLI/bootstrap, lease handoffs, relocatable Python, transactional profile references/history and relocation-safe builds together.
 # upstream: https://github.com/Niko1221/Strata/issues/5586 open: bootstrap need only partially related; no engine build supplied.
-# removal: remove only with equivalent helper publication, acquisition receipts and service/import leases, reversible runtime/profile migration, relocation-aware builds and hash-addressed source-delta receipts after offline rollback.
+# removal: remove only with equivalent helper publication, acquisition receipts and service/import leases, reversible interpreter/runtime migration, namespace-locked profile history resolution, relocation-aware builds and hash-addressed source-delta receipts after offline rollback.
 diff --git a/engine/metal/setup_mac.py b/engine/metal/setup_mac.py
-index 3572f57..b2fc321 100644
+index 3572f5758f78fd827484a830da0a8769d704b4c7..b2fc321a738936a58fe99d582e699992b3c37ad5 100644
 --- a/engine/metal/setup_mac.py
 +++ b/engine/metal/setup_mac.py
 @@ -133,6 +133,7 @@ def build_engine(llama: Path, jobs: int | None = None) -> Path:
@@ -51,7 +51,7 @@ index 3572f57..b2fc321 100644
                  S.fail(f"the image encoder did not build (see {log})")
      stamp.write_text(json.dumps({"source": src}), encoding="utf-8")
 diff --git a/engine/spark/build_engine.sh b/engine/spark/build_engine.sh
-index 4c8fff9..e10a68e 100755
+index 4c8fff918c6557dc8f983331040a561d761c001d..e10a68e51209e7b831089a70b8fe06c87cf71fee 100755
 --- a/engine/spark/build_engine.sh
 +++ b/engine/spark/build_engine.sh
 @@ -44,11 +44,12 @@ case "$cudafull" in
@@ -78,7 +78,7 @@ index 4c8fff9..e10a68e 100755
        "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual"
    "$cmake" --build "$vision_dir" --target strata-vision -j "$jobs"
 diff --git a/engine/sycl/setup_intel.py b/engine/sycl/setup_intel.py
-index 9b3579e..3621032 100644
+index 9b3579e8233e0df49dac6ce6848d6aa2d548ba68..3621032dc48ee6ca20a63531622b1aad3614a012 100644
 --- a/engine/sycl/setup_intel.py
 +++ b/engine/sycl/setup_intel.py
 @@ -245,10 +245,10 @@ def build_vision_sycl_reader(stub: Path, llama) -> bool:
@@ -110,7 +110,7 @@ index 9b3579e..3621032 100644
  
      argv = list(argv)
 diff --git a/engine/sycl/tools/build.sh b/engine/sycl/tools/build.sh
-index 1d4f496..fea6553 100755
+index 1d4f496414a231afbf406ee3462a4698149b873d..fea6553cd8cdbd93b8bf4cec7b5ca6bc04b1f679 100755
 --- a/engine/sycl/tools/build.sh
 +++ b/engine/sycl/tools/build.sh
 @@ -36,11 +36,17 @@ EOF
@@ -136,7 +136,7 @@ index 1d4f496..fea6553 100755
  rc=${PIPESTATUS[0]}                       # cmake's status, kept: the script ends with this, not with the status of the greps below (#2990)
  echo "BUILD EXIT $rc"
 diff --git a/terminal/serve/server.py b/terminal/serve/server.py
-index b91f8bf..4c13ecb 100644
+index b91f8bf050eec3ae638d3401049b00927ba0c88e..4c13ecbf6b03c1182167eea1a7d80cb05ab7d837 100644
 --- a/terminal/serve/server.py
 +++ b/terminal/serve/server.py
 @@ -67,6 +67,10 @@ from urllib.parse import parse_qs, urlsplit
@@ -181,7 +181,7 @@ index b91f8bf..4c13ecb 100644
 -if __name__ == "__main__":
 -    sys.exit(main())
 diff --git a/terminal/setup.py b/terminal/setup.py
-index c695062..5f0efac 100644
+index c69506275bbf2cd8e666c329394728e6fc6f60c7..c239f4f62114f7e1987705a14b42b66427f5c0e2 100644
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
 @@ -998,7 +998,7 @@ def run(cmd, cwd=None, env=None, check=True, quiet=False):
@@ -265,7 +265,7 @@ index c695062..5f0efac 100644
  #: engine/ of a 0.2.16 clone is the engine's source; anything else in it is the engine an older setup downloaded or compiled there
  ENGINE_SOURCE_ENTRIES = {"src", "include", "cmake", "metal", "sycl", "spark", "third_party", "tests", "bench", "CMakeLists.txt",
                           "CMakePresets.json"}
-@@ -7917,63 +7931,106 @@ ENGINE_SOURCE_ENTRIES = {"src", "include", "cmake", "metal", "sycl", "spark", "t
+@@ -7917,63 +7931,165 @@ ENGINE_SOURCE_ENTRIES = {"src", "include", "cmake", "metal", "sycl", "spark", "t
  TERMINAL_ENTRIES = ("strata.py", "setup.py", "serve", "strata_cli", "strata_control", "tools", "data", "ref", "bin", ".venv")
  
  
@@ -281,8 +281,10 @@ index c695062..5f0efac 100644
 +    Native setup skips a Terminal with its own run config and never replaces existing entries;
 +    START-HERE.bat / setup.sh already move its .venv before Python starts. Managed workspaces
 +    instead migrate the interpreter, builds and rollback state reversibly, refusing collisions.
-+    Config paths, run scripts and exactly matching profile references move in the same transaction.
-+    CMake metadata is refreshed only when a relocated build is next configured. Returns (old, new) pairs.
++    Interpreter links, venv metadata and script entrypoints are rebased without rebuilding Python.
++    Config paths, run scripts and exactly matching profile references move in the same transaction;
++    immutable history resolves through persisted source moves. CMake metadata is refreshed only
++    when a relocated build is next configured. Returns (old, new) pairs.
 +    """
 +    from strata_control import profiles
      old = ROOT.parent
@@ -318,7 +320,8 @@ index c695062..5f0efac 100644
 -    if not moved:
 +        pairs += [(f, destination / f.name) for f in sorted(source.glob(pat)) if f.is_file()]
 +    directories = (*OLD_LAYOUT_DIRS, ".venv", ".python", "python") if managed else OLD_LAYOUT_DIRS
-+    pairs += [(source / d, destination / d) for d in directories if (source / d).is_dir()]
++    pairs += [(source / d, destination / d) for d in directories
++              if (source / d).is_dir() or (managed and (source / d).is_symlink())]
 +    eng = source / "engine"
 +    if eng.is_dir():
 +        pairs += [(e, destination / "engine" / e.name) for e in sorted(eng.iterdir())
@@ -391,7 +394,58 @@ index c695062..5f0efac 100644
 +            return out
 +        return rebase(v) if isinstance(v, str) else [walk(x) for x in v] if isinstance(v, list) else v
 +
++    # Only small interpreter metadata and script entrypoints are read. Package/model payloads
++    # and binary executables stay on their original inodes; directory links are never followed.
++    def interpreter_entries(root):
++        def walk_error(error):
++            raise error
++
++        yield root
++        if not root.is_symlink():
++            for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
++                for name in dirs + files:
++                    yield Path(directory) / name
++
++    runtime_edits = []
++    if managed:
++        for src, dst in pairs:
++            if src.name not in (".venv", ".python", "python"):
++                continue
++            for entry in interpreter_entries(src):
++                relocated = dst / entry.relative_to(src)
++                if entry.is_symlink():
++                    before = os.readlink(entry)
++                    after = rebase(before) if os.path.isabs(before) else before
++                    if after != before:
++                        runtime_edits.append((relocated, before, after, entry.lstat().st_mode))
++                elif entry.is_file():
++                    metadata = entry == src / "pyvenv.cfg" or (
++                        entry.parent.name in ("bin", "Scripts") and entry.name.lower().startswith("activate"))
++                    if not metadata:
++                        if entry.parent.name not in ("bin", "Scripts"):
++                            continue
++                        with entry.open("rb") as stream:
++                            if stream.read(2) != b"#!":
++                                continue
++                    before = entry.read_bytes()
++                    after = rebase(before.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
++                    if after != before:
++                        runtime_edits.append((relocated, before, after, None))
++
++    def write_runtime(entry, payload, link_mode):
++        if link_mode is None:
++            entry.write_bytes(payload)       # In-place metadata edits preserve permissions and inode.
++        else:
++            import tempfile
++            with tempfile.TemporaryDirectory(prefix=".strata-link-", dir=entry.parent) as temporary:
++                link = Path(temporary) / "link"
++                os.symlink(payload, link)
++                if hasattr(os, "lchmod"):
++                    os.lchmod(link, link_mode)
++                os.replace(link, entry)
++
 +    moved = []
++    edited_runtime = []
 +    with profiles.relocate_sources(config_moves) as publish_profiles:
 +        try:
 +            for src, dst in pairs:
@@ -405,9 +459,14 @@ index c695062..5f0efac 100644
 +                    dst.write_text(json.dumps(walk(data), indent=2) + "\n", encoding="utf-8")
 +                elif dst.is_file() and dst.name.startswith("run-"):
 +                    dst.write_bytes(rebase(dst.read_bytes().decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape"))
++            for entry, before, after, link_mode in runtime_edits:
++                edited_runtime.append((entry, before, link_mode))
++                write_runtime(entry, after, link_mode)
 +            publish_profiles()
 +        except BaseException as error:
 +            # Restore files before leaving the profile transaction, while its edit locks still hold.
++            for entry, before, link_mode in reversed(edited_runtime):
++                write_runtime(entry, before, link_mode)
 +            for src, dst in moved:
 +                if src in originals and dst.read_bytes() != originals[src]:
 +                    dst.write_bytes(originals[src])
@@ -420,7 +479,7 @@ index c695062..5f0efac 100644
      return moved
  
  
-@@ -8180,13 +8237,25 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
+@@ -8180,13 +8296,25 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
      for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
                                             break_on_hyphens=False)):   # #564: what this start uses
          say(("  " if n == 0 else "    ") + line)
@@ -453,7 +512,7 @@ index c695062..5f0efac 100644
  
  
  # the draft subsets setup copied before (sha256): replaced by the current one, a subset made by hand is kept
-@@ -8787,7 +8856,7 @@ def sycl_setup(argv) -> int:
+@@ -8787,7 +8915,7 @@ def sycl_setup(argv) -> int:
      script = engine_src() / "sycl" / "setup_intel.py"
      if not script.exists():
          fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
@@ -462,7 +521,7 @@ index c695062..5f0efac 100644
  
  
  def intel_control_setup(a) -> int:
-@@ -9785,7 +9854,8 @@ def mac_control_setup(a) -> int:
+@@ -9785,7 +9913,8 @@ def mac_control_setup(a) -> int:
      return 0
  
  
@@ -472,7 +531,7 @@ index c695062..5f0efac 100644
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -9796,22 +9866,29 @@ def main() -> int:
+@@ -9796,22 +9925,29 @@ def main() -> int:
          _pf.adopt_user_defaults()
      except Exception:
          pass
@@ -517,7 +576,7 @@ index c695062..5f0efac 100644
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md)")
-@@ -9968,19 +10045,26 @@ def main() -> int:
+@@ -9968,19 +10104,26 @@ def main() -> int:
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
@@ -551,7 +610,7 @@ index c695062..5f0efac 100644
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES:
          ap.error(f"--model {a.model} is a size of " + ", ".join(f"--family {f}" for f, d in PREVIEW_FAMILIES.items()
                                                                if a.model in d["models"]))
-@@ -9995,7 +10079,7 @@ def main() -> int:
+@@ -9995,7 +10138,7 @@ def main() -> int:
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -560,7 +619,7 @@ index c695062..5f0efac 100644
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -10905,9 +10989,15 @@ def main() -> int:
+@@ -10905,9 +11048,15 @@ def main() -> int:
      return start(cfg_path, port)
  
  
@@ -578,7 +637,7 @@ index c695062..5f0efac 100644
              event("error", message=f"setup ended with exit code {code}", exit_code=int(code))
          event("done", exit_code=int(code or 0), run_config=str(_RUN_CONFIGS[-1]) if _RUN_CONFIGS else None)
 diff --git a/terminal/strata_cli/bench_standard.py b/terminal/strata_cli/bench_standard.py
-index cd7e102..651f03c 100644
+index cd7e102e97368d12bf7f01a976ef8db28fc45411..651f03cc6d6ffa76e3bce6411a6cdef872fcb41c 100644
 --- a/terminal/strata_cli/bench_standard.py
 +++ b/terminal/strata_cli/bench_standard.py
 @@ -681,7 +681,18 @@ def start_engine(ref: str, target: Target, log_path: Path, log, timeout_s: float
@@ -602,7 +661,7 @@ index cd7e102..651f03c 100644
      if os.name == "nt":
          # Windows has no process group to signal: the engine tree is put in a job object this run owns, which ends every process in it in one call
 diff --git a/terminal/strata_cli/cli.py b/terminal/strata_cli/cli.py
-index 1b0ccc0..a0c6291 100644
+index 1b0ccc066c6c8f5612c6e277a5585aa5e84f2fd9..a0c62913bd5066d5da5a67de64605f3c90d92638 100644
 --- a/terminal/strata_cli/cli.py
 +++ b/terminal/strata_cli/cli.py
 @@ -215,9 +215,12 @@ def parser() -> argparse.ArgumentParser:
@@ -852,7 +911,7 @@ index 1b0ccc0..a0c6291 100644
 +            sys.stderr.write(captured.getvalue())
 +        return code
 diff --git a/terminal/strata_cli/handover.py b/terminal/strata_cli/handover.py
-index dc07b3a..28b3670 100644
+index dc07b3ad2973aac460c1e2d9f22e600eccbf58c0..28b3670a05c9f686c991ecea6cd599ef37daca91 100644
 --- a/terminal/strata_cli/handover.py
 +++ b/terminal/strata_cli/handover.py
 @@ -26,7 +26,10 @@ ENV_CHECKOUT = "STRATA_HANDOVER_IN_CHECKOUT"         # tests only: allow a hand-
@@ -868,7 +927,7 @@ index dc07b3a..28b3670 100644
  _VERSION = re.compile(r"^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z][0-9A-Za-z.]*)?$")     # 0.2.2, or a pre-release such as 0.2.2-rc1
  
 diff --git a/terminal/strata_cli/launch/app.py b/terminal/strata_cli/launch/app.py
-index 68d7568..e12dc1a 100644
+index 68d75689fc72f73bedbd9e49fb712fae0d106621..e12dc1ab82d1ef96260630343dfb3232280bc3bc 100644
 --- a/terminal/strata_cli/launch/app.py
 +++ b/terminal/strata_cli/launch/app.py
 @@ -588,12 +588,14 @@ def _info_for(result: Result, s: S.LaunchSettings) -> dict:
@@ -893,7 +952,7 @@ index 68d7568..e12dc1a 100644
      if app.stop_requested:
          from strata_control import runtime
 diff --git a/terminal/strata_cli/launch/cmd.py b/terminal/strata_cli/launch/cmd.py
-index d2c16b5..9e09748 100644
+index d2c16b5742adb1f55e38da02c089f7121383d805..9e09748f0bef5fc7ec70d926fe126d84ad737daf 100644
 --- a/terminal/strata_cli/launch/cmd.py
 +++ b/terminal/strata_cli/launch/cmd.py
 @@ -743,11 +743,27 @@ def setup_config_keys(wanted: str | None = None) -> list[tuple[str, Path, str]]:
@@ -982,7 +1041,7 @@ index d2c16b5..9e09748 100644
              from strata_cli.launch import access
              s.api_key, s.no_key = access.new_key(), False
 diff --git a/terminal/strata_cli/launch/monitor_ext.py b/terminal/strata_cli/launch/monitor_ext.py
-index 35d9171..bce75ea 100644
+index 35d9171fcc69fd213655d2fb13e23afe93f747a8..bce75ea6fd4afea9d3c806cad01e081204539c82 100644
 --- a/terminal/strata_cli/launch/monitor_ext.py
 +++ b/terminal/strata_cli/launch/monitor_ext.py
 @@ -36,20 +36,27 @@ def connect_palette(theme: str, color: bool):
@@ -1050,7 +1109,7 @@ index 35d9171..bce75ea 100644
              text = f"The update did not run: {exc}"
          self.updating = False
 diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/runner.py
-index 4eb66f0..15df3be 100644
+index 4eb66f0dbd2765ec43effa919d2a3e20b822558f..15df3be68261807089564c505ac0ce9c8b8acc3a 100644
 --- a/terminal/strata_cli/launch/runner.py
 +++ b/terminal/strata_cli/launch/runner.py
 @@ -902,7 +902,9 @@ class Runner:
@@ -1097,7 +1156,7 @@ index 4eb66f0..15df3be 100644
              raise
  
 diff --git a/terminal/strata_cli/monitor_commands.py b/terminal/strata_cli/monitor_commands.py
-index 7db98a1..b5637fb 100644
+index 7db98a1cda90054ede37543756c5c847dc8518c9..b5637fbd173a2cad378a729fc0cc1c562a72da9f 100644
 --- a/terminal/strata_cli/monitor_commands.py
 +++ b/terminal/strata_cli/monitor_commands.py
 @@ -16,6 +16,11 @@ import sys
@@ -1139,7 +1198,7 @@ index 7db98a1..b5637fb 100644
          # the one monitor, with the same seven views as the one `strata launch` opens (Connect is key 7 and works against this --url
          # server); q just detaches here: nothing was started by this command, so there is nothing to stop
 diff --git a/terminal/strata_control/acquisition.py b/terminal/strata_control/acquisition.py
-index 06f09c4..063f733 100644
+index 06f09c437e31cab793cca841f243afaac63cf1aa..063f7330ff8121e84642d69dcb64c2eef391c329 100644
 --- a/terminal/strata_control/acquisition.py
 +++ b/terminal/strata_control/acquisition.py
 @@ -25,6 +25,233 @@ import threading
@@ -1377,22 +1436,152 @@ index 06f09c4..063f733 100644
  _depth = 0
  
 diff --git a/terminal/strata_control/profiles.py b/terminal/strata_control/profiles.py
-index e840e70..756f8a9 100644
+index e840e70a037f91f435610628352e1d34db4fb0dc..80174e56b30ee119dcf9029c35bd8508a20f8f15 100644
 --- a/terminal/strata_control/profiles.py
 +++ b/terminal/strata_control/profiles.py
-@@ -18,7 +18,7 @@ import stat
+@@ -17,8 +17,9 @@ import shlex
+ import stat
  import subprocess
  import tempfile
++import threading
  from strata_control import atomic as _atomic_mod
 -from contextlib import contextmanager
 +from contextlib import ExitStack, contextmanager
  from pathlib import Path
  
  
-@@ -287,32 +287,81 @@ def save(name: str, proposed: dict, *, expected_revision: str,
+@@ -201,10 +202,8 @@ def list_profiles() -> list[dict]:
+ 
+ 
+ @contextmanager
+-def _lock(name: str):
+-    directory = profile_dir()
+-    _private_mkdir(directory, parents=True, exist_ok=True)
+-    lock = directory / f".{_name(name)}.lock"
++def _file_lock(lock: Path):
++    _private_mkdir(lock.parent, parents=True, exist_ok=True)
+     with open(lock, "a+b") as stream:
+         if os.name == "nt":
+             import msvcrt
+@@ -228,6 +227,50 @@ def _lock(name: str):
+                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+ 
+ 
++@contextmanager
++def _lock(name: str):
++    with _file_lock(profile_dir() / f".{_name(name)}.lock"):
++        yield
++
++
++_reference_locks = threading.local()
++
++
++@contextmanager
++def _source_references_lock():
++    """Namespace first, then sorted profile locks; never recursively acquire a file lock."""
++    lock = profile_dir().resolve() / ".source-references.namespace.lock"
++    active = getattr(_reference_locks, "active", set())
++    if lock in active:
++        raise ProfileError("profile source references are being relocated; retry", 6)
++    with _file_lock(lock):
++        _reference_locks.active = active | {lock}
++        try:
++            yield
++        finally:
++            _reference_locks.active = active
++
++
++def _source_relocations() -> dict[str, str]:
++    path = profile_dir() / ".source-relocations.json"
++    try:
++        data = path.read_bytes()
++    except FileNotFoundError:
++        return {}
++    try:
++        value = json.loads(data)
++        if (not isinstance(value, dict) or set(value) != {"schema_version", "sources"}
++                or type(value["schema_version"]) is not int or value["schema_version"] != 1
++                or not isinstance(value["sources"], dict)
++                or any(not isinstance(a, str) or not isinstance(b, str)
++                       or not Path(a).is_absolute() or not Path(b).is_absolute()
++                       for a, b in value["sources"].items())):
++            raise ValueError("invalid source relocation metadata")
++        return value["sources"]
++    except (TypeError, ValueError) as exc:
++        raise ProfileError(f"cannot read source relocation metadata ({type(exc).__name__})", 5) from None
++
++
+ def _atomic(path: Path, data: bytes) -> None:
+     fd, temp_name = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".tmp", dir=path.parent)
+     try:
+@@ -253,66 +296,134 @@ def _atomic(path: Path, data: bytes) -> None:
+ 
+ def create(name: str, source_config: str) -> tuple[dict, str]:
+     name = _name(name)
+-    try:
+-        source = Path(source_config).expanduser().resolve(strict=True)
+-    except OSError as exc:
+-        raise ProfileError(f"run config is unavailable ({type(exc).__name__})", 5) from None
+-    read_run_config(source)
+-    profile = {"schema_version": 1, "id": name, "source_config": str(source), "overrides": {}}
+-    with _lock(name):
++    with _source_references_lock(), _lock(name):
++        try:
++            source = Path(source_config).expanduser().resolve(strict=True)
++        except OSError as exc:
++            raise ProfileError(f"run config is unavailable ({type(exc).__name__})", 5) from None
++        read_run_config(source)
++        profile = {"schema_version": 1, "id": name, "source_config": str(source), "overrides": {}}
+         path = _path(name)
+         if path.exists() or path.is_symlink():
+             raise ProfileError(f"profile {name!r} already exists")
+         _atomic(path, _bytes(profile))
+-    return load(name)
++        return load(name)
+ 
+ 
+ def propose_source(name: str, source_config: str) -> tuple[dict, str]:
+     """Select another installed run config without changing its contents."""
+-    current, revision = load(name)
+-    try:
+-        source = Path(source_config).expanduser().resolve(strict=True)
+-    except OSError as exc:
+-        raise ProfileError(f"run config is unavailable ({type(exc).__name__})", 5) from None
+-    if not stat.S_ISREG(source.lstat().st_mode):
+-        raise ProfileError("run config must be a regular file", 5)
+-    read_run_config(source)
+-    proposed = {**current, "source_config": str(source)}
+-    return validate_profile(proposed, expected_name=name), revision
++    with _source_references_lock():
++        current, revision = load(name)
++        try:
++            source = Path(source_config).expanduser().resolve(strict=True)
++        except OSError as exc:
++            raise ProfileError(f"run config is unavailable ({type(exc).__name__})", 5) from None
++        if not stat.S_ISREG(source.lstat().st_mode):
++            raise ProfileError("run config must be a regular file", 5)
++        read_run_config(source)
++        proposed = {**current, "source_config": str(source)}
++        return validate_profile(proposed, expected_name=name), revision
+ 
+ 
+ def save(name: str, proposed: dict, *, expected_revision: str,
+          expected_source_sha256: str | None = None) -> tuple[dict, str]:
+     name = _name(name)
++    with _source_references_lock(), _lock(name):
++        return _save_locked(name, proposed, expected_revision=expected_revision,
++                            expected_source_sha256=expected_source_sha256)
++
++
++def _save_locked(name: str, proposed: dict, *, expected_revision: str,
++                 expected_source_sha256: str | None = None) -> tuple[dict, str]:
++    """Save while the caller holds the namespace source-reference and profile edit locks."""
++    current, revision = load(name)
++    if revision != expected_revision:
++        raise ProfileError("profile changed during edit; reload it before saving", 6)
      validate_profile(proposed, expected_name=name)
      read_run_config(Path(proposed["source_config"]))
-     with _lock(name):
+-    with _lock(name):
 -        current, revision = load(name)
 -        if revision != expected_revision:
 -            raise ProfileError("profile changed during edit; reload it before saving", 6)
@@ -1416,16 +1605,6 @@ index e840e70..756f8a9 100644
 -        if not old_path.exists():
 -            _atomic(old_path, old)
 -        _atomic(_path(name), _bytes(proposed))
-+        return _save_locked(name, proposed, expected_revision=expected_revision,
-+                            expected_source_sha256=expected_source_sha256)
-+
-+
-+def _save_locked(name: str, proposed: dict, *, expected_revision: str,
-+                 expected_source_sha256: str | None = None) -> tuple[dict, str]:
-+    """Save a validated proposal while the caller holds the profile's native edit lock."""
-+    current, revision = load(name)
-+    if revision != expected_revision:
-+        raise ProfileError("profile changed during edit; reload it before saving", 6)
 +    if expected_source_sha256 is not None:
 +        if not re.fullmatch(r"[0-9a-f]{64}", expected_source_sha256):
 +            raise ProfileError("source digest must be a lowercase SHA-256")
@@ -1451,51 +1630,114 @@ index e840e70..756f8a9 100644
  
 +@contextmanager
 +def relocate_sources(moves: list[tuple[Path, Path]]):
-+    """Lock profiles naming exactly these configs; publish after their move, restore on failure.
++    """Publish exact, composed source moves with profiles; keep historical bytes immutable.
 +
-+    The yielded commit saves through the native revision/history path. Locks cover the
-+    filesystem migration and its restoration; overrides and immutable history stay untouched.
++    The namespace lock covers enumeration, filesystem movement and publication. All writers
++    take it before profile locks, so late creates cannot validate a disappearing source.
++    Rollback reads the persisted mapping before validating or opening a historical source.
 +    """
 +    replacements = {str(source): str(destination) for source, destination in moves}
-+    with ExitStack() as locks:
++    with _source_references_lock(), ExitStack() as locks:
++        metadata = profile_dir() / ".source-relocations.json"
++        previous = metadata.read_bytes() if metadata.exists() else None
++        references = _source_relocations()
++        references = {a: replacements.get(b, b) for a, b in references.items()}
++        references.update(replacements)
++        references = {a: b for a, b in references.items() if a != b}
 +        selected = []
-+        for item in list_profiles() if replacements else ():
++        for item in sorted(list_profiles() if replacements else (), key=lambda item: item["id"]):
 +            if item.get("source_config") not in replacements:
 +                continue
 +            name = item["id"]
 +            locks.enter_context(_lock(name))
 +            current, revision = load(name)
-+            if current["source_config"] not in replacements:
-+                continue
 +            original = _path(name).read_bytes()
 +            if _revision(original) != revision:
 +                raise ProfileError("profile changed during relocation; retry", 6)
 +            proposed = {**current, "source_config": replacements[current["source_config"]]}
 +            selected.append((name, proposed, revision, original))
 +        changed = []
++        published = False
 +
 +        def commit():
++            nonlocal published
++            if published:
++                raise ProfileError("source relocation was already published", 6)
 +            for name, proposed, revision, original in selected:
-+                validate_profile(proposed, expected_name=name)
-+                read_run_config(Path(proposed["source_config"]))
-+                # Include the current profile before save: an atomic write may fail after publication.
-+                changed.append((name, original))
++                history_path = profile_dir() / ".history" / name / f"{revision}.json"
++                changed.append((name, original, history_path, history_path.exists()))
 +                _save_locked(name, proposed, expected_revision=revision)
++            if replacements:
++                # Mark before writing: an atomic write can fail after replacement.
++                published = True
++                _atomic(metadata, _bytes({"schema_version": 1, "sources": references}))
 +
 +        try:
 +            yield commit
 +        except BaseException:
-+            for name, original in reversed(changed):
++            if published:
++                if previous is None:
++                    metadata.unlink(missing_ok=True)
++                else:
++                    _atomic(metadata, previous)
++            for name, original, history_path, existed in reversed(changed):
 +                if _path(name).read_bytes() != original:
 +                    _atomic(_path(name), original)
++                if not existed:
++                    history_path.unlink(missing_ok=True)
 +            raise
 +
 +
  def set_values(name: str, assignments: list[str]) -> tuple[dict, str, str]:
      proposed, revision = propose_values(name, assignments)
      saved, new_revision = save(name, proposed, expected_revision=revision)
+@@ -345,23 +456,27 @@ def rollback(name: str, target_revision: str) -> tuple[dict, str, str]:
+     _name(name)
+     if not re.fullmatch(r"[0-9a-f]{16}", target_revision):
+         raise ProfileError("rollback target must be a full 16-character revision")
+-    _, current_revision = load(name)
+-    path = profile_dir() / ".history" / name / f"{target_revision}.json"
+-    try:
+-        if not stat.S_ISREG(path.lstat().st_mode):
+-            raise ProfileError("profile history must be a regular file", 5)
+-        data = path.read_bytes()
+-        if _revision(data) != target_revision:
+-            raise ProfileError("profile history content does not match its revision", 5)
+-        target = validate_profile(json.loads(data.decode("utf-8")), expected_name=name)
+-    except FileNotFoundError:
+-        raise ProfileError(f"profile revision {target_revision} was not found", 5) from None
+-    except (OSError, UnicodeError, ValueError) as exc:
+-        if isinstance(exc, ProfileError):
+-            raise
+-        raise ProfileError(f"cannot read profile history ({type(exc).__name__})", 5) from None
+-    saved, new_revision = save(name, target, expected_revision=current_revision)
+-    return saved, current_revision, new_revision
++    with _source_references_lock(), _lock(name):
++        _, current_revision = load(name)
++        path = profile_dir() / ".history" / name / f"{target_revision}.json"
++        try:
++            if not stat.S_ISREG(path.lstat().st_mode):
++                raise ProfileError("profile history must be a regular file", 5)
++            data = path.read_bytes()
++            if _revision(data) != target_revision:
++                raise ProfileError("profile history content does not match its revision", 5)
++            target = json.loads(data.decode("utf-8"))
++            if isinstance(target, dict) and isinstance(target.get("source_config"), str):
++                target["source_config"] = _source_relocations().get(target["source_config"], target["source_config"])
++            target = validate_profile(target, expected_name=name)
++        except FileNotFoundError:
++            raise ProfileError(f"profile revision {target_revision} was not found", 5) from None
++        except (OSError, UnicodeError, ValueError) as exc:
++            if isinstance(exc, ProfileError):
++                raise
++            raise ProfileError(f"cannot read profile history ({type(exc).__name__})", 5) from None
++        saved, new_revision = _save_locked(name, target, expected_revision=current_revision)
++        return saved, current_revision, new_revision
+ 
+ 
+ def edit(name: str) -> tuple[dict, str, str]:
 diff --git a/terminal/strata_control/runtime.py b/terminal/strata_control/runtime.py
-index 6b192ac..8ca4a27 100644
+index 6b192ace91fa6437d4ed559eb206269631351681..8ca4a27557ceb2e2351ad7ddd7b397b08ca05f03 100644
 --- a/terminal/strata_control/runtime.py
 +++ b/terminal/strata_control/runtime.py
 @@ -44,7 +44,7 @@ try:
@@ -1631,7 +1873,7 @@ index 6b192ac..8ca4a27 100644
          print(f"[strata runtime] host failed: {type(exc).__name__}: {exc}", file=sys.stderr)
          return 6
 diff --git a/terminal/tools/iq_pack.py b/terminal/tools/iq_pack.py
-index d32b9f7..8c127f4 100644
+index d32b9f7231bcc3873bda3c60d4fdd06f69a80eb7..8c127f40a780698e620b8c2a56dba07206717e58 100644
 --- a/terminal/tools/iq_pack.py
 +++ b/terminal/tools/iq_pack.py
 @@ -708,8 +708,10 @@ def main() -> int:
@@ -1647,7 +1889,7 @@ index d32b9f7..8c127f4 100644
      # ---- the experts.  native_experts.txt is written to a temporary name and renamed only when every layer is
      # in: a stop part-way (a layer split across shards, #171) left a partial native_experts.txt that the next setup
 diff --git a/tools/packaging/build_cuda_linux.sh b/tools/packaging/build_cuda_linux.sh
-index 77aa662..d49b719 100644
+index 77aa66228a2570faeb5ff3cd5bae1e014ed88140..d49b7193a7e69ad82d908cffbb718aa816ef9e7d 100644
 --- a/tools/packaging/build_cuda_linux.sh
 +++ b/tools/packaging/build_cuda_linux.sh
 @@ -37,10 +37,11 @@ last=$(echo "$archs" | tr ';,' '  ' | awk '{print $NF}')
@@ -1673,7 +1915,7 @@ index 77aa662..d49b719 100644
    cmake --build "$vision_dir" --target strata-vision -j "$(nproc)"
  fi
 diff --git a/tools/packaging/build_cuda_windows.py b/tools/packaging/build_cuda_windows.py
-index a1f2f79..ac6ed52 100644
+index a1f2f7942ac2752209c02a6edfbe2b4570df1033..ac6ed5255853c114221f46b28c38d02343e1df1c 100644
 --- a/tools/packaging/build_cuda_windows.py
 +++ b/tools/packaging/build_cuda_windows.py
 @@ -170,6 +170,9 @@ def main(argv: list[str]) -> int:
@@ -1687,7 +1929,7 @@ index a1f2f79..ac6ed52 100644
      run([cmake, *configure_args(ENGINE_SRC, build, variant, cuda, extra, os.environ.get("STRATA_GGML_DIR", ""), archs)], env)
      targets = engine_targets(cmake, build, env)
 diff --git a/tools/packaging/build_hip_linux.sh b/tools/packaging/build_hip_linux.sh
-index cd7838c..2de224f 100644
+index cd7838c9149eca3f366bb9d5e95440c91e0d6684..2de224f3e8f0f8bb686d26aad925b26fc5cf8e27 100644
 --- a/tools/packaging/build_hip_linux.sh
 +++ b/tools/packaging/build_hip_linux.sh
 @@ -57,10 +57,11 @@ HIPDEFS=(-DCMAKE_HIP_COMPILER=$HP/llvm/bin/clang++ -DCMAKE_HIP_COMPILER_ROCM_ROO
@@ -1720,7 +1962,7 @@ index cd7838c..2de224f 100644
  chk $? "gpu reader configured"
  nice -n 10 cmake --build "$OUT/bh" --target strata-vision -j "$JOBS" > "$OUT/build-vision-hip.log" 2>&1
 diff --git a/tools/packaging/build_split_cuda.sh b/tools/packaging/build_split_cuda.sh
-index 8170b49..f5c3e66 100644
+index 8170b4972dc2a8989b5751a8a290bebd7dc5f95a..f5c3e666f7b32191dccc35a667c283fef074517e 100644
 --- a/tools/packaging/build_split_cuda.sh
 +++ b/tools/packaging/build_split_cuda.sh
 @@ -19,8 +19,10 @@ ARCH=${ARCH:-86}
@@ -1736,7 +1978,7 @@ index 8170b49..f5c3e66 100644
    -DCUDAToolkit_ROOT="$CUDA" $ggml -DSTRATA_NATIVE_EXPERTS=ON -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
    -DCMAKE_SKIP_BUILD_RPATH=OFF '-DCMAKE_INSTALL_RPATH=$ORIGIN'
 diff --git a/tools/packaging/build_split_hip.sh b/tools/packaging/build_split_hip.sh
-index 690f481..6ba9450 100644
+index 690f4818fcee730274e8c8e4d9b03e08f4204412..6ba94508a2bb43f93e318f790709da7e101e7760 100644
 --- a/tools/packaging/build_split_hip.sh
 +++ b/tools/packaging/build_split_hip.sh
 @@ -27,8 +27,10 @@ ARCHS=${ARCHS:-gfx1201;gfx1200;gfx11-generic}
@@ -1752,7 +1994,7 @@ index 690f481..6ba9450 100644
    -DCMAKE_HIP_COMPILER="$HP/llvm/bin/clang++" -DCMAKE_HIP_COMPILER_ROCM_ROOT="$HP" "-DCMAKE_PREFIX_PATH=$HP;$LIBW$SYSDEPS" \
    "-DCMAKE_HIP_FLAGS=--rocm-path=$HP --rocm-device-lib-path=$BC" -DSTRATA_PORTABLE=ON \
 diff --git a/tools/packaging/build_sycl_linux.sh b/tools/packaging/build_sycl_linux.sh
-index 49cf78e..5b036d7 100644
+index 49cf78e98aae771f315f020cede392243bc40d44..5b036d7588bc465146137cf8ec7a753c32a7fe68 100644
 --- a/tools/packaging/build_sycl_linux.sh
 +++ b/tools/packaging/build_sycl_linux.sh
 @@ -39,6 +39,7 @@ iccver=$(icpx --version | sed -n 's/.*Compiler \([0-9][0-9.]*\).*/\1/p' | head -
@@ -1773,7 +2015,7 @@ index 49cf78e..5b036d7 100644
  cmake --build "$build" --target strata -j "$jobs"
  
 diff --git a/tools/packaging/build_vision_mac.sh b/tools/packaging/build_vision_mac.sh
-index 63118fc..d1abe08 100755
+index 63118fc1857fa2f8ff19f8a079586b5643035f55..d1abe080db1966bc5a5cbbaf9b4e73504088a291 100755
 --- a/tools/packaging/build_vision_mac.sh
 +++ b/tools/packaging/build_vision_mac.sh
 @@ -24,7 +24,8 @@ done
@@ -1787,7 +2029,7 @@ index 63118fc..d1abe08 100755
  ninja -C "$build" ${jobs:+-j "$jobs"} strata-vision
  cp "$build/bin/strata-vision" "$out/strata-vision"
 diff --git a/tools/packaging/build_vision_windows.bat b/tools/packaging/build_vision_windows.bat
-index 39a1ab3..eccc778 100644
+index ffbca68c01d855ce75ed41646fefcab64f8ef4a5..955c494964145b858f89cb282b80f572e2899ede 100644
 --- a/tools/packaging/build_vision_windows.bat
 +++ b/tools/packaging/build_vision_windows.bat
 @@ -51,6 +51,7 @@ for %%A in (%ARCHS:;= %) do (
@@ -1800,7 +2042,7 @@ index 39a1ab3..eccc778 100644
    "-DCMAKE_CUDA_ARCHITECTURES=!REAL!;!LAST!-virtual" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl ^
 diff --git a/tools/packaging/cmake_cache.sh b/tools/packaging/cmake_cache.sh
 new file mode 100644
-index 0000000..3d4a891
+index 0000000000000000000000000000000000000000..3d4a891fa1df0d151293720f3019395cc35c224e
 --- /dev/null
 +++ b/tools/packaging/cmake_cache.sh
 @@ -0,0 +1,18 @@
