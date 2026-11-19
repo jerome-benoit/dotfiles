@@ -5,8 +5,16 @@
     "aarch64-darwin": "sha256-rfE2exy/kUEhYniH+7+GLIOnYW+UkTYsQI4NCfnR4Q0="
   },
   "provenance": {
-    "sourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
+    "sourceRevision": "9bf497d3e866ba57de9af7c6e56715208d34cdb7",
     "hashSourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
+    "reuse": {
+      "inputs": "All 38 packages/services package.json files, all 21 dependency patches, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
+      "inputCount": 64,
+      "inputSha256": "9218b23dff649776ddac8b3594e9e79088cf9bc87701f3ed72c52ef5204a92a6",
+      "inputHashMethod": "SHA-256 of sorted relative path bytes, NUL and the raw SHA-256 digest of each file.",
+      "comparison": "Every dependency input is byte-identical between hashSourceRevision and sourceRevision. Fileset, frozen filters, target CPU/OS, install phase, native ABI selection and CLI/Desktop/Electron recipes are unchanged; Nixpkgs and Bun are unchanged.",
+      "result": "Reuse PR338 hashes and reference-source verification below. No refreshed dependency replay, recalibration, fixed-output verification or CLI/Desktop execution was performed."
+    },
     "nixpkgsRevision": "e21fec321d73511849707a7585e4ea155ee4bf40",
     "bunVersion": "1.4.4",
     "buildSystems": {
@@ -33,6 +41,7 @@
       "cores": 1,
       "targets": "serial"
     },
+    "verificationSourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
     "verification": {
       "x86_64-linux": "Calibrated x64/linux dependency replay on Linux arm64; no x64 CLI/Desktop execution or fixed-output registration.",
       "aarch64-linux": "Calibrated arm64/linux dependency replay on Linux arm64; no CLI/Desktop execution or fixed-output registration.",

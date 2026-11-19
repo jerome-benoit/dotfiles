@@ -42,6 +42,10 @@ in
       description = ''
         Absolute writable directory outside /nix/store for the source checkout,
         Python environment, engines, build caches and interpreter GC root.
+        Git refs and receipts stay at source/.git; runtime files live in source/terminal.
+        Runtime layout changes use reversible renames without replacing existing destinations.
+        Offline source rollback reuses the original hash-addressed published source delta;
+        missing or invalid cached deltas are refused before runtime migration.
         The launcher keeps its source patch visible and refuses conflicting edits.
 
         Managed setup, updates and model acquisition serialize workspace mutations.

@@ -5,6 +5,7 @@
   home-manager,
 }:
 let
+  sourceRoot = src.sourceInfo.outPath;
   sourcePatch = import ../home-manager/modules/development/strata-source-patch.nix { inherit pkgs; };
   supportedPlatform = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
   configureWith =
@@ -123,6 +124,6 @@ pkgs.runCommand "check-strata-workspace"
   ''
     export HOME=$TMPDIR/home
     mkdir -p "$HOME"
-    python3 ${./strata.py} ${../home-manager/modules/development/strata-workspace.py} ${src} ${launcherFixtures} ${sourcePatch}
+    python3 ${./strata.py} ${../home-manager/modules/development/strata-workspace.py} ${sourceRoot} ${launcherFixtures} ${sourcePatch}
     touch $out
   ''
