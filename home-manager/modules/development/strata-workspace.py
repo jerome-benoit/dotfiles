@@ -204,7 +204,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
         approval = snapshot_engine_approvals(terminal_root(root), current)
         # Both directions publish runtime metadata before the source receipt can settle.
-        with managed_state.layout_checkpoint(root) as restore_metadata:
+        with managed_state.layout_checkpoint(root) as restore_metadata, managed_state.engine_link_checkpoint(
+                root, reverse=reverse_layout, enabled=forward_layout or reverse_layout,
+                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link:
             reversed_layout = forwarded_layout = removed_patch = desired_applied = False
             try:
                 if reverse_layout:
@@ -215,7 +217,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     removed_patch = True
                 ledger.unlink(missing_ok=True)
                 git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
+                engine_link.stage()
                 git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
+                engine_link.publish()
                 if desired is not None:
                     if not patch_check(root, desired):
                         raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
@@ -242,7 +246,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 if desired_applied:
                     restore(lambda: apply_source_patch(root, desired, reverse=True))
                 restore(lambda: ledger.unlink(missing_ok=True))
+                restore(engine_link.withdraw)
                 restore(lambda: git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current))
+                restore(engine_link.restore)
                 if previous is not None:
                     restore(lambda: publish_source_patch(ledger, previous))
                     if removed_patch:

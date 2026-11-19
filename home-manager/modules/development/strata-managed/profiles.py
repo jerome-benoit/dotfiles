@@ -133,14 +133,15 @@ def validate_profile(value: object, *, expected_name: str | None = None) -> dict
     return value
 
 
-def read_run_config(path: Path) -> dict:
+def read_run_config(path: Path, *, base: Path | None = None) -> dict:
+    """Read without writing; default relative transport coordinates to the config directory."""
     try:
         cfg = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ProfileError(f"cannot read run config ({type(exc).__name__})", 5) from None
     if isinstance(cfg, dict):                                # paths into a version folder of Strata's own that an update removed: the current one
         from strata_control import cfg_paths
-        cfg = cfg_paths.resolve_config(cfg)[0]
+        cfg = cfg_paths.resolve_config(cfg, base=path.parent if base is None else base)[0]
     if not isinstance(cfg, dict) or not isinstance(cfg.get("args"), list) or not all(
         isinstance(arg, str) for arg in cfg["args"]
     ):

@@ -1,9 +1,9 @@
 # base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
-# intent: share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir.
+# intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open includes flat-root reuse, not equivalent split-layout coverage.
 # issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events. No new upstream ticket claimed.
-# removal: remove only when setup, forecast, progress, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
+# removal: remove only when setup, forecast, progress, models explain, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
 diff --git a/terminal/setup.py b/terminal/setup.py
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
@@ -897,6 +897,17 @@ diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/
          mcp = self.src / "tools" / "strata_mcp.py"
          if not mcp.is_file() or not (self.src / "setup.py").is_file():
              raise CatalogUnavailable(
+@@ -540,8 +592,8 @@
+-    def model_folder_trace(self, base: Path, family: str, model: str) -> dict:
++    def model_folder_trace(self, base: Path, family: str, model: str, *, models_dir: Path | None = None) -> dict:
+         """model_folder's lookup with its steps (#4887, `strata models explain`): {"folder", "rule", "tried": [{"path", "rule", "exists"}]}. rule: "exact" (setup's
+         spelling), "lower" (the run-config tag), "case" (a folder that differs only in letter case) or "fallback" (none is there: setup's spelling, where a download goes)."""
+         _m, families, _c, _s = self.tables()
+-        models = Path(base) / "models"
++        models = Path(models_dir) if models_dir is not None else Path(base) / "models"
+         own = models / (families[family].get("tag", "") + model)
+         lower = models / self.tag_of(family, model)
+         tried = []
 @@ -672,19 +724,106 @@
      def data_dir(self) -> Path:
          return self.data_dir_choice()[0]
@@ -1604,3 +1615,54 @@ diff --git a/terminal/tools/test_setup_qwen36.py b/terminal/tools/test_setup_qwe
  
      def test_installs_the_pinned_file_and_writes_the_config(self):
          rc, out = self.install(model="UD-Q4_K_XL", vision="no")
+diff --git a/terminal/strata_cli/models_explain.py b/terminal/strata_cli/models_explain.py
+--- a/terminal/strata_cli/models_explain.py
++++ b/terminal/strata_cli/models_explain.py
+@@ -28,13 +28,18 @@
+     fam, size = _parse(name, family)
+     fam, size = catalog.resolve(size, fam)
+     tag = catalog.tag_of(fam, size)
++    directories = catalog.launch_directories(fam, size, data_dir=data_dir)
++    base = directories.data_dir
+     if data_dir:
+-        base, where = Path(data_dir).expanduser(), "given with --data-dir"
++        where = "given with --data-dir"
+     else:
+-        base = Path(catalog.data_dir_for(fam, size))
+         installed = catalog.installed_config(tag)
+         where = f"from the installed run config {installed}" if installed is not None and base != Path(catalog.data_dir()) else "the data folder strata launch uses"
+-    trace = catalog.model_folder_trace(base, fam, size)
++    models = directories.models_dir
++    # Native acquisition can retain a complete model in another installation.
++    if directories.layout is not None and not catalog.tables()[1][fam].get("ready"):
++        models = directories.layout[0].parent
++    trace = catalog.model_folder_trace(base, fam, size, models_dir=models)
+     folder = Path(trace["folder"])
+     files = []
+     if folder.is_dir():
+@@ -45,7 +50,6 @@
+         except OSError:
+             pass
+     others: list[str] = []
+-    models = base / "models"
+     if trace["rule"] == "fallback":
+         try:
+             names = sorted(e.name for e in models.iterdir() if e.is_dir())
+@@ -55,7 +59,7 @@
+         others = [n for n in names if n.lower() in near] + [n for n in names if n.lower() not in near]
+         others = others[:10]
+     weights = sum(f["bytes"] for f in files if not f["picture_reader"])
+-    return {"family": fam, "model": size, "tag": tag, "data_dir": str(base), "data_dir_from": where, "models_dir_exists": models.is_dir(),
++    return {"family": fam, "model": size, "tag": tag, "data_dir": str(base), "data_dir_from": where, "models_dir": str(models), "models_dir_exists": models.is_dir(),
+             "tried": [{"path": str(t["path"]), "rule": t["rule"], "exists": bool(t["exists"])} for t in trace["tried"]],
+             "folder": str(folder), "rule": trace["rule"], "found": trace["rule"] != "fallback",
+             "gguf_files": files, "weights_bytes": weights, "other_folders": others}
+@@ -65,7 +69,7 @@
+     lines = [f"{r['family']}/{r['model']} (folder tag {r['tag']})",
+              f"Data folder: {r['data_dir']} ({r['data_dir_from']})"]
+     if not r["models_dir_exists"]:
+-        lines.append(f"There is no models folder in it ({Path(r['data_dir']) / 'models'}).")
++        lines.append(f"There is no models folder in it ({r['models_dir']}).")
+     lines.append("Looked for:")
+     for t in r["tried"]:
+         lines.append(f"  {t['path']}  {'there' if t['exists'] else 'not there'}  ({RULE_WORDS[t['rule']]})")

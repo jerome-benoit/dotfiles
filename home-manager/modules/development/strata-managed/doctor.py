@@ -209,7 +209,7 @@ def inspect(config_path: Path | None, *, profile_id: str | None = None, live: bo
         report["ok"] = not live
         return report
 
-    cfg = read_run_config(config_path)
+    cfg = read_run_config(config_path, base=Path(cwd) if cwd is not None else config_path.parent)
     if cwd is not None and not cfg.get("cwd"):
         cfg = dict(cfg, cwd=cwd)
     report["backend"] = cfg.get("backend") or "cuda_or_cpu_unverified"

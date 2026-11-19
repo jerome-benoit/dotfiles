@@ -7256,6 +7256,261 @@ with contextlib.ExitStack() as guards:
         assert asdict(s) == before
 ''')
 
+    def test_real_cross_pin_linked_engine_preserves_external_payload_and_profile_routes(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        for overlay in (False, True):
+            with self.subTest(overlay=overlay):
+                self.state = state / ('overlay' if overlay else 'native')
+                profiles_dir = self.base / ('linked-profiles-overlay' if overlay else 'linked-profiles-native')
+                self.env['STRATA_PROFILE_DIR'] = str(profiles_dir)
+                flat = self.prepare_cross_pin(self.old, overlay=overlay)
+                retained = self.make_local_runtime(flat)
+                external = flat.parent / 'external-engine'
+                external.mkdir()
+                binary = external / 'strata'
+                binary.write_bytes(b'external engine payload\n')
+                userdata = external / 'user-cache'
+                userdata.write_bytes(b'never copy or delete this payload\n')
+                identities = {p: (p.stat().st_dev, p.stat().st_ino, p.read_bytes()) for p in (binary, userdata)}
+                (flat / 'engine').symlink_to('../external-engine')
+                config = flat / 'strata-linked.json'
+                config.write_text(json.dumps({'exe': str(flat / 'engine/strata'), 'cwd': str(flat),
+                                             'tokenizer': '/fixture/tokenizer', 'args': []}))
+                self.cross_pin_cli(self.old, 'profile', 'create', 'linked', '--from-config', str(config),
+                                   '--output', 'json', overlay=overlay)
+                for revision, expected in ((self.new, flat / 'terminal'), (self.old, flat),
+                                           (self.new, flat / 'terminal')):
+                    root = self.prepare_cross_pin(revision, overlay=overlay)
+                    self.assertEqual(root, expected)
+                    self.assert_local_runtime(root, retained)
+                    self.assertTrue((root / 'engine').is_symlink())
+                    self.assertEqual((root / 'engine').resolve(), external)
+                    if revision == self.new:
+                        self.assertFalse((flat / 'engine').is_symlink())
+                        self.assertEqual((flat / 'engine/CMakeLists.txt').read_bytes(),
+                                         (UPSTREAM_SOURCE / 'engine/CMakeLists.txt').read_bytes())
+                    mapped = json.loads((root / config.name).read_text())
+                    self.assertEqual(Path(mapped['exe']), root / 'engine/strata')
+                    self.assertEqual(Path(mapped['exe']).resolve(), binary)
+                    self.assertEqual(mapped['cwd'], str(root))
+                    selected = self.cross_pin_cli(revision, 'profile', 'set', 'linked', 'port=9123',
+                                                  '--output', 'json', overlay=overlay)
+                    self.assertEqual(selected['profile']['source_config'], str(root / config.name))
+                    for path, identity in identities.items():
+                        self.assertEqual((path.stat().st_dev, path.stat().st_ino, path.read_bytes()), identity)
+
+    def test_real_cross_pin_linked_engine_refused_checkout_restores_original_link_and_userdata(self):
+        self.make_cross_pin_sources()
+        self.env['STRATA_PROFILE_DIR'] = str(self.base / 'linked-refusal-profiles')
+        flat = self.prepare_cross_pin(self.old)
+        retained = self.make_local_runtime(flat)
+        external = flat.parent / 'external-engine'
+        external.mkdir()
+        binary = external / 'strata'
+        binary.write_bytes(b'external engine bytes\n')
+        userdata = external / 'user-cache'
+        userdata.write_bytes(b'precious userdata\n')
+        link = flat / 'engine'
+        link.symlink_to('../external-engine')
+        link_identity = (link.lstat().st_dev, link.lstat().st_ino, os.readlink(link))
+        identities = {p: (p.stat().st_dev, p.stat().st_ino, p.read_bytes()) for p in (binary, userdata)}
+        config = flat / 'strata-linked.json'
+        config.write_text(json.dumps({'exe': str(flat / 'engine/strata'), 'cwd': str(flat),
+                                     'tokenizer': '/fixture/tokenizer', 'args': []}))
+        self.cross_pin_cli(self.old, 'profile', 'create', 'linked', '--from-config', str(config), '--output', 'json')
+        profiles = Path(self.env['STRATA_PROFILE_DIR'])
+        metadata = {p: (p.stat().st_ino, p.read_bytes()) for p in profiles.glob('*.json')}
+        config_before = (config.stat().st_ino, config.read_bytes())
+        conflict = flat / 'terminal/strata_cli/cli.py'
+        conflict.parent.mkdir(parents=True)
+        conflict.write_bytes(b'ignored unrelated userdata\n')
+        with (flat / '.git/info/exclude').open('a') as stream:
+            stream.write('\n/terminal/strata_cli/cli.py\n')
+        failed = subprocess.run(self.command(self.new), env=dict(self.env, TEST_SOURCE_PATCH=str(SOURCE_PATCH)),
+                                capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(failed.returncode, 0, failed.stderr + failed.stdout)
+        self.assertIn('overwritten by checkout', failed.stderr)
+        self.assertEqual((link.lstat().st_dev, link.lstat().st_ino, os.readlink(link)), link_identity)
+        self.assertEqual(link.resolve(), external)
+        self.assertEqual((config.stat().st_ino, config.read_bytes()), config_before)
+        for path, identity in metadata.items():
+            self.assertEqual((path.stat().st_ino, path.read_bytes()), identity)
+        for path, identity in identities.items():
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino, path.read_bytes()), identity)
+        self.assertEqual(conflict.read_bytes(), b'ignored unrelated userdata\n')
+        self.assert_local_runtime(flat, retained)
+        self.assertEqual(subprocess.check_output(['git', '-C', str(flat), 'rev-parse', 'HEAD'], text=True).strip(), self.old)
+        conflict.unlink()  # The fixture's own blocker; successful retry must not need Git refusal suppression.
+        split = self.prepare_cross_pin(self.new)
+        self.assertEqual((split / 'engine').resolve(), external)
+        self.assertEqual(self.prepare_cross_pin(self.old), flat)
+        self.assertEqual(link.resolve(), external)
+
+    def test_profile_doctor_and_start_repair_preserve_external_sycl_coordinates(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os, shutil
+from pathlib import Path
+import setup
+import strata_managed_state as state
+from strata_control import profiles, doctor, cfg_paths, runtime
+repository = setup.ROOT.parent
+external = repository.parent / 'independent-coordinates'
+external.mkdir()
+wrapper = external / 'sycl/serve/strata-sycl.sh'
+wrapper.parent.mkdir(parents=True)
+shutil.copy2(repository / 'engine/sycl/serve/strata-sycl.sh', wrapper)
+wrapper.chmod(0o755)
+binary = external / 'build-sycl-aot/strata'
+binary.parent.mkdir()
+binary.write_bytes(b'independent engine')
+binary.chmod(0o755)
+tokenizer = external / 'tokenizer'
+tokenizer.mkdir()
+for name in ('vocab.json', 'merges.txt', 'token_type.json'):
+    (tokenizer / name).write_text('{}')
+os.environ['STRATA_PROFILE_DIR'] = str(repository.parent / 'coordinate-profiles')
+for name in tuple(os.environ):
+    if name.startswith('STRATA_SYCL_'):
+        os.environ.pop(name)
+# Deliberately leave ambient cwd inside managed runtime: ownership follows the file.
+paths = []
+originals = {}
+for style in ('relative', 'absolute', 'explicit-cwd'):
+    config = {'exe': str(wrapper) if style == 'absolute' else 'sycl/serve/strata-sycl.sh',
+              'tokenizer': str(tokenizer), 'args': [], 'backend': 'sycl', 'env': {}}
+    if style == 'explicit-cwd':
+        config['cwd'] = str(external)
+    path = external / ('strata-' + style + '.json')
+    path.write_text(json.dumps(config) + '\n')
+    path.chmod(0o440)
+    stat = path.stat()
+    originals[path] = (path.read_bytes(), stat.st_mode, stat.st_dev, stat.st_ino)
+    paths.append(path)
+    profiles.create('external-' + style, str(path))
+    assert profiles.read_run_config(path) == config
+    report = doctor.inspect(path)
+    assert next(c['path'] for c in report['components'] if c['name'] == 'engine') == str(binary), report
+    assert next(c['status'] for c in report['components'] if c['name'] == 'engine') == 'ok', report
+    assert cfg_paths.repair([path]) == ([], [])
+unknown = {'exe': 'sycl/serve/strata-sycl.sh', 'tokenizer': str(tokenizer), 'args': []}
+assert cfg_paths.resolve_config(unknown) == (unknown, [], [])
+# Calling the real start preparation repairs ALL saved profiles, not only the selected one.
+assert runtime._repair_config_paths('external-relative') == (None, None)
+plan, digest = runtime._start_candidate('external-relative')
+assert Path(plan['source_config']) == paths[0]
+assert digest == __import__('hashlib').sha256(paths[0].read_bytes()).hexdigest()
+assert profiles.read_run_config(Path(plan['source_config']))['exe'] == 'sycl/serve/strata-sycl.sh'
+for path, before in originals.items():
+    stat = path.stat()
+    assert (path.read_bytes(), stat.st_mode, stat.st_dev, stat.st_ino) == before
+# Managed positive control: config-directory coordinates still select the stable transport.
+managed_binary = repository / 'engine/build-sycl-aot/strata'
+managed_binary.parent.mkdir(exist_ok=True)
+managed_binary.write_bytes(b'managed engine')
+managed_binary.chmod(0o755)
+model = repository / 'models/coordinate.gguf'
+model.parent.mkdir(exist_ok=True)
+model.write_bytes(b'inert managed GGUF payload')
+managed = {'exe': '../engine/sycl/serve/strata-sycl.sh', 'tokenizer': str(tokenizer),
+           'args': ['--native', '/work/' + repository.name + '/models/coordinate.gguf'],
+           'backend': 'sycl', 'env': {}}
+path = setup.ROOT / 'strata-managed-coordinates.json'
+path.write_text(json.dumps(managed))
+normalized = profiles.read_run_config(path)
+assert normalized['exe'] == str(state.DIRECTORY / 'strata-sycl.sh')
+assert Path(cfg_paths.engine_binary(normalized['exe'], normalized)) == managed_binary
+assert 'cwd' not in normalized
+report = doctor.inspect(path)
+assert next(c['path'] for c in report['components'] if c['name'] == 'engine') == str(managed_binary), report
+assert cfg_paths.repair([path])[0]
+assert json.loads(path.read_text()) == normalized
+profiles.create('managed-coordinates', str(path))
+plan, digest = runtime._start_candidate('managed-coordinates')
+assert plan['engine_exe'] == normalized['exe'], plan
+assert plan['source_config'] == str(path), plan
+server_args = plan['server_argv']
+assert server_args[server_args.index('--engine') + 1] == 'strata', plan
+assert server_args[server_args.index('--config') + 1] == str(path), plan
+routed = profiles.read_run_config(Path(server_args[server_args.index('--config') + 1]))
+assert routed == normalized
+assert Path(cfg_paths.engine_binary(routed['exe'], routed)) == managed_binary
+assert managed_binary.is_file() and os.access(managed_binary, os.X_OK)
+assert Path(routed['exe']).is_file() and os.access(routed['exe'], os.X_OK)
+operand = plan['engine_argv'][plan['engine_argv'].index('--native') + 1]
+assert cfg_paths.engine_argument_path(operand, plan['engine_exe'], routed) == model
+assert model.read_bytes() == b'inert managed GGUF payload'
+assert digest == __import__('hashlib').sha256(path.read_bytes()).hexdigest()
+''')
+
+    def test_models_explain_public_launch_directories_and_native_case_lookup_are_read_only(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import json, os, subprocess, sys
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog
+from strata_cli.models_explain import explain, words
+root = Path.cwd()
+os.environ["STRATA_INSTALL_DIR"] = str(root)
+os.environ.pop("STRATA_WORKSPACE_CONTEXT", None)
+cat = Catalog(src=root, root=root, hardware={})
+assert not hasattr(cat, "data_dir_for")
+native = cat.launch_directories("qwen", "iq3_xxs")
+assert native.models_argument is None
+base = root.parent.parent / "explain-fixtures"
+base.mkdir()
+data, models, explicit = (base / name for name in ("data", "separate-models", "explicit"))
+def public(*args, human=False):
+    result = subprocess.run([sys.executable, str(root / "strata.py"), "models", "explain",
+        "qwen/iq3_xxs", *args, "--output", "human" if human else "json"],
+        capture_output=True, text=True, env=os.environ)
+    assert result.returncode == 0, result.stderr + result.stdout
+    return result.stdout if human else json.loads(result.stdout)
+def check(expected_models, **kwargs):
+    before = {str(p): p.read_bytes() for p in base.rglob("*") if p.is_file()}
+    result = explain("qwen/iq3_xxs", catalog=cat, **kwargs)
+    assert result["models_dir"] == str(expected_models), result
+    trace = cat.model_folder_trace(Path(result["data_dir"]), "qwen", "IQ3_XXS",
+        models_dir=expected_models)
+    assert result["folder"] == str(trace["folder"]) and result["rule"] == trace["rule"], result
+    assert result["tried"] == [{"path": str(t["path"]), "rule": t["rule"], "exists": t["exists"]} for t in trace["tried"]]
+    args = ["--data-dir", str(kwargs["data_dir"])] if kwargs else []
+    assert public(*args) == {"schema_version": 1, "ok": True, **result}
+    assert public(*args, human=True).strip() == words(result)
+    assert {str(p): p.read_bytes() for p in base.rglob("*") if p.is_file()} == before
+    return result
+# No managed context: use native defaults and the canonical fallback.
+result = check(native.models_dir)
+assert result["rule"] == "fallback" and not result["found"]
+# The override goes through the same launch policy, not a private explain shortcut.
+folder = explicit / "models/iq3_xxs"
+folder.mkdir(parents=True)
+(folder / "weights.gguf").write_bytes(b"inert weights")
+(folder / "mmproj-reader.gguf").write_bytes(b"reader")
+result = check(folder.parent, data_dir=str(explicit))
+assert result["rule"] == ("exact" if (folder.parent / "IQ3_XXS").is_dir() else "lower")
+assert result["weights_bytes"] == len(b"inert weights")
+assert len(result["gguf_files"]) == 2
+# Managed GGUF storage is independent of the data folder, including overrides.
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(root.parent.parent),
+    "data_directory": str(data), "models_directory": str(models)})
+folder = models / "iQ3_xXs"
+folder.mkdir(parents=True)
+(folder / "weights.gguf").write_bytes(b"separate inert weights")
+result = check(models)
+assert result["rule"] == ("exact" if (models / "IQ3_XXS").is_dir() else "case")
+assert result["data_dir"] == str(data)
+result = check(models, data_dir=str(explicit))
+assert result["data_dir"] == str(explicit) and result["models_dir"] == str(models)
+(folder / "weights.gguf").unlink()
+folder.rmdir()
+(models / "unrelated").mkdir()
+result = check(models)
+assert result["rule"] == "fallback" and result["other_folders"] == ["unrelated"]
+assert not data.exists()
+''')
+
     def test_launch_directory_policy_preserves_native_ownership_and_helper_forecasts(self):
         root = self.prepare(self.old)
         self.run_source_script(root, '''

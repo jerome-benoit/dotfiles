@@ -8,7 +8,7 @@ names: the model showed as "not installed" and a start failed (#4891; "Qwen brea
 
 One resolver, used by both sides:
 
-* ``resolve_config(cfg)`` (pure; ``profiles.read_run_config`` calls it, so the doctor, the model list, the launch plan and the runtime host see the
+* ``resolve_config(cfg, base=...)`` (pure; ``profiles.read_run_config`` supplies the config directory, so the doctor, the model list, the launch plan and the runtime host see the
   current folders without a file being written);
 * ``repair(configs)`` (runtime.start calls it for the profile being started and every saved profile): the same, written once into the file, one plain
   line for each file it changed.
@@ -141,15 +141,20 @@ def _walk(obj, found: list, lost: list, key: str = ""):
     return obj
 
 
-def resolve_config(cfg: dict) -> tuple[dict, list, list]:
-    """(the config with every path of a removed version folder pointed at the current one, [(old, new)], [(old, "") that exist nowhere])."""
+def resolve_config(cfg: dict, *, base: Path | None = None) -> tuple[dict, list, list]:
+    """Resolve removed component paths and managed transports in their caller's coordinates.
+
+    An explicit config cwd takes precedence over base. Without either, a relative
+    launcher has no known owner and must not be assigned to the managed workspace.
+    Returns (config, [(old, new)], [(old, "") that exist nowhere]).
+    """
     found: list = []
     lost: list = []
     resolved = _walk(cfg, found, lost)
     repository = os.environ.get("STRATA_MANAGED_SOURCE")
     if repository:
         from strata_managed_state import normalize_sycl_config
-        normalized = normalize_sycl_config(resolved, repository)
+        normalized = normalize_sycl_config(resolved, repository, base=base)
         if normalized != resolved:
             found.append((resolved["exe"], normalized["exe"]))
             resolved = normalized
@@ -189,7 +194,7 @@ def repair(configs) -> tuple[list[str], list[str]]:
         from strata_control import retired
         if retired.config_reason(cfg) or retired.config_file_reason(c):
             continue                                     # a DeepSeek config is never written: this Strata does not run it (retired.py)
-        new, found, lost = resolve_config(cfg)
+        new, found, lost = resolve_config(cfg, base=c.parent)
         for old, _ in lost:
             problems.append(f"{c.name}: {old} was removed by an update and no file of that name is in the current version; run setup again for this model")
         if not found:

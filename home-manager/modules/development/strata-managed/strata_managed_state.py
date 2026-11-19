@@ -258,6 +258,8 @@ def _managed_sycl_config(config, repository, base):
 
 
 def normalize_sycl_config(config, repository, *, base=None):
+    if base is None and not config.get("cwd") and not Path(str(config.get("exe", ""))).expanduser().is_absolute():
+        return config                          # Unknown relative coordinates cannot establish managed ownership.
     repository = Path(repository).resolve()
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     base = Path(base if base is not None else runtime)
@@ -421,6 +423,84 @@ def layout_checkpoint(repository, *, enabled=True):
                 os.environ["STRATA_PROFILE_NAMESPACE_FD"] = before_fd
 
 
+@contextmanager
+def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_engine=False):
+    """Vacate only the runtime engine link before Git creates/removes tracked engine code.
+
+    The external payload is never traversed or copied. Keep the original link inode
+    until publication settles, so a refused checkout can restore its exact spelling.
+    """
+    repository = Path(repository).resolve()
+    source, destination = ((repository / "terminal" / "engine", repository / "engine") if reverse
+                           else (repository / "engine", repository / "terminal" / "engine"))
+
+    class LinkStage:
+        backup = None
+        published = None
+        created_parent = False
+
+        def stage(self):
+            if enabled and source.is_symlink():
+                self.target = source.resolve(strict=True)
+                self.spelling = os.readlink(source)
+                self.backup = temporary / "engine"
+                os.rename(source, self.backup)
+
+        def publish(self):
+            if self.backup is None:
+                return
+            if destination.exists() or destination.is_symlink():
+                # Only the old revision's tracked engine directory can leave residue.
+                # Never delete children or a pre-existing forward runtime destination.
+                if not reverse or not tracked_engine or destination.is_symlink():
+                    raise RuntimeError(f"Cannot replace existing engine destination: {destination}")
+                destination.rmdir()
+            self.created_parent = not destination.parent.exists()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            target = Path(self.spelling)
+            if target.is_absolute() or (destination.parent / target).resolve() == self.target:
+                os.link(self.backup, destination, follow_symlinks=False)
+            else:
+                destination.symlink_to(os.path.relpath(self.target, destination.parent))
+            self.published = destination.lstat()
+
+        def withdraw(self):
+            if self.published is not None:
+                current = destination.lstat()
+                if (current.st_dev, current.st_ino) != (self.published.st_dev, self.published.st_ino):
+                    raise RuntimeError(f"Engine link changed during source transaction: {destination}")
+                destination.unlink()
+                self.published = None
+
+        def restore(self):
+            if self.backup is None:
+                return
+            self.withdraw()
+            if source.exists() or source.is_symlink():
+                source.rmdir()                 # Only empty tracked-code residue is ours to remove.
+            source.parent.mkdir(parents=True, exist_ok=True)
+            os.rename(self.backup, source)
+            self.backup = None
+            if self.created_parent:
+                try:
+                    destination.parent.rmdir()
+                except OSError:
+                    pass                      # Preserve any unrelated entries created meanwhile.
+
+    temporary = Path(tempfile.mkdtemp(prefix="strata-engine-link-", dir=repository / ".git"))
+    stage = LinkStage()
+    settled = False
+    try:
+        yield stage
+        settled = True
+    finally:
+        if settled or stage.backup is None:
+            shutil.rmtree(temporary)
+        else:
+            # A failed rollback must not discard the only remaining original link.
+            print(f"Preserved engine link checkpoint for recovery: {temporary}", file=sys.stderr)
+
+
 def migrate_layout(repository, *, reverse=False):
     repository = Path(repository).resolve()
     terminal = repository / "terminal"
@@ -457,7 +537,7 @@ def migrate_layout(repository, *, reverse=False):
                      else (repository / name, repository / "engine" / name)) for name in ("metal", "sycl")]
     swaps = set(pairs + engine_paths)
     swaps.update((source / name, destination / name) for name in TERMINAL_ENTRIES)
-    if any(src.parent == engine for src, dst in pairs):
+    if any(src.parent == engine for src, dst in pairs) or engine.is_symlink() or (destination / "engine").is_symlink():
         swaps.add((engine, destination / "engine"))
     rebase = rebaser(swaps)
     shell_rebase = shell_rebaser(swaps, rebase)
