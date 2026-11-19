@@ -203,7 +203,8 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 previous == desired or accepted_source_request(root, revision, requested, previous)):
             pairs = managed_state.runtime_pairs(root) if (root / "terminal/setup.py").is_file() else ()
             migrated = False
-            with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,)) as restore_metadata:
+            with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
+                                                 runtime_moves=pairs) as restore_metadata:
                 try:
                     migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
                     migrated = True
@@ -851,9 +852,12 @@ def managed_runtime_configs(root, a):
             cfg = profiles.read_run_config(config)
         except profiles.ProfileError:
             return None  # Native dispatch reports the original typed profile error.
+        if managed_state._managed_sycl_config(cfg, repository_root(root), config.parent):
+            return [config]
         if not engine_component.is_reference(cfg["exe"]):
             effective = dict(cfg, cwd=cfg.get("cwd") or os.getcwd())
-            if doctor._location(cfg["exe"], effective, config).resolve().is_relative_to(root):
+            executable = doctor._location(cfg["exe"], effective, config).resolve()
+            if executable.is_relative_to(root) or executable.is_relative_to(repository_root(root) / "engine"):
                 return [config]
     return None
 

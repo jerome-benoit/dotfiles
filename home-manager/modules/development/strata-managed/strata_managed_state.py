@@ -269,18 +269,14 @@ def normalize_sycl_config(config, repository, *, base=None):
     return sycl_config(config, runtime, runtime, repository, False, lambda value: value, base=base)
 
 
-def canonical_config_paths(repository, paths=(), *, runtime_moves=()):
-    """Collect only owned run configs and saved selections, once per regular inode."""
+def canonical_config_paths(repository, paths=()):
+    """Collect owned run configs and every internal saved selection, once per regular inode."""
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     enable_source(runtime)
     sys.path.insert(0, str(runtime))
     from strata_control import profiles
-    roots = {repository / name for name in LAYOUT_DIRS}
-    roots.update(repository / "terminal" / name for name in LAYOUT_DIRS)
-    roots.update(old for old, new in runtime_moves if old.is_dir() and not old.is_symlink())
     candidates = set(paths)
-    candidates.update(path for path in profiles.source_config_paths()
-                      if any(path.is_relative_to(root) for root in roots))
+    candidates.update(profiles.source_config_paths())
     identities = set()
     result = []
     for candidate in sorted(candidates):
@@ -365,7 +361,7 @@ def namespace_fds():
 
 
 @contextmanager
-def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=()):
+def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None):
     """Keep small original bytes/inodes and the profile namespace until a source transaction settles."""
     if not enabled:
         yield lambda: None
@@ -413,8 +409,10 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
             # Writers follow config links, but ownership stops at the repository boundary.
             enable_source(repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository)
             paths.update(canonical_config_paths(repository,
-                         (path for path in paths if path.suffix == ".json" and path.name.startswith("strata-")),
-                         runtime_moves=runtime_pairs(repository) + runtime_pairs(repository, reverse=True)))
+                         (path for path in paths if path.suffix == ".json" and path.name.startswith("strata-"))))
+            moves = (runtime_pairs(repository) + runtime_pairs(repository, reverse=True)
+                     if runtime_moves is None else runtime_moves)
+            paths.update(entry for entry, relocated, before, after, mode in runtime_link_edits(moves))
             for path in tuple(paths):
                 if path.is_symlink() and path.name.startswith("strata-") and path.suffix == ".json":
                     target = path.resolve()
@@ -538,6 +536,28 @@ def relocated_path(path, pairs):
     return path
 
 
+def runtime_link_edits(pairs):
+    """Project only links a payload move changes; checkpoints and the writer share this inventory."""
+    for source, destination in pairs:
+        if not source.is_symlink() and not source.is_dir():
+            continue
+        for entry in interpreter_entries(source):
+            if not entry.is_symlink():
+                continue
+            relocated = destination / entry.relative_to(source)
+            before = os.readlink(entry)
+            target = Path(before) if os.path.isabs(before) else entry.parent / before
+            lexical = Path(os.path.normpath(target))
+            effective = target.resolve()
+            mapped = relocated_path(lexical, pairs)
+            # Keep chains and dangling targets; an unmoved alias may still reach a moved payload.
+            if lexical.resolve() != effective or (mapped == lexical and relocated_path(effective, pairs) != effective):
+                mapped = relocated_path(effective, pairs)
+            after = str(mapped) if os.path.isabs(before) else os.path.relpath(mapped, relocated.parent)
+            if after != before:
+                yield entry, relocated, before, after, entry.lstat().st_mode
+
+
 @contextmanager
 def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_engine=False):
     """Vacate only the runtime engine link before Git creates/removes tracked engine code.
@@ -652,7 +672,7 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
     paths = canonical_config_paths(repository,
-            (path for runtime in (source, destination) for path in runtime.glob("strata-*.json")), runtime_moves=pairs)
+            (path for runtime in (source, destination) for path in runtime.glob("strata-*.json")))
     originals.update((path, path.read_bytes()) for path in paths)
     configs = {path: config for path in paths if (config := _model_config(originals[path])) is not None}
     engine_paths = [((repository / "engine" / name, repository / name) if reverse
@@ -710,7 +730,7 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
         if not managed and not independent:
             args = list(config.get("args", []))
             for index, flag in enumerate(config.get("args", [])[:-1]):
-                if flag not in SYCL_PATH_FLAGS:
+                if flag not in SYCL_PATH_FLAGS and flag not in ("--mmproj", "--model"):
                     continue
                 value = args[index + 1]
                 if flag == "--mtp" and str(value).isdigit():
@@ -723,6 +743,29 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
                         path, separator, scale = value, "", ""
                 args[index + 1] = reading_path(path if separator else value) + separator + scale
             rebased["args"] = args
+        # These native consumers resolve their file fields against the old config cwd.
+        # Copy their other fields unchanged: descriptions and component names are not coordinates.
+        for section, fields in (("vision", ("exe", "mmproj", "model")),
+                                ("images", ("exe", "diffusion_model", "vae", "llm", "out_dir"))):
+            original = config.get(section)
+            if not isinstance(original, dict):
+                continue
+            native = dict(original)
+            for key in fields:
+                if key in original:
+                    native[key] = reading_path(original[key], executable=key == "exe")
+            if section == "images" and isinstance(original.get("args"), list):
+                args = list(original["args"])
+                for index, flag in enumerate(original["args"][:-1]):
+                    if flag in ("--diffusion-model", "--vae", "--llm", "--prompt-file"):
+                        # Image jobs have their own cwd, so read operands must be host-absolute.
+                        value = reading_path(args[index + 1])
+                        if isinstance(value, str) and value and not value.startswith("component:"):
+                            value = str(Path(os.path.normpath((new_cwd if config.get("cwd") else new_base)
+                                                             / Path(value).expanduser())))
+                        args[index + 1] = value
+                native["args"] = args
+            rebased[section] = native
         if managed:
             mapped = sycl_config(config, source, destination, repository, reverse, rebase, base=base)
             rebased.update({key: mapped[key] for key in ("exe", "args", "env")})
@@ -743,29 +786,14 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
             if after != originals[src]:
                 runtime_edits.append((dst, originals[src], after, None))
 
-    def moved_path(path):
-        return relocated_path(path, pairs)
-
+    runtime_edits.extend((relocated, before, after, mode)
+                         for entry, relocated, before, after, mode in runtime_link_edits(pairs))
     for src, dst in pairs:
-        if not src.is_symlink() and not src.is_dir():
+        if src.name not in (".venv", ".python", "python") or src.is_symlink() or not src.is_dir():
             continue
-        interpreter = src.name in (".venv", ".python", "python")
         for entry in interpreter_entries(src):
             relocated = dst / entry.relative_to(src)
-            if entry.is_symlink():
-                before = os.readlink(entry)
-                target = Path(before) if os.path.isabs(before) else entry.parent / before
-                lexical = Path(os.path.normpath(target))
-                effective = target.resolve()
-                mapped = moved_path(lexical)
-                # Preserve link chains and dangling targets; use the effective target when an
-                # unmoved alias points at a moved payload, or '..' crosses a symlink directory.
-                if lexical.resolve() != effective or (mapped == lexical and moved_path(effective) != effective):
-                    mapped = moved_path(effective)
-                after = str(mapped) if os.path.isabs(before) else os.path.relpath(mapped, relocated.parent)
-                if after != before:
-                    runtime_edits.append((relocated, before, after, entry.lstat().st_mode))
-            elif interpreter and entry.is_file():
+            if not entry.is_symlink() and entry.is_file():
                 metadata = entry == src / "pyvenv.cfg" or (entry.parent.name in ("bin", "Scripts")
                            and entry.name.lower().startswith("activate"))
                 if not metadata:
@@ -873,7 +901,7 @@ class CMakeMetadataCheckpoint:
                 os.close(parent_fd)
                 raise
             names = []
-            self.backups.append((parent_fd, backup_fd, temporary.name, names))
+            self.backups.append((parent_fd, backup_fd, temporary, names))
             for entry in ("CMakeCache.txt", "CMakeFiles"):
                 try:
                     os.rename(entry, entry, src_dir_fd=parent_fd, dst_dir_fd=backup_fd)
@@ -882,10 +910,19 @@ class CMakeMetadataCheckpoint:
                 names.append(entry)
 
     def restore(self):
+        errors = []
         for parent_fd, backup_fd, temporary, names in reversed(self.backups):
             for name in reversed(names[:]):
-                os.rename(name, name, src_dir_fd=backup_fd, dst_dir_fd=parent_fd)
-                names.remove(name)
+                try:
+                    os.rename(name, name, src_dir_fd=backup_fd, dst_dir_fd=parent_fd)
+                except OSError as error:
+                    errors.append(error)
+                    print(f"Cannot restore CMake metadata; backup recoverable at {temporary / name}: {error}",
+                          file=sys.stderr)
+                else:
+                    names.remove(name)
+        if errors:
+            raise RuntimeError("Cannot restore CMake metadata: " + "; ".join(map(str, errors))) from errors[0]
 
     def accept(self):
         self.accepted = True
@@ -896,13 +933,23 @@ class CMakeMetadataCheckpoint:
                 self.restore()
             for parent_fd, backup_fd, temporary, names in self.backups:
                 for name in names[:]:
-                    info = os.stat(name, dir_fd=backup_fd, follow_symlinks=False)
-                    if stat.S_ISDIR(info.st_mode):
-                        shutil.rmtree(name, dir_fd=backup_fd)
+                    try:
+                        info = os.stat(name, dir_fd=backup_fd, follow_symlinks=False)
+                        if stat.S_ISDIR(info.st_mode):
+                            shutil.rmtree(name, dir_fd=backup_fd)
+                        else:
+                            os.unlink(name, dir_fd=backup_fd)
+                    except OSError as error:
+                        print(f"CMake metadata cleanup incomplete; backup recoverable at {temporary / name}: {error}",
+                              file=sys.stderr)
                     else:
-                        os.unlink(name, dir_fd=backup_fd)
-                    names.remove(name)
-                os.rmdir(temporary, dir_fd=parent_fd)
+                        names.remove(name)
+                if not names:
+                    try:
+                        os.rmdir(temporary.name, dir_fd=parent_fd)
+                    except OSError as error:
+                        print(f"CMake metadata cleanup incomplete; backup recoverable at {temporary}: {error}",
+                              file=sys.stderr)
         finally:
             for parent_fd, backup_fd, temporary, names in self.backups:
                 os.close(backup_fd)

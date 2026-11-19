@@ -1290,13 +1290,105 @@ with patch.object(setup.os, "stat", side_effect=stat):
                                                 text=True).strip(), self.old)
 
 
-    def test_same_pin_cache_write_failure_restores_only_pending_runtime_moves_and_retry(self):
+    def test_real_serve_normalized_sycl_selection_reaches_native_runtime_validation(self):
+        root = self.prepare(self.old)
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "normalized selected profiles")
+        self.env["TEST_WORKSPACE"] = WORKSPACE
+        self.env["TEST_REVISION"] = self.old
+        self.run_source_script(root, r'''
+import importlib.util, json, os, sys
+from pathlib import Path
+import setup
+from strata_cli.cli import parse_args
+from strata_control import profiles
+import strata_managed_state as state
+spec = importlib.util.spec_from_file_location("workspace", os.environ["TEST_WORKSPACE"])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+repository = setup.ROOT.parent
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
+config = {"exe": str(repository / "engine/sycl/serve/strata-sycl.sh"), "cwd": str(setup.ROOT),
+          "args": [], "tokenizer": str(repository / "missing-tokenizer"),
+          "env": {"STRATA_SYCL_ROOT": str(repository), "STRATA_SYCL_HERE": str(repository / "engine"),
+                  "STRATA_SYCL_CWD": "/work/terminal", "STRATA_SYCL_BIN": str(repository / "build-sycl-aot/strata")}}
+normalized = state.normalize_sycl_config(config, repository)
+assert not Path(normalized["exe"]).is_relative_to(repository)
+selected = []
+for index, relative in enumerate(("operator-config.json", "operator/nested/config.json")):
+    path = repository / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(normalized))
+    profiles.create("normalized-" + str(index), str(path))
+    resolved = profiles.resolve("normalized-" + str(index))[0]
+    assert profiles.read_run_config(resolved)["env"]["STRATA_SYCL_HERE"] == str(repository / "engine")
+    args = parse_args(["serve", "--config", str(path)])
+    assert workspace.runtime_action(args)
+    assert workspace.managed_runtime_configs(setup.ROOT, args) == [path]
+    selected.append(path)
+external = repository.parent / "independent/config.json"
+external.parent.mkdir()
+independent = dict(normalized, cwd=str(external.parent), env=dict(normalized["env"],
+    STRATA_SYCL_HERE=str(external.parent), STRATA_SYCL_ROOT=str(external.parent),
+    STRATA_SYCL_BIN=str(external.parent / "build-sycl-aot/strata")))
+external.write_text(json.dumps(independent))
+before = (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns)
+assert workspace.managed_runtime_configs(setup.ROOT, parse_args(["serve", "--config", str(external)])) is None
+assert state.normalize_sycl_config(independent, repository) is independent
+internal_external = []
+for relative in ("operator/external-runtime.json", "terminal/models/external-runtime.json"):
+    path = repository / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(independent))
+    original = (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+    assert workspace.managed_runtime_configs(setup.ROOT, parse_args(["serve", "--config", str(path)])) is None
+    assert state.normalize_sycl_config(profiles.read_run_config(path), repository)["env"]["STRATA_SYCL_HERE"] == str(external.parent)
+    internal_external.append((path, original))
+# Run native runtime validation through the same refresh consumer selected by serve.
+python = setup.ROOT / "python/bin/python3"
+python.parent.mkdir(parents=True)
+python.symlink_to(sys.executable)
+marker = repository / ".git" / workspace.RUNTIME_REVISION
+receipt = repository / ".git" / workspace.SOURCE_REFRESH_REVISION
+marker.write_text(os.environ["TEST_REVISION"] + "\n")
+receipt.write_text(os.environ["TEST_REVISION"] + "\n")
+with workspace.workspace_lock(repository.parent) as (_, lock):
+    status = workspace.runtime_status(setup.ROOT, lock.fileno(), selected, reconcile=True)
+    assert status.returncode != 0, status
+    assert "missing-tokenizer" in status.stderr, status.stderr
+    assert "operator-config.json" in status.stderr, status.stderr
+    try:
+        # --help invokes the real setup parser but cannot acquire or launch a model.
+        workspace.refresh_runtime(setup.ROOT, os.environ["TEST_REVISION"], lock.fileno(), ["--help"], configs=selected)
+    except RuntimeError as error:
+        assert "missing-tokenizer" in str(error), error
+        assert "operator-config.json" in str(error), error
+    else:
+        raise AssertionError("invalid selected SYCL runtime was stamped accepted")
+for path, original in internal_external:
+    assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == original
+assert not marker.exists() and not receipt.exists()
+assert (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns) == before
+''')
+
+    def test_same_pin_cache_and_request_fault_restore_pending_links_and_existing_payloads(self):
+        for failure in ("cache", "request"):
+            with self.subTest(failure=failure):
+                self.state = self.base / (failure + " same-pin workspace")
+                self.assert_same_pin_publication_failure_restores_links(failure)
+
+    def assert_same_pin_publication_failure_restores_links(self, failure):
         root = self.prepare(self.old)
         repository = root.parent
-        self.env["STRATA_PROFILE_DIR"] = str(self.base / "same-pin cache profiles")
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / (failure + " same-pin cache profiles"))
         model = repository / "models/same-pin.gguf"
-        model.parent.mkdir()
-        model.write_bytes(b"pending model")
+        shared = repository.parent / "shared"
+        shared.mkdir()
+        (shared / "same-pin.gguf").write_bytes(b"pending model")
+        model.parent.symlink_to("../shared", target_is_directory=True)
+        nested_link = repository / "python/bin/reader"
+        nested_link.parent.mkdir(parents=True)
+        nested_link.symlink_to("../../../shared/same-pin.gguf")
+        link_before = {path: (os.readlink(path), path.lstat().st_ino) for path in (model.parent, nested_link)}
         config = repository / "strata-same-pin-cache.json"
         config.write_text(json.dumps({"exe": "/bin/true", "cwd": str(repository), "args": [],
                                      "tokenizer": "/fixture/tokenizer"}))
@@ -1312,7 +1404,7 @@ profiles.set_values("same-pin-cache", ["port=9123"])
         cache = repository / ".git/strata-source-patches"
         cache_receipt = cache / f"{self.old}.sha256"
         cache_receipt.unlink()
-        paths = [model, config, existing, repository / ".git/strata-source.patch", repository / ".git/strata-source-request.json"]
+        paths = [shared / "same-pin.gguf", config, existing, repository / ".git/strata-source.patch", repository / ".git/strata-source-request.json"]
         paths += list(cache.iterdir()) + list(Path(self.env["STRATA_PROFILE_DIR"]).rglob("*.json"))
         before = {path: (path.read_bytes(), path.stat().st_dev, path.stat().st_ino) for path in paths}
         script = r'''
@@ -1323,9 +1415,16 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 root = Path(sys.argv[2]) / "source"
 replace = Path.replace
+publish = module.publish_source_patch
+def refuse_request(path, text):
+    if sys.argv[6] == "request" and path.name == module.SOURCE_REQUEST:
+        assert (root / "terminal/models/same-pin.gguf").read_bytes() == b"pending model"
+        raise OSError("same-pin cache publication after migration")
+    return publish(path, text)
+module.publish_source_patch = refuse_request
 def refuse_cache_receipt(path, target):
     target = Path(target)
-    if target.parent.name == "strata-source-patches" and target.suffix == ".sha256":
+    if sys.argv[6] == "cache" and target.parent.name == "strata-source-patches" and target.suffix == ".sha256":
         assert (root / "terminal/models/same-pin.gguf").read_bytes() == b"pending model"
         assert (root / "terminal/strata-same-pin-cache.json").is_file()
         raise OSError("same-pin cache publication after migration")
@@ -1341,7 +1440,7 @@ finally:
     Path.replace = replace
 '''
         result = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), self.old,
-                                 str(self.repository), SOURCE_PATCH], env=self.env, capture_output=True, text=True, timeout=60)
+                                 str(self.repository), SOURCE_PATCH, failure], env=self.env, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip(), self.old)
         self.assertEqual(set(cache.iterdir()), {path for path in paths if path.parent == cache})
@@ -1352,6 +1451,10 @@ finally:
         for path, original in before.items():
             self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino), original,
                              f"Same-pin cache refusal changed bytes/inodes: {path}")
+        for path, original in link_before.items():
+            self.assertEqual((os.readlink(path), path.lstat().st_ino), original)
+        self.assertEqual(model.read_bytes(), b"pending model")
+        self.assertFalse((root / "python").exists())
         self.run_source_script(root, r'''
 from pathlib import Path
 from strata_control import profiles
@@ -1360,7 +1463,7 @@ assert selected == Path.cwd().parent / "strata-same-pin-cache.json"
 profiles.read_run_config(selected)
 ''')
         self.assertEqual(self.prepare(self.old), root)
-        self.assertEqual((root / "models/same-pin.gguf").stat().st_ino, before[model][2])
+        self.assertEqual((root / "models/same-pin.gguf").stat().st_ino, before[shared / "same-pin.gguf"][2])
         self.assertEqual(json.loads((root / config.name).read_text())["cwd"], str(root))
         self.assertTrue(cache_receipt.is_file())
         self.assertEqual(existing.read_bytes(), b"already migrated pack")
@@ -1407,6 +1510,185 @@ profiles.read_run_config(selected)
                 for path, original in before.items():
                     self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino, path.stat().st_mtime_ns), original,
                                      f"Refusal changed source/runtime/cache metadata: {path}")
+
+    def test_selected_root_and_nested_configs_rebase_native_vision_images_and_restore_fault(self):
+        root = self.prepare(self.old)
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "selected coordinate profiles")
+        self.run_source_script(root, r'''
+import ast, copy, json, os
+from pathlib import Path
+import setup
+import strata_managed_state as state
+from strata_control import profiles, doctor, engine_component
+repository = setup.ROOT.parent
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
+shared = repository.parent / "shared"
+shared.mkdir()
+for name in ("reader", "picture.gguf", "vae.gguf", "llm.gguf"):
+    (shared / name).write_bytes(name.encode())
+(repository / "engine").mkdir(exist_ok=True)
+(repository / "engine/strata").write_bytes(b"engine")
+(repository / "models").mkdir()
+(repository / "models/model.gguf").write_bytes(b"model")
+(repository / "models/tokenizer").mkdir()
+config = {"exe": "engine/strata", "cwd": str(repository), "tokenizer": "models/tokenizer",
+          "args": ["--native", "models/model.gguf"],
+          "vision": {"exe": "../shared/reader", "mmproj": "../shared/picture.gguf", "model": "models/model.gguf", "note": "models/description"},
+          "images": {"exe": "../shared/reader", "diffusion_model": "models/model.gguf", "vae": "../shared/vae.gguf", "llm": "../shared/llm.gguf", "out_dir": "models/generated", "note": "../shared/description"}}
+selected = [repository / "operator-config.json", repository / "operator/nested/config.json"]
+historical_revision = None
+for index, path in enumerate(selected):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = copy.deepcopy(config)
+    if index == 0:
+        payload["images"]["out_dir"] = "../shared/generated"
+    path.write_text(json.dumps(payload))
+    _, created_revision = profiles.create("coordinate-" + str(index), str(path))
+    if index == 0:
+        historical_revision = created_revision
+    profiles.set_values("coordinate-" + str(index), ["port=9123"])
+# The first config remains selected only by immutable history.
+proposed, revision = profiles.propose_source("coordinate-0", str(selected[1]))
+profiles.save("coordinate-0", proposed, expected_revision=revision)
+history = {path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+           for path in profiles.profile_dir().glob(".history/*/*.json")}
+external = shared / "operator-config.json"
+external.write_text(json.dumps(config))
+profiles.create("coordinate-external", str(external))
+unselected = repository / "operator/unselected.json"
+unselected.write_text(json.dumps(config))
+protected = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in (external, unselected)}
+assert set(selected).issubset(state.canonical_config_paths(repository))
+# Evaluate the actual server comprehensions, not a replacement path resolver.
+tree = ast.parse((setup.ROOT / "serve/server.py").read_text())
+expressions = {}
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id in ("vcfg", "icfg") and isinstance(node.value, ast.DictComp):
+                expressions[target.id] = compile(ast.Expression(node.value), "native-server-coordinates", "eval")
+assert set(expressions) == {"vcfg", "icfg"}
+def native(cfg):
+    return {name: eval(expression, {"os": os, "cfg": cfg, "engine_component": engine_component})
+            for name, expression in expressions.items()}
+before_native = native(config)
+before_outputs = {path: Path(native(json.loads(path.read_text()))["icfg"]["out_dir"]) for path in selected}
+before = {p: (p.read_bytes(), p.stat().st_ino) for p in selected}
+write = state.write_runtime
+published_selected = []
+def refuse_selected(entry, payload, mode, backup=None):
+    changed = entry in before and payload != before[entry][0]
+    if changed and published_selected:
+        first = published_selected[0]
+        published = profiles.read_run_config(first)
+        assert doctor._location(published["exe"], published, first).resolve() == (setup.ROOT / "engine/strata").resolve()
+        assert (Path(published["cwd"]) / published["tokenizer"]).resolve() == (setup.ROOT / "models/tokenizer").resolve()
+        observed = native(published)
+        assert Path(observed["vcfg"]["exe"]).resolve() == shared / "reader"
+        assert Path(observed["vcfg"]["model"]).resolve() == setup.ROOT / "models/model.gguf"
+        raise OSError("selected stationary config publication refused")
+    result = write(entry, payload, mode, backup)
+    if changed:
+        published_selected.append(entry)
+    return result
+with state.layout_checkpoint(repository) as restore:
+    state.write_runtime = refuse_selected
+    try:
+        try:
+            state.migrate_layout(repository)
+        except RuntimeError as error:
+            assert "selected stationary config publication refused" in str(error), error
+        else:
+            raise AssertionError("selected-config write fault did not fire")
+    finally:
+        state.write_runtime = write
+        restore()
+for p, original in before.items():
+    assert (p.read_bytes(), p.stat().st_ino) == original, p
+state.migrate_layout(repository)
+for path in selected:
+    cfg = profiles.read_run_config(path)
+    assert doctor._location(cfg["exe"], cfg, path).read_bytes() == b"engine"
+    assert Path(cfg["cwd"]) / cfg["tokenizer"] == setup.ROOT / "models/tokenizer"
+    from strata_control.cfg_paths import engine_argument_path
+    assert engine_argument_path(cfg["args"][1], cfg["exe"], cfg).read_bytes() == b"model"
+    actual = native(cfg)
+    for section, keys in (("vcfg", ("exe", "mmproj", "model")), ("icfg", ("exe", "diffusion_model", "vae", "llm"))):
+        for key in keys:
+            old = Path(before_native[section][key])
+            expected = setup.ROOT / old.relative_to(repository) if old.is_relative_to(repository / "models") else old
+            assert Path(actual[section][key]) == expected, (section, key, actual)
+            assert Path(actual[section][key]).read_bytes() == expected.read_bytes()
+    old_output = before_outputs[path]
+    expected_output = setup.ROOT / old_output.relative_to(repository) if old_output.is_relative_to(repository / "models") else old_output
+    assert Path(actual["icfg"]["out_dir"]) == expected_output, (path, actual["icfg"]["out_dir"], expected_output)
+    assert cfg["vision"]["note"] == config["vision"]["note"]
+    assert cfg["images"]["note"] == config["images"]["note"]
+assert profiles.resolve("coordinate-1")[0] == selected[1]
+rolled, _, _ = profiles.rollback("coordinate-0", historical_revision)
+assert rolled["source_config"] == str(selected[0])
+assert profiles.resolve("coordinate-0")[0] == selected[0]
+historical = profiles.read_run_config(selected[0])
+assert doctor._location(historical["exe"], historical, selected[0]).resolve() == setup.ROOT / "engine/strata"
+for path, original in history.items():
+    assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == original
+for p, original in protected.items():
+    assert (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) == original, p
+# Component references are opaque to the migration (including model fields).
+component = selected[1]
+data = json.loads(component.read_text())
+data["vision"]["exe"] = "component:engine"
+data["vision"]["model"] = "component:vision"
+data["images"]["exe"] = "component:images"
+component.write_text(json.dumps(data))
+state.migrate_layout(repository, reverse=True)
+data = json.loads(component.read_text())
+assert data["vision"]["exe"] == "component:engine"
+assert data["vision"]["model"] == "component:vision"
+assert data["images"]["exe"] == "component:images"
+''')
+
+    @unittest.skipUnless(os.name == "posix" and os.geteuid() != 0, "Real readonly CMake cleanup permissions")
+    def test_real_prepare_accepted_readonly_cmake_cleanup_warns_and_retains_recoverable_backup(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        split = self.prepare_cross_pin(self.new)
+        build = split / "build"
+        nested = build / "CMakeFiles/nested"
+        nested.mkdir(parents=True)
+        options = nested / "options.txt"
+        options.write_bytes(b"recoverable configured options")
+        nested.chmod(0o555)
+        self.addCleanup(lambda: [path.chmod(0o700) for path in flat.rglob("nested") if path.is_dir()])
+        (build / "CMakeCache.txt").write_text(f"CMAKE_HOME_DIRECTORY:INTERNAL={flat / 'engine'}\nCMAKE_CACHEFILE_DIR:INTERNAL={build}\n")
+        payload = build / "user-cache"
+        payload.write_bytes(b"keep user payload")
+        inode = payload.stat().st_ino
+        result = subprocess.run(self.command(self.old), env=dict(self.env, TEST_SOURCE_PATCH=str(self.legacy_overlay)),
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"], text=True).strip(), self.old)
+        self.assertEqual((flat / ".git/strata-source.patch").read_bytes(), self.legacy_overlay.read_bytes())
+        self.assertTrue((flat / ".git/strata-source-request.json").is_file())
+        self.assertTrue((flat / ".git/strata-source-patches" / (self.old + ".sha256")).is_file())
+        self.assertIn(".strata-cmake-", result.stderr)
+        self.assertTrue(result.stderr.strip())
+        backups = list((flat / "build").glob(".strata-cmake-*/CMakeFiles/nested/options.txt"))
+        self.assertTrue(backups, result.stderr)
+        self.assertEqual(backups[0].read_bytes(), b"recoverable configured options")
+        backup = backups[0].parents[2]
+        self.assertIn(str(backup), result.stderr)
+        self.assertEqual((flat / "build/user-cache").stat().st_ino, inode)
+        self.assertEqual((flat / "build/user-cache").read_bytes(), b"keep user payload")
+        self.assertFalse((flat / "build/CMakeCache.txt").exists())
+        self.assertFalse((flat / "build/CMakeFiles").exists())
+        self.assertEqual(self.prepare_cross_pin(self.old), flat)
+        help_result = subprocess.run(self.command(self.old) + ["run", "--help"],
+            env=dict(self.env, TEST_SOURCE_PATCH=str(self.legacy_overlay)), capture_output=True, text=True, timeout=60)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        for command in ("serve", "profile", "status"):
+            self.assertIn(command, help_result.stdout)
+        self.assertFalse((flat / "models").exists())
 
     def test_linked_config_preserves_external_bytes_and_restores_links_after_write_failure(self):
         root = self.prepare(self.old)
