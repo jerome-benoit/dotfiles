@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shlex
 import shutil
+import stat
 import sys
 import tempfile
 
@@ -268,14 +269,48 @@ def normalize_sycl_config(config, repository, *, base=None):
     return sycl_config(config, runtime, runtime, repository, False, lambda value: value, base=base)
 
 
+def canonical_config_paths(repository, paths=(), *, runtime_moves=()):
+    """Collect only owned run configs and saved selections, once per regular inode."""
+    runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
+    enable_source(runtime)
+    sys.path.insert(0, str(runtime))
+    from strata_control import profiles
+    roots = {repository / name for name in LAYOUT_DIRS}
+    roots.update(repository / "terminal" / name for name in LAYOUT_DIRS)
+    roots.update(old for old, new in runtime_moves if old.is_dir() and not old.is_symlink())
+    candidates = set(paths)
+    candidates.update(path for path in profiles.source_config_paths()
+                      if any(path.is_relative_to(root) for root in roots))
+    identities = set()
+    result = []
+    for candidate in sorted(candidates):
+        path = candidate.resolve()
+        if not path.is_relative_to(repository) or not path.is_file():
+            continue
+        info = path.stat()
+        identity = (info.st_dev, info.st_ino)
+        if identity not in identities:
+            identities.add(identity)
+            result.append(path)
+    return result
+
+
 def normalize_sycl_configs(repository):
     repository = Path(repository).resolve()
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
+    enable_source(runtime)
+    sys.path.insert(0, str(runtime))
+    from strata_control import profiles
+    with profiles._source_references_lock():
+        _normalize_sycl_configs(repository, runtime)
+
+
+def _normalize_sycl_configs(repository, runtime):
     changes = []
-    for path in sorted(runtime.glob("strata-*.json")):
+    for path in canonical_config_paths(repository, runtime.glob("strata-*.json")):
         before = path.read_bytes()
         config = _model_config(before)
-        if config is None or (path.is_symlink() and not path.resolve().is_relative_to(repository)):
+        if config is None:
             continue
         mapped = normalize_sycl_config(config, repository, base=path.parent)
         if mapped != config:
@@ -283,11 +318,12 @@ def normalize_sycl_configs(repository):
     edited = []
     try:
         for path, before, after in changes:
-            edited.append((path, before))
+            edited.append((path, before, path.stat()))
             path.write_bytes(after)
     except BaseException:
-        for path, before in reversed(edited):
+        for path, before, info in reversed(edited):
             path.write_bytes(before)
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
         raise
 
 
@@ -299,7 +335,7 @@ def interpreter_entries(root):
     if not root.is_symlink():
         for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
             # Parent-local transaction snapshots are not runtime payloads.
-            dirs[:] = [name for name in dirs if not name.startswith(".strata-layout-")]
+            dirs[:] = [name for name in dirs if not name.startswith((".strata-layout-", ".strata-cmake-"))]
             for name in dirs + files:
                 yield Path(directory) / name
 
@@ -375,6 +411,10 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                             if metadata_entry:
                                 paths.add(entry)
             # Writers follow config links, but ownership stops at the repository boundary.
+            enable_source(repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository)
+            paths.update(canonical_config_paths(repository,
+                         (path for path in paths if path.suffix == ".json" and path.name.startswith("strata-")),
+                         runtime_moves=runtime_pairs(repository) + runtime_pairs(repository, reverse=True)))
             for path in tuple(paths):
                 if path.is_symlink() and path.name.startswith("strata-") and path.suffix == ".json":
                     target = path.resolve()
@@ -412,7 +452,7 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                         payloads[identity] = path.read_bytes()
                     payload = payloads[identity]
                 os.link(path, backup[1], dst_dir_fd=backup[0], follow_symlinks=False)
-                originals.append((path, backup, payload, info.st_mode))
+                originals.append((path, backup, payload, info.st_mode, info.st_atime_ns, info.st_mtime_ns))
 
             def restore():
                 errors = []
@@ -423,7 +463,7 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                     except OSError as error:
                         errors.append(error)
 
-                def restore_entry(path, backup, payload, mode):
+                def restore_entry(path, backup, payload, mode, atime, mtime):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     backup_fd, backup_name = backup
                     original = os.stat(backup_name, dir_fd=backup_fd, follow_symlinks=False)
@@ -444,9 +484,10 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                         if path.read_bytes() != payload:
                             path.write_bytes(payload)
                         os.chmod(path, mode)
+                        os.utime(path, ns=(atime, mtime))
 
-                for path, backup, payload, mode in originals:
-                    attempt(lambda: restore_entry(path, backup, payload, mode))
+                for path, backup, payload, mode, atime, mtime in originals:
+                    attempt(lambda: restore_entry(path, backup, payload, mode, atime, mtime))
                 for path in absent:
                     attempt(lambda: path.unlink(missing_ok=True))
 
@@ -602,11 +643,18 @@ def migrate_layout(repository, *, reverse=False):
     if conflicts:
         raise RuntimeError("Cannot migrate managed runtime without replacing existing destinations: "
                            + ", ".join(map(str, conflicts)))
+    with profiles.relocate_sources([], runtime_moves=pairs) as publish_profiles:
+        return _migrate_payloads(repository, source, destination, pairs, publish_profiles, reverse=reverse)
+
+
+def _migrate_payloads(repository, source, destination, pairs, publish_profiles, *, reverse):
+    engine = source / "engine"
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
-    configs = {src: config for src, data in originals.items() if src.suffix == ".json"
-               and (config := _model_config(data)) is not None}
-    config_moves = [(src, dst) for src, dst in pairs if src in configs]
+    paths = canonical_config_paths(repository,
+            (path for runtime in (source, destination) for path in runtime.glob("strata-*.json")), runtime_moves=pairs)
+    originals.update((path, path.read_bytes()) for path in paths)
+    configs = {path: config for path in paths if (config := _model_config(originals[path])) is not None}
     engine_paths = [((repository / "engine" / name, repository / name) if reverse
                      else (repository / name, repository / "engine" / name)) for name in ("metal", "sycl")]
     swaps = set(pairs + engine_paths)
@@ -616,22 +664,65 @@ def migrate_layout(repository, *, reverse=False):
         swaps.add((engine, destination / "engine"))
     rebase = rebaser(swaps)
     shell_rebase = shell_rebaser(swaps, rebase)
-    actual_rebase = rebaser(pairs) if pairs else lambda value: value
 
-    def transform_config(config, base):
+    def transform_config(config, path):
+        base = path.parent
         managed = _managed_sycl_config(config, repository, base)
         independent = not managed and Path(str(config.get("exe", ""))).name == "strata-sycl.sh"
-        selected_rebase = actual_rebase if independent else rebase
+        old_cwd = _sycl_cwd(config, base)
+        new_base = relocated_path(path, pairs).parent
+        new_cwd = relocated_path(old_cwd, pairs)
+        if not independent and old_cwd == source:
+            new_cwd = destination
+        actual_rebase = rebaser(pairs) if pairs else lambda value: value
 
         def walk(value):
             if isinstance(value, dict):
-                out = {key: walk(item) for key, item in value.items()}
-                if not independent and value.get("cwd") == str(source):
-                    out["cwd"] = str(destination)
-                return out
-            return selected_rebase(value) if isinstance(value, str) else [walk(item) for item in value] if isinstance(value, list) else value
+                return {key: walk(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [walk(item) for item in value]
+            return actual_rebase(value) if isinstance(value, str) else value
 
         rebased = walk(config)
+        if config.get("cwd"):
+            rebased["cwd"] = str(new_cwd)
+
+        def reading_path(value, *, executable=False):
+            if not isinstance(value, str) or not value or value.startswith("component:"):
+                return value
+            path = Path(value).expanduser()
+            if executable and not path.is_absolute() and not os.path.dirname(value):
+                return value                         # A bare executable is selected through PATH.
+            lexical = Path(os.path.normpath(path if path.is_absolute() else old_cwd / path))
+            mapped = relocated_path(lexical, pairs)
+            if mapped == lexical:
+                effective = lexical.resolve()
+                projected = relocated_path(effective, pairs)
+                if projected != effective:
+                    mapped = projected
+            if mapped == lexical and (path.is_absolute() or old_cwd == (new_cwd if config.get("cwd") else new_base)):
+                return value
+            return str(mapped) if path.is_absolute() else os.path.relpath(mapped, new_cwd if config.get("cwd") else new_base)
+
+        rebased["tokenizer"] = reading_path(config.get("tokenizer"))
+        if not managed:
+            rebased["exe"] = reading_path(config.get("exe"), executable=True)
+        if not managed and not independent:
+            args = list(config.get("args", []))
+            for index, flag in enumerate(config.get("args", [])[:-1]):
+                if flag not in SYCL_PATH_FLAGS:
+                    continue
+                value = args[index + 1]
+                if flag == "--mtp" and str(value).isdigit():
+                    continue
+                path, separator, scale = value.rpartition(":") if flag == "--control-vector-scaled" else (value, "", "")
+                if separator:
+                    try:
+                        float(scale)
+                    except ValueError:
+                        path, separator, scale = value, "", ""
+                args[index + 1] = reading_path(path if separator else value) + separator + scale
+            rebased["args"] = args
         if managed:
             mapped = sycl_config(config, source, destination, repository, reverse, rebase, base=base)
             rebased.update({key: mapped[key] for key in ("exe", "args", "env")})
@@ -639,29 +730,18 @@ def migrate_layout(repository, *, reverse=False):
 
     transformed = {}
     for src, config in configs.items():
-        if src.is_symlink() and not src.resolve().is_relative_to(repository):
-            continue                           # Moving a link does not grant ownership of its target.
-        mapped = transform_config(config, src.parent)
+        mapped = transform_config(config, src)
         if mapped != config:
             transformed[src] = (json.dumps(mapped, indent=2) + "\n").encode("utf-8")
     runtime_edits = []
+    for src, after in transformed.items():
+        runtime_edits.append((relocated_path(src, pairs), originals[src], after, None))
     for src, dst in pairs:
-        if src in transformed:
-            runtime_edits.append((dst, originals[src], transformed[src], None))
-        elif src in originals and src.suffix != ".json" and not src.is_symlink():
+        if src in originals and src.suffix != ".json" and not src.is_symlink():
             text = originals[src].decode("utf-8", "surrogateescape")
             after = rebase_script(text, source, destination, shell_rebase).encode("utf-8", "surrogateescape")
             if after != originals[src]:
                 runtime_edits.append((dst, originals[src], after, None))
-    # Pre-existing destination transports must commit with moved configs and profiles.
-    for path in sorted(destination.glob("strata-*.json")):
-        before = path.read_bytes()
-        config = _model_config(before)
-        if config is None or (path.is_symlink() and not path.resolve().is_relative_to(repository)):
-            continue
-        mapped = transform_config(config, path.parent)
-        if mapped != config:
-            runtime_edits.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8"), None))
 
     def moved_path(path):
         return relocated_path(path, pairs)
@@ -702,7 +782,7 @@ def migrate_layout(repository, *, reverse=False):
     runtime_edits.sort(key=lambda edit: edit[3] is None)
     moved = []
     edited = []
-    with ExitStack() as snapshots, profiles.relocate_sources(config_moves, runtime_moves=pairs) as publish_profiles:
+    with ExitStack() as snapshots:
         temporary_roots = {}
         approval = repository / ".git/strata-engine-rollback.json"
         approval_backup = None
@@ -723,7 +803,7 @@ def migrate_layout(repository, *, reverse=False):
                         temporary_roots[anchor] = Path(snapshots.enter_context(
                             tempfile.TemporaryDirectory(prefix=".strata-links-", dir=anchor)))
                     backup = temporary_roots[anchor] / str(len(edited))
-                edited.append((entry, before, mode, backup))
+                edited.append((entry, before, mode, backup, entry.stat() if mode is None else None))
                 write_runtime(entry, after, mode, backup)
             publish_profiles()
             # A committed layout move retires old path identities; source rollback restores its snapshot.
@@ -740,9 +820,10 @@ def migrate_layout(repository, *, reverse=False):
 
             if approval_backup is not None and not approval.exists() and not approval.is_symlink():
                 restore(os.replace, approval_backup, approval)
-            for entry, before, mode, backup in reversed(edited):
+            for entry, before, mode, backup, info in reversed(edited):
                 if mode is None:
                     restore(write_runtime, entry, before, None)
+                    restore(lambda: os.utime(entry, ns=(info.st_atime_ns, info.st_mtime_ns)))
                 elif backup is not None and backup.is_symlink():
                     restore(os.replace, backup, entry)
             # Backups inside a moved filesystem must disappear before their parents move back.
@@ -756,23 +837,90 @@ def migrate_layout(repository, *, reverse=False):
     return moved
 
 
-def invalidate_cmake_metadata(repository):
-    """An old generator-only guard cannot consume relocated cache roots; keep all payloads."""
-    repository = Path(repository).resolve()
-    builds = {repository / name for name in (*TERMINAL_BUILDS, *ENGINE_BUILDS)}
-    for build in builds:
-        cache = build / "CMakeCache.txt"
+class CMakeMetadataCheckpoint:
+    """Hold original metadata by same-mount renames, even while its build parent moves."""
+
+    def __init__(self):
+        self.backups = []
+        self.accepted = False
+
+    def invalidate(self, repository):
+        repository = Path(repository).resolve()
+        for name in (*TERMINAL_BUILDS, *ENGINE_BUILDS):
+            build = repository / name
+            if not build.resolve().is_relative_to(repository):
+                continue                         # A managed link does not own external build data.
+            cache = build / "CMakeCache.txt"
+            try:
+                text = cache.read_text(encoding="utf-8", errors="surrogateescape")
+            except FileNotFoundError:
+                continue
+            entries = dict(re.findall(r"^(CMAKE_(?:CACHEFILE_DIR|HOME_DIRECTORY)):[^=]*=(.*)$", text, re.M))
+            home = entries.get("CMAKE_HOME_DIRECTORY")
+            incompatible = (entries.get("CMAKE_CACHEFILE_DIR")
+                            and Path(entries["CMAKE_CACHEFILE_DIR"]).resolve() != build.resolve())
+            if home:
+                source = Path(home).resolve()
+                incompatible = incompatible or source.is_relative_to(repository / "terminal") or source == repository / "engine" \
+                    or source.is_relative_to(repository / "engine" / "metal") or source.is_relative_to(repository / "engine" / "sycl")
+            if not incompatible:
+                continue
+            parent_fd = os.open(build, os.O_RDONLY)
+            try:
+                temporary = Path(tempfile.mkdtemp(prefix=".strata-cmake-", dir=build))
+                backup_fd = os.open(temporary, os.O_RDONLY)
+            except BaseException:
+                os.close(parent_fd)
+                raise
+            names = []
+            self.backups.append((parent_fd, backup_fd, temporary.name, names))
+            for entry in ("CMakeCache.txt", "CMakeFiles"):
+                try:
+                    os.rename(entry, entry, src_dir_fd=parent_fd, dst_dir_fd=backup_fd)
+                except FileNotFoundError:
+                    continue
+                names.append(entry)
+
+    def restore(self):
+        for parent_fd, backup_fd, temporary, names in reversed(self.backups):
+            for name in reversed(names[:]):
+                os.rename(name, name, src_dir_fd=backup_fd, dst_dir_fd=parent_fd)
+                names.remove(name)
+
+    def accept(self):
+        self.accepted = True
+
+    def close(self):
         try:
-            text = cache.read_text(encoding="utf-8", errors="surrogateescape")
-        except FileNotFoundError:
-            continue
-        entries = dict(re.findall(r"^(CMAKE_(?:CACHEFILE_DIR|HOME_DIRECTORY)):[^=]*=(.*)$", text, re.M))
-        home = entries.get("CMAKE_HOME_DIRECTORY")
-        incompatible = (entries.get("CMAKE_CACHEFILE_DIR") and Path(entries["CMAKE_CACHEFILE_DIR"]).resolve() != build)
-        if home:
-            source = Path(home).resolve()
-            incompatible = incompatible or source.is_relative_to(repository / "terminal") or source == repository / "engine" \
-                or source.is_relative_to(repository / "engine" / "metal") or source.is_relative_to(repository / "engine" / "sycl")
-        if incompatible:
-            cache.unlink()
-            shutil.rmtree(build / "CMakeFiles", ignore_errors=True)
+            if not self.accepted:
+                self.restore()
+            for parent_fd, backup_fd, temporary, names in self.backups:
+                for name in names[:]:
+                    info = os.stat(name, dir_fd=backup_fd, follow_symlinks=False)
+                    if stat.S_ISDIR(info.st_mode):
+                        shutil.rmtree(name, dir_fd=backup_fd)
+                    else:
+                        os.unlink(name, dir_fd=backup_fd)
+                    names.remove(name)
+                os.rmdir(temporary, dir_fd=parent_fd)
+        finally:
+            for parent_fd, backup_fd, temporary, names in self.backups:
+                os.close(backup_fd)
+                os.close(parent_fd)
+            self.backups.clear()
+
+
+@contextmanager
+def cmake_metadata_checkpoint():
+    checkpoint = CMakeMetadataCheckpoint()
+    try:
+        yield checkpoint
+    finally:
+        checkpoint.close()
+
+
+def invalidate_cmake_metadata(repository):
+    """Retire incompatible roots only for an already accepted flat layout."""
+    with cmake_metadata_checkpoint() as checkpoint:
+        checkpoint.invalidate(repository)
+        checkpoint.accept()

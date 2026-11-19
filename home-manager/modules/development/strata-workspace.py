@@ -242,7 +242,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         # Layout, profiles, accepted cache bytes and the request receipt settle together.
         with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,)) as restore_metadata, managed_state.engine_link_checkpoint(
                 root, reverse=reverse_layout, enabled=forward_layout or reverse_layout,
-                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link:
+                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link, managed_state.cmake_metadata_checkpoint() as cmake_metadata:
             reversed_layout = forwarded_layout = removed_patch = desired_applied = False
             try:
                 engine_link.stage()
@@ -265,12 +265,12 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
                 forwarded_layout = forward_layout
                 if not target_terminal:
-                    subprocess.run([sys.executable, str(Path(__file__).resolve()), "--finalize-layout", str(root)], check=True,
-                                   stdout=sys.stderr, pass_fds=(lock_fd, publication_lock.fileno(), *managed_state.namespace_fds()))
+                    cmake_metadata.invalidate(root)
                 for cached_revision, text in publications:
                     cache_source_patch(cache, cached_revision, text)
                 (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
                 publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
+                cmake_metadata.accept()
             except BaseException:
                 def restore(operation):
                     try:
@@ -295,6 +295,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 if reversed_layout:
                     restore(lambda: migrate_layout(state, root / "terminal", lock_fd,
                             publication_fd=publication_lock.fileno()))
+                restore(cmake_metadata.restore)
                 restore(restore_metadata)
                 restore(lambda: restore_engine_approvals(terminal_root(root), approval))
                 raise
@@ -1048,8 +1049,6 @@ if __name__ == "__main__":
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--migrate-layout":
             managed_state.migrate_layout(repository_root(Path(sys.argv[2]).resolve()), reverse="--reverse" in sys.argv[3:])
-        elif sys.argv[1] == "--finalize-layout":
-            managed_state.invalidate_cmake_metadata(Path(sys.argv[2]).resolve())
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))
         elif sys.argv[1] == "--launch-exec":

@@ -370,6 +370,22 @@ def _save_locked(name: str, proposed: dict, *, expected_revision: str,
     return load(name)
 
 
+def source_config_paths() -> set[Path]:
+    """Enumerate current and historical selections, preserving inventory error rows."""
+    sources = {Path(item["source_config"]) for item in list_profiles()
+               if isinstance(item.get("source_config"), str) and item["source_config"]}
+    references = _source_relocations()
+    sources.update(map(Path, references))
+    sources.update(map(Path, references.values()))
+    for path in (profile_dir() / ".history").glob("*/*.json"):
+        try:
+            historical = validate_profile(json.loads(path.read_bytes().decode("utf-8")))
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise ProfileError(f"cannot read profile history ({type(exc).__name__})", 5) from None
+        sources.add(Path(references.get(historical["source_config"], historical["source_config"])))
+    return sources
+
+
 @contextmanager
 def relocate_sources(moves: list[tuple[Path, Path]], *, runtime_moves=()):
     """Publish exact, composed source moves with profiles; keep historical bytes immutable.
@@ -386,22 +402,13 @@ def relocate_sources(moves: list[tuple[Path, Path]], *, runtime_moves=()):
         # Profiles store resolved paths, not the selected alias. Project only payloads
         # actually moving, including historical selections nested in runtime directories.
         items = list_profiles() if moves or runtime_moves else []
-        sources = {item["source_config"] for item in items}
-        sources.update(references)
-        sources.update(references.values())
+        sources = source_config_paths() if runtime_moves else set()
         if runtime_moves:
-            for path in (profile_dir() / ".history").glob("*/*.json"):
-                try:
-                    historical = validate_profile(json.loads(path.read_bytes().decode("utf-8")))
-                except (OSError, UnicodeError, ValueError) as exc:
-                    raise ProfileError(f"cannot read profile history ({type(exc).__name__})", 5) from None
-                sources.add(historical["source_config"])
             ordered = sorted(runtime_moves, key=lambda pair: -len(pair[0].parts))
-            for source in sources:
-                path = Path(source)
+            for path in sources:
                 for old, new in ordered:
                     if path.is_relative_to(old):
-                        replacements[source] = str(new / path.relative_to(old))
+                        replacements[str(path)] = str(new / path.relative_to(old))
                         break
         references = {a: replacements.get(b, b) for a, b in references.items()}
         references.update(replacements)

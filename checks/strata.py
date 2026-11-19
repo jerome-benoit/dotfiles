@@ -1922,22 +1922,49 @@ os.environ["STRATA_PROFILE_DIR"] = str(directory)
 profile = directory / "independent.json"
 profile.write_bytes(b"original profile")
 metadata = directory / ".source-relocations.json"
-metadata.write_bytes(b"original mapping")
+metadata.write_text(json.dumps({"schema_version": 1, "sources": {}}, indent=4) + "\n")
 config = Path.cwd() / "strata-checkpoint.json"
 config.write_bytes(b"original config")
 files = (profile, metadata, config)
 before = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mode) for p in files}
-native_lstat, native_link = Path.lstat, os.link
-def device_stat(path, *args, **kwargs):
-    result = list(native_lstat(path, *args, **kwargs))
+native_lstat, native_stat, native_link, native_open = Path.lstat, os.stat, os.link, os.open
+fd_paths = {}
+def effective_path(path, dir_fd=None):
+    path = Path(path)
+    return path if path.is_absolute() else (fd_paths[dir_fd] if dir_fd is not None else Path.cwd()) / path
+def opened(path, *args, **kwargs):
+    fd = native_open(path, *args, **kwargs)
+    fd_paths[fd] = effective_path(path, kwargs.get("dir_fd"))
+    return fd
+def on_device(info, path):
+    result = list(info)
     result[2] = 2 if path.is_relative_to(directory) else 1
-    return os.stat_result(result)
+    return os.stat_result(result, {name: getattr(info, name)
+        for name in ("st_atime_ns", "st_mtime_ns", "st_ctime_ns")})
+def device_lstat(path, *args, **kwargs):
+    return on_device(native_lstat(path, *args, **kwargs), effective_path(path))
+def device_stat(path, *args, **kwargs):
+    result = native_stat(path, *args, **kwargs)
+    return result if isinstance(path, int) or kwargs.get("dir_fd") is None else on_device(
+        result, effective_path(path, kwargs["dir_fd"]))
 def link(source, destination, *args, **kwargs):
-    source, destination = Path(source), Path(destination)
-    if source.is_relative_to(directory) != destination.is_relative_to(directory):
+    src = effective_path(source, kwargs.get("src_dir_fd"))
+    dst = effective_path(destination, kwargs.get("dst_dir_fd"))
+    if src.is_relative_to(directory) != dst.is_relative_to(directory):
         raise OSError(errno.EXDEV, "cross-device link")
     return native_link(source, destination, *args, **kwargs)
-with patch.object(Path, "lstat", device_stat), patch.object(os, "link", link):
+with patch.object(os, "open", opened), patch.object(Path, "lstat", device_lstat), \
+        patch.object(os, "stat", device_stat), patch.object(os, "link", link):
+    other_device = os.open(repository, os.O_RDONLY)
+    try:
+        try:
+            os.link(profile, "rejected-profile-link", dst_dir_fd=other_device)
+        except OSError as error:
+            assert error.errno == errno.EXDEV
+        else:
+            raise AssertionError("cross-device directory-relative link was accepted")
+    finally:
+        os.close(other_device)
     with state.layout_checkpoint(repository) as restore:
         replacement = directory / "replacement"
         replacement.write_bytes(b"replacement profile")
@@ -9597,6 +9624,426 @@ def canonical_profile_regression(managed_state, profiles, root):
     assert not list(root.rglob('.strata-links-*'))
 canonical_profile_regression(managed_state, profiles, setup.ROOT.parent)
 ''')
+
+    def test_profile_inventory_errors_do_not_block_valid_layout_migration_or_hide_selected_errors(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r"""
+import json, os, unittest
+from pathlib import Path
+import strata_managed_state as state
+from strata_control import profiles
+repository = Path.cwd().parent
+os.environ['STRATA_PROFILE_DIR'] = str(repository.parent / 'inventory profiles')
+config = repository / 'strata-inventory.json'
+valid = {'exe': '/bin/true', 'tokenizer': '/fixture/tokenizer', 'args': [], 'cwd': str(repository)}
+config.write_text(json.dumps(valid, indent=4) + '\n')
+profiles.create('valid', str(config))
+profiles.set_values('valid', ['port=9123'])
+directory = profiles.profile_dir()
+(directory / 'malformed.json').write_bytes(b'{')
+(directory / 'invalid.json').write_text(json.dumps({'schema_version': 1, 'id': 'invalid',
+    'source_config': str(config), 'overrides': {'port': 'not a port'}}))
+def snapshot(path):
+    info = path.stat()
+    return path.read_bytes(), info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns
+errors = {item['id']: item for item in profiles.list_profiles() if 'error' in item}
+assert set(errors) == {'malformed', 'invalid'}, errors
+unreadable = {directory / (name + '.json'): snapshot(directory / (name + '.json')) for name in errors}
+history = {path: snapshot(path) for path in directory.glob('.history/*/*.json')}
+for reverse in (False, True):
+    state.migrate_layout(repository, reverse=reverse)
+    destination = repository if reverse else repository / 'terminal'
+    selected, saved, revision = profiles.resolve('valid')
+    assert selected == destination / config.name and saved['overrides'] == {'port': 9123}
+    assert profiles.read_run_config(selected)['cwd'] == str(destination)
+    assert {item['id']: item for item in profiles.list_profiles() if 'error' in item} == errors
+    assert all(snapshot(path) == before for path, before in unreadable.items())
+    assert all(snapshot(path) == before for path, before in history.items())
+    for name, item in errors.items():
+        with unittest.TestCase().assertRaises(profiles.ProfileError) as caught:
+            profiles.resolve(name)
+        assert str(caught.exception) == item['error']
+# A valid saved profile still has to validate its requested source during publication.
+requested = repository / 'strata-requested-invalid.json'
+requested.write_text(json.dumps(valid))
+profiles.create('requested', str(requested))
+requested.write_text(json.dumps({**valid, 'args': 'not an argument array'}, indent=4) + '\n')
+paths = {config, requested, *directory.rglob('*.json')}
+before = {path: snapshot(path) for path in paths}
+with unittest.TestCase().assertRaisesRegex(RuntimeError, 'run config needs an args array of strings'):
+    state.migrate_layout(repository)
+assert all(snapshot(path) == original for path, original in before.items())
+assert set(directory.rglob('*.json')) == paths - {config, requested}
+assert profiles.resolve('valid')[0] == config and profiles.resolve('requested')[0] == requested
+with unittest.TestCase().assertRaisesRegex(profiles.ProfileError, 'run config needs an args array of strings'):
+    profiles.read_run_config(profiles.resolve('requested')[0])
+assert not (repository / 'terminal' / config.name).exists()
+assert not (repository / 'terminal' / requested.name).exists()
+assert not list(repository.rglob('.strata-layout-*'))
+assert not list(repository.rglob('.strata-links-*'))
+""")
+
+    def test_real_generic_relative_config_read_paths_follow_engine_roles_and_config_base_both_directions(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old, overlay=False)
+        self.env['STRATA_PROFILE_DIR'] = str(self.base / 'generic relative profiles')
+        external = self.base / 'external generic installation'
+        payloads = {'build-metal/selected-metal': b'inert selected metal payload',
+                    'models/model.gguf': b'native model payload', 'models/tokenizer/vocab.json': b'tokenizer payload',
+                    'models/control.gguf': b'control vector payload', 'packs/fixture/index.txt': b'pack payload',
+                    'mtp/draft/layer.txt': b'drafter payload'}
+        identities = {}
+        for base in (flat, external):
+            for name, data in payloads.items():
+                path = base / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                identities[str(path)] = (path.stat().st_dev, path.stat().st_ino)
+        literal = 'build-metal/selected-metal'
+        relative = {'backend': 'metal', 'exe': 'build-metal/selected-metal', 'tokenizer': 'models/tokenizer',
+                    'args': ['--native', 'models/model.gguf', '--pack', 'packs/fixture', '--mtp', 'mtp/draft',
+                             '--control-vector-scaled', 'models/control.gguf:0.5', '--mtp', '2', '--prompt', literal],
+                    'note': literal, 'log': literal}
+        configs = {'cwd': {**relative, 'cwd': str(flat)}, 'base': dict(relative)}
+        configs['external'] = {**relative, 'exe': str(external / relative['exe']),
+                               'tokenizer': str(external / relative['tokenizer']), 'cwd': str(external),
+                               'args': ['--native', str(external / 'models/model.gguf'), '--pack', str(external / 'packs/fixture'),
+                                        '--mtp', str(external / 'mtp/draft'), '--control-vector-scaled',
+                                        str(external / 'models/control.gguf') + ':0.5', '--mtp', '2', '--prompt', literal]}
+        for name, cfg in configs.items():
+            (flat / ('strata-generic-' + name + '.json')).write_text(json.dumps(cfg, indent=4) + '\n')
+        external_config = flat / 'strata-generic-external.json'
+        external_bytes = external_config.read_bytes()
+        self.run_source_script(flat, "from pathlib import Path\nfrom strata_control import profiles\n"
+            + "for name in ('cwd', 'base', 'external'):\n"
+            + "    profiles.create('generic-' + name, str(Path.cwd() / ('strata-generic-' + name + '.json')))\n")
+        def consume(runtime):
+            split = runtime != flat
+            expected = {}
+            for style in configs:
+                base = external if style == 'external' else runtime
+                binary = external / 'build-metal/selected-metal' if style == 'external' else (
+                    flat / 'engine/build-metal/selected-metal' if split else flat / 'build-metal/selected-metal')
+                original_base = external if style == 'external' else flat
+                paths = {'exe': binary, 'tokenizer': base / 'models/tokenizer/vocab.json',
+                         '--native': base / 'models/model.gguf', '--pack': base / 'packs/fixture/index.txt',
+                         '--mtp': base / 'mtp/draft/layer.txt', '--control-vector-scaled': base / 'models/control.gguf'}
+                original_names = {'exe': 'build-metal/selected-metal', 'tokenizer': 'models/tokenizer/vocab.json',
+                                  '--native': 'models/model.gguf', '--pack': 'packs/fixture/index.txt',
+                                  '--mtp': 'mtp/draft/layer.txt', '--control-vector-scaled': 'models/control.gguf'}
+                expected[style] = {key: (str(path), payloads[original_names[key]],
+                    identities[str(original_base / original_names[key])]) for key, path in paths.items()}
+            self.run_source_script(runtime, r"""
+import os
+from pathlib import Path
+from serve.runconfig import load
+from strata_control import doctor, profiles
+runtime = Path.cwd()
+os.chdir(runtime.parent.parent)
+expected = EXPECTED
+for style, paths in expected.items():
+    selected, saved, revision = profiles.resolve('generic-' + style)
+    assert selected == runtime / ('strata-generic-' + style + '.json'), selected
+    cfg = load(selected)
+    assert profiles.read_run_config(selected) == cfg
+    if style == 'cwd':
+        assert cfg['cwd'] == str(runtime)
+    elif style == 'base':
+        assert 'cwd' not in cfg
+    else:
+        assert cfg['cwd'] == EXTERNAL and selected.read_bytes() == EXTERNAL_BYTES
+    if style != 'external':
+        assert not Path(cfg['exe']).is_absolute() and not Path(cfg['tokenizer']).is_absolute()
+    assert cfg['args'][8:] == ['--mtp', '2', '--prompt', LITERAL]
+    assert cfg['note'] == cfg['log'] == LITERAL
+    for key, (expected_path, data, identity) in paths.items():
+        if key in ('exe', 'tokenizer'):
+            raw = cfg[key]
+        else:
+            raw = cfg['args'][cfg['args'].index(key) + 1]
+        if key == '--control-vector-scaled':
+            raw, scale = raw.rsplit(':', 1)
+            assert scale == '0.5'
+        location = doctor._location(raw, cfg, selected)
+        if key == 'tokenizer':
+            location /= 'vocab.json'
+        elif key == '--pack':
+            location /= 'index.txt'
+        elif key == '--mtp':
+            location /= 'layer.txt'
+        assert location.resolve() == Path(expected_path).resolve(), (style, key, raw, location, expected_path)
+        assert location.read_bytes() == data
+        assert (location.stat().st_dev, location.stat().st_ino) == identity
+""".replace('EXPECTED', repr(expected)).replace('EXTERNAL_BYTES', repr(external_bytes))
+                .replace('EXTERNAL', repr(str(external))).replace('LITERAL', repr(literal)))
+        consume(flat)
+        split = self.prepare_cross_pin(self.new, overlay=False)
+        self.assertEqual(split, flat / 'terminal')
+        consume(split)
+        self.assertFalse((split / 'build-metal/selected-metal').exists())
+        self.assertEqual(self.prepare_cross_pin(self.old, overlay=False), flat)
+        consume(flat)
+
+    def test_direct_nested_selected_and_historical_config_contents_rebase_without_alias_or_history_rewrite(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r"""
+import hashlib, json, os
+from pathlib import Path
+from serve.runconfig import load
+import strata_managed_state as state
+from strata_control import doctor, profiles
+repository = Path.cwd().parent
+os.environ['STRATA_PROFILE_DIR'] = str(repository.parent / 'nested canonical profiles')
+payloads = {'build-metal/selected-metal': b'inert canonical engine', 'models/model.gguf': b'canonical model',
+            'models/tokenizer/vocab.json': b'canonical tokenizer', 'packs/canonical/index.txt': b'canonical pack'}
+identities = {}
+for name, data in payloads.items():
+    path = repository / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    identities[name] = path.stat().st_dev, path.stat().st_ino
+config = {'exe': str(repository / 'build-metal/selected-metal'), 'cwd': str(repository),
+          'tokenizer': str(repository / 'models/tokenizer'),
+          'args': ['--native', str(repository / 'models/model.gguf'), '--pack', str(repository / 'packs/canonical')]}
+canonical = repository / 'models/config.json'
+historical = repository / 'models/custom JSON/previous selection.json'
+unselected = repository / 'models/unselected-config.json'
+historical.parent.mkdir()
+for path in (canonical, historical, unselected):
+    path.write_text(json.dumps(config, indent=4) + '\n')
+    path.chmod(0o640)
+assert not list(repository.glob('strata-*.json'))
+first, first_revision = profiles.create('direct', str(canonical))
+profiles.set_values('direct', ['port=9123'])
+_, historical_revision = profiles.create('history-only', str(historical))
+external = repository.parent / 'external canonical.json'
+external.write_text(json.dumps({'exe': '/bin/true', 'tokenizer': '/fixture/tokenizer', 'args': []}, indent=4) + '\n')
+def select_external():
+    proposed, revision = profiles.propose_source('history-only', str(external))
+    profiles.save('history-only', proposed, expected_revision=revision)
+select_external()
+def snapshot(path):
+    info = path.stat()
+    return path.read_bytes(), info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns
+directory = profiles.profile_dir()
+history_before = {path: snapshot(path) for path in directory.glob('.history/*/*.json')}
+external_before = snapshot(external)
+unselected_before = snapshot(unselected)
+config_identities = {path.relative_to(repository): (path.stat().st_dev, path.stat().st_ino, path.stat().st_mode)
+                     for path in (canonical, historical)}
+def consume(name, runtime):
+    selected, saved, revision = profiles.resolve(name)
+    expected = runtime / ('models/config.json' if name == 'direct' else 'models/custom JSON/previous selection.json')
+    assert selected == expected, (name, selected, expected)
+    cfg = load(selected)
+    assert profiles.read_run_config(selected) == cfg and cfg['cwd'] == str(runtime)
+    binary = repository / ('build-metal/selected-metal' if runtime == repository else 'engine/build-metal/selected-metal')
+    reads = {'exe': (binary, 'build-metal/selected-metal'),
+             'tokenizer': (runtime / 'models/tokenizer/vocab.json', 'models/tokenizer/vocab.json'),
+             '--native': (runtime / 'models/model.gguf', 'models/model.gguf'),
+             '--pack': (runtime / 'packs/canonical/index.txt', 'packs/canonical/index.txt')}
+    for key, (expected_path, original) in reads.items():
+        raw = cfg[key] if key in ('exe', 'tokenizer') else cfg['args'][cfg['args'].index(key) + 1]
+        assert Path(raw).is_absolute()
+        path = doctor._location(raw, cfg, selected)
+        if key == 'tokenizer':
+            path /= 'vocab.json'
+        elif key == '--pack':
+            path /= 'index.txt'
+        assert path == expected_path and path.read_bytes() == payloads[original], (key, path, expected_path)
+        assert (path.stat().st_dev, path.stat().st_ino) == identities[original]
+    relative = selected.relative_to(runtime)
+    assert (selected.stat().st_dev, selected.stat().st_ino, selected.stat().st_mode) == config_identities[relative]
+for reverse in (False, True):
+    state.migrate_layout(repository, reverse=reverse)
+    runtime = repository if reverse else repository / 'terminal'
+    consume('direct', runtime)
+    assert profiles.resolve('history-only')[0] == external and snapshot(external) == external_before
+    rolled, _, _ = profiles.rollback('history-only', historical_revision)
+    assert rolled['overrides'] == {}
+    consume('history-only', runtime)
+    select_external()
+    assert snapshot(runtime / 'models/unselected-config.json') == unselected_before
+    for path, before in history_before.items():
+        assert snapshot(path) == before
+        assert hashlib.sha256(path.read_bytes()).hexdigest()[:16] == path.stem
+    assert not list(runtime.glob('strata-*.json'))
+rolled, _, _ = profiles.rollback('direct', first_revision)
+assert rolled['source_config'] == str(canonical) and rolled['overrides'] == first['overrides']
+consume('direct', repository)
+# Outer source rollback must restore the exact canonical bytes, not a reserialized inverse.
+for path in (canonical, historical):
+    path.write_text(json.dumps(load(path), indent=4) + '\n')
+paths = {canonical, historical, external, unselected, *directory.rglob('*.json')}
+before = {path: snapshot(path) for path in paths}
+with state.layout_checkpoint(repository) as restore:
+    state.migrate_layout(repository)
+    consume('direct', repository / 'terminal')
+    state.migrate_layout(repository, reverse=True)
+    restore()
+    restore()
+assert all(snapshot(path) == original for path, original in before.items())
+assert set(directory.rglob('*.json')) == paths - {canonical, historical, external, unselected}
+assert profiles.resolve('direct')[0] == canonical and profiles.resolve('history-only')[0] == external
+assert not list(repository.rglob('.strata-layout-*'))
+assert not list(repository.rglob('.strata-links-*'))
+""")
+
+    def test_real_downgrade_publication_refusal_restores_cmake_metadata_and_retry_invalidates_only_incompatible(self):
+        self.make_cross_pin_sources()
+        state_directory = self.state
+        for failure in ('cache', 'request'):
+            with self.subTest(failure=failure):
+                self.state = state_directory / failure
+                self.env['STRATA_PROFILE_DIR'] = str(self.base / (failure + ' cmake profiles'))
+                flat = self.prepare_cross_pin(self.old)
+                split = self.prepare_cross_pin(self.new)
+                builds = {'build': split / 'build', 'build-metal': flat / 'engine/build-metal',
+                          'build-hip': split / 'build-hip'}
+                metadata = []
+                for name, build in builds.items():
+                    (build / 'CMakeFiles/nested').mkdir(parents=True)
+                    cache_root = flat / name if name == 'build-hip' else build
+                    source_root = flat if name == 'build-hip' else flat / 'engine'
+                    cache = build / 'CMakeCache.txt'
+                    cache.write_text('CMAKE_GENERATOR:INTERNAL=Ninja\n'
+                        + f'CMAKE_HOME_DIRECTORY:INTERNAL={source_root}\nCMAKE_CACHEFILE_DIR:INTERNAL={cache_root}\n'
+                        + 'STRATA_OPERATOR_FLAG:BOOL=ON\nSTRATA_OPERATOR_VALUE:STRING=keep my flags\n')
+                    cache.chmod(0o640)
+                    (build / 'CMakeFiles/nested/options.txt').write_bytes(b'inert configured options')
+                    (build / 'CMakeFiles/nested/options.txt').chmod(0o600)
+                    metadata += [cache, build / 'CMakeFiles', build / 'CMakeFiles/nested', build / 'CMakeFiles/nested/options.txt']
+                    (build / 'user-cache').write_bytes(b'unrelated build payload')
+                    if name != 'build-hip':
+                        link = build / 'CMakeFiles/nested/selected-path'
+                        link.symlink_to(flat / name / 'user-cache')
+                        metadata.append(link)
+                binary = builds['build-metal'] / 'selected-metal'
+                binary.write_bytes(b'inert engine retained outside CMake metadata')
+                model = split / 'models/cmake-model.gguf'
+                model.parent.mkdir()
+                model.write_bytes(b'retained model payload')
+                config = split / 'strata-cmake-transaction.json'
+                config.write_text(json.dumps({'exe': str(binary), 'cwd': str(split), 'tokenizer': str(model.parent),
+                                             'args': ['--native', str(model)]}, indent=4) + '\n')
+                config.chmod(0o640)
+                self.run_source_script(split, "from pathlib import Path\nfrom strata_control import profiles\n"
+                    + "profiles.create('cmake-transaction', str(Path.cwd() / 'strata-cmake-transaction.json'))\n"
+                    + "profiles.set_values('cmake-transaction', ['port=9123'])\n")
+                git_dir = flat / '.git'
+                cache = git_dir / 'strata-source-patches'
+                pending_receipt = cache / (self.new + '.sha256')
+                pending_receipt.unlink()
+                profiles = Path(self.env['STRATA_PROFILE_DIR'])
+                profile_paths = set(profiles.rglob('*.json'))
+                cache_paths = set(cache.iterdir())
+                source_bytes = {split / name: (split / name).read_bytes() for name in ('setup.py', 'strata.py', 'serve/runconfig.py')}
+                refs = {revision: subprocess.check_output(['git', '-C', str(flat), 'rev-parse',
+                        'refs/strata/revisions/' + revision], text=True).strip() for revision in (self.old, self.new)}
+                def snapshot(path):
+                    info = path.lstat()
+                    return (os.readlink(path) if path.is_symlink() else path.read_bytes() if path.is_file() else None,
+                            info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns)
+                paths = {*metadata, config, binary, model, *profile_paths, *cache_paths,
+                         git_dir / 'strata-source.patch', git_dir / 'strata-source-request.json',
+                         *(build / 'user-cache' for build in builds.values())}
+                before = {path: snapshot(path) for path in paths}
+                script = r"""
+import importlib.util, json, subprocess, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+root, failure = Path(sys.argv[2]).resolve() / 'source', sys.argv[7]
+publish, replace = module.publish_source_patch, Path.replace
+def finalized():
+    assert subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() == sys.argv[3]
+    assert not (root / 'terminal/setup.py').exists() and (root / 'setup.py').is_file()
+    assert (root / 'build-metal/selected-metal').read_bytes() == b'inert engine retained outside CMake metadata'
+    assert (root / 'models/cmake-model.gguf').read_bytes() == b'retained model payload'
+    assert json.loads((root / 'strata-cmake-transaction.json').read_text())['cwd'] == str(root)
+    for name in ('build', 'build-metal'):
+        assert not (root / name / 'CMakeCache.txt').exists(), name
+        assert not (root / name / 'CMakeFiles').exists(), name
+        assert (root / name / 'user-cache').read_bytes() == b'unrelated build payload'
+    assert 'STRATA_OPERATOR_FLAG:BOOL=ON' in (root / 'build-hip/CMakeCache.txt').read_text()
+    assert (root / 'build-hip/CMakeFiles/nested/options.txt').read_bytes() == b'inert configured options'
+def refuse_request(path, text):
+    if failure == 'request' and path.name == module.SOURCE_REQUEST:
+        finalized()
+        assert (root / '.git/strata-source-patches' / (sys.argv[6] + '.sha256')).is_file()
+        raise OSError('refused downgrade request publication')
+    return publish(path, text)
+def refuse_cache(path, target):
+    target = Path(target)
+    if failure == 'cache' and target.parent.name == 'strata-source-patches' and target.name == sys.argv[6] + '.sha256':
+        finalized()
+        raise OSError('refused downgrade cache publication')
+    return replace(path, target)
+module.publish_source_patch = refuse_request
+Path.replace = refuse_cache
+try:
+    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+except OSError as error:
+    assert str(error) == 'refused downgrade ' + failure + ' publication', error
+else:
+    raise AssertionError('downgrade publication fault did not fire')
+finally:
+    Path.replace = replace
+"""
+                result = subprocess.run([sys.executable, '-c', script, WORKSPACE, str(self.state), self.old,
+                                         str(self.repository), str(self.legacy_overlay), self.new, failure],
+                                        env=self.env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertNotIn('Cannot restore source transaction', result.stderr)
+                self.assertEqual(subprocess.check_output(['git', '-C', str(flat), 'rev-parse', 'HEAD'], text=True).strip(), self.new)
+                for path, original in before.items():
+                    self.assertEqual(snapshot(path), original, f'Refused downgrade changed metadata/payload: {path}')
+                self.assertEqual(set(profiles.rglob('*.json')), profile_paths)
+                self.assertEqual(set(cache.iterdir()), cache_paths)
+                self.assertFalse(pending_receipt.exists())
+                for path, data in source_bytes.items():
+                    self.assertEqual(path.read_bytes(), data)
+                for revision, value in refs.items():
+                    self.assertEqual(subprocess.check_output(['git', '-C', str(flat), 'rev-parse',
+                        'refs/strata/revisions/' + revision], text=True).strip(), value)
+                self.run_source_script(split, "from pathlib import Path\nfrom strata_control import doctor, profiles\n"
+                    + "selected, saved, revision = profiles.resolve('cmake-transaction')\n"
+                    + "assert selected == Path.cwd() / 'strata-cmake-transaction.json' and saved['overrides'] == {'port': 9123}\n"
+                    + "cfg = profiles.read_run_config(selected)\n"
+                    + "assert doctor._location(cfg['exe'], cfg, selected).read_bytes() == b'inert engine retained outside CMake metadata'\n")
+                self.assertEqual(self.prepare_cross_pin(self.old), flat)
+                compatible = builds['build-hip']
+                for original_path in metadata:
+                    name = next(name for name, build in builds.items() if original_path.is_relative_to(build))
+                    destination = flat / name / original_path.relative_to(builds[name])
+                    if name == 'build-hip':
+                        self.assertEqual(snapshot(destination), before[original_path])
+                    else:
+                        self.assertFalse(destination.exists(), destination)
+                retained = {flat / name / 'user-cache': before[build / 'user-cache'] for name, build in builds.items()}
+                retained[flat / 'build-metal/selected-metal'] = before[binary]
+                retained[flat / 'models/cmake-model.gguf'] = before[model]
+                for path, original in retained.items():
+                    self.assertEqual(snapshot(path), original)
+                self.assertEqual({path.name for path in (flat / 'build').iterdir()}, {'user-cache'})
+                self.assertEqual({path.name for path in (flat / 'build-metal').iterdir()}, {'user-cache', 'selected-metal'})
+                self.assertEqual({path.name for path in (flat / 'build-hip').iterdir()}, {'CMakeCache.txt', 'CMakeFiles', 'user-cache'})
+                self.assertTrue(pending_receipt.is_file())
+                for path in profile_paths:
+                    if '.history' in path.parts:
+                        self.assertEqual(snapshot(path), before[path])
+                surviving = {path: snapshot(path) for path in retained}
+                surviving.update({flat / 'build-hip' / path.relative_to(compatible): before[path]
+                                  for path in metadata if path.is_relative_to(compatible)})
+                self.assertEqual(self.prepare_cross_pin(self.old), flat)
+                for path, original in surviving.items():
+                    self.assertEqual(snapshot(path), original, f'Repeated accepted downgrade changed compatible state: {path}')
+                self.run_source_script(flat, "from pathlib import Path\nfrom strata_control import doctor, profiles\n"
+                    + "selected, saved, revision = profiles.resolve('cmake-transaction')\n"
+                    + "assert selected == Path.cwd() / 'strata-cmake-transaction.json' and saved['overrides'] == {'port': 9123}\n"
+                    + "cfg = profiles.read_run_config(selected)\nassert cfg['cwd'] == str(Path.cwd())\n"
+                    + "assert doctor._location(cfg['exe'], cfg, selected) == Path.cwd() / 'build-metal/selected-metal'\n")
 
     @unittest.skipUnless(sys.platform == "linux" and all(shutil.which(name) for name in ("unshare", "mount", "umount")),
                          "Isolated Linux mount namespace")
