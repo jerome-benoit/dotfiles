@@ -3,9 +3,9 @@
   "version": "0.10.5",
   "src": {
     "urlTemplate": "https://github.com/PrimeIntellect-ai/prime-agent/archive/refs/tags/v{version}.tar.gz",
-    "hash": "sha256-QiwRxohabwzWFUfQaX1IDpqakuWTwRhzdX54rrJfJ9M="
+    "hash": "sha256-sqKB6eIKVdlnHvy2IEMOpuxJQXr4gVnQgKpY3kSA3d8="
   },
-  "cargoHash": "sha256-lKwH4lybjdwIbfVJRjy3EN9aASMBxhRviaNZRKdIkVQ=",
+  "cargoHash": "sha256-ZkOUjwWpq8xq3CTxuVreNgelscvFTVydJHA4dip+g9E=",
   "bundledCatalogs": {
     "url": "https://github.com/PrimeIntellect-ai/prime-agent-catalog/archive/d4a099cf2aae7ea8c231298e93fd535756ef43c9.tar.gz",
     "hash": "sha256-dRDI9/Og95wM9MCYPcgoCP20P2kSKUnTwfMgxoPT5fg="
