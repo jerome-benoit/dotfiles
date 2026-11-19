@@ -12,13 +12,13 @@ pkgs.writeText "strata-source.patch" (
       # Capacity depends on role destinations, not the input GGUF filesystem.
       # Remove with equivalent split-destination accounting.
       ../../../patches/strata-destination-budgets.patch
-      # Reject invalid arguments before acquiring optional dependencies.
+      # Workaround: native argument checks follow optional dependency acquisition.
       # Remove when preflight and dispatch share upstream validation.
       ../../../patches/strata-cli-validation.patch
-      # Inspect container launcher paths on their actual host mount.
+      # Workaround: doctor cannot map SYCL launcher paths to their host mount.
       # Remove when doctor resolves both executable and argument paths.
       ../../../patches/strata-engine-inspection.patch
-      # The managed helper selects an executable beyond the manifest entrypoint.
+      # Workaround: upstream cannot verify the selected manifest executable.
       # Remove when upstream verifies that selected file and its execute bit.
       ../../../patches/strata-selected-executable.patch
     ]

@@ -8,7 +8,7 @@
     "sourceRevision": "9bf497d3e866ba57de9af7c6e56715208d34cdb7",
     "hashSourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
     "reuse": {
-      "inputs": "All 38 packages/services package.json files, all 21 dependency patches, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
+      "inputs": "All 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
       "inputCount": 64,
       "inputSha256": "9218b23dff649776ddac8b3594e9e79088cf9bc87701f3ed72c52ef5204a92a6",
       "inputHashMethod": "SHA-256 of sorted relative path bytes, NUL and the raw SHA-256 digest of each file.",

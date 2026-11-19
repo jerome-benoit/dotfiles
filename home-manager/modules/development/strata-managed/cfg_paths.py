@@ -1,21 +1,17 @@
-"""Stable managed path resolution, path codecs, and native component-version repair.
+"""Managed component-path repair and SYCL transport resolution.
 
-Setup writes absolute paths into the run config: ``cwd`` and ``--expert-profile`` into the Control bundle that ran it
-(``<components>/control/<version>/...``), the picture reader and library folders into an engine package
-(``<components>/engine/<version>-<platform>-<backend>/...``).  An update puts the new version
-beside the old one and removes the versions older than the one before, so the second update after a model was set up deleted the folders its config
-names: the model showed as "not installed" and a start failed (#4891; "Qwen breaks each time Strata is updated").
+Component repair replaces paths in removed Control/engine version folders only
+when the corresponding file exists in the current version; missing replacements
+are reported rather than guessed (#4891). Existing version paths remain intact.
 
-One resolver, used by both sides:
+Managed SYCL transports are normalized separately, even when their native wrapper
+still exists. Launch coordinates use config cwd, otherwise the supplied file base.
+Independent transports and relative launchers without a known origin remain intact.
 
-* ``resolve_config(cfg, base=...)`` (pure; ``profiles.read_run_config`` supplies the config directory, so the doctor, the model list, the launch plan and the runtime host see the
-  current folders without a file being written);
-* ``repair(configs)`` (runtime.start calls it for the profile being started and every saved profile): the same, written once into the file, one plain
-  line for each file it changed.
-
-Only paths in Strata's own folders are touched (``components/control``, ``components/engine``), and only when the version folder they
-name is GONE; a path the person typed themselves, a model or pack folder, or a version folder that still exists is left exactly as it is.  A path whose
-file is nowhere in the current version either is not guessed: ``unresolved`` names it.
+resolve_config is read-only. Profile readers supply the config directory so
+diagnostics, model lists, launch plans and runtime hosts see the same paths.
+repair persists the result for the selected and other saved profiles before start,
+reporting each changed file and any unresolved component paths.
 """
 from __future__ import annotations
 

@@ -2,7 +2,7 @@
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
 # intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open includes flat-root reuse, not equivalent split-layout coverage.
-# issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events. No new upstream ticket claimed.
+# issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events.
 # removal: remove only when setup, forecast, progress, models explain, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
 diff --git a/terminal/setup.py b/terminal/setup.py
 --- a/terminal/setup.py
