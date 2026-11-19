@@ -15,6 +15,7 @@ let
   antigravitySupported = hostname != hosts.rigel;
   crushSupported = hostname != hosts.faust && hostname != hosts.rigel;
   isMorphee = hostname == hosts.morphee;
+  isFaust = hostname == hosts.faust;
   isNemesis = hostname == hosts.nemesis;
   isZeus = hostname == hosts.zeus;
 
@@ -84,7 +85,7 @@ in
       lazygit.enable = profileModules.development.lazygit;
       ollama = {
         enable = profileModules.development.ollama.enable;
-        enableService = isMorphee && profileModules.development.ollama.enableService;
+        enableService = (isMorphee || isFaust) && profileModules.development.ollama.enableService;
       };
       omp.enable = bunSupported && profileModules.development.omp;
       opencode = {

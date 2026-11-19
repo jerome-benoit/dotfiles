@@ -100,6 +100,10 @@ def check_selected_sources(root, env):
         f"import pathlib\npathlib.Path({str(project_marker)!r}).touch()\n"
         "async def run(): return 'project-scoped Python code executed'\n"
     )
+    # Bundled skills load first: a same-named user skill is selected only when
+    # the bundled one is disabled. Drop this line if the fixture is renamed or
+    # the collision policy inverts.
+    (root / "agent/settings.json").write_text(json.dumps({"skills": ["-edit"]}))
     result_file = root / "selected-source.json"
     code = (
         "import json, pathlib\n"
