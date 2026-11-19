@@ -45,9 +45,11 @@ in
         Python environment, engines, build caches and interpreter GC root.
         Git refs and receipts stay at source/.git; runtime files live in source/terminal.
         Runtime layout changes use reversible renames without replacing existing destinations.
+        Runtime links retain their targets; unrelated JSON and external engine transports remain user-owned.
         Offline source rollback reuses the original hash-addressed published source delta when available.
         Pins without a cached delta run natively; invalid cached receipts or payloads
         are refused before runtime migration.
+        Repeated commands reuse the accepted overlay or native fallback for the same request.
         The launcher keeps its source patch visible and refuses conflicting edits.
 
         Managed setup, updates and model acquisition serialize workspace mutations.

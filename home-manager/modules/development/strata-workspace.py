@@ -32,6 +32,7 @@ SOURCE_REFRESH_REVISION = "strata-source-refresh-revision"
 ENGINE_ROLLBACK = "strata-engine-rollback.json"
 ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
 SOURCE_PATCH = "strata-source.patch"
+SOURCE_REQUEST = "strata-source-request.json"
 TERMINAL_CLI = "strata.py"
 
 
@@ -123,6 +124,18 @@ def patch_revision_check(root, revision, text):
                               stderr=subprocess.DEVNULL).returncode == 0
 
 
+def source_request(revision, requested, accepted):
+    """Bind the negotiated overlay to its request, not the patch filename."""
+    def digest(text):
+        return hashlib.sha256(text.encode()).hexdigest() if text is not None else None
+    return {"revision": revision, "requested": digest(requested), "accepted": digest(accepted)}
+
+
+def accepted_source_request(root, revision, requested, accepted):
+    receipt = root / ".git" / SOURCE_REQUEST
+    return receipt.is_file() and json.loads(receipt.read_text()) == source_request(revision, requested, accepted)
+
+
 def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
     source = state / "source"
     with source_publication_lock(state):
@@ -162,14 +175,19 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         ledger = root / ".git" / SOURCE_PATCH
         previous = ledger.read_bytes().decode("utf-8") if ledger.exists() else None
         desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
+        requested = desired
+        request_receipt = root / ".git" / SOURCE_REQUEST
+        old_request = request_receipt.read_text() if request_receipt.exists() else None
         applied = previous is not None and patch_check(root, previous, reverse=True)
         if previous is not None and not applied and not patch_check(root, previous):
             raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
         cache = root / ".git" / "strata-source-patches"
         if applied:
             cache_source_patch(cache, current, previous)
-        if previous == desired and current == revision and (previous is None or applied):
+        if current == revision and (previous is None or applied) and (
+                previous == desired or accepted_source_request(root, revision, requested, previous)):
             migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+            publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
             return root
         target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
         if desired is not None and not patch_revision_check(root, revision, desired):
@@ -204,8 +222,16 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     apply_source_patch(root, desired)
                     desired_applied = True
                 migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+                if not target_terminal:
+                    subprocess.run([sys.executable, str(Path(__file__).resolve()), "--finalize-layout", str(root)], check=True,
+                                   stdout=sys.stderr, pass_fds=(lock_fd, publication_lock.fileno()))
+                publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
             except BaseException:
                 try:
+                    if old_request is None:
+                        request_receipt.unlink(missing_ok=True)
+                    else:
+                        publish_source_patch(request_receipt, old_request)
                     if desired_applied:
                         apply_source_patch(root, desired, reverse=True)
                     ledger.unlink(missing_ok=True)
@@ -223,9 +249,6 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
                     print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
                 raise
-        if not target_terminal:
-            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--finalize-layout", str(root)], check=True,
-                           stdout=sys.stderr, pass_fds=(lock_fd, publication_lock.fileno()))
         (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
         if desired is not None:
             cache_source_patch(cache, revision, desired)
@@ -808,6 +831,8 @@ def source_exec(context, args):
     """Apply managed policy after setup's real parser, before its filesystem or acquisition work."""
     state = Path(context["state"])
     root = terminal_root((state / "source").resolve())
+    if not (repository_root(root) / ".git" / SOURCE_PATCH).is_file():
+        return native_setup(root, args)
     managed_state.enable_source(root)
     revision = context["revision"]
     lock_fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
@@ -897,16 +922,14 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
             desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
             if (head.returncode == 0 and head.stdout.strip() == revision
                     and (previous is None or patch_check(source, previous, reverse=True))):
-                if desired is not None and desired != previous and not patch_revision_check(source, revision, desired):
-                    desired = cached_source_patch(source / ".git/strata-source-patches", revision)
-                prepared = previous == desired
+                prepared = (previous == desired or accepted_source_request(source, revision, desired, previous))
             else:
                 prepared = False
             if prepared:
                 python = Path(sys.executable) if args[0] == "launch" else runtime_python(terminal_root(source))
                 if not os.access(python, os.X_OK):
                     python = Path(sys.executable)
-                native = terminal_root(source) == source or desired is None
+                native = terminal_root(source) == source or previous is None
                 probe = subprocess.run(
                     [str(python), str(Path(__file__).resolve()),
                      "--native-observer-probe" if native else "--observer-probe", str(terminal_root(source)),
@@ -932,8 +955,10 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps(context)
         os.set_inheritable(lock.fileno(), True)
-        if root == repository or source_patch is None:
+        if root == repository or not (repository / ".git" / SOURCE_PATCH).is_file():
             # Execute this pin's native CLI, not newer parser/setup hooks that may not exist.
+            if managed_setup:
+                return native_setup(root, args)
             python = runtime_python(root)
             if not os.access(python, os.X_OK):
                 python = Path(sys.executable)

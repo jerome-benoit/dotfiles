@@ -225,13 +225,26 @@ def sycl_config(config, source, destination, repository, reverse, rebase):
     return dict(config, exe=str(DIRECTORY / "strata-sycl.sh"), args=args, env=environment)
 
 
-def normalize_sycl_config(config, repository):
-    repository = Path(repository).resolve()
+def _model_config(data):
+    try:
+        config = json.loads(data.decode("utf-8-sig"))
+    except (UnicodeError, ValueError):
+        return None                            # Native setup skips unselected user JSON.
+    return config if isinstance(config, dict) and config.get("exe") and isinstance(config.get("args"), list) else None
+
+
+def _managed_sycl_config(config, repository):
     wrapper = Path(str(config.get("exe", "")))
     if wrapper.name != "strata-sycl.sh":
-        return config
+        return False
     previous_here = (config.get("env") or {}).get("STRATA_SYCL_HERE")
-    if not wrapper.resolve().is_relative_to(repository) and (not previous_here or Path(previous_here) not in (repository, repository / "engine")):
+    return (wrapper.resolve().is_relative_to(repository)
+            or bool(previous_here and Path(previous_here) in (repository, repository / "engine")))
+
+
+def normalize_sycl_config(config, repository):
+    repository = Path(repository).resolve()
+    if not _managed_sycl_config(config, repository):
         return config                          # An independent installation retains its own transport.
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     return sycl_config(config, runtime, runtime, repository, False, lambda value: value)
@@ -243,11 +256,8 @@ def normalize_sycl_configs(repository):
     changes = []
     for path in sorted(runtime.glob("strata-*.json")):
         before = path.read_bytes()
-        try:
-            config = json.loads(before.decode("utf-8-sig"))
-        except (UnicodeError, ValueError):
-            continue                           # Native dispatch owns malformed/unselected config errors.
-        if not isinstance(config, dict):
+        config = _model_config(before)
+        if config is None or (path.is_symlink() and not path.resolve().is_relative_to(repository)):
             continue
         mapped = normalize_sycl_config(config, repository)
         if mapped != config:
@@ -405,7 +415,8 @@ def migrate_layout(repository, *, reverse=False):
                            + ", ".join(map(str, conflicts)))
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
-    configs = {src: json.loads(data.decode("utf-8-sig")) for src, data in originals.items() if src.suffix == ".json"}
+    configs = {src: config for src, data in originals.items() if src.suffix == ".json"
+               and (config := _model_config(data)) is not None}
     config_moves = [(src, dst) for src, dst in pairs if src in configs]
     engine_paths = [((repository / "engine" / name, repository / name) if reverse
                      else (repository / name, repository / "engine" / name)) for name in ("metal", "sycl")]
@@ -415,27 +426,39 @@ def migrate_layout(repository, *, reverse=False):
         swaps.add((engine, destination / "engine"))
     rebase = rebaser(swaps)
     shell_rebase = shell_rebaser(swaps, rebase)
+    actual_rebase = rebaser(pairs) if pairs else lambda value: value
 
-    def walk(value):
-        if isinstance(value, dict):
-            out = {key: walk(item) for key, item in value.items()}
-            if value.get("cwd") == str(source):
-                out["cwd"] = str(destination)
-            return out
-        return rebase(value) if isinstance(value, str) else [walk(item) for item in value] if isinstance(value, list) else value
+    def transform_config(config):
+        managed = _managed_sycl_config(config, repository)
+        independent = not managed and Path(str(config.get("exe", ""))).name == "strata-sycl.sh"
+        selected_rebase = actual_rebase if independent else rebase
+
+        def walk(value):
+            if isinstance(value, dict):
+                out = {key: walk(item) for key, item in value.items()}
+                if not independent and value.get("cwd") == str(source):
+                    out["cwd"] = str(destination)
+                return out
+            return selected_rebase(value) if isinstance(value, str) else [walk(item) for item in value] if isinstance(value, list) else value
+
+        rebased = walk(config)
+        if managed:
+            mapped = sycl_config(config, source, destination, repository, reverse, rebase)
+            rebased.update({key: mapped[key] for key in ("exe", "args", "env")})
+        return rebased
 
     transformed = {}
     for src, config in configs.items():
-        mapped = sycl_config(config, source, destination, repository, reverse, rebase)
-        rebased = walk(config)
-        if mapped is not config:
-            rebased.update({key: mapped[key] for key in ("exe", "args", "env")})
-        transformed[src] = (json.dumps(rebased, indent=2) + "\n").encode("utf-8")
+        if src.is_symlink() and not src.resolve().is_relative_to(repository):
+            continue                           # Moving a link does not grant ownership of its target.
+        mapped = transform_config(config)
+        if mapped != config:
+            transformed[src] = (json.dumps(mapped, indent=2) + "\n").encode("utf-8")
     runtime_edits = []
     for src, dst in pairs:
         if src in transformed:
             runtime_edits.append((dst, originals[src], transformed[src], None))
-        elif src in originals:
+        elif src in originals and src.suffix != ".json" and not src.is_symlink():
             text = originals[src].decode("utf-8", "surrogateescape")
             after = rebase_script(text, source, destination, shell_rebase).encode("utf-8", "surrogateescape")
             if after != originals[src]:
@@ -443,16 +466,10 @@ def migrate_layout(repository, *, reverse=False):
     # Pre-existing destination transports must commit with moved configs and profiles.
     for path in sorted(destination.glob("strata-*.json")):
         before = path.read_bytes()
-        try:
-            config = json.loads(before.decode("utf-8-sig"))
-        except (UnicodeError, ValueError):
+        config = _model_config(before)
+        if config is None or (path.is_symlink() and not path.resolve().is_relative_to(repository)):
             continue
-        if not isinstance(config, dict):
-            continue
-        normalized = normalize_sycl_config(config, repository)
-        if normalized is config:
-            continue                           # Leave independent installations alone.
-        mapped = sycl_config(normalized, source, destination, repository, reverse, rebase)
+        mapped = transform_config(config)
         if mapped != config:
             runtime_edits.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8"), None))
 
@@ -496,6 +513,8 @@ def migrate_layout(repository, *, reverse=False):
                 after = shell_rebase(before.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
                 if after != before:
                     runtime_edits.append((relocated, before, after, None))
+    # Retarget file links before any writes through them; rollback restores bytes before links.
+    runtime_edits.sort(key=lambda edit: edit[3] is None)
     moved = []
     edited = []
     with ExitStack() as snapshots, profiles.relocate_sources(config_moves) as publish_profiles:
@@ -526,18 +545,29 @@ def migrate_layout(repository, *, reverse=False):
             if moved:
                 approval.unlink(missing_ok=True)
         except BaseException as error:
+            rollback_errors = []
+
+            def restore(action, *args):
+                try:
+                    action(*args)
+                except BaseException as failure:
+                    rollback_errors.append(failure)
+
             if approval_backup is not None and not approval.exists() and not approval.is_symlink():
-                os.replace(approval_backup, approval)
+                restore(os.replace, approval_backup, approval)
             for entry, before, mode, backup in reversed(edited):
                 if mode is None:
-                    write_runtime(entry, before, None)
-                elif backup.is_symlink():
-                    os.replace(backup, entry)
+                    restore(write_runtime, entry, before, None)
+                elif backup is not None and backup.is_symlink():
+                    restore(os.replace, backup, entry)
             # Backups inside a moved filesystem must disappear before their parents move back.
-            snapshots.close()
+            restore(snapshots.close)
             for src, dst in reversed(moved):
-                os.rename(dst, src)
-            raise RuntimeError(f"Managed runtime path migration failed: {error}") from error
+                restore(os.rename, dst, src)
+            detail = f"Managed runtime path migration failed: {error}"
+            if rollback_errors:
+                detail += "; runtime rollback errors: " + "; ".join(map(str, rollback_errors))
+            raise RuntimeError(detail) from error
     return moved
 
 

@@ -1275,6 +1275,165 @@ with patch.object(setup.os, "stat", side_effect=stat):
         self.assertEqual(subprocess.check_output(["git", "-C", str(root.parent), "rev-parse", "HEAD"],
                                                 text=True).strip(), self.old)
 
+    def test_linked_config_preserves_external_bytes_and_restores_links_after_write_failure(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os
+from pathlib import Path
+import setup
+import strata_managed_state as state
+from strata_control import profiles
+repository = setup.ROOT.parent
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
+external = repository.parent / "shared-config/config.json"
+external.parent.mkdir()
+external.write_text(json.dumps({"exe": "/external/engine", "args": [], "tokenizer": "/fixture/tokenizer", "note": str(repository / "models")}, indent=4))
+external_before = (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns)
+linked = repository / "strata-linked.json"
+linked.symlink_to(os.path.relpath(external, repository))
+regular = repository / "strata-owned.json"
+regular.write_text(json.dumps({"exe": str(repository / "python/bin/python3"), "args": [], "cwd": str(repository), "tokenizer": "/fixture/tokenizer"}))
+profiles.create("linked-config", str(linked))
+profiles.create("owned-config-first", str(regular))
+profiles.create("owned-config-second", str(regular))
+for reverse in (False, True):
+    source, destination = (setup.ROOT, repository) if reverse else (repository, setup.ROOT)
+    source_link = source / linked.name
+    before_link = (os.readlink(source_link), source_link.lstat().st_ino)
+    before_regular = ((source / regular.name).read_bytes(), (source / regular.name).stat().st_ino)
+    real_write = state.write_runtime
+    def refuse_content(entry, payload, mode, backup=None):
+        if entry.name == regular.name and mode is None:
+            raise OSError("content write and restoration refused")
+        return real_write(entry, payload, mode, backup)
+    state.write_runtime = refuse_content
+    try:
+        try:
+            state.migrate_layout(repository, reverse=reverse)
+        except RuntimeError as error:
+            assert "content write and restoration refused" in str(error)
+            assert "rollback errors" in str(error)
+        else:
+            raise AssertionError("content failure committed layout")
+    finally:
+        state.write_runtime = real_write
+    assert (os.readlink(source_link), source_link.lstat().st_ino) == before_link
+    assert source_link.resolve() == external
+    assert ((source / regular.name).read_bytes(), (source / regular.name).stat().st_ino) == before_regular
+    assert not (destination / linked.name).is_symlink()
+    assert not (destination / regular.name).exists()
+    assert profiles.resolve("linked-config")[0] == external
+    assert profiles.resolve("owned-config-first")[0] == source / regular.name
+    assert (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns) == external_before
+    profile_bytes = {path: path.read_bytes() for path in profiles.profile_dir().rglob("*.json")}
+    real_save = profiles._save_locked
+    saves = []
+    def refuse_second(name, proposed, **kwargs):
+        saves.append(name)
+        if len(saves) == 2:
+            raise OSError("linked-config profile publication refused")
+        return real_save(name, proposed, **kwargs)
+    profiles._save_locked = refuse_second
+    try:
+        try:
+            state.migrate_layout(repository, reverse=reverse)
+        except RuntimeError as error:
+            assert "linked-config profile publication refused" in str(error), error
+        else:
+            raise AssertionError("profile failure committed linked config")
+    finally:
+        profiles._save_locked = real_save
+    assert len(saves) == 2, saves
+    assert (os.readlink(source_link), source_link.lstat().st_ino) == before_link
+    assert ((source / regular.name).read_bytes(), (source / regular.name).stat().st_ino) == before_regular
+    assert not (destination / linked.name).is_symlink()
+    assert not (destination / regular.name).exists()
+    assert {path: path.read_bytes() for path in profiles.profile_dir().rglob("*.json")} == profile_bytes
+    assert (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns) == external_before
+    state.migrate_layout(repository, reverse=reverse)
+    moved_link = destination / linked.name
+    assert moved_link.resolve() == external
+    assert profiles.resolve("linked-config")[0] == external
+    assert profiles.resolve("owned-config-first")[0] == destination / regular.name
+    assert profiles.read_run_config(moved_link)["exe"] == "/external/engine"
+    assert (destination / regular.name).stat().st_ino == before_regular[1]
+    assert (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns) == external_before
+''')
+
+    def test_nonmodel_json_migrates_without_codec_or_script_rewrites(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json
+import setup
+import strata_managed_state as state
+repository = setup.ROOT.parent
+payloads = {
+    "strata-notes.json": json.dumps(["user note", str(repository / "models")], indent=4).encode(),
+    "strata-truncated.json": b'{"user note": "cd ' + str(repository).encode() + b'\n',
+    "strata-object-notes.json": json.dumps({"notes": str(repository / "models"), "exe": "not a model without args"}, indent=4).encode(),
+    "strata-empty-exe.json": json.dumps({"exe": "", "args": [], "notes": str(repository / "models")}, indent=4).encode(),
+    "strata-string-args.json": json.dumps({"exe": str(repository / "engine/strata"), "args": "user note"}, indent=4).encode(),
+}
+identities = {}
+for name, payload in payloads.items():
+    path = repository / name
+    path.write_bytes(payload)
+    identities[name] = (path.stat().st_ino, path.stat().st_mtime_ns)
+for reverse in (False, True):
+    state.migrate_layout(repository, reverse=reverse)
+    destination = repository if reverse else setup.ROOT
+    for name, payload in payloads.items():
+        path = destination / name
+        assert path.read_bytes() == payload
+        assert (path.stat().st_ino, path.stat().st_mtime_ns) == identities[name]
+        assert not setup.model_config(path)
+''')
+
+    def test_independent_sycl_transport_only_rebases_actual_moved_references(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json
+import setup
+import strata_managed_state as state
+from strata_control.cfg_paths import engine_argument_path
+repository = setup.ROOT.parent
+external = repository.parent / "independent"
+(external / "models").mkdir(parents=True)
+weights = external / "models/weights.gguf"
+weights.write_bytes(b"independent weights")
+(repository / "packs").mkdir()
+(repository / "packs/index.txt").write_bytes(b"managed pack")
+config = {
+    "exe": str(external / "sycl/serve/strata-sycl.sh"),
+    "cwd": str(external),
+    "args": ["--native", "/work/independent/models/weights.gguf", "--pack", str(repository / "packs"), "--untouched", str(repository / "python/not-moved")],
+    "env": {"STRATA_SYCL_ROOT": str(repository.parent), "STRATA_SYCL_CWD": "/work/independent", "STRATA_SYCL_BIN": "build-sycl-aot/strata", "STRATA_SYCL_HERE": str(external)},
+    "tokenizer": "/fixture/tokenizer",
+}
+assert state.normalize_sycl_config(config, repository) is config
+source_path = repository / "strata-independent.json"
+source_path.write_text(json.dumps(config, indent=4))
+# A second config already at destination must use the identical ownership policy.
+destination_path = setup.ROOT / "strata-independent-existing.json"
+destination_path.write_text(json.dumps(config, indent=4))
+for reverse in (False, True):
+    if reverse:
+        # Avoid a genuine source/destination filename conflict on reverse.
+        destination_path = setup.ROOT / destination_path.name
+    state.migrate_layout(repository, reverse=reverse)
+    destination = repository if reverse else setup.ROOT
+    for name in (source_path.name, destination_path.name):
+        changed = json.loads((destination / name).read_bytes())
+        assert changed["exe"] == config["exe"]
+        assert changed["cwd"] == config["cwd"]
+        assert changed["env"] == config["env"]
+        assert changed["args"][1] == config["args"][1]
+        assert changed["args"][3] == str(destination / "packs")
+        assert changed["args"][5] == config["args"][5]
+        assert engine_argument_path(changed["args"][1], changed["exe"], changed).read_bytes() == b"independent weights"
+        assert (engine_argument_path(changed["args"][3], changed["exe"], changed) / "index.txt").read_bytes() == b"managed pack"
+''')
+
     def test_native_managed_runtime_layout_renames_and_inverse_preserve_payload_identity(self):
         self.state = self.base / "native runtime's workspace with spaces"
         root = self.prepare(self.old)
@@ -2234,11 +2393,14 @@ assert {name: os.readlink(repository / name) for name in link_names} == original
         original = source.read_bytes()
         source.write_bytes(original + b"\n# user-owned checkout conflict\n")
         ledger = (flat / ".git/strata-source.patch").read_bytes()
+        request_receipt = flat / ".git/strata-source-request.json"
+        accepted_request = request_receipt.read_bytes()
         refused = subprocess.run(self.command(self.old), env=self.env, capture_output=True, text=True, timeout=60)
         self.assertNotEqual(refused.returncode, 0)
         self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"], text=True).strip(), self.new)
         self.assertEqual(source.read_bytes(), original + b"\n# user-owned checkout conflict\n")
         self.assertEqual((flat / ".git/strata-source.patch").read_bytes(), ledger)
+        self.assertEqual(request_receipt.read_bytes(), accepted_request)
         self.assertEqual(json.loads(config.read_text()), expected)
         accepted = module.engine_rollbacks(split, self.new)
         self.assertIn("engine", accepted, "failed checkout revoked the operator's accepted engine")
@@ -2252,6 +2414,69 @@ assert {name: os.readlink(repository / name) for name in link_names} == original
         source.write_bytes(original)
         self.prepare_cross_pin(self.old)
         self.assertFalse(approval.exists(), "accepted source transition retained an approval for the old namespace")
+
+    def test_native_split_fallback_repeats_active_passive_and_setup_handoffs(self):
+        requested = self.base / "requested.patch"
+        requested.write_bytes(Path(SOURCE_PATCH).read_bytes() +
+            b"diff --git a/terminal/code.py b/terminal/code.py\n"
+            b"--- a/terminal/code.py\n+++ b/terminal/code.py\n@@ -1 +1 @@\n-old source\n+managed source\n")
+        self.env["TEST_SOURCE_PATCH"] = str(requested)
+        self.prepare(self.old)
+        root = self.prepare(self.new)
+        ledger = root.parent / ".git/strata-source.patch"
+        self.assertFalse(ledger.exists())
+        receipt = root.parent / ".git/strata-source-request.json"
+        accepted = receipt.read_bytes()
+        source = (root / "setup.py").read_bytes()
+        for _ in range(2):
+            self.prepare(self.new)
+            for args in (["profile", "list"], ["connection", "list"]):
+                result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            context = {"state": str(self.state), "revision": self.new, "remote": str(self.repository),
+                       "source_patch": str(requested), "data_directory": None, "models_directory": None}
+            module = self.workspace_module()
+            with module.workspace_lock(self.state) as (_, lock):
+                for entry in ("--managed-setup", "--source-exec"):
+                    result = subprocess.run([sys.executable, WORKSPACE, entry, "--help"],
+                        env=dict(self.env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                 STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                        pass_fds=(lock.fileno(),), capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("--setup", result.stdout)
+            self.assertEqual(receipt.read_bytes(), accepted)
+            self.assertEqual((root / "setup.py").read_bytes(), source)
+            self.assertFalse(ledger.exists())
+            self.assertFalse((root / ".venv").exists())
+        replacement = self.base / "new-invalid-request.patch"
+        replacement.write_bytes(requested.read_bytes() + b"\n# different request\n")
+        refused = subprocess.run(self.command(self.new), env=dict(self.env, TEST_SOURCE_PATCH=str(replacement)),
+                                 capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(receipt.read_bytes(), accepted)
+        self.assertEqual((root / "setup.py").read_bytes(), source)
+
+    def test_cached_historical_fallback_repeats_active_and_passive_offline(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        historical = (flat / ".git/strata-source.patch").read_bytes()
+        self.prepare_cross_pin(self.new)
+        self.repository.rename(self.base / "offline-remote")
+        self.env["TEST_SOURCE_PATCH"] = SOURCE_PATCH
+        self.prepare(self.old)
+        root = flat
+        receipt = flat / ".git/strata-source-request.json"
+        accepted = receipt.read_bytes()
+        for _ in range(2):
+            self.prepare(self.old)
+            for args in (["profile", "list"], ["connection", "list"]):
+                result = subprocess.run(self.command(self.old) + ["run", *args], env=self.env,
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((flat / ".git/strata-source.patch").read_bytes(), historical)
+            self.assertEqual(receipt.read_bytes(), accepted)
+            self.assertFalse((root / ".venv").exists())
 
     def test_incompatible_same_pin_delta_refuses_before_retiring_accepted_overlay(self):
         root = self.prepare(self.old)
