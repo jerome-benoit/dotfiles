@@ -1616,6 +1616,77 @@ for source, cached_build, fresh in ((setup.ROOT.parent, build, True),
             self.assertEqual((root / "code.py").read_text(), "overlay " + value + "\n")
             self.assertEqual((root.parent / ".git/strata-source.patch").read_text(), overlay.read_text())
 
+    def test_layout_checkpoint_restores_profiles_and_runtime_on_distinct_devices(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import errno, json, os
+from pathlib import Path
+from unittest.mock import patch
+import strata_managed_state as state
+repository = Path.cwd().parent
+directory = repository.parent / "separate-profile-device"
+directory.mkdir()
+os.environ["STRATA_PROFILE_DIR"] = str(directory)
+profile = directory / "independent.json"
+profile.write_bytes(b"original profile")
+metadata = directory / ".source-relocations.json"
+metadata.write_bytes(b"original mapping")
+config = Path.cwd() / "strata-checkpoint.json"
+config.write_bytes(b"original config")
+files = (profile, metadata, config)
+before = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mode) for p in files}
+native_lstat, native_link = Path.lstat, os.link
+def device_stat(path, *args, **kwargs):
+    result = list(native_lstat(path, *args, **kwargs))
+    result[2] = 2 if path.is_relative_to(directory) else 1
+    return os.stat_result(result)
+def link(source, destination, *args, **kwargs):
+    source, destination = Path(source), Path(destination)
+    if source.is_relative_to(directory) != destination.is_relative_to(directory):
+        raise OSError(errno.EXDEV, "cross-device link")
+    return native_link(source, destination, *args, **kwargs)
+with patch.object(Path, "lstat", device_stat), patch.object(os, "link", link):
+    with state.layout_checkpoint(repository) as restore:
+        replacement = directory / "replacement"
+        replacement.write_bytes(b"replacement profile")
+        os.replace(replacement, profile)
+        metadata.write_bytes(b"changed mapping")
+        config.write_bytes(b"changed config")
+        restore()
+    # Success cleanup also removes temporary links from the profiles' device.
+    with state.layout_checkpoint(repository):
+        pass
+for path, expected in before.items():
+    assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mode) == expected
+assert not list(directory.glob("strata-layout-*"))
+assert not list((repository / ".git").glob("strata-layout-*"))
+assert "STRATA_PROFILE_NAMESPACE_FD" not in os.environ
+''')
+
+    def test_sycl_numeric_mtp_depth_survives_forward_reverse_and_normalization(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+from pathlib import Path
+import strata_managed_state as state
+from strata_control.cfg_paths import engine_argument_path
+repository = Path.cwd().parent
+wrapper = repository / "engine/sycl/serve/strata-sycl.sh"
+mount = repository.parent
+for depth in ("0", "2", "12"):
+    cfg = {"backend": "sycl", "exe": str(wrapper), "args": ["--mtp", depth, "--pack", "/work/source/packs/model"],
+           "env": {"STRATA_SYCL_HERE": str(repository), "STRATA_SYCL_ROOT": str(mount),
+                   "STRATA_SYCL_CWD": "/work/source", "STRATA_SYCL_BIN": str(repository / "engine/strata")}}
+    forward = state.sycl_config(cfg, repository, repository / "terminal", repository, False,
+                                state.rebaser({(repository / "packs", repository / "terminal/packs")}))
+    assert forward["args"][:2] == ["--mtp", depth]
+    assert engine_argument_path(forward["args"][3], forward["exe"], forward) == repository / "terminal/packs/model"
+    assert state.normalize_sycl_config(forward, repository)["args"][:2] == ["--mtp", depth]
+    reverse = state.sycl_config(forward, repository / "terminal", repository, repository, True,
+                                state.rebaser({(repository / "terminal/packs", repository / "packs")}))
+    assert reverse["args"][:2] == ["--mtp", depth]
+    assert engine_argument_path(reverse["args"][3], reverse["exe"], reverse) == repository / "packs/model"
+''')
+
     def test_real_cross_pin_transitions_preserve_runtime_profiles_scripts_and_old_consumer_history(self):
         self.make_cross_pin_sources()
         state = self.state

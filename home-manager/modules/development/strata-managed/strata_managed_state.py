@@ -6,7 +6,7 @@ Payload moves are renames. Only configs, launch scripts and interpreter metadata
 are edited in place, with exact-byte restoration on failure.
 """
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import importlib.abc
 import importlib.util
 import json
@@ -210,6 +210,8 @@ def sycl_config(config, source, destination, repository, reverse, rebase):
         if flag not in SYCL_PATH_FLAGS:
             continue
         value = config["args"][index + 1]
+        if flag == "--mtp" and str(value).isdigit():
+            continue  # Draft depth is a value, not a directory, just as in the doctor.
         path, separator, scale = value.rpartition(":") if flag == "--control-vector-scaled" else (value, "", "")
         args[index + 1] = container_path(path if separator else value) + (separator + scale if separator else "")
     binary = previous.get("STRATA_SYCL_BIN", os.environ.get("STRATA_SYCL_BIN")) or "build-sycl-aot/strata"
@@ -305,7 +307,7 @@ def layout_checkpoint(repository, *, enabled=True):
                  Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "strata" / "profiles")
     directory.mkdir(parents=True, mode=0o700, exist_ok=True)
     namespace = directory.resolve() / ".source-references.namespace.lock"
-    with namespace.open("a+b") as lock, tempfile.TemporaryDirectory(prefix="strata-layout-", dir=repository / ".git") as temporary:
+    with namespace.open("a+b") as lock, ExitStack() as snapshots:
         fcntl.flock(lock, fcntl.LOCK_EX)
         before_fd = os.environ.get("STRATA_PROFILE_NAMESPACE_FD")
         os.environ["STRATA_PROFILE_NAMESPACE_FD"] = str(lock.fileno())
@@ -335,9 +337,15 @@ def layout_checkpoint(repository, *, enabled=True):
                             if metadata_entry:
                                 paths.add(entry)
             originals = []
+            temporary_roots = {}
             for index, path in enumerate(sorted(paths)):
-                backup = Path(temporary) / str(index)
                 info = path.lstat()
+                anchor = directory if path.is_relative_to(directory) else repository / ".git"
+                device = info.st_dev
+                if device not in temporary_roots:
+                    temporary_roots[device] = Path(snapshots.enter_context(
+                        tempfile.TemporaryDirectory(prefix="strata-layout-", dir=anchor)))
+                backup = temporary_roots[device] / str(index)
                 payload = None if path.is_symlink() else path.read_bytes()
                 os.link(path, backup, follow_symlinks=False)
                 originals.append((path, backup, payload, info.st_mode))
