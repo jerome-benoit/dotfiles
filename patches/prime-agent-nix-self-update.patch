@@ -100,7 +100,7 @@ diff --git a/crates/pa-cli/src/package_command.rs b/crates/pa-cli/src/package_co
 diff --git a/crates/pa-cli/src/public_command.rs b/crates/pa-cli/src/public_command.rs
 --- a/crates/pa-cli/src/public_command.rs
 +++ b/crates/pa-cli/src/public_command.rs
-@@ -680,6 +680,10 @@ fn run_update(args: &[String]) -> PublicCommandResult {
+@@ -681,6 +681,10 @@ fn run_update(args: &[String]) -> PublicCommandResult {
      let Some(options) = parse_update_options(args) else {
          return handled_failed();
      };
