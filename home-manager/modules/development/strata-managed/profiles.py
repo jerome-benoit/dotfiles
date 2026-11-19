@@ -371,7 +371,7 @@ def _save_locked(name: str, proposed: dict, *, expected_revision: str,
 
 
 @contextmanager
-def relocate_sources(moves: list[tuple[Path, Path]]):
+def relocate_sources(moves: list[tuple[Path, Path]], *, runtime_moves=()):
     """Publish exact, composed source moves with profiles; keep historical bytes immutable.
 
     The namespace lock covers enumeration, filesystem movement and publication. All writers
@@ -383,11 +383,31 @@ def relocate_sources(moves: list[tuple[Path, Path]]):
         metadata = profile_dir() / ".source-relocations.json"
         previous = metadata.read_bytes() if metadata.exists() else None
         references = _source_relocations()
+        # Profiles store resolved paths, not the selected alias. Project only payloads
+        # actually moving, including historical selections nested in runtime directories.
+        items = list_profiles() if moves or runtime_moves else []
+        sources = {item["source_config"] for item in items}
+        sources.update(references)
+        sources.update(references.values())
+        if runtime_moves:
+            for path in (profile_dir() / ".history").glob("*/*.json"):
+                try:
+                    historical = validate_profile(json.loads(path.read_bytes().decode("utf-8")))
+                except (OSError, UnicodeError, ValueError) as exc:
+                    raise ProfileError(f"cannot read profile history ({type(exc).__name__})", 5) from None
+                sources.add(historical["source_config"])
+            ordered = sorted(runtime_moves, key=lambda pair: -len(pair[0].parts))
+            for source in sources:
+                path = Path(source)
+                for old, new in ordered:
+                    if path.is_relative_to(old):
+                        replacements[source] = str(new / path.relative_to(old))
+                        break
         references = {a: replacements.get(b, b) for a, b in references.items()}
         references.update(replacements)
         references = {a: b for a, b in references.items() if a != b}
         selected = []
-        for item in sorted(list_profiles() if replacements else (), key=lambda item: item["id"]):
+        for item in sorted(items, key=lambda item: item["id"]):
             if item.get("source_config") not in replacements:
                 continue
             name = item["id"]

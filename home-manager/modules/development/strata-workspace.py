@@ -86,15 +86,21 @@ def publish_source_patch(path, text):
     temporary.replace(path)
 
 
+def source_patch_payload(cache, revision, text):
+    """Validate an existing hash-addressed payload without claiming the delta was applied."""
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    payload = cache / f"{revision}-{digest}.patch"
+    if payload.exists() and payload.read_bytes().decode("utf-8") != text:
+        raise RuntimeError(f"Cached source patch {payload} is corrupted; preserve it and repair the cache")
+    return payload, digest
+
+
 def cache_source_patch(cache, revision, text):
     """Retain only a source delta actually published at this revision, addressed by its accepted bytes."""
-    digest = hashlib.sha256(text.encode()).hexdigest()
+    payload, digest = source_patch_payload(cache, revision, text)
     cache.mkdir(exist_ok=True)
-    payload = cache / f"{revision}-{digest}.patch"
     if not payload.exists():
         publish_source_patch(payload, text)
-    elif payload.read_bytes().decode("utf-8") != text:
-        raise RuntimeError(f"Cached source patch {payload} is corrupted; preserve it and repair the cache")
     receipt = cache / f"{revision}.sha256"
     if not receipt.exists() or receipt.read_text().strip() != digest:
         publish_source_patch(receipt, digest + "\n")
@@ -112,6 +118,16 @@ def cached_source_patch(cache, revision):
     if hashlib.sha256(text.encode()).hexdigest() != digest:
         raise RuntimeError(f"Cached source patch {payload} does not match its publication receipt")
     return text
+
+
+def source_cache_paths(cache, publications):
+    """Include final cache metadata and interrupted atomic-write artifacts in the source checkpoint."""
+    paths = set()
+    for revision, text in publications:
+        payload, _ = source_patch_payload(cache, revision, text)
+        receipt = cache / f"{revision}.sha256"
+        paths.update((payload, receipt, payload.with_suffix(".tmp"), receipt.with_suffix(".tmp")))
+    return paths
 
 
 def patch_revision_check(root, revision, text):
@@ -181,23 +197,35 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         if previous is not None and not applied and not patch_check(root, previous):
             raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
         cache = root / ".git" / "strata-source-patches"
-        if applied:
-            cache_source_patch(cache, current, previous)
+        publications = [(current, previous)] if applied else []
+        cache_paths = source_cache_paths(cache, publications)
         if current == revision and (previous is None or applied) and (
                 previous == desired or accepted_source_request(root, revision, requested, previous)):
-            with managed_state.layout_checkpoint(root) as restore_metadata:
+            pairs = managed_state.runtime_pairs(root) if (root / "terminal/setup.py").is_file() else ()
+            migrated = False
+            with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,)) as restore_metadata:
                 try:
                     migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+                    migrated = True
+                    for cached_revision, text in publications:
+                        cache_source_patch(cache, cached_revision, text)
                     publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
                 except BaseException:
-                    restore_metadata()
+                    try:
+                        if migrated:
+                            for source, destination in reversed(pairs):
+                                if source.exists() or source.is_symlink():
+                                    raise RuntimeError(f"Cannot restore moved runtime without replacing {source}")
+                                os.rename(destination, source)
+                    finally:
+                        restore_metadata()
                     raise
             return root
         target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
+        cached = cached_source_patch(cache, revision)
         if desired is not None and not patch_revision_check(root, revision, desired):
             if current == revision:
                 raise RuntimeError(f"Requested source patch is incompatible with revision {revision}; existing source/runtime preserved")
-            cached = cached_source_patch(cache, revision)
             if cached is None:
                 desired = None      # A pin published before the overlay runs native; the stable state owns its runtime.
             elif not patch_revision_check(root, revision, cached):
@@ -205,11 +233,14 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                                    "the source and runtime were not migrated")
             else:
                 desired = cached
+        if desired is not None:
+            cache_paths.update(source_cache_paths(cache, [(revision, desired)]))
+            publications.append((revision, desired))
         reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
         forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
         approval = snapshot_engine_approvals(terminal_root(root), current)
-        # Both directions publish runtime metadata before the source receipt can settle.
-        with managed_state.layout_checkpoint(root) as restore_metadata, managed_state.engine_link_checkpoint(
+        # Layout, profiles, accepted cache bytes and the request receipt settle together.
+        with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,)) as restore_metadata, managed_state.engine_link_checkpoint(
                 root, reverse=reverse_layout, enabled=forward_layout or reverse_layout,
                 tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link:
             reversed_layout = forwarded_layout = removed_patch = desired_applied = False
@@ -236,6 +267,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 if not target_terminal:
                     subprocess.run([sys.executable, str(Path(__file__).resolve()), "--finalize-layout", str(root)], check=True,
                                    stdout=sys.stderr, pass_fds=(lock_fd, publication_lock.fileno(), *managed_state.namespace_fds()))
+                for cached_revision, text in publications:
+                    cache_source_patch(cache, cached_revision, text)
+                (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
                 publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
             except BaseException:
                 def restore(operation):
@@ -264,9 +298,6 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 restore(restore_metadata)
                 restore(lambda: restore_engine_approvals(terminal_root(root), approval))
                 raise
-        (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
-        if desired is not None:
-            cache_source_patch(cache, revision, desired)
         return root
 
 

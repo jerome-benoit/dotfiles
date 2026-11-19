@@ -1289,6 +1289,125 @@ with patch.object(setup.os, "stat", side_effect=stat):
         self.assertEqual(subprocess.check_output(["git", "-C", str(root.parent), "rev-parse", "HEAD"],
                                                 text=True).strip(), self.old)
 
+
+    def test_same_pin_cache_write_failure_restores_only_pending_runtime_moves_and_retry(self):
+        root = self.prepare(self.old)
+        repository = root.parent
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "same-pin cache profiles")
+        model = repository / "models/same-pin.gguf"
+        model.parent.mkdir()
+        model.write_bytes(b"pending model")
+        config = repository / "strata-same-pin-cache.json"
+        config.write_text(json.dumps({"exe": "/bin/true", "cwd": str(repository), "args": [],
+                                     "tokenizer": "/fixture/tokenizer"}))
+        existing = root / "packs/existing/index.txt"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"already migrated pack")
+        self.run_source_script(root, r'''
+from pathlib import Path
+from strata_control import profiles
+profiles.create("same-pin-cache", str(Path.cwd().parent / "strata-same-pin-cache.json"))
+profiles.set_values("same-pin-cache", ["port=9123"])
+''')
+        cache = repository / ".git/strata-source-patches"
+        cache_receipt = cache / f"{self.old}.sha256"
+        cache_receipt.unlink()
+        paths = [model, config, existing, repository / ".git/strata-source.patch", repository / ".git/strata-source-request.json"]
+        paths += list(cache.iterdir()) + list(Path(self.env["STRATA_PROFILE_DIR"]).rglob("*.json"))
+        before = {path: (path.read_bytes(), path.stat().st_dev, path.stat().st_ino) for path in paths}
+        script = r'''
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+root = Path(sys.argv[2]) / "source"
+replace = Path.replace
+def refuse_cache_receipt(path, target):
+    target = Path(target)
+    if target.parent.name == "strata-source-patches" and target.suffix == ".sha256":
+        assert (root / "terminal/models/same-pin.gguf").read_bytes() == b"pending model"
+        assert (root / "terminal/strata-same-pin-cache.json").is_file()
+        raise OSError("same-pin cache publication after migration")
+    return replace(path, target)
+Path.replace = refuse_cache_receipt
+try:
+    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+except OSError as error:
+    assert str(error) == "same-pin cache publication after migration", error
+else:
+    raise AssertionError("same-pin cache write unexpectedly committed")
+finally:
+    Path.replace = replace
+'''
+        result = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), self.old,
+                                 str(self.repository), SOURCE_PATCH], env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip(), self.old)
+        self.assertEqual(set(cache.iterdir()), {path for path in paths if path.parent == cache})
+        self.assertFalse(cache_receipt.exists())
+        self.assertFalse((root / "models/same-pin.gguf").exists())
+        self.assertFalse((root / config.name).exists())
+        self.assertFalse((repository / "packs").exists())
+        for path, original in before.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino), original,
+                             f"Same-pin cache refusal changed bytes/inodes: {path}")
+        self.run_source_script(root, r'''
+from pathlib import Path
+from strata_control import profiles
+selected = profiles.resolve("same-pin-cache")[0]
+assert selected == Path.cwd().parent / "strata-same-pin-cache.json"
+profiles.read_run_config(selected)
+''')
+        self.assertEqual(self.prepare(self.old), root)
+        self.assertEqual((root / "models/same-pin.gguf").stat().st_ino, before[model][2])
+        self.assertEqual(json.loads((root / config.name).read_text())["cwd"], str(root))
+        self.assertTrue(cache_receipt.is_file())
+        self.assertEqual(existing.read_bytes(), b"already migrated pack")
+
+    def test_valid_requested_overlay_refuses_corrupt_visited_target_cache_before_migration(self):
+        import hashlib
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        model = flat / "models/cache-guard.gguf"
+        model.parent.mkdir()
+        model.write_bytes(b"retained model")
+        config = flat / "strata-cache-guard.json"
+        config.write_text(json.dumps({"exe": "/bin/true", "cwd": str(flat), "args": [],
+                                     "tokenizer": "/fixture/tokenizer"}))
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "cache guard profiles")
+        self.cross_pin_cli(self.old, "profile", "create", "cache-guard", "--from-config", str(config), "--output", "json")
+        self.cross_pin_cli(self.old, "profile", "set", "cache-guard", "port=9123", "--output", "json")
+        self.prepare_cross_pin(self.new)
+        self.assertEqual(self.prepare_cross_pin(self.old), flat)
+        cache = flat / ".git/strata-source-patches"
+        requested = Path(SOURCE_PATCH).read_bytes()
+        digest = hashlib.sha256(requested).hexdigest()
+        payload = cache / f"{self.new}-{digest}.patch"
+        receipt = cache / f"{self.new}.sha256"
+        self.assertEqual(payload.read_bytes(), requested)
+        payload.write_bytes(requested + b"corrupt target publication\n")
+        # The requested overlay is valid. Both receipted and orphaned target bytes must be checked before movement.
+        for receipted in (True, False):
+            with self.subTest(receipted=receipted):
+                if not receipted:
+                    receipt.unlink()
+                paths = [model, config, flat / ".git/strata-source.patch", flat / ".git/strata-source-request.json"]
+                paths += list(cache.iterdir()) + list(Path(self.env["STRATA_PROFILE_DIR"]).rglob("*.json"))
+                before = {path: (path.read_bytes(), path.stat().st_dev, path.stat().st_ino, path.stat().st_mtime_ns)
+                          for path in paths}
+                result = subprocess.run(self.command(self.new), env=dict(self.env, TEST_SOURCE_PATCH=SOURCE_PATCH),
+                                        capture_output=True, text=True, timeout=60)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Cached source patch", result.stderr)
+                self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"], text=True).strip(), self.old)
+                self.assertFalse((flat / "terminal/setup.py").exists())
+                self.assertFalse((flat / "terminal/models/cache-guard.gguf").exists())
+                self.assertEqual(set(cache.iterdir()), {path for path in paths if path.parent == cache})
+                for path, original in before.items():
+                    self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino, path.stat().st_mtime_ns), original,
+                                     f"Refusal changed source/runtime/cache metadata: {path}")
+
     def test_linked_config_preserves_external_bytes_and_restores_links_after_write_failure(self):
         root = self.prepare(self.old)
         self.run_source_script(root, r'''
@@ -2023,7 +2142,16 @@ assert {name: os.readlink(repository / name) for name in link_names} == original
         consume(flat)
 
     def test_real_forward_receipt_failure_restores_payload_metadata_and_retry(self):
+        self.assert_real_forward_publication_failure_restores_payload_metadata_and_retry("request")
+
+    def test_real_forward_cache_write_failure_restores_source_profiles_receipts_artifacts_and_retry(self):
+        for failure in ("payload", "receipt", "published", "missing-directory"):
+            with self.subTest(failure=failure):
+                self.assert_real_forward_publication_failure_restores_payload_metadata_and_retry(failure)
+
+    def assert_real_forward_publication_failure_restores_payload_metadata_and_retry(self, failure):
         self.make_cross_pin_sources()
+        self.state = self.base / (failure + " publication workspace")
         flat = self.prepare_cross_pin(self.old)
         retained = self.make_local_runtime(flat)
         payloads = {"models/receipt.gguf": b"model payload", "engine/strata": b"engine payload",
@@ -2038,7 +2166,7 @@ assert {name: os.readlink(repository / name) for name in link_names} == original
         config = flat / "strata-receipt.json"
         config.write_text(json.dumps({"exe": str(flat / "engine/strata"), "cwd": str(flat),
                                      "tokenizer": "/fixture/tokenizer", "args": ["--native", "models/receipt.gguf"]}))
-        self.env["STRATA_PROFILE_DIR"] = str(self.base / "receipt profiles")
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / (failure + " publication profiles"))
         self.cross_pin_cli(self.old, "profile", "create", "receipt", "--from-config", str(config), "--output", "json")
         self.cross_pin_cli(self.old, "profile", "set", "receipt", "port=9123", "--output", "json")
         result = subprocess.run([sys.executable, "-c", "import setup; setup.write_run_script('receipt', "
@@ -2046,8 +2174,22 @@ assert {name: os.readlink(repository / name) for name in link_names} == original
             + repr(str(config)) + ", 9123, False)"], cwd=flat, env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         approval = flat / ".git/strata-engine-rollback.json"
+        import hashlib
+        cache = flat / ".git/strata-source-patches"
+        target_payload = cache / f"{self.new}-{hashlib.sha256(Path(SOURCE_PATCH).read_bytes()).hexdigest()}.patch"
+        target_receipt = cache / f"{self.new}.sha256"
+        if failure == "missing-directory":
+            shutil.rmtree(cache)
+        elif failure != "request":
+            historical = Path(SOURCE_PATCH).read_bytes() + b"\n"
+            historical_digest = hashlib.sha256(historical).hexdigest()
+            (cache / f"{self.new}-{historical_digest}.patch").write_bytes(historical)
+            target_receipt.write_text(historical_digest + "\n")
+            target_payload.with_suffix(".tmp").write_bytes(b"retained payload write artifact")
+            target_receipt.with_suffix(".tmp").write_bytes(b"retained receipt write artifact")
+        cached_paths = set(cache.iterdir()) if cache.exists() else set()
         runner = r"""
-import importlib.util, json, sys
+import importlib.util, json, subprocess, sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
 module = importlib.util.module_from_spec(spec)
@@ -2063,19 +2205,39 @@ elif sys.argv[3] == 'validate-approval':
     assert saved['engines']['engine']['files'] == module.engine_identity(root / 'engine'), 'approval identity is stale'
     assert module.engine_rollbacks(root, sys.argv[4]) == saved['engines'], 'restored approval is not accepted'
 else:
+    failure = sys.argv[7]
     publish = module.publish_source_patch
+    replace = Path.replace
+    def migrated():
+        assert subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() == sys.argv[4]
+        assert (root / 'terminal/models/receipt.gguf').read_bytes() == b'model payload'
+        assert json.loads((root / 'terminal/strata-receipt.json').read_text())['cwd'] == str(root / 'terminal')
     def fault(path, text):
-        if path.name == module.SOURCE_REQUEST:
-            assert (root / 'terminal/models/receipt.gguf').read_bytes() == b'model payload'
+        if failure == 'request' and path.name == module.SOURCE_REQUEST:
+            migrated()
             raise OSError('receipt publication after accepted forward migration')
         return publish(path, text)
+    def fault_replace(path, target):
+        target = Path(target)
+        cache_target = (target.parent.name == 'strata-source-patches' and target.name.startswith(sys.argv[4]))
+        selected = target.suffix == ('.patch' if failure == 'payload' else '.sha256')
+        if failure != 'request' and cache_target and selected:
+            migrated()
+            if failure == 'published':
+                replace(path, target)
+            raise OSError('cache publication after accepted forward migration')
+        return replace(path, target)
     module.publish_source_patch = fault
+    Path.replace = fault_replace
     try:
         module.prepare_workspace(sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
     except OSError as error:
-        assert str(error) == 'receipt publication after accepted forward migration'
+        expected = ('receipt' if failure == 'request' else 'cache') + ' publication after accepted forward migration'
+        assert str(error) == expected, error
     else:
-        raise AssertionError('receipt fault did not fire')
+        raise AssertionError('publication fault did not fire')
+    finally:
+        Path.replace = replace
 """
         result = subprocess.run([sys.executable, "-c", runner, WORKSPACE, str(flat), "approval", self.old],
                                 env=self.env, capture_output=True, text=True)
@@ -2086,13 +2248,14 @@ else:
         paths += list(profiles.rglob("*.json"))
         paths += [flat / ".venv/pyvenv.cfg", flat / ".python/bin/python", flat / ".python/lib"]
         paths += [path for path in (flat / ".venv/bin").iterdir() if path.is_file() or path.is_symlink()]
+        paths += list(cached_paths)
         def snapshot(path):
             data = os.readlink(path) if path.is_symlink() else path.read_bytes()
             info = path.lstat()
             return (data, info.st_dev, info.st_ino)
         before = {path: snapshot(path) for path in paths}
         result = subprocess.run([sys.executable, "-c", runner, WORKSPACE, str(flat), str(self.state),
-                                 self.new, str(self.repository), SOURCE_PATCH], env=self.env,
+                                 self.new, str(self.repository), SOURCE_PATCH, failure], env=self.env,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("Cannot restore source transaction", result.stderr)
@@ -2108,6 +2271,9 @@ else:
                                 env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(set(profiles.rglob("*.json")), {path for path in paths if path.is_relative_to(profiles)})
+        self.assertEqual(cache.exists(), failure != "missing-directory")
+        self.assertEqual(set(cache.iterdir()) if cache.exists() else set(), cached_paths)
+        self.assertFalse(target_payload.exists())
         for name, data in payloads.items():
             path = flat / name
             self.assertEqual(path.read_bytes(), data)
@@ -2122,6 +2288,9 @@ else:
             self.assertEqual((split / name).read_bytes(), data)
             self.assertEqual(((split / name).stat().st_dev, (split / name).stat().st_ino), identity[name])
         self.assertTrue(self.cross_pin_cli(self.new, "profile", "history", "receipt", "--output", "json")["ok"])
+        self.assertEqual(target_payload.read_bytes(), Path(SOURCE_PATCH).read_bytes())
+        self.assertEqual(target_receipt.read_text().strip(), hashlib.sha256(Path(SOURCE_PATCH).read_bytes()).hexdigest())
+
 
     def test_relative_sycl_launchers_use_config_coordinates_outside_process_cwd(self):
         root = self.prepare(self.old)
@@ -9354,6 +9523,139 @@ with patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
 assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == original
 assert not data.exists()
 ''')
+
+    def test_canonical_internal_profile_sources_follow_runtime_moves_and_restore_history(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os
+from pathlib import Path
+import setup
+import strata_managed_state as managed_state
+from strata_control import profiles
+def canonical_profile_regression(managed_state, profiles, root):
+    root = Path(root).resolve()
+    (root / 'models').mkdir()
+    canonical = root / 'models/config.json'
+    canonical.write_text(json.dumps({'exe': '/bin/true', 'args': [], 'cwd': str(root), 'tokenizer': '/fixture/tokenizer'}))
+    canonical.chmod(0o640)
+    alias = root / 'strata-linked.json'
+    alias.symlink_to('models/config.json')
+    os.environ['STRATA_PROFILE_DIR'] = str(root.parent / (root.name + '-profiles'))
+    first, first_revision = profiles.create('alias', str(alias))
+    profiles.create('direct', str(canonical))
+    profiles.set_values('alias', ['port=12345'])
+    external = root.parent / (root.name + '-external.json')
+    external.write_text(json.dumps({'exe': '/bin/true', 'args': [], 'tokenizer': '/fixture/tokenizer'}))
+    external_alias = root / 'strata-external.json'
+    external_alias.symlink_to(external)
+    external_profile, external_revision = profiles.create('external', str(external_alias))
+    historical_config = root / 'models/historical.json'
+    historical_config.write_bytes(external.read_bytes())
+    _, historical_revision = profiles.create('historical', str(historical_config))
+    proposed, revision = profiles.propose_source('historical', str(external))
+    profiles.save('historical', proposed, expected_revision=revision)
+    history_before = {path: path.read_bytes() for path in profiles.profile_dir().glob('.history/*/*.json')}
+    external_bytes = external.read_bytes()
+    inode, mode = canonical.stat().st_ino, canonical.stat().st_mode
+    managed_state.migrate_layout(root)
+    destination = root / 'terminal/models/config.json'
+    assert destination.stat().st_ino == inode and destination.stat().st_mode == mode
+    assert (root / 'terminal/strata-linked.json').resolve() == destination
+    for name in ('alias', 'direct'):
+        selected, saved, revision = profiles.resolve(name)
+        assert selected == destination
+        profiles.read_run_config(selected)
+        profiles.set_values(name, ['port=12346'])
+    assert profiles.load('external') == (external_profile, external_revision)
+    assert external.read_bytes() == external_bytes
+    assert all(path.read_bytes() == data for path, data in history_before.items())
+    rolled, _, _ = profiles.rollback('alias', first_revision)
+    assert rolled['source_config'] == str(destination)
+    assert rolled['overrides'] == first['overrides']
+    historical, _, _ = profiles.rollback('historical', historical_revision)
+    assert historical['source_config'] == str(root / 'terminal/models/historical.json')
+    profiles.read_run_config(Path(historical['source_config']))
+    assert all(path.read_bytes() == data for path, data in history_before.items())
+    managed_state.migrate_layout(root, reverse=True)
+    assert canonical.stat().st_ino == inode
+    for name in ('alias', 'direct'):
+        assert profiles.resolve(name)[0] == canonical
+        profiles.read_run_config(canonical)
+    # A source failure after a successful forward move reverses layout before restoring metadata.
+    before = {path: path.read_bytes() for path in profiles.profile_dir().glob('*.json')}
+    canonical_bytes = canonical.read_bytes()
+    alias_inode = alias.lstat().st_ino
+    with managed_state.layout_checkpoint(root) as restore:
+        managed_state.migrate_layout(root)
+        managed_state.migrate_layout(root, reverse=True)
+        restore()
+    assert canonical.read_bytes() == canonical_bytes
+    assert canonical.stat().st_ino == inode and canonical.stat().st_mode == mode
+    assert alias.lstat().st_ino == alias_inode
+    assert all(path.read_bytes() == data for path, data in before.items())
+    assert not list(root.rglob('.strata-layout-*'))
+    assert not list(root.rglob('.strata-links-*'))
+canonical_profile_regression(managed_state, profiles, setup.ROOT.parent)
+''')
+
+    @unittest.skipUnless(sys.platform == "linux" and all(shutil.which(name) for name in ("unshare", "mount", "umount")),
+                         "Isolated Linux mount namespace")
+    def test_internal_mounted_config_checkpoint_preserves_identity_on_tmpfs_and_same_device_bind(self):
+        capabilities = next(line.split()[1] for line in Path("/proc/self/status").read_text().splitlines()
+                            if line.startswith("CapEff:"))
+        if not int(capabilities, 16) & (1 << 21):
+            self.skipTest("CAP_SYS_ADMIN required for isolated real mounts")
+        script = r'''
+import json, os, subprocess, sys
+from pathlib import Path
+import strata_managed_state as managed_state
+def mounted_checkpoint_regression(managed_state, root, *, bind=False):
+    root = Path(root).resolve()
+    (root / '.git').mkdir(parents=True)
+    mounted = root / 'mounted'
+    mounted.mkdir()
+    backing = root.parent / (root.name + '-backing')
+    if bind:
+        backing.mkdir()
+        subprocess.run(['mount', '--bind', str(backing), str(mounted)], check=True)
+    else:
+        subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=4m', 'tmpfs', str(mounted)], check=True)
+    try:
+        config = mounted / 'config.json'
+        payload = json.dumps({'exe': '/bin/true', 'args': []}).encode()
+        config.write_bytes(payload)
+        config.chmod(0o640)
+        alias = root / 'strata-linked.json'
+        alias.symlink_to('mounted/config.json')
+        inode, mode = config.stat().st_ino, config.stat().st_mode
+        alias_inode = alias.lstat().st_ino
+        os.environ['STRATA_PROFILE_DIR'] = str(root.parent / (root.name + '-profiles'))
+        if bind:
+            assert config.stat().st_dev == (root / '.git').stat().st_dev
+        else:
+            assert config.stat().st_dev != (root / '.git').stat().st_dev
+        with managed_state.layout_checkpoint(root) as restore:
+            config.write_bytes(b'changed')
+            alias.unlink()
+            alias.symlink_to('wrong')
+            restore()
+        assert config.read_bytes() == payload
+        assert config.stat().st_ino == inode and config.stat().st_mode == mode
+        assert alias.lstat().st_ino == alias_inode
+        assert os.readlink(alias) == 'mounted/config.json'
+        assert not list(root.rglob('.strata-layout-*'))
+    finally:
+        subprocess.run(['umount', str(mounted)], check=True)
+mounted_checkpoint_regression(managed_state, Path(sys.argv[1]), bind=sys.argv[2] == "bind")
+'''
+        for kind in ("tmpfs", "bind"):
+            with self.subTest(kind=kind):
+                result = subprocess.run(["unshare", "--mount", "--propagation", "private", sys.executable, "-c", script,
+                                         str(self.base / (kind + "-mounted-checkpoint")), kind],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+
 
 
 unittest.main()

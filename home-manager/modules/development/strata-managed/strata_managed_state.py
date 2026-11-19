@@ -298,6 +298,8 @@ def interpreter_entries(root):
     yield root
     if not root.is_symlink():
         for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
+            # Parent-local transaction snapshots are not runtime payloads.
+            dirs[:] = [name for name in dirs if not name.startswith(".strata-layout-")]
             for name in dirs + files:
                 yield Path(directory) / name
 
@@ -327,7 +329,7 @@ def namespace_fds():
 
 
 @contextmanager
-def layout_checkpoint(repository, *, enabled=True):
+def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=()):
     """Keep small original bytes/inodes and the profile namespace until a source transaction settles."""
     if not enabled:
         yield lambda: None
@@ -348,8 +350,10 @@ def layout_checkpoint(repository, *, enabled=True):
             metadata = directory / ".source-relocations.json"
             # Receipts and engine approval rollback data share the outer source transaction.
             tracked = {metadata, *(repository / ".git" / name for name in
-                        ("strata-source-request.json", "strata-source.patch", "strata-engine-rollback.json"))}
+                        ("strata-source-request.json", "strata-source.patch", "strata-engine-rollback.json")),
+                       *map(Path, metadata_paths)}
             absent = {path for path in tracked if not path.exists() and not path.is_symlink()}
+            absent_directories = {Path(path) for path in metadata_directories if not Path(path).exists()}
             paths.update(tracked - absent)
             history = set((directory / ".history").glob("*/*.json"))
             for runtime in (repository, repository / "terminal"):
@@ -381,12 +385,25 @@ def layout_checkpoint(repository, *, enabled=True):
             payloads = {}
             for index, path in enumerate(sorted(paths)):
                 info = path.lstat()
-                anchor = directory if path.is_relative_to(directory) else repository / ".git"
-                device = info.st_dev
-                if device not in temporary_roots:
-                    temporary_roots[device] = Path(snapshots.enter_context(
-                        tempfile.TemporaryDirectory(prefix="strata-layout-", dir=anchor)))
-                backup = temporary_roots[device] / str(index)
+                # A parent directory is on the file's mount, including same-device bind mounts.
+                anchor = path.parent
+                if anchor not in temporary_roots:
+                    temporary = tempfile.mkdtemp(prefix=".strata-layout-", dir=anchor)
+                    parent_fd = os.open(anchor, os.O_RDONLY)
+                    backup_fd = os.open(temporary, os.O_RDONLY)
+
+                    def cleanup(parent_fd=parent_fd, backup_fd=backup_fd, name=Path(temporary).name):
+                        try:
+                            for entry in os.listdir(backup_fd):
+                                os.unlink(entry, dir_fd=backup_fd)
+                            os.rmdir(name, dir_fd=parent_fd)
+                        finally:
+                            os.close(backup_fd)
+                            os.close(parent_fd)
+
+                    snapshots.callback(cleanup)
+                    temporary_roots[anchor] = backup_fd
+                backup = (temporary_roots[anchor], str(index))
                 identity = (info.st_dev, info.st_ino)
                 if path.is_symlink():
                     payload = None
@@ -394,7 +411,7 @@ def layout_checkpoint(repository, *, enabled=True):
                     if identity not in payloads:
                         payloads[identity] = path.read_bytes()
                     payload = payloads[identity]
-                os.link(path, backup, follow_symlinks=False)
+                os.link(path, backup[1], dst_dir_fd=backup[0], follow_symlinks=False)
                 originals.append((path, backup, payload, info.st_mode))
 
             def restore():
@@ -408,11 +425,21 @@ def layout_checkpoint(repository, *, enabled=True):
 
                 def restore_entry(path, backup, payload, mode):
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    if path.is_symlink() or not path.exists() or path.lstat().st_ino != backup.lstat().st_ino:
-                        replacement = backup.with_name(backup.name + ".restore")
-                        replacement.unlink(missing_ok=True)
-                        os.link(backup, replacement, follow_symlinks=False)
-                        os.replace(replacement, path)
+                    backup_fd, backup_name = backup
+                    original = os.stat(backup_name, dir_fd=backup_fd, follow_symlinks=False)
+                    try:
+                        current = path.lstat()
+                    except FileNotFoundError:
+                        current = None
+                    if current is None or (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+                        replacement = backup_name + ".restore"
+                        try:
+                            os.unlink(replacement, dir_fd=backup_fd)
+                        except FileNotFoundError:
+                            pass
+                        os.link(backup_name, replacement, src_dir_fd=backup_fd, dst_dir_fd=backup_fd,
+                                follow_symlinks=False)
+                        os.replace(replacement, path, src_dir_fd=backup_fd)
                     if payload is not None:
                         if path.read_bytes() != payload:
                             path.write_bytes(payload)
@@ -428,6 +455,11 @@ def layout_checkpoint(repository, *, enabled=True):
                         attempt(lambda: path.unlink())
 
                 attempt(clean_history)
+                if absent_directories:
+                    attempt(snapshots.close)
+                    for path in sorted(absent_directories, key=lambda path: -len(path.parts)):
+                        if path.exists():
+                            attempt(path.rmdir)
                 if errors:
                     raise RuntimeError("Cannot restore layout checkpoint: " + "; ".join(map(str, errors))) from errors[0]
 
@@ -670,7 +702,7 @@ def migrate_layout(repository, *, reverse=False):
     runtime_edits.sort(key=lambda edit: edit[3] is None)
     moved = []
     edited = []
-    with ExitStack() as snapshots, profiles.relocate_sources(config_moves) as publish_profiles:
+    with ExitStack() as snapshots, profiles.relocate_sources(config_moves, runtime_moves=pairs) as publish_profiles:
         temporary_roots = {}
         approval = repository / ".git/strata-engine-rollback.json"
         approval_backup = None
@@ -686,11 +718,11 @@ def migrate_layout(repository, *, reverse=False):
             for entry, before, after, mode in runtime_edits:
                 backup = None
                 if mode is not None:
-                    device = entry.lstat().st_dev
-                    if device not in temporary_roots:
-                        temporary_roots[device] = Path(snapshots.enter_context(
-                            tempfile.TemporaryDirectory(prefix=".strata-links-", dir=entry.parent)))
-                    backup = temporary_roots[device] / str(len(edited))
+                    anchor = entry.parent
+                    if anchor not in temporary_roots:
+                        temporary_roots[anchor] = Path(snapshots.enter_context(
+                            tempfile.TemporaryDirectory(prefix=".strata-links-", dir=anchor)))
+                    backup = temporary_roots[anchor] / str(len(edited))
                 edited.append((entry, before, mode, backup))
                 write_runtime(entry, after, mode, backup)
             publish_profiles()
