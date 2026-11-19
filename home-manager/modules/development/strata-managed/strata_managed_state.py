@@ -30,7 +30,8 @@ ENGINE_SOURCE = {"src", "include", "cmake", "metal", "sycl", "spark", "third_par
                  "CMakeLists.txt", "CMakePresets.json"}
 TERMINAL_ENTRIES = ("strata.py", "setup.py", "serve", "strata_cli", "strata_control", "tools", "data", "ref", "bin",
                     ".venv", ".python", "python")
-SYCL_PATH_FLAGS = {"--pack", "--native", "--ple-gguf", "--expert-profile", "--mtp", "--control-vector-scaled"}
+SYCL_PATH_FLAGS = {"--pack", "--native", "--native-dense-gguf", "--embd-gguf",
+                   "--ple-gguf", "--expert-profile", "--mtp", "--control-vector-scaled"}
 
 
 class ManagedConsumers(importlib.abc.MetaPathFinder):
@@ -239,22 +240,25 @@ def normalize_sycl_config(config, repository):
 def normalize_sycl_configs(repository):
     repository = Path(repository).resolve()
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
-    originals = {}
+    changes = []
+    for path in sorted(runtime.glob("strata-*.json")):
+        before = path.read_bytes()
+        try:
+            config = json.loads(before.decode("utf-8-sig"))
+        except (UnicodeError, ValueError):
+            continue                           # Native dispatch owns malformed/unselected config errors.
+        if not isinstance(config, dict):
+            continue
+        mapped = normalize_sycl_config(config, repository)
+        if mapped != config:
+            changes.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8")))
+    edited = []
     try:
-        for path in sorted(runtime.glob("strata-*.json")):
-            before = path.read_bytes()
-            try:
-                config = json.loads(before.decode("utf-8-sig"))
-            except (UnicodeError, ValueError):
-                continue                       # Native dispatch owns malformed/unselected config errors.
-            if not isinstance(config, dict):
-                continue
-            mapped = normalize_sycl_config(config, repository)
-            if mapped != config:
-                originals[path] = before
-                path.write_bytes((json.dumps(mapped, indent=2) + "\n").encode("utf-8"))
+        for path, before, after in changes:
+            edited.append((path, before))
+            path.write_bytes(after)
     except BaseException:
-        for path, before in originals.items():
+        for path, before in reversed(edited):
             path.write_bytes(before)
         raise
 
@@ -376,6 +380,7 @@ def migrate_layout(repository, *, reverse=False):
     repository = Path(repository).resolve()
     terminal = repository / "terminal"
     if not (terminal / "setup.py").is_file():
+        normalize_sycl_configs(repository)
         return []
     source, destination = (terminal, repository) if reverse else (repository, terminal)
     enable_source(terminal)
@@ -387,18 +392,17 @@ def migrate_layout(repository, *, reverse=False):
     pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
               if (source / name).is_dir() or (source / name).is_symlink()]
     engine = source / "engine"
-    if engine.is_dir():
+    if engine.is_dir() and not engine.is_symlink():
         pairs += [(path, destination / "engine" / path.name) for path in sorted(engine.iterdir())
                   if path.name not in ENGINE_SOURCE and not path.name.startswith("build")]
     pairs += [((repository / "engine" / name, repository / name) if reverse
                else (repository / name, repository / "engine" / name)) for name in ENGINE_BUILDS
-              if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()]
+              if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()
+              or ((repository / "engine" / name) if reverse else (repository / name)).is_symlink()]
     conflicts = [dst for src, dst in pairs if dst.exists() or dst.is_symlink()]
     if conflicts:
         raise RuntimeError("Cannot migrate managed runtime without replacing existing destinations: "
                            + ", ".join(map(str, conflicts)))
-    if not pairs:
-        return []
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
     configs = {src: json.loads(data.decode("utf-8-sig")) for src, data in originals.items() if src.suffix == ".json"}
@@ -429,16 +433,57 @@ def migrate_layout(repository, *, reverse=False):
         transformed[src] = (json.dumps(rebased, indent=2) + "\n").encode("utf-8")
     runtime_edits = []
     for src, dst in pairs:
-        if src.name not in (".venv", ".python", "python"):
+        if src in transformed:
+            runtime_edits.append((dst, originals[src], transformed[src], None))
+        elif src in originals:
+            text = originals[src].decode("utf-8", "surrogateescape")
+            after = rebase_script(text, source, destination, shell_rebase).encode("utf-8", "surrogateescape")
+            if after != originals[src]:
+                runtime_edits.append((dst, originals[src], after, None))
+    # Pre-existing destination transports must commit with moved configs and profiles.
+    for path in sorted(destination.glob("strata-*.json")):
+        before = path.read_bytes()
+        try:
+            config = json.loads(before.decode("utf-8-sig"))
+        except (UnicodeError, ValueError):
             continue
+        if not isinstance(config, dict):
+            continue
+        normalized = normalize_sycl_config(config, repository)
+        if normalized is config:
+            continue                           # Leave independent installations alone.
+        mapped = sycl_config(normalized, source, destination, repository, reverse, rebase)
+        if mapped != config:
+            runtime_edits.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8"), None))
+
+    path_moves = sorted(pairs, key=lambda pair: -len(pair[0].parts))
+
+    def moved_path(path):
+        for old, new in path_moves:
+            if path.is_relative_to(old):
+                return new / path.relative_to(old)
+        return path
+
+    for src, dst in pairs:
+        if not src.is_symlink() and not src.is_dir():
+            continue
+        interpreter = src.name in (".venv", ".python", "python")
         for entry in interpreter_entries(src):
             relocated = dst / entry.relative_to(src)
             if entry.is_symlink():
                 before = os.readlink(entry)
-                after = rebase(before) if os.path.isabs(before) else before
+                target = Path(before) if os.path.isabs(before) else entry.parent / before
+                lexical = Path(os.path.normpath(target))
+                effective = target.resolve()
+                mapped = moved_path(lexical)
+                # Preserve link chains and dangling targets; use the effective target when an
+                # unmoved alias points at a moved payload, or '..' crosses a symlink directory.
+                if lexical.resolve() != effective or (mapped == lexical and moved_path(effective) != effective):
+                    mapped = moved_path(effective)
+                after = str(mapped) if os.path.isabs(before) else os.path.relpath(mapped, relocated.parent)
                 if after != before:
                     runtime_edits.append((relocated, before, after, entry.lstat().st_mode))
-            elif entry.is_file():
+            elif interpreter and entry.is_file():
                 metadata = entry == src / "pyvenv.cfg" or (entry.parent.name in ("bin", "Scripts")
                            and entry.name.lower().startswith("activate"))
                 if not metadata:
@@ -453,35 +498,43 @@ def migrate_layout(repository, *, reverse=False):
                     runtime_edits.append((relocated, before, after, None))
     moved = []
     edited = []
-    with tempfile.TemporaryDirectory(prefix="strata-links-", dir=repository / ".git") as temporary, \
-            profiles.relocate_sources(config_moves) as publish_profiles:
+    with ExitStack() as snapshots, profiles.relocate_sources(config_moves) as publish_profiles:
+        temporary_roots = {}
+        approval = repository / ".git/strata-engine-rollback.json"
+        approval_backup = None
+        if approval.exists() or approval.is_symlink():
+            temporary = Path(snapshots.enter_context(tempfile.TemporaryDirectory(prefix="strata-links-", dir=approval.parent)))
+            approval_backup = temporary / "approval"
+            os.link(approval, approval_backup, follow_symlinks=False)
         try:
             for src, dst in pairs:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 os.rename(src, dst)
                 moved.append((src, dst))
-            for src, dst in moved:
-                if src in transformed:
-                    dst.write_bytes(transformed[src])
-                elif src in originals:
-                    text = originals[src].decode("utf-8", "surrogateescape")
-                    dst.write_bytes(rebase_script(text, source, destination, shell_rebase).encode("utf-8", "surrogateescape"))
             for entry, before, after, mode in runtime_edits:
-                backup = Path(temporary) / str(len(edited)) if mode is not None else None
+                backup = None
+                if mode is not None:
+                    device = entry.lstat().st_dev
+                    if device not in temporary_roots:
+                        temporary_roots[device] = Path(snapshots.enter_context(
+                            tempfile.TemporaryDirectory(prefix=".strata-links-", dir=entry.parent)))
+                    backup = temporary_roots[device] / str(len(edited))
                 edited.append((entry, before, mode, backup))
                 write_runtime(entry, after, mode, backup)
             publish_profiles()
             # A committed layout move retires old path identities; source rollback restores its snapshot.
-            (repository / ".git/strata-engine-rollback.json").unlink(missing_ok=True)
+            if moved:
+                approval.unlink(missing_ok=True)
         except BaseException as error:
+            if approval_backup is not None and not approval.exists() and not approval.is_symlink():
+                os.replace(approval_backup, approval)
             for entry, before, mode, backup in reversed(edited):
                 if mode is None:
                     write_runtime(entry, before, None)
                 elif backup.is_symlink():
                     os.replace(backup, entry)
-            for src, dst in moved:
-                if src in originals and dst.read_bytes() != originals[src]:
-                    dst.write_bytes(originals[src])
+            # Backups inside a moved filesystem must disappear before their parents move back.
+            snapshots.close()
             for src, dst in reversed(moved):
                 os.rename(dst, src)
             raise RuntimeError(f"Managed runtime path migration failed: {error}") from error

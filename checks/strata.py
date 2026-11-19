@@ -1687,6 +1687,248 @@ for depth in ("0", "2", "12"):
     assert engine_argument_path(reverse["args"][3], reverse["exe"], reverse) == repository / "packs/model"
 ''')
 
+    def test_relative_runtime_links_preserve_external_moved_and_dangling_targets_on_failure_and_reverse(self):
+        self.make_cross_pin_sources()
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "relative profiles' namespace")
+        root = self.prepare_cross_pin(self.new, overlay=False)
+        external = root.parent.parent / "external runtime's payload"
+        external.mkdir()
+        self.make_local_runtime(external)
+        self.run_source_script(root, r'''
+import json, os, subprocess, sys
+from pathlib import Path
+import setup
+import strata_managed_state as state
+from strata_control import profiles
+from strata_control.cfg_paths import engine_argument_path
+repository = setup.ROOT.parent
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
+external = repository.parent / "external runtime's payload"
+shared = repository.parent / "shared models' payload"
+shared.mkdir()
+(shared / "weights.gguf").write_bytes(b"external model bytes")
+(repository / "models").symlink_to(os.path.relpath(shared, repository), target_is_directory=True)
+(repository / ".venv").symlink_to(os.path.relpath(external / ".venv", repository), target_is_directory=True)
+(repository / "packs").mkdir()
+(repository / "packs/index.txt").write_bytes(b"migrated pack bytes")
+(repository / "mtp").symlink_to("packs", target_is_directory=True)
+missing = repository.parent / "missing models' target"
+(repository / "marks").symlink_to(os.path.relpath(missing, repository), target_is_directory=True)
+(repository / "build-sycl-aot").mkdir()
+(repository / "build-sycl-aot/interpreter").symlink_to(sys.executable)
+(repository / "python/bin").mkdir(parents=True)
+(repository / "python/bin/python3").symlink_to("../../build-sycl-aot/interpreter")
+config = repository / "strata-relative.json"
+config.write_text(json.dumps({"exe": str(repository / "python/bin/python3"), "cwd": str(repository),
+                              "tokenizer": "/fixture/tokenizer",
+                              "args": ["--native", str(repository / "models/weights.gguf"),
+                                       "--pack", str(repository / "mtp")]}))
+for name in ("relative-first", "relative-second"):
+    profiles.create(name, str(config))
+    profiles.set_values(name, ["port=9123"])
+external_bytes = {path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino)
+                  for base in (external, shared) for path in base.rglob("*") if path.is_file()}
+payload_inode = (repository / "packs/index.txt").stat().st_ino
+link_names = ("models", ".venv", "mtp", "marks", "python/bin/python3")
+original_links = {name: os.readlink(repository / name) for name in link_names}
+for reverse in (False, True):
+    source, target = (setup.ROOT, repository) if reverse else (repository, setup.ROOT)
+    links = {name: (os.readlink(source / name), (source / name).lstat().st_ino) for name in link_names}
+    current = {path: path.read_bytes() for path in profiles.profile_dir().rglob("*.json")}
+    history = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+               for path in (profiles.profile_dir() / ".history").rglob("*.json")}
+    before_config = (source / config.name).read_bytes()
+    real_save = profiles._save_locked
+    saves = []
+    def refuse_second(name, proposed, **kwargs):
+        saves.append(name)
+        if len(saves) == 2:
+            raise OSError("relative-link profile publication refused")
+        return real_save(name, proposed, **kwargs)
+    profiles._save_locked = refuse_second
+    try:
+        try:
+            state.migrate_layout(repository, reverse=reverse)
+        except RuntimeError as error:
+            assert "relative-link profile publication refused" in str(error), error
+        else:
+            raise AssertionError("a failed publication committed relative links")
+    finally:
+        profiles._save_locked = real_save
+    assert len(saves) == 2, saves
+    assert (source / config.name).read_bytes() == before_config
+    assert {path: path.read_bytes() for path in profiles.profile_dir().rglob("*.json")} == current
+    for path, before in history.items():
+        assert (path.read_bytes(), path.stat().st_mtime_ns) == before
+    for name, before in links.items():
+        assert (os.readlink(source / name), (source / name).lstat().st_ino) == before, name
+        assert not (target / name).exists() and not (target / name).is_symlink(), name
+    state.migrate_layout(repository, reverse=reverse)
+    resolved, profile, revision = profiles.resolve("relative-first")
+    assert resolved == target / config.name, (resolved, target)
+    cfg = profiles.read_run_config(resolved)
+    assert engine_argument_path(cfg["args"][1], cfg["exe"], cfg).read_bytes() == b"external model bytes"
+    assert (engine_argument_path(cfg["args"][3], cfg["exe"], cfg) / "index.txt").read_bytes() == b"migrated pack bytes"
+    assert (target / "models").resolve() == shared
+    assert (target / ".venv").resolve() == external / ".venv"
+    assert (target / "mtp").resolve() == target / "packs"
+    assert (target / "marks").is_symlink() and not (target / "marks").exists()
+    assert (target / "marks").resolve() == missing
+    assert (target / "packs/index.txt").stat().st_ino == payload_inode
+    assert subprocess.check_output([str(target / "python/bin/python3"), "-c", "print('relative interpreter')"],
+                                   text=True).strip() == "relative interpreter"
+    assert subprocess.check_output([str(target / ".venv/bin/relocation-fixture")],
+                                   text=True).strip() == "retained package"
+    for path, before in external_bytes.items():
+        assert (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino) == before, path
+assert {name: os.readlink(repository / name) for name in link_names} == original_links
+''')
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "Native SYCL shell recorder, no Docker daemon")
+    def test_real_cross_pin_sycl_repeated_dense_and_embedding_gguf_operands_preserve_numeric_mtp(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old, overlay=False)
+        payloads = {"models/native.gguf": b"native", "models/dense-1.gguf": b"dense one",
+                    "models/dense-2.gguf": b"dense two", "models/embedding-1.gguf": b"embedding one",
+                    "models/embedding-2.gguf": b"embedding two"}
+        identities = {}
+        for name, data in payloads.items():
+            path = flat / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            identities[name] = (path.stat().st_dev, path.stat().st_ino)
+        binary = flat / "build-sycl-aot/strata"
+        binary.parent.mkdir()
+        binary.write_bytes(b"selected SYCL engine")
+        binary.chmod(0o700)
+        operands = [("--native", "models/native.gguf"), ("--native-dense-gguf", "models/dense-1.gguf"),
+                    ("--embd-gguf", "models/embedding-1.gguf"), ("--native-dense-gguf", "models/dense-2.gguf"),
+                    ("--embd-gguf", "models/embedding-2.gguf")]
+        argv = [item for flag, name in operands for item in (flag, "/work/source/" + name)]
+        argv += ["--mtp", "2", "--prompt", "/work/source/models/keep literal"]
+        config = flat / "strata-gguf-operands.json"
+        config.write_text(json.dumps({"backend": "sycl", "exe": str(flat / "sycl/serve/strata-sycl.sh"),
+                                     "cwd": str(flat), "env": {"STRATA_SYCL_BIN": "build-sycl-aot/strata"}, "args": argv}))
+        docker = self.base / "gguf docker's recorder/docker"
+        docker.parent.mkdir()
+        record = docker.parent / "arguments.json"
+        docker.write_text("#!" + sys.executable + "\nimport json,sys\nfrom pathlib import Path\n"
+                          + "if sys.argv[1]=='run': Path(" + repr(str(record)) + ").write_text(json.dumps(sys.argv[1:]))\n")
+        docker.chmod(0o700)
+        def consume(root):
+            cfg = json.loads((root / config.name).read_text())
+            result = subprocess.run(["bash", cfg["exe"], *cfg["args"]], cwd=root,
+                                    env=dict(self.env, PATH=str(docker.parent) + os.pathsep + self.env["PATH"], **cfg["env"]),
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            command = json.loads(record.read_text())
+            mount = Path(command[command.index("-v") + 1].removesuffix(":/work"))
+            tokens = shlex.split(command[-1])
+            actual = tokens[tokens.index("exec") + 2:]
+            self.assertEqual(actual, cfg["args"])
+            for index, (flag, name) in enumerate(operands):
+                self.assertEqual(actual[index * 2], flag)
+                host = mount / Path(actual[index * 2 + 1]).relative_to("/work")
+                self.assertEqual(host.resolve(), (root / name).resolve())
+                self.assertEqual(host.read_bytes(), payloads[name])
+                self.assertEqual((host.stat().st_dev, host.stat().st_ino), identities[name])
+            self.assertEqual(actual[-4:], ["--mtp", "2", "--prompt", "/work/source/models/keep literal"])
+            self.run_source_script(root, "from pathlib import Path\nfrom serve.runconfig import load\n"
+                + "from strata_control.cfg_paths import engine_argument_path\n"
+                + "cfg=load(" + repr(str(root / config.name)) + ")\n"
+                + "expected=" + repr([(flag, str(root / name)) for flag, name in operands]) + "\n"
+                + "for i, (flag, path) in enumerate(expected):\n"
+                + "    assert cfg['args'][i*2] == flag\n"
+                + "    assert engine_argument_path(cfg['args'][i*2+1], cfg['exe'], cfg).resolve() == Path(path).resolve()\n"
+                + "assert cfg['args'][-4:] == ['--mtp','2','--prompt','/work/source/models/keep literal']\n")
+        consume(flat)  # Both extra flags start as valid container operands, not host-absolute auto-generation.
+        split = self.prepare_cross_pin(self.new, overlay=False)
+        consume(split)
+        self.assertEqual(self.prepare_cross_pin(self.new, overlay=False), split)
+        consume(split)
+        self.assertEqual(self.prepare_cross_pin(self.old, overlay=False), flat)
+        consume(flat)
+
+    def test_real_flat_to_split_invalid_destination_transport_restores_entire_source_transaction(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        retained = self.make_local_runtime(flat)
+        payloads = {"models/retained.gguf": b"retained model", "engine/strata": b"approved current engine",
+                    "engine/.previous/strata": b"approved previous engine", "build/user-cache": b"user cache"}
+        identities = {}
+        for name, data in payloads.items():
+            path = flat / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            identities[name] = (path.stat().st_dev, path.stat().st_ino)
+        config = flat / "strata-transaction.json"
+        config.write_text(json.dumps({"exe": str(flat / "engine/strata"), "cwd": str(flat),
+                                     "tokenizer": "/fixture/tokenizer", "args": ["--native", "models/retained.gguf"]}))
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "transaction profiles' history")
+        self.cross_pin_cli(self.old, "profile", "create", "transaction", "--from-config", str(config), "--output", "json")
+        self.cross_pin_cli(self.old, "profile", "set", "transaction", "port=9123", "--output", "json")
+        profiles = Path(self.env["STRATA_PROFILE_DIR"])
+        metadata = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in profiles.rglob("*.json")}
+        ledger = flat / ".git/strata-source.patch"
+        previous_ledger = ledger.read_bytes()
+        receipts = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in (flat / ".git/strata-source-patches").iterdir()}
+        marker = flat / ".git/strata-runtime-revision"
+        marker.write_text(self.old + "\n")
+        approval = flat / ".git/strata-engine-rollback.json"
+        script = "import importlib.util,json; from pathlib import Path; "
+        script += "spec=importlib.util.spec_from_file_location('workspace', " + repr(WORKSPACE) + "); "
+        script += "module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); "
+        script += "Path(" + repr(str(approval)) + ").write_text(json.dumps({'revision':" + repr(self.old)
+        script += ", 'engines':{'engine':{'files':module.engine_identity(Path(" + repr(str(flat / "engine"))
+        script += ")), 'sources':{}}}})+'\\n')"
+        result = subprocess.run([sys.executable, "-c", script], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        old_approval = json.loads(approval.read_text())
+        source_files = {flat / name: (flat / name).read_bytes() for name in ("setup.py", "strata.py", "strata_cli/cli.py")}
+        old_config = config.read_bytes()
+        invalid = flat / "terminal/strata-invalid-sycl.json"
+        invalid.parent.mkdir()
+        invalid.write_text(json.dumps({"backend": "sycl", "exe": str(WORKSPACE_LIB / "strata-sycl.sh"), "args": [],
+            "env": {"STRATA_SYCL_HERE": str(flat / "engine"), "STRATA_SYCL_ROOT": str(flat.parent),
+                    "STRATA_SYCL_CWD": "/work/../outside"}}))
+        bad_bytes, bad_inode = invalid.read_bytes(), invalid.stat().st_ino
+        result = subprocess.run(self.command(self.new), env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("STRATA_SYCL_CWD", result.stderr)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"], text=True).strip(), self.old)
+        self.assertEqual(ledger.read_bytes(), previous_ledger)
+        subprocess.run(["git", "-C", str(flat), "apply", "--reverse", "--check", "-"],
+                       input=previous_ledger, env=self.env, capture_output=True, check=True)
+        self.assertEqual(marker.read_text(), self.old + "\n")
+        self.assertEqual(json.loads(approval.read_text()), old_approval)
+        self.assertEqual(config.read_bytes(), old_config)
+        self.assertEqual((invalid.read_bytes(), invalid.stat().st_ino), (bad_bytes, bad_inode))
+        self.assertFalse((flat / "terminal/setup.py").exists())
+        for path, data in source_files.items():
+            self.assertEqual(path.read_bytes(), data)
+        for name, data in payloads.items():
+            path = flat / name
+            self.assertEqual(path.read_bytes(), data)
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino), identities[name])
+            self.assertFalse((flat / "terminal" / name).exists())
+        self.assertEqual({path: (path.read_bytes(), path.stat().st_mtime_ns) for path in profiles.rglob("*.json")}, metadata)
+        for path, before in receipts.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+        self.assert_local_runtime(flat, retained)
+        # A new interpreter consumes the returned old source API and CLI, never a cached current setup module.
+        result = subprocess.run([sys.executable, "-c", "import setup\nfrom pathlib import Path\n"
+            + "from strata_control import profiles\nassert setup.ROOT == Path(" + repr(str(flat)) + ")\n"
+            + "assert Path(setup.__file__).read_bytes() == Path(" + repr(str(OLD_UPSTREAM_SOURCE / "setup.py")) + ").read_bytes()\n"
+            + "assert (setup.ROOT/'models/retained.gguf').read_bytes() == b'retained model'\n"
+            + "assert profiles.resolve('transaction')[0] == setup.ROOT/'strata-transaction.json'\n"
+            + "import importlib.util\nspec=importlib.util.spec_from_file_location('restored_workspace', " + repr(WORKSPACE) + ")\n"
+            + "workspace=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(workspace)\n"
+            + "assert workspace.engine_rollbacks(setup.ROOT," + repr(self.old) + ") == " + repr(old_approval["engines"]) + "\n"],
+            cwd=flat, env=dict(self.env, STRATA_MANAGED_SOURCE=str(flat)), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.cross_pin_cli(self.old, "profile", "history", "transaction", "--output", "json")["ok"])
+
     def test_real_cross_pin_transitions_preserve_runtime_profiles_scripts_and_old_consumer_history(self):
         self.make_cross_pin_sources()
         state = self.state
@@ -2734,6 +2976,273 @@ _fixture_subprocess.Popen = _fixture_popen
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(result.stdout.startswith("strata "), result.stdout)
                 self.assertIn("python ", result.stdout)
+
+    def test_native_old_and_split_long_observers_release_source_after_imports_and_ui_ready(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import hashlib
+        import threading
+        self.make_cross_pin_sources()
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "native observers' empty profiles")
+        state = self.state
+        class Telemetry(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = json.dumps({"schema_version": 1, "instance": {"id": "native-observer"},
+                                   "activity": {"last_seq": 0, "events": []}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+        telemetry = ThreadingHTTPServer(("127.0.0.1", 0), Telemetry)
+        thread = threading.Thread(target=telemetry.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(telemetry.server_close)
+        self.addCleanup(telemetry.shutdown)
+        url = "http://127.0.0.1:" + str(telemetry.server_port)
+        def reap(process, *, group=False):
+            if process.poll() is None:
+                if group:
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+            process.communicate(timeout=10)
+        bootstrap = self.base / "native observer's bootstrap"
+        bootstrap.mkdir()
+        (bootstrap / "observer-bootstrap.py").write_text(r'''
+from strata_managed_state import install_consumer
+install_consumer()
+import os, sys
+if os.environ.get("NATIVE_GATE") and "--native-observer" in sys.argv:
+    import ast, hashlib, importlib.abc, importlib.machinery, json, socket
+    from pathlib import Path
+    root = Path(sys.argv[2])
+    mode = sys.argv[4]
+    loaded = {}
+    after_ready = False
+    def gate(label):
+        with socket.socket(socket.AF_UNIX) as peer:
+            peer.settimeout(30)
+            peer.connect(os.environ["NATIVE_GATE"])
+            peer.sendall(json.dumps({"phase": label, "pid": os.getpid(), "imports": loaded}).encode() + b"\n")
+            assert peer.recv(1) == b"g"
+    class SourceLoader(importlib.abc.Loader):
+        def __init__(self, original, fullname, filename):
+            self.original, self.fullname, self.filename = original, fullname, filename
+        def create_module(self, spec):
+            return self.original.create_module(spec)
+        def exec_module(self, module):
+            assert not after_ready, ("mutable checkout import after native readiness", self.fullname)
+            if self.fullname == "strata_cli.cli":
+                gate("i")
+            loaded[self.fullname] = hashlib.sha256(Path(self.filename).read_bytes()).hexdigest()
+            self.original.exec_module(module)
+            if mode == "logs" and self.fullname == "strata_cli.logs":
+                gate("u")
+    class Sources(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if not fullname.startswith(("strata_cli.", "strata_control.", "serve.")):
+                return None
+            if fullname in {"strata_control.profiles", "strata_control.cfg_paths", "strata_control.doctor"}:
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+            if spec is not None and spec.origin and Path(spec.origin).is_relative_to(root):
+                spec.loader = SourceLoader(spec.loader, fullname, spec.origin)
+                return spec
+    sys.meta_path.insert(0, Sources())
+    logs_file = str(root / "strata_cli/logs.py")
+    poll = next(node.lineno for node in ast.walk(ast.parse(Path(logs_file).read_text()))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "time" and node.func.attr == "sleep")
+    loop_seen = False
+    profile_events = 0
+    def original_profile(frame, event, arg):
+        global profile_events
+        profile_events += 1
+    def trace(frame, event, arg):
+        global after_ready, loop_seen
+        filename, name = frame.f_code.co_filename, frame.f_code.co_name
+        if (mode == "monitor" and filename == str(root / "strata_cli/launch/monitor_ext.py")
+                and name == "__init__" and event == "return"):
+            gate("u")
+        if not loop_seen and ((mode == "logs" and filename == logs_file and name == "run"
+                               and event == "line" and frame.f_lineno == poll)
+                              or (mode == "monitor" and filename == str(root / "strata_cli/monitor.py")
+                                  and name == "on_mount" and event == "return")):
+            loop_seen = after_ready = True
+            assert sys.getprofile() is original_profile and profile_events > 0
+            gate("l")
+        return trace
+    sys.setprofile(original_profile)
+    sys.settrace(trace)
+''')
+        writer_script = r'''
+import contextlib, fcntl, importlib.util, json, os, socket, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("native_writer", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+state, remote, revision, patch = Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5] or None
+def gate(label, wait=True):
+    with socket.socket(socket.AF_UNIX) as peer:
+        peer.settimeout(30)
+        peer.connect(os.environ["NATIVE_GATE"])
+        peer.sendall(json.dumps({"phase": label, "pid": os.getpid()}).encode() + b"\n")
+        if wait:
+            assert peer.recv(1) == b"g"
+original = module.source_publication_lock
+calls = 0
+@contextlib.contextmanager
+def publication(state, *, shared=False):
+    global calls
+    calls += 1
+    if calls == 2:
+        gate("p")  # The real mutator holds acquisition, but has finished its protected source inspection.
+    with original(state, shared=shared) as lock:
+        yield lock
+module.source_publication_lock = publication
+with module.workspace_lock(state) as (_, lock):
+    with (state / ".source-publication.lock").open("a") as publication_lock:
+        try:
+            fcntl.flock(publication_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            gate("w", wait=False)
+        else:
+            raise AssertionError("native observer imports were not protected by a real reader")
+    module._prepare_workspace(state, revision, remote, patch, lock_fd=lock.fileno())
+'''
+        for label, revision, overlay in (("old-native", self.old, False), ("old-accepted", self.old, True),
+                                          ("split-native", self.new, False)):
+            for mode in ("logs", "monitor"):
+                with self.subTest(pin=label, command=mode), tempfile.TemporaryDirectory(prefix="s339-", dir="/tmp") as sockets:
+                    self.state = state / (label + "-" + mode)
+                    root = self.prepare_cross_pin(revision, overlay=overlay)
+                    interpreter = root / ".venv/bin/python"
+                    interpreter.parent.mkdir(parents=True)
+                    interpreter.write_text("#!" + sys.executable + "\nimport runpy,sys\n"
+                        + "entry,args=sys.argv[1],sys.argv[2:]\nsys.argv=[entry,*args]\n"
+                        + "runpy.run_path(" + repr(str(bootstrap / "observer-bootstrap.py")) + ")\n"
+                        + "runpy.run_path(entry,run_name='__main__')\n")
+                    interpreter.chmod(0o700)
+                    repository = root.parent if root.name == "terminal" else root
+                    selected = self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)
+                    ordinary = dict(self.env, TEST_SOURCE_PATCH=str(selected) if overlay else "")
+                    address = str(Path(sockets) / "g")
+                    env = dict(ordinary, NATIVE_GATE=address, TERM="xterm-256color",
+                               PYTHONPATH=str(WORKSPACE_LIB))
+                    command = self.command(revision) + ["run", mode, "--url", url, "--timeout", "1"]
+                    if mode == "logs":
+                        command += ["--follow", "--output", "jsonl"]
+                    else:
+                        command += ["--color", "never", "--glyphs", "ascii"]
+                    with socket.socket(socket.AF_UNIX) as server:
+                        server.bind(address)
+                        server.listen(8)
+                        server.settimeout(30)
+                        def event():
+                            peer, _ = server.accept()
+                            peer.settimeout(30)
+                            self.addCleanup(peer.close)
+                            raw = b""
+                            while not raw.endswith(b"\n"):
+                                part = peer.recv(65536)
+                                self.assertTrue(part, raw)
+                                raw += part
+                            return peer, json.loads(raw)
+                        master = slave = None
+                        if mode == "monitor":
+                            master, slave = pty.openpty()
+                            self.addCleanup(os.close, master)
+                        observer = subprocess.Popen(command, env=env, cwd=self.base,
+                            stdin=slave if slave is not None else subprocess.DEVNULL,
+                            stdout=slave if slave is not None else subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+                        self.addCleanup(reap, observer, group=True)
+                        if slave is not None:
+                            os.close(slave)
+                            drain = subprocess.Popen([sys.executable, "-c", "import os,sys\n"
+                                + "while True:\n    try: data=os.read(int(sys.argv[1]),65536)\n"
+                                + "    except OSError: break\n    if not data: break\n", str(master)],
+                                pass_fds=(master,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            self.addCleanup(reap, drain)
+                        imported, observed = event()
+                        self.assertEqual(observed["phase"], "i")
+                        self.assertEqual(observed["pid"], observer.pid)
+                        with (self.state / ".source-publication.lock").open("a") as lock:
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        target = self.new if revision == self.old else self.old
+                        target_patch = str(SOURCE_PATCH) if overlay and target == self.new else ""
+                        writer = subprocess.Popen([sys.executable, "-c", writer_script, WORKSPACE, str(self.state),
+                            str(self.repository), target, target_patch], env=dict(ordinary, NATIVE_GATE=address),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+                        self.addCleanup(reap, writer, group=True)
+                        waiting, message = event()
+                        self.assertEqual(message["phase"], "w")
+                        self.assertEqual(message["pid"], writer.pid)
+                        waiting.close()
+                        self.assert_workspace_locked()
+                        imported.sendall(b"g")
+                        imported.close()
+                        initialized, observed = event()
+                        self.assertEqual(observed["phase"], "u")
+                        self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip(), revision)
+                        with (self.state / ".source-publication.lock").open("a") as lock:
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        def observers_answer():
+                            for args in (["status", "--output", "json", "--url", url], ["--version"], ["launch", "--stop"]):
+                                result = subprocess.run(self.command(revision) + ["run", *args], env=ordinary,
+                                                        capture_output=True, text=True, timeout=30)
+                                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                                if args[0] == "status":
+                                    self.assertEqual(json.loads(result.stdout)["snapshot"]["instance"]["id"], "native-observer")
+                                elif args[0] == "--version":
+                                    self.assertTrue(result.stdout.startswith("strata "), result.stdout)
+                                else:
+                                    self.assertIn("Nothing from", result.stdout)
+                        observers_answer()  # A writer really contends with this reader; native status/version/stop still answer.
+                        refused = subprocess.run(self.command(revision) + ["run", "logs", "--follow", "--output", "json", "--url", url],
+                                                 env=ordinary, capture_output=True, text=True, timeout=30)
+                        self.assertEqual(refused.returncode, 2, refused.stderr + refused.stdout)
+                        self.assertEqual(json.loads(refused.stdout)["error"]["message"], "--follow requires human or jsonl output")
+                        initialized.sendall(b"g")
+                        initialized.close()
+                        phases = {}
+                        for _ in range(2):
+                            peer, message = event()
+                            self.assertIn(message["phase"], ("l", "p"))
+                            self.assertNotIn(message["phase"], phases)
+                            phases[message["phase"]] = (peer, message)
+                        looping, observed = phases["l"]
+                        pending, _ = phases["p"]
+                        self.assertIsNone(observer.poll())
+                        self.assert_workspace_locked()
+                        with (self.state / ".source-publication.lock").open("a") as lock:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        raw = OLD_UPSTREAM_SOURCE if revision == self.old else UPSTREAM_SOURCE / "terminal"
+                        self.assertEqual(observed["imports"]["strata_cli.cli"], hashlib.sha256((raw / "strata_cli/cli.py").read_bytes()).hexdigest())
+                        if mode == "monitor":
+                            for name in ("strata_cli.monitor", "strata_cli.launch.monitor_ext", "strata_control.retired"):
+                                self.assertIn(name, observed["imports"])
+                        observers_answer()  # Acquisition remains held while the native long loop has released publication.
+                        pending.sendall(b"g")
+                        pending.close()
+                        stdout, stderr = writer.communicate(timeout=60)
+                        self.assertEqual(writer.returncode, 0, stderr + stdout)
+                        self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip(), target)
+                        looping.sendall(b"g")
+                        looping.close()
+                        if mode == "monitor":
+                            os.write(master, b"q")
+                        else:
+                            observer.send_signal(signal.SIGINT)
+                        stdout, stderr = observer.communicate(timeout=30)
+                        self.assertEqual(observer.returncode, 0, stderr + (stdout or ""))
+                        if mode == "monitor":
+                            drain.wait(timeout=10)
 
     def assert_observers_answer(self, revision):
         for args in (["status", "--output", "json"], ["monitor", "--once", "--output", "json"]):

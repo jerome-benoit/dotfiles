@@ -723,7 +723,7 @@ def observer_probe(root, args):
     return 73
 
 
-def exec_observer(root, python, args, lock, *, state):
+def exec_observer(root, python, args, lock, *, state, native=False):
     managed_state.enable_source(root)
     for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"):
         os.environ.pop(key, None)
@@ -731,7 +731,9 @@ def exec_observer(root, python, args, lock, *, state):
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
     os.set_inheritable(lock.fileno(), True)
     os.environ["STRATA_SOURCE_LOCK_FD"] = str(lock.fileno())
-    os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
+    command = ([str(Path(__file__).resolve()), "--native-observer", str(root), TERMINAL_CLI]
+               if native else [str(root / TERMINAL_CLI)])
+    os.execv(str(python), [str(python), *command, *args])
 
 
 def terminal_args(root, args):
@@ -885,27 +887,35 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
     source = state / "source"
     ledger = source / ".git" / SOURCE_PATCH
     # Hold a short source read lease through the guard, native parser, UI readiness and exec.
-    if (not managed_setup and args and args[0] in {"status", "monitor", "logs", "connection", "runtime", "launch"}
-            and (source / ".git").exists() and source_patch is not None):
+    if not managed_setup and args and (source / ".git").exists():
         with source_publication_lock(state, shared=True) as source_lock:
             head = subprocess.run(
                 ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", "HEAD"],
                 capture_output=True, text=True,
             )
-            if (ledger.is_file() and ledger.read_bytes() == Path(source_patch).read_bytes()
-                    and head.returncode == 0
-                    and head.stdout.strip() == revision
-                    and patch_check(source, ledger.read_bytes().decode("utf-8"), reverse=True)):
+            previous = ledger.read_bytes().decode("utf-8") if ledger.is_file() else None
+            desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
+            if (head.returncode == 0 and head.stdout.strip() == revision
+                    and (previous is None or patch_check(source, previous, reverse=True))):
+                if desired is not None and desired != previous and not patch_revision_check(source, revision, desired):
+                    desired = cached_source_patch(source / ".git/strata-source-patches", revision)
+                prepared = previous == desired
+            else:
+                prepared = False
+            if prepared:
                 python = Path(sys.executable) if args[0] == "launch" else runtime_python(terminal_root(source))
                 if not os.access(python, os.X_OK):
                     python = Path(sys.executable)
+                native = terminal_root(source) == source or desired is None
                 probe = subprocess.run(
-                    [str(python), str(Path(__file__).resolve()), "--observer-probe", str(terminal_root(source)), *args],
+                    [str(python), str(Path(__file__).resolve()),
+                     "--native-observer-probe" if native else "--observer-probe", str(terminal_root(source)),
+                     *([TERMINAL_CLI] if native else []), *args],
                     env={**os.environ, "STRATA_SOURCE_LOCK_FD": str(source_lock.fileno())},
                     pass_fds=(source_lock.fileno(),),
                 )
                 if probe.returncode == 73:
-                    exec_observer(terminal_root(source), python, args, source_lock, state=state)
+                    exec_observer(terminal_root(source), python, args, source_lock, state=state, native=native)
                 elif probe.returncode != 72:
                     probe.check_returncode()
                     return 0  # Native help finished in the probe.
@@ -913,8 +923,6 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         repository = _prepare_workspace(state, revision, REMOTE, source_patch, lock_fd=lock.fileno())
         root = terminal_root(repository)
         managed_state.enable_source(root)
-        with source_publication_lock(state):
-            managed_state.normalize_sycl_configs(repository)
         context = {
             "state": str(state), "revision": revision, "data_directory": data_directory,
             "models_directory": models_directory, "source_patch": source_patch, "remote": REMOTE,
@@ -931,7 +939,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                 python = Path(sys.executable)
             with source_publication_lock(state, shared=True) as source_lock:
                 lock.close()
-                exec_observer(root, python, args, source_lock, state=state)
+                exec_observer(root, python, args, source_lock, state=state, native=True)
         if managed_setup:
             return source_exec(context, args)
         a = terminal_args(root, args)
@@ -967,8 +975,6 @@ if __name__ == "__main__":
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--migrate-layout":
             managed_state.migrate_layout(repository_root(Path(sys.argv[2]).resolve()), reverse="--reverse" in sys.argv[3:])
-            if "--reverse" not in sys.argv[3:]:
-                managed_state.normalize_sycl_configs(repository_root(Path(sys.argv[2]).resolve()))
         elif sys.argv[1] == "--finalize-layout":
             managed_state.invalidate_cmake_metadata(Path(sys.argv[2]).resolve())
         elif sys.argv[1] == "--native-setup":
@@ -977,6 +983,14 @@ if __name__ == "__main__":
             launch_exec(sys.argv[2], sys.argv[3:])
         elif sys.argv[1] == "--observer-probe":
             sys.exit(observer_probe(Path(sys.argv[2]).resolve(), sys.argv[3:]))
+        elif sys.argv[1] == "--native-observer-probe":
+            from strata_native_observer import probe
+            root = Path(sys.argv[2]).resolve()
+            managed_state.enable_source(root)
+            sys.exit(73 if passive_action(probe(root, sys.argv[3], sys.argv[4:])) else 72)
+        elif sys.argv[1] == "--native-observer":
+            from strata_native_observer import run
+            run(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
         elif sys.argv[1] == "--validate-selected":
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
             root = terminal_root((Path(context["state"]) / "source").resolve())
