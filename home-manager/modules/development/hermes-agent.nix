@@ -64,10 +64,12 @@ let
           # Remove when Hermes provides an additive post-login PATH hook.
           ../../../patches/hermes-agent-terminal-mise-shims.patch
         ];
-      postPatch = (old.postPatch or "") + lib.optionalString miseEnabled ''
-        substituteInPlace tools/environments/local.py \
-          --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
-      '';
+      postPatch =
+        (old.postPatch or "")
+        + lib.optionalString miseEnabled ''
+          substituteInPlace tools/environments/local.py \
+            --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
+        '';
     });
   };
   baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override (
@@ -99,15 +101,19 @@ let
                 };
               };
             }
-          else if lib.elem (toString path) [
-            "${inputs.hermes-agent}/nix/desktop.nix"
-            "${inputs.hermes-agent}/nix/webapp.nix"
-          ] then
-            args // {
+          else if
+            lib.elem (toString path) [
+              "${inputs.hermes-agent}/nix/desktop.nix"
+              "${inputs.hermes-agent}/nix/webapp.nix"
+            ]
+          then
+            args
+            // {
               hermesNpmLib = args.hermesNpmLib // {
                 # Workaround: pending provider activation is not a next-chat tool report.
                 # Remove when the renderer classifies only tools and prompt sections here.
-                buildPnpmPackage = options:
+                buildPnpmPackage =
+                  options:
                   (args.hermesNpmLib.buildPnpmPackage options).overrideAttrs (old: {
                     patches = (old.patches or [ ]) ++ [
                       ../../../patches/hermes-agent-provider-activation-ui.patch

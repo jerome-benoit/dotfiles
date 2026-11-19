@@ -81,7 +81,9 @@ let
       ]
       [ ];
   opentelemetryApi =
-    mkLockedWheel "opentelemetry-api" [ py.pkgs.typing-extensions ] [ "opentelemetry.trace" ];
+    mkLockedWheel "opentelemetry-api"
+      [ py.pkgs.typing-extensions ]
+      [ "opentelemetry.trace" ];
   mcp2 =
     mkLockedWheel "mcp"
       [

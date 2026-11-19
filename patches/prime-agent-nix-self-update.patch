@@ -1,4 +1,4 @@
-# base: v0.10.4 (8980e66f2f07762d62a6c1d73b347a4cac5275cc)
+# base: v0.10.5 (033eea1705c5ae953fe7cd7a5e7e7c45317e0dfe)
 # prerequisites: none
 # intent: refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
 # upstream: Nix ownership policy; no generic upstream fix required.
@@ -100,7 +100,7 @@ diff --git a/crates/pa-cli/src/package_command.rs b/crates/pa-cli/src/package_co
 diff --git a/crates/pa-cli/src/public_command.rs b/crates/pa-cli/src/public_command.rs
 --- a/crates/pa-cli/src/public_command.rs
 +++ b/crates/pa-cli/src/public_command.rs
-@@ -680,6 +680,10 @@ fn run_update(args: &[String]) -> PublicCommandResult {
+@@ -681,6 +681,10 @@ fn run_update(args: &[String]) -> PublicCommandResult {
      let Some(options) = parse_update_options(args) else {
          return handled_failed();
      };
