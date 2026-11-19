@@ -36,6 +36,9 @@ def engine_binary(exe: str, cfg: dict | None = None) -> str:
     if Path(exe).name != "strata-sycl.sh":
         return exe
     selected = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_BIN", os.environ.get("STRATA_SYCL_BIN")) or "build-sycl-aot/strata"
+    here = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_HERE", os.environ.get("STRATA_SYCL_HERE"))
+    if here and Path(selected).is_absolute():
+        return str(Path(selected).expanduser())
     return str(engine_argument_path(selected, exe, cfg or {}))
 
 

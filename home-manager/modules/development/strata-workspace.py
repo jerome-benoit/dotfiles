@@ -443,8 +443,9 @@ def check_runtime(root, selected=(), *, inventory=True):
             continue
         checked.add(exe)
         preserved = any(exe.resolve() == (root / name / "strata").resolve() for name in rollbacks)
-        if sys.platform == "darwin" and exe.resolve() == (setup.engine_src() / "build-metal/strata").resolve():
-            sys.path.insert(0, str(setup.engine_src()))
+        engine_root = root if repository_root(root) == root else repository_root(root) / "engine"
+        if sys.platform == "darwin" and exe.resolve() == (engine_root / "build-metal/strata").resolve():
+            sys.path.insert(0, str(engine_root))
             from metal import setup_mac
             if not setup_mac.engine_current():
                 problems.append(f"{exe}: Metal engine was not built for this source")

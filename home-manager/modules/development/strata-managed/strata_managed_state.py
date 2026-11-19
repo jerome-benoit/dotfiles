@@ -146,9 +146,8 @@ def sycl_config(config, source, destination, repository, reverse, rebase):
     environment = {key: (value if key in transport_keys else rebase(value) if isinstance(value, str) else value)
                    for key, value in previous.items()}
     moving = source != destination
-    old_here = Path(previous["STRATA_SYCL_HERE"]) if previous.get("STRATA_SYCL_HERE") else (
-        repository if reverse or not moving or not (repository / "terminal/setup.py").is_file()
-        else repository / "engine")
+    old_here = (Path(previous["STRATA_SYCL_HERE"]) if previous.get("STRATA_SYCL_HERE")
+                else wrapper.resolve().parents[2])
     stable = bool(previous.get("STRATA_SYCL_HERE"))
     fixed = stable
     wrapper_text = wrapper.read_text(encoding="utf-8", errors="replace") if wrapper.is_file() else ""
@@ -214,7 +213,8 @@ def sycl_config(config, source, destination, repository, reverse, rebase):
         path, separator, scale = value.rpartition(":") if flag == "--control-vector-scaled" else (value, "", "")
         args[index + 1] = container_path(path if separator else value) + (separator + scale if separator else "")
     binary = previous.get("STRATA_SYCL_BIN", os.environ.get("STRATA_SYCL_BIN")) or "build-sycl-aot/strata"
-    selected_binary = host_path(binary)
+    selected_binary = (Path(os.path.normpath(rebase(str(Path(binary).expanduser()))))
+                       if stable and Path(binary).is_absolute() else host_path(binary))
     if not selected_binary.is_relative_to(new_mount):
         raise RuntimeError(f"Selected SYCL binary {selected_binary} is outside its mount {new_mount}")
     # The wrapper resolves a relative binary against its working directory; name the payload host-absolute.

@@ -1517,6 +1517,63 @@ for reverse in (False, True, False):
     setup.ROOT = saved_root
 ''')
 
+    def test_native_split_sycl_normalization_preserves_actual_default_mount_and_binary(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json
+from pathlib import Path
+import strata_managed_state as state
+from strata_control.cfg_paths import engine_binary, engine_argument_path
+repository = Path.cwd().parent
+wrapper = repository / "engine/sycl/serve/strata-sycl.sh"
+data = repository.parent / "Strata-data"
+data.mkdir()
+model = data / "model.gguf"
+model.write_bytes(b"existing payload")
+binary = repository / "engine/build-sycl-aot/strata"
+binary.parent.mkdir()
+binary.write_bytes(b"selected engine")
+config = {"backend": "sycl", "exe": str(wrapper), "args": ["--native", "/work/Strata-data/model.gguf"], "env": {}}
+first = state.normalize_sycl_config(config, repository)
+assert Path(first["env"]["STRATA_SYCL_ROOT"]) == repository.parent
+assert Path(engine_binary(first["exe"], first)) == binary
+assert engine_argument_path(first["args"][1], first["exe"], first) == model
+assert state.normalize_sycl_config(first, repository) == first
+assert model.read_bytes() == b"existing payload"
+''')
+
+    def test_host_absolute_sycl_binary_under_work_is_not_decoded_as_container_argument(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+from pathlib import Path
+import strata_managed_state as state
+from strata_control.cfg_paths import engine_binary, engine_argument_path
+repository = Path("/work/state/source")
+selected = "/work/state/source/engine/build/strata"
+config = {"backend": "sycl", "exe": str(state.DIRECTORY / "strata-sycl.sh"), "args": [],
+          "env": {"STRATA_SYCL_HERE": str(repository / "engine"), "STRATA_SYCL_ROOT": "/work/state",
+                  "STRATA_SYCL_CWD": "/work/source/engine", "STRATA_SYCL_BIN": selected}}
+assert engine_binary(config["exe"], config) == selected
+assert engine_argument_path("/work/source/models/pack", config["exe"], config) == repository / "models/pack"
+for _ in range(2):
+    config = state.sycl_config(config, repository / "terminal", repository / "terminal", repository, False, lambda value: value)
+    assert config["env"]["STRATA_SYCL_BIN"] == selected
+    assert engine_binary(config["exe"], config) == selected
+''')
+
+    @unittest.skipUnless(sys.platform == "darwin", "Historical Darwin selected runtime")
+    def test_historical_selected_runtime_validator_uses_flat_engine_root(self):
+        self.make_cross_pin_sources()
+        root = self.prepare_cross_pin(self.old, overlay=False)
+        (root / "requirements.txt").write_text("")
+        self.make_runtime_model(root)
+        (root / "engine/BUILD.json").write_text(json.dumps({"version": "0.1.46", "source": "prebuilt"}))
+        (root / ".venv/bin").mkdir(parents=True)
+        (root / ".venv/bin/python").symlink_to(sys.executable)
+        result = subprocess.run([sys.executable, WORKSPACE, "--selected-runtime", str(root),
+                                 str(root / "strata-fixture.json")], cwd=root, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
     def test_cmake_relocated_same_generator_is_fresh_and_matching_roots_are_noop(self):
         root = self.prepare(self.old)
         self.run_source_script(root, r'''
