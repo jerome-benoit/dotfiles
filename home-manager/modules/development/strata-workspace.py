@@ -177,7 +177,6 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
         requested = desired
         request_receipt = root / ".git" / SOURCE_REQUEST
-        old_request = request_receipt.read_text() if request_receipt.exists() else None
         applied = previous is not None and patch_check(root, previous, reverse=True)
         if previous is not None and not applied and not patch_check(root, previous):
             raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
@@ -202,9 +201,11 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
             else:
                 desired = cached
         reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
+        forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
         approval = snapshot_engine_approvals(terminal_root(root), current)
-        with managed_state.layout_checkpoint(root, enabled=reverse_layout) as restore_metadata:
-            reversed_layout = removed_patch = desired_applied = False
+        # Both directions publish runtime metadata before the source receipt can settle.
+        with managed_state.layout_checkpoint(root) as restore_metadata:
+            reversed_layout = forwarded_layout = removed_patch = desired_applied = False
             try:
                 if reverse_layout:
                     migrate_layout(state, root / "terminal", lock_fd, publication_fd=publication_lock.fileno(), reverse=True)
@@ -222,32 +223,35 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     apply_source_patch(root, desired)
                     desired_applied = True
                 migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+                forwarded_layout = forward_layout
                 if not target_terminal:
                     subprocess.run([sys.executable, str(Path(__file__).resolve()), "--finalize-layout", str(root)], check=True,
-                                   stdout=sys.stderr, pass_fds=(lock_fd, publication_lock.fileno()))
+                                   stdout=sys.stderr, pass_fds=(lock_fd, publication_lock.fileno(), *managed_state.namespace_fds()))
                 publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
             except BaseException:
-                try:
-                    if old_request is None:
-                        request_receipt.unlink(missing_ok=True)
-                    else:
-                        publish_source_patch(request_receipt, old_request)
-                    if desired_applied:
-                        apply_source_patch(root, desired, reverse=True)
-                    ledger.unlink(missing_ok=True)
-                    head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-                    if head != current:
-                        git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current)
-                    if previous is not None:
-                        publish_source_patch(ledger, previous)
-                        if removed_patch:
-                            apply_source_patch(root, previous)
-                    if reversed_layout:
-                        migrate_layout(state, root / "terminal", lock_fd, publication_fd=publication_lock.fileno())
-                    restore_metadata()
-                    restore_engine_approvals(terminal_root(root), approval)
-                except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
-                    print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
+                def restore(operation):
+                    try:
+                        operation()
+                    except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
+                        print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
+
+                # Undo accepted payload moves while their source consumers are still checked out.
+                if forwarded_layout:
+                    restore(lambda: migrate_layout(state, root / "terminal", lock_fd,
+                            publication_fd=publication_lock.fileno(), reverse=True))
+                if desired_applied:
+                    restore(lambda: apply_source_patch(root, desired, reverse=True))
+                restore(lambda: ledger.unlink(missing_ok=True))
+                restore(lambda: git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current))
+                if previous is not None:
+                    restore(lambda: publish_source_patch(ledger, previous))
+                    if removed_patch:
+                        restore(lambda: apply_source_patch(root, previous))
+                if reversed_layout:
+                    restore(lambda: migrate_layout(state, root / "terminal", lock_fd,
+                            publication_fd=publication_lock.fileno()))
+                restore(restore_metadata)
+                restore(lambda: restore_engine_approvals(terminal_root(root), approval))
                 raise
         (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
         if desired is not None:
@@ -367,9 +371,11 @@ def restore_engine_approvals(root, saved):
             continue
         engines[name] = dict(entry, files=after)
     path = repository_root(root) / ".git" / ENGINE_ROLLBACK
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(dict(saved, engines=engines)) + "\n")
-    temporary.replace(path)
+    restored = dict(saved, engines=engines)
+    if path.exists() and json.loads(path.read_text()) == restored:
+        return
+    # The checkpoint retains this inode; only changed identity attestations need new bytes.
+    path.write_text(json.dumps(restored) + "\n")
 
 
 def record_engine_rollback(root, revision, before):

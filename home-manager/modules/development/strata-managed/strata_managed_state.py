@@ -137,18 +137,32 @@ def rebase_script(text, source, destination, rebase):
     return rebase(pattern.sub(replace, text))
 
 
-def sycl_config(config, source, destination, repository, reverse, rebase):
+def _sycl_cwd(config, base):
+    """Resolve config coordinates against its known source, never the helper's cwd."""
+    cwd = Path(config.get("cwd") or base).expanduser()
+    return (cwd if cwd.is_absolute() else base / cwd).resolve()
+
+
+def _sycl_wrapper(config, base):
+    wrapper = Path(str(config.get("exe", ""))).expanduser()
+    return (wrapper if wrapper.is_absolute() else _sycl_cwd(config, base) / wrapper).resolve()
+
+
+def sycl_config(config, source, destination, repository, reverse, rebase, *, base=None):
     """Publish a stable transport from the actual old wrapper's mount/cwd, never a /work text swap."""
-    wrapper = Path(str(config.get("exe", "")))
-    if wrapper.name != "strata-sycl.sh":
+    base = Path(base if base is not None else source)
+    wrapper = _sycl_wrapper(config, base)
+    if Path(str(config.get("exe", ""))).name != "strata-sycl.sh":
         return config
     previous = dict(config.get("env") or {})
     transport_keys = {"STRATA_SYCL_ROOT", "STRATA_SYCL_CWD", "STRATA_SYCL_BIN", "STRATA_SYCL_HERE"}
     environment = {key: (value if key in transport_keys else rebase(value) if isinstance(value, str) else value)
                    for key, value in previous.items()}
     moving = source != destination
-    old_here = (Path(previous["STRATA_SYCL_HERE"]) if previous.get("STRATA_SYCL_HERE")
-                else wrapper.resolve().parents[2])
+    old_cwd = _sycl_cwd(config, base)
+    selected_here = previous.get("STRATA_SYCL_HERE")
+    old_here = ((old_cwd / Path(selected_here).expanduser()).resolve() if selected_here
+                else wrapper.parents[2])
     stable = bool(previous.get("STRATA_SYCL_HERE"))
     fixed = stable
     wrapper_text = wrapper.read_text(encoding="utf-8", errors="replace") if wrapper.is_file() else ""
@@ -159,7 +173,7 @@ def sycl_config(config, source, destination, repository, reverse, rebase):
             # Native flat wrappers always launch from the mounted checkout basename (including custom mirrors);
             # the engine-source wrapper and the stable transport launch from their explicit root.
             fixed = 'repo_in=/work/$(basename "$here")' not in wrapper_text
-    old_cwd = Path(config.get("cwd") or source)
+    # Relative host environment coordinates use the launch cwd, as the native wrapper does.
     # The native wrapper reads these from the process environment, so a config value stands in for it;
     # the default mount is the root its script computes from the engine root, one or two levels above.
     mount_value = previous.get("STRATA_SYCL_ROOT", os.environ.get("STRATA_SYCL_ROOT"))
@@ -233,21 +247,23 @@ def _model_config(data):
     return config if isinstance(config, dict) and config.get("exe") and isinstance(config.get("args"), list) else None
 
 
-def _managed_sycl_config(config, repository):
-    wrapper = Path(str(config.get("exe", "")))
-    if wrapper.name != "strata-sycl.sh":
+def _managed_sycl_config(config, repository, base):
+    wrapper = _sycl_wrapper(config, base)
+    if Path(str(config.get("exe", ""))).name != "strata-sycl.sh":
         return False
     previous_here = (config.get("env") or {}).get("STRATA_SYCL_HERE")
-    return (wrapper.resolve().is_relative_to(repository)
-            or bool(previous_here and Path(previous_here) in (repository, repository / "engine")))
+    return (wrapper.is_relative_to(repository)
+            or bool(previous_here and (_sycl_cwd(config, base) / Path(previous_here).expanduser()).resolve()
+                    in (repository, repository / "engine")))
 
 
-def normalize_sycl_config(config, repository):
+def normalize_sycl_config(config, repository, *, base=None):
     repository = Path(repository).resolve()
-    if not _managed_sycl_config(config, repository):
-        return config                          # An independent installation retains its own transport.
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
-    return sycl_config(config, runtime, runtime, repository, False, lambda value: value)
+    base = Path(base if base is not None else runtime)
+    if not _managed_sycl_config(config, repository, base):
+        return config                          # An independent installation retains its own transport.
+    return sycl_config(config, runtime, runtime, repository, False, lambda value: value, base=base)
 
 
 def normalize_sycl_configs(repository):
@@ -259,7 +275,7 @@ def normalize_sycl_configs(repository):
         config = _model_config(before)
         if config is None or (path.is_symlink() and not path.resolve().is_relative_to(repository)):
             continue
-        mapped = normalize_sycl_config(config, repository)
+        mapped = normalize_sycl_config(config, repository, base=path.parent)
         if mapped != config:
             changes.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8")))
     edited = []
@@ -328,9 +344,11 @@ def layout_checkpoint(repository, *, enabled=True):
         try:
             paths = {path for path in directory.glob("*.json") if path.is_file() and not path.is_symlink()}
             metadata = directory / ".source-relocations.json"
-            if metadata.exists():
-                paths.add(metadata)
-            metadata_existed = metadata.exists()
+            # Receipts and engine approval rollback data share the outer source transaction.
+            tracked = {metadata, *(repository / ".git" / name for name in
+                        ("strata-source-request.json", "strata-source.patch", "strata-engine-rollback.json"))}
+            absent = {path for path in tracked if not path.exists() and not path.is_symlink()}
+            paths.update(tracked - absent)
             history = set((directory / ".history").glob("*/*.json"))
             for runtime in (repository, repository / "terminal"):
                 paths.update(path for pattern in LAYOUT_FILES for path in runtime.glob(pattern) if path.is_file()
@@ -365,7 +383,15 @@ def layout_checkpoint(repository, *, enabled=True):
                 originals.append((path, backup, payload, info.st_mode))
 
             def restore():
-                for path, backup, payload, mode in originals:
+                errors = []
+
+                def attempt(operation):
+                    try:
+                        operation()
+                    except OSError as error:
+                        errors.append(error)
+
+                def restore_entry(path, backup, payload, mode):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     if path.is_symlink() or not path.exists() or path.lstat().st_ino != backup.lstat().st_ino:
                         os.replace(backup, path)
@@ -373,10 +399,19 @@ def layout_checkpoint(repository, *, enabled=True):
                         if path.read_bytes() != payload:
                             path.write_bytes(payload)
                         os.chmod(path, mode)
-                if not metadata_existed:
-                    metadata.unlink(missing_ok=True)
-                for path in set((directory / ".history").glob("*/*.json")) - history:
-                    path.unlink()
+
+                for path, backup, payload, mode in originals:
+                    attempt(lambda: restore_entry(path, backup, payload, mode))
+                for path in absent:
+                    attempt(lambda: path.unlink(missing_ok=True))
+
+                def clean_history():
+                    for path in set((directory / ".history").glob("*/*.json")) - history:
+                        attempt(lambda: path.unlink())
+
+                attempt(clean_history)
+                if errors:
+                    raise RuntimeError("Cannot restore layout checkpoint: " + "; ".join(map(str, errors))) from errors[0]
 
             yield restore
         finally:
@@ -428,8 +463,8 @@ def migrate_layout(repository, *, reverse=False):
     shell_rebase = shell_rebaser(swaps, rebase)
     actual_rebase = rebaser(pairs) if pairs else lambda value: value
 
-    def transform_config(config):
-        managed = _managed_sycl_config(config, repository)
+    def transform_config(config, base):
+        managed = _managed_sycl_config(config, repository, base)
         independent = not managed and Path(str(config.get("exe", ""))).name == "strata-sycl.sh"
         selected_rebase = actual_rebase if independent else rebase
 
@@ -443,7 +478,7 @@ def migrate_layout(repository, *, reverse=False):
 
         rebased = walk(config)
         if managed:
-            mapped = sycl_config(config, source, destination, repository, reverse, rebase)
+            mapped = sycl_config(config, source, destination, repository, reverse, rebase, base=base)
             rebased.update({key: mapped[key] for key in ("exe", "args", "env")})
         return rebased
 
@@ -451,7 +486,7 @@ def migrate_layout(repository, *, reverse=False):
     for src, config in configs.items():
         if src.is_symlink() and not src.resolve().is_relative_to(repository):
             continue                           # Moving a link does not grant ownership of its target.
-        mapped = transform_config(config)
+        mapped = transform_config(config, src.parent)
         if mapped != config:
             transformed[src] = (json.dumps(mapped, indent=2) + "\n").encode("utf-8")
     runtime_edits = []
@@ -469,7 +504,7 @@ def migrate_layout(repository, *, reverse=False):
         config = _model_config(before)
         if config is None or (path.is_symlink() and not path.resolve().is_relative_to(repository)):
             continue
-        mapped = transform_config(config)
+        mapped = transform_config(config, path.parent)
         if mapped != config:
             runtime_edits.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8"), None))
 

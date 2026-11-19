@@ -2008,6 +2008,174 @@ assert {name: os.readlink(repository / name) for name in link_names} == original
         self.assertEqual(self.prepare_cross_pin(self.old, overlay=False), flat)
         consume(flat)
 
+    def test_real_forward_receipt_failure_restores_payload_metadata_and_retry(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        retained = self.make_local_runtime(flat)
+        payloads = {"models/receipt.gguf": b"model payload", "engine/strata": b"engine payload",
+                    "engine/.previous/strata": b"previous payload", "build/user-cache": b"cache payload",
+                    "packs/receipt/index.txt": b"pack payload"}
+        identity = {}
+        for name, data in payloads.items():
+            path = flat / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            identity[name] = (path.stat().st_dev, path.stat().st_ino)
+        config = flat / "strata-receipt.json"
+        config.write_text(json.dumps({"exe": str(flat / "engine/strata"), "cwd": str(flat),
+                                     "tokenizer": "/fixture/tokenizer", "args": ["--native", "models/receipt.gguf"]}))
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / "receipt profiles")
+        self.cross_pin_cli(self.old, "profile", "create", "receipt", "--from-config", str(config), "--output", "json")
+        self.cross_pin_cli(self.old, "profile", "set", "receipt", "port=9123", "--output", "json")
+        result = subprocess.run([sys.executable, "-c", "import setup; setup.write_run_script('receipt', "
+            + repr(str(config)) + ", 9123, False); setup.WIN=True; setup.write_run_script('receipt', "
+            + repr(str(config)) + ", 9123, False)"], cwd=flat, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        approval = flat / ".git/strata-engine-rollback.json"
+        runner = r"""
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+root = Path(sys.argv[2])
+if sys.argv[3] == 'approval':
+    (root / '.git/strata-engine-rollback.json').write_text(json.dumps({'revision': sys.argv[4],
+        'engines': {'engine': {'files': module.engine_identity(root / 'engine'), 'sources': {}}}}) + '\n')
+elif sys.argv[3] == 'validate-approval':
+    saved = json.loads((root / '.git/strata-engine-rollback.json').read_text())
+    assert saved['revision'] == sys.argv[4], 'approval revision was not restored'
+    assert 'engine' in saved['engines'], 'approved engine was dropped'
+    assert saved['engines']['engine']['files'] == module.engine_identity(root / 'engine'), 'approval identity is stale'
+    assert module.engine_rollbacks(root, sys.argv[4]) == saved['engines'], 'restored approval is not accepted'
+else:
+    publish = module.publish_source_patch
+    def fault(path, text):
+        if path.name == module.SOURCE_REQUEST:
+            assert (root / 'terminal/models/receipt.gguf').read_bytes() == b'model payload'
+            raise OSError('receipt publication after accepted forward migration')
+        return publish(path, text)
+    module.publish_source_patch = fault
+    try:
+        module.prepare_workspace(sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
+    except OSError as error:
+        assert str(error) == 'receipt publication after accepted forward migration'
+    else:
+        raise AssertionError('receipt fault did not fire')
+"""
+        result = subprocess.run([sys.executable, "-c", runner, WORKSPACE, str(flat), "approval", self.old],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        profiles = Path(self.env["STRATA_PROFILE_DIR"])
+        paths = [config, flat / "run-receipt.sh", flat / "run-receipt.bat", approval,
+                 flat / ".git/strata-source.patch", flat / ".git/strata-source-request.json"]
+        paths += list(profiles.rglob("*.json"))
+        paths += [flat / ".venv/pyvenv.cfg", flat / ".python/bin/python", flat / ".python/lib"]
+        paths += [path for path in (flat / ".venv/bin").iterdir() if path.is_file() or path.is_symlink()]
+        def snapshot(path):
+            data = os.readlink(path) if path.is_symlink() else path.read_bytes()
+            info = path.lstat()
+            return (data, info.st_dev, info.st_ino)
+        before = {path: snapshot(path) for path in paths}
+        result = subprocess.run([sys.executable, "-c", runner, WORKSPACE, str(flat), str(self.state),
+                                 self.new, str(self.repository), SOURCE_PATCH], env=self.env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Cannot restore source transaction", result.stderr)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"], text=True).strip(), self.old)
+        self.assertFalse((flat / "terminal/setup.py").exists())
+        for path in paths:
+            after = snapshot(path)
+            self.assertEqual(after[1:], before[path][1:], f"Restored device/inode differs: {path}")
+            if path != approval:
+                self.assertTrue(after[0] == before[path][0], f"Restored bytes/link target differ: {path}")
+        # Checkout refreshes tracked engine-source mtimes; approvals must attest those real identities.
+        result = subprocess.run([sys.executable, "-c", runner, WORKSPACE, str(flat), "validate-approval", self.old],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(set(profiles.rglob("*.json")), {path for path in paths if path.is_relative_to(profiles)})
+        for name, data in payloads.items():
+            path = flat / name
+            self.assertEqual(path.read_bytes(), data)
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino), identity[name])
+            self.assertFalse((flat / "terminal" / name).exists())
+        self.assert_local_runtime(flat, retained)
+        self.assertTrue(self.cross_pin_cli(self.old, "profile", "history", "receipt", "--output", "json")["ok"])
+        split = self.prepare_cross_pin(self.new)
+        self.assertEqual(split, flat / "terminal")
+        self.assert_local_runtime(split, retained)
+        for name, data in payloads.items():
+            self.assertEqual((split / name).read_bytes(), data)
+            self.assertEqual(((split / name).stat().st_dev, (split / name).stat().st_ino), identity[name])
+        self.assertTrue(self.cross_pin_cli(self.new, "profile", "history", "receipt", "--output", "json")["ok"])
+
+    def test_relative_sycl_launchers_use_config_coordinates_outside_process_cwd(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json
+import os
+from pathlib import Path
+import setup
+import strata_managed_state as state
+from strata_control.cfg_paths import engine_argument_path, engine_binary
+repository = setup.ROOT.parent
+outside = repository.parent / "ambient-directory"
+outside.mkdir()
+os.chdir(outside)
+external = repository.parent / "independent-relative"
+external.mkdir()
+external_config = {"exe": "sycl/serve/strata-sycl.sh", "cwd": str(external),
+                   "args": ["--native", "/work/independent-relative/model.gguf"], "env": {}}
+assert state.normalize_sycl_config(external_config, repository) is external_config
+# Old and current wrapper spellings share the same explicit launch coordinates.
+for exe in ("sycl/serve/strata-sycl.sh", "engine/sycl/serve/strata-sycl.sh"):
+    config = {"exe": exe, "cwd": str(repository),
+              "args": ["--native", "/work/" + repository.name + "/model.gguf"],
+              "env": {"STRATA_SYCL_ROOT": ".."}}
+    normalized = state.normalize_sycl_config(config, repository)
+    assert normalized["exe"] == str(state.DIRECTORY / "strata-sycl.sh")
+    assert normalized["env"]["STRATA_SYCL_ROOT"] == str(repository.parent)
+    assert engine_argument_path(normalized["args"][1], normalized["exe"], normalized) == repository / "model.gguf"
+    assert state.normalize_sycl_config(normalized, repository) == normalized
+# A native doctor file without cwd uses its known config directory, not ambient cwd.
+config = {"exe": "../engine/sycl/serve/strata-sycl.sh", "args": [], "env": {}}
+normalized = state.normalize_sycl_config(config, repository, base=setup.ROOT)
+assert normalized["exe"] == str(state.DIRECTORY / "strata-sycl.sh")
+assert engine_binary(normalized["exe"], normalized) == str(repository / "engine/build-sycl-aot/strata")
+assert state.normalize_sycl_config(normalized, repository) == normalized
+# Migration supplies the parent of each actual config, including existing destination configs.
+(repository / "models").mkdir()
+(repository / "models/relative.gguf").write_bytes(b"relative payload")
+managed = {"exe": "sycl/serve/strata-sycl.sh", "cwd": str(repository),
+           "args": ["--native", "/work/" + repository.name + "/models/relative.gguf"],
+           "env": {"STRATA_SYCL_ROOT": ".."}}
+(repository / "strata-relative.json").write_text(json.dumps(managed))
+(repository / "strata-external-relative.json").write_text(json.dumps(external_config))
+(setup.ROOT / "strata-relative-existing.json").write_text(json.dumps(config))
+for reverse in (False, True):
+    state.migrate_layout(repository, reverse=reverse)
+    destination = repository if reverse else setup.ROOT
+    changed = json.loads((destination / "strata-relative.json").read_text())
+    argument = engine_argument_path(changed["args"][1], changed["exe"], changed)
+    assert argument == destination / "models/relative.gguf"
+    assert argument.read_bytes() == b"relative payload"
+    assert changed["exe"] == str(state.DIRECTORY / "strata-sycl.sh")
+    assert json.loads((destination / "strata-external-relative.json").read_text()) == external_config
+    if reverse:
+        # Reverse migration precedes checkout; normalization observes the returned flat source.
+        marker = setup.ROOT / "setup.py"
+        saved_marker = setup.ROOT / "setup.py.fixture-split"
+        marker.rename(saved_marker)
+        try:
+            assert state.normalize_sycl_config(changed, repository) == changed
+        finally:
+            saved_marker.rename(marker)
+    else:
+        assert state.normalize_sycl_config(changed, repository) == changed
+    existing = json.loads((destination / "strata-relative-existing.json").read_text())
+    assert existing["exe"] == str(state.DIRECTORY / "strata-sycl.sh")
+''')
+
     def test_real_flat_to_split_invalid_destination_transport_restores_entire_source_transaction(self):
         self.make_cross_pin_sources()
         flat = self.prepare_cross_pin(self.old)
