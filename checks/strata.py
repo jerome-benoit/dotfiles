@@ -126,6 +126,17 @@ class WorkspaceTests(unittest.TestCase):
         (self.repository / "engine/sycl").mkdir(parents=True)
         shutil.copyfile(UPSTREAM_SOURCE / "engine/CMakeLists.txt", self.repository / "engine/CMakeLists.txt")
         shutil.copyfile(UPSTREAM_SOURCE / "engine/sycl/setup_intel.py", self.repository / "engine/sycl/setup_intel.py")
+        for name in (
+            "engine/metal/setup_mac.py", "engine/spark/build_engine.sh", "engine/sycl/tools/build.sh",
+            "tools/packaging/build_cuda_linux.sh", "tools/packaging/build_cuda_windows.py",
+            "tools/packaging/build_hip_linux.sh", "tools/packaging/build_split_cuda.sh",
+            "tools/packaging/build_split_hip.sh", "tools/packaging/build_sycl_linux.sh",
+            "tools/packaging/build_vision_mac.sh", "tools/packaging/build_vision_windows.bat",
+        ):
+            destination = self.repository / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(UPSTREAM_SOURCE / name, destination)
+            shutil.copymode(UPSTREAM_SOURCE / name, destination)
         (self.repo / "removed.py").write_text("obsolete source\n")
         self.old = self.commit()
         (self.repo / "code.py").write_text("new source\n")
@@ -1013,6 +1024,173 @@ setup.move_over_old_layout(reverse=True)
         self.assertEqual((root / config.name).read_text(), "user-owned destination")
         self.assertEqual(json.loads(config.read_text()), original)
 
+    def test_handover_recognizes_flat_and_terminal_checkouts_but_runs_independent_bundle(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os, shutil
+from pathlib import Path
+from strata_cli import handover
+components = Path.cwd().parent.parent / "components"
+target = components / "control/new"
+(target / "strata_control").mkdir(parents=True)
+handover.bundled_python(target).parent.mkdir(parents=True)
+handover.bundled_python(target).symlink_to(__import__("sys").executable)
+(target / "strata.py").write_text("raise SystemExit(23)\n")
+(target / "VERSION").write_text("9.0.0")
+(target.parent / "active.json").write_text(json.dumps({"folder": "new"}))
+env = dict(os.environ, STRATA_COMPONENTS_DIR=str(components))
+env.pop(handover.ENV_OFF, None)
+env.pop(handover.ENV_GUARD, None)
+env.pop(handover.ENV_CHECKOUT, None)
+calls = []
+def execute(python, command, child_env):
+    import subprocess
+    calls.append(subprocess.run(command, env=child_env).returncode)
+original = handover.__file__
+for terminal in (False, True):
+    checkout = Path.cwd().parent.parent / ("flat-checkout" if not terminal else "split-checkout")
+    (checkout / ".git").mkdir(parents=True)
+    (checkout / "engine").mkdir()
+    shutil.copyfile(Path.cwd().parent / "engine/CMakeLists.txt", checkout / "engine/CMakeLists.txt")
+    module = checkout / ("terminal/strata_cli" if terminal else "strata_cli") / "handover.py"
+    module.parent.mkdir(parents=True)
+    shutil.copyfile(original, module)
+    handover.__file__ = str(module)
+    assert handover.running_from_checkout()
+    assert handover.maybe_hand_over(["--version"], environ=env, running="0.1.0", execv=execute) is None
+    assert calls == []
+bundle = Path.cwd().parent.parent / "independent/strata_cli/handover.py"
+bundle.parent.mkdir(parents=True)
+shutil.copyfile(original, bundle)
+handover.__file__ = str(bundle)
+assert not handover.running_from_checkout()
+handover.maybe_hand_over(["--version"], environ=env, running="0.1.0", execv=execute)
+assert calls == [23], calls
+''')
+
+    @unittest.skipUnless(os.name == "posix", "SYCL shell autostart")
+    def test_sycl_autostart_consumes_real_script_from_setup_home(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import importlib.util, json, os, subprocess
+from pathlib import Path
+import setup as S
+path = S.ROOT.parent / "engine/sycl/setup_intel.py"
+spec = importlib.util.spec_from_file_location("intel", path)
+intel = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(intel)
+intel.intel_devices = lambda: ([{"driver": "xe", "devid": "e223", "vram_gb": 32}], [])
+intel.sycl_engine = lambda: (Path("/fixture/strata"), None)
+intel.sycl_version = lambda: "fixture"
+S.ram_gb = lambda: 64
+cfg = S.home() / "strata-fixture.json"
+cfg.write_text(json.dumps({"backend": "sycl", "args": []}))
+script = S.write_run_script("fixture", cfg, 9123, False)
+assert script.parent == S.home()
+observed = S.home() / "autostart-observed.json"
+(S.ROOT / "serve/server.py").write_text("import json, os, sys\nfrom pathlib import Path\n"
+    + "Path(" + repr(str(observed)) + ").write_text(json.dumps({'cwd': os.getcwd(), 'args': sys.argv[1:]}))\n")
+def main():
+    S.start(cfg)
+    return 0
+S.main = main
+def execute(binary, argv):
+    assert binary == "/bin/sh"
+    subprocess.run(argv, check=True)
+intel.os.execv = execute
+try:
+    intel.install([])
+except SystemExit as error:
+    assert error.code == 0
+actual = json.loads(observed.read_text())
+assert Path(actual["cwd"]).resolve() == S.ROOT
+assert actual["args"] == ["--engine", "strata", "--config", str(cfg), "--port", "9123"]
+''')
+
+    def test_native_layout_preserves_profiles_and_reuses_external_marks(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os
+import setup
+from strata_control import profiles
+repository = setup.ROOT.parent
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
+source = repository / "strata-profile.json"
+other = repository.parent / "other-install/strata-profile.json"
+other.parent.mkdir()
+config = {"exe": "/fixture/engine", "tokenizer": "/fixture/tokenizer", "args": []}
+source.write_text(json.dumps(config))
+other.write_text(json.dumps(config))
+for name, path in (("managed", source), ("independent", other)):
+    profiles.create(name, str(path))
+    profiles.set_values(name, ["port=9123", "parallel=3"])
+independent = profiles.load("independent")
+external = repository.parent / "external/model.gguf"
+external.parent.mkdir()
+external.write_bytes(b"complete external weights")
+setup.ROOT = repository
+setup._OWN_DIRS = {external.parent.resolve()}
+setup.mark(external, "verified external weights")
+identity = setup._kept_mark(external).stat().st_ino
+setup.ROOT = repository / "terminal"
+for reverse in (False, True, False):
+    setup.move_over_old_layout(reverse=reverse)
+    destination = source if reverse else setup.ROOT / source.name
+    resolved, profile, revision = profiles.resolve("managed")
+    assert resolved == destination, (resolved, destination)
+    assert profiles.read_run_config(resolved)["args"] == []
+    assert profile["overrides"] == {"port": 9123, "parallel": 3}
+    assert profiles.load("independent") == independent
+    saved_root = setup.ROOT
+    setup.ROOT = repository if reverse else repository / "terminal"
+    assert setup.done(external)
+    assert setup.mark_text(external) == "verified external weights"
+    assert setup._kept_mark(external).stat().st_ino == identity
+    setup.ROOT = saved_root
+''')
+
+    def test_cmake_relocated_same_generator_is_fresh_and_matching_roots_are_noop(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import setup
+build = setup.ROOT / "build"
+build.mkdir()
+payload = build / "user-cache"
+payload.write_bytes(b"preserved payload")
+identity = payload.stat().st_ino
+cache = build / "CMakeCache.txt"
+metadata = build / "CMakeFiles"
+for source, cached_build, fresh in ((setup.ROOT.parent, build, True),
+                                   (setup.ROOT.parent / "engine", setup.ROOT.parent / "build", True),
+                                   (setup.ROOT.parent, setup.ROOT.parent / "build", True),
+                                   (setup.ROOT.parent / "engine", build, False)):
+    metadata.mkdir(exist_ok=True)
+    (metadata / "fixture").write_text("metadata")
+    cache.write_text("CMAKE_GENERATOR:INTERNAL=Ninja\n"
+                     + f"CMAKE_HOME_DIRECTORY:INTERNAL={source}\n"
+                     + f"CMAKE_CACHEFILE_DIR:INTERNAL={cached_build}\n")
+    before = cache.read_bytes()
+    assert setup.fresh_if_other_generator(build, "Ninja", src=setup.ROOT.parent / "engine") is fresh
+    assert cache.exists() is (not fresh)
+    assert metadata.exists() is (not fresh)
+    if not fresh:
+        assert cache.read_bytes() == before
+    assert payload.read_bytes() == b"preserved payload"
+    assert payload.stat().st_ino == identity
+''')
+
+    def test_source_overlay_replacement_at_same_revision_publishes_requested_delta(self):
+        root = self.prepare(self.old)
+        overlay = self.base / "replacement.patch"
+        delta = "diff --git a/terminal/code.py b/terminal/code.py\n--- a/terminal/code.py\n+++ b/terminal/code.py\n@@ -1 +1 @@\n-old source\n+overlay A\n"
+        env = dict(self.env, TEST_SOURCE_PATCH=str(overlay))
+        for value in ("A", "B"):
+            overlay.write_text(Path(SOURCE_PATCH).read_bytes().decode("utf-8") + delta.replace("overlay A", "overlay " + value))
+            result = subprocess.run(self.command(self.old), env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / "code.py").read_text(), "overlay " + value + "\n")
+            self.assertEqual((root.parent / ".git/strata-source.patch").read_text(), overlay.read_text())
+
     def test_source_patch_revision_idempotence_edits_and_offline_unpatched_rollback(self):
         root = self.prepare(self.old)
         ledger = root.parent / ".git/strata-source.patch"
@@ -1043,7 +1221,7 @@ setup.move_over_old_layout(reverse=True)
         root = self.prepare(self.old)
         ledger = root.parent / ".git/strata-source.patch"
         subprocess.run(["git", "-C", str(root.parent), "apply", "--reverse", "-"],
-                       input=ledger.read_text(), text=True, env=self.env, check=True)
+                       input=ledger.read_bytes().decode("utf-8"), text=True, env=self.env, check=True)
         # A ledger published before apply is safe to resume, including across a pin change.
         self.prepare(self.new)
         self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
@@ -1060,9 +1238,133 @@ setup.move_over_old_layout(reverse=True)
         self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
         self.assertEqual(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), self.new)
 
+    def test_native_profile_publication_failure_restores_layout_and_profile_revisions(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os
+import setup
+from strata_control import profiles
+repository = setup.ROOT.parent
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
+config = repository / "strata-transaction.json"
+config.write_text(json.dumps({"exe": str(repository / "engine/strata"),
+                              "tokenizer": "/fixture/tokenizer", "cwd": str(repository), "args": []}))
+for name in ("first", "second"):
+    profiles.create(name, str(config))
+    profiles.set_values(name, ["port=9123", "parallel=3"])
+payload = repository / "engine/.previous/strata"
+payload.parent.mkdir(parents=True)
+payload.write_bytes(b"previous engine")
+cache = repository / "build/user-cache"
+cache.parent.mkdir()
+cache.write_bytes(b"user cache")
+for reverse in (False, True):
+    source = setup.ROOT if reverse else repository
+    destination = repository if reverse else setup.ROOT
+    paths = [source / "strata-transaction.json", source / "engine/.previous/strata", source / "build/user-cache"]
+    originals = [(p, p.read_bytes(), p.stat().st_ino) for p in paths]
+    current = {name: profiles.load(name) for name in ("first", "second")}
+    profile_bytes = {p: p.read_bytes() for p in profiles.profile_dir().glob("*.json")}
+    history = {p: p.read_bytes() for p in (profiles.profile_dir() / ".history").rglob("*.json")}
+    real_save = profiles._save_locked
+    saves = []
+    def fail_second(name, proposed, **kwargs):
+        saves.append(name)
+        if len(saves) == 2:
+            raise OSError("fixture profile publication refused")
+        return real_save(name, proposed, **kwargs)
+    profiles._save_locked = fail_second
+    try:
+        try:
+            setup.move_over_old_layout(reverse=reverse)
+        except RuntimeError as error:
+            assert "fixture profile publication refused" in str(error), error
+        else:
+            raise AssertionError("migration certified a failed profile publication")
+    finally:
+        profiles._save_locked = real_save
+    assert len(saves) == 2, saves
+    for path, data, inode in originals:
+        assert path.read_bytes() == data
+        assert path.stat().st_ino == inode
+        assert not (destination / path.relative_to(source)).exists()
+    for name, expected in current.items():
+        assert profiles.load(name) == expected
+        resolved, profile, revision = profiles.resolve(name)
+        assert resolved == paths[0]
+        assert profiles.read_run_config(resolved)["cwd"] == str(source)
+        assert profile["overrides"] == {"port": 9123, "parallel": 3}
+    for path, data in {**profile_bytes, **history}.items():
+        assert path.read_bytes() == data
+    setup.move_over_old_layout(reverse=reverse)
+''')
+
+    def test_flat_checkout_refusal_after_reverse_restores_managed_runtime(self):
+        self.git("mv", "terminal/setup.py", "setup.py")
+        self.git("mv", "terminal/code.py", "code.py")
+        legacy = self.commit()
+        overlay = self.base / "legacy.patch"
+        overlay.write_text("diff --git a/code.py b/code.py\n--- a/code.py\n+++ b/code.py\n"
+                           "@@ -1 +1 @@\n-new source\n+accepted legacy overlay\n")
+        accepted = subprocess.run(self.command(legacy), env=dict(self.env, TEST_SOURCE_PATCH=str(overlay)),
+                                  capture_output=True, text=True)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        repository = Path(accepted.stdout.strip()).parent
+        self.assertEqual((repository / "code.py").read_text(), "accepted legacy overlay\n")
+        root = self.prepare(self.old)
+        self.assertEqual(root.parent, repository)
+        ledger = repository / ".git/strata-source.patch"
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+        payloads = {"engine/strata": b"current", "engine/.previous/strata": b"previous",
+                    "build/user-cache": b"user cache", "models/user.gguf": b"user model"}
+        identities = {}
+        for name, data in payloads.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            identities[name] = (path.stat().st_dev, path.stat().st_ino)
+        python = root / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+        interpreter = python.lstat().st_ino
+        config = root / "strata-refused.json"
+        expected = {"exe": str(root / "engine/strata"), "cwd": str(root), "args": []}
+        config.write_text(json.dumps(expected))
+        (root / "code.py").write_text("user-owned tracked conflict\n")
+        refused = subprocess.run(self.command(legacy), env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual((root / "code.py").read_text(), "user-owned tracked conflict\n")
+        self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
+        self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"],
+                                                text=True).strip(), self.old)
+        self.assertEqual(json.loads(config.read_text()), expected)
+        self.assertFalse((repository / config.name).exists())
+        self.assertEqual(python.lstat().st_ino, interpreter)
+        self.assertFalse((repository / ".venv").exists())
+        for name, data in payloads.items():
+            path = root / name
+            self.assertEqual(path.read_bytes(), data)
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino), identities[name])
+            self.assertFalse((repository / name).exists())
+
     def test_source_patch_checkout_failure_restores_old_overlay_and_keeps_user_changes(self):
         root = self.prepare(self.old)
         ledger = root.parent / ".git/strata-source.patch"
+        payloads = {"engine/strata": b"current", "engine/.previous/strata": b"previous",
+                    "build/user-cache": b"user cache", "models/user.gguf": b"user model"}
+        identities = {}
+        for name, data in payloads.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            identities[name] = (path.stat().st_dev, path.stat().st_ino)
+        python = root / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+        interpreter = python.lstat().st_ino
+        config = root / "strata-rollback.json"
+        expected = {"exe": str(root / "engine/strata"), "cwd": str(root), "args": []}
+        config.write_text(json.dumps(expected))
         (root / "code.py").write_text("user-owned conflicting source\n")
         result = subprocess.run(self.command(self.new), env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
@@ -1070,7 +1372,15 @@ setup.move_over_old_layout(reverse=True)
         self.assertEqual(ledger.read_text(), Path(SOURCE_PATCH).read_text())
         self.assertEqual(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), self.old)
         subprocess.run(["git", "-C", str(root.parent), "apply", "--reverse", "--check", "-"],
-                       input=ledger.read_text(), text=True, env=self.env, check=True)
+                       input=ledger.read_bytes().decode("utf-8"), text=True, env=self.env, check=True)
+        for name, data in payloads.items():
+            path = root / name
+            self.assertEqual(path.read_bytes(), data)
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino), identities[name])
+            self.assertFalse((root.parent / name).exists())
+        self.assertEqual(python.lstat().st_ino, interpreter)
+        self.assertEqual(json.loads(config.read_text()), expected)
+        self.assertFalse((root.parent / ".venv").exists())
 
     def test_initial_bootstrap_failure_never_certifies_runtime(self):
         root = self.prepare(self.old)
@@ -1266,8 +1576,8 @@ exit 9
         cache.parent.mkdir()
         cache.write_text("runtime state")
         (self.repo / "build").mkdir()
-        (self.repo / "terminal/build/user-cache").write_text("new upstream source")
-        self.git("add", "--force", "build/user-cache")
+        (self.repo / "build/user-cache").write_text("new upstream source")
+        self.git("add", "--force", "terminal/build/user-cache")
         revision = self.commit()
         result = subprocess.run(self.command(revision), env=self.env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
@@ -4428,7 +4738,7 @@ profiles.create("external-model", {str(target)!r})
                     self.env["TEST_SOURCE_PATCH"] = ""
                 else:
                     previous = self.base / "previous-overlay.patch"
-                    previous.write_text(Path(SOURCE_PATCH).read_text() + (
+                    previous.write_text(Path(SOURCE_PATCH).read_bytes().decode("utf-8") + (
                         "diff --git a/code.py b/code.py\n--- a/code.py\n+++ b/code.py\n"
                         "@@ -1 +1 @@\n-old source\n+older overlay source\n"))
                     self.env["TEST_SOURCE_PATCH"] = str(previous)

@@ -88,7 +88,7 @@ def cache_source_patch(cache, revision, text):
     payload = cache / f"{revision}-{digest}.patch"
     if not payload.exists():
         publish_source_patch(payload, text)
-    elif payload.read_text() != text:
+    elif payload.read_bytes().decode("utf-8") != text:
         raise RuntimeError(f"Cached source patch {payload} is corrupted; preserve it and repair the cache")
     receipt = cache / f"{revision}.sha256"
     if not receipt.exists() or receipt.read_text().strip() != digest:
@@ -103,7 +103,7 @@ def cached_source_patch(cache, revision):
     if not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise RuntimeError(f"Invalid source patch receipt {receipt}; preserve it and repair the cache")
     payload = cache / f"{revision}-{digest}.patch"
-    text = payload.read_text()
+    text = payload.read_bytes().decode("utf-8")
     if hashlib.sha256(text.encode()).hexdigest() != digest:
         raise RuntimeError(f"Cached source patch {payload} does not match its publication receipt")
     return text
@@ -156,18 +156,14 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         # Remove when upstream supports both revision pinning and GC-safe offline rollback.
         git(root, "update-ref", f"refs/strata/revisions/{current}", current)
         ledger = root / ".git" / SOURCE_PATCH
-        previous = ledger.read_text() if ledger.exists() else None
-        desired = Path(source_patch).read_text() if source_patch is not None else None
+        previous = ledger.read_bytes().decode("utf-8") if ledger.exists() else None
+        desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
         applied = previous is not None and patch_check(root, previous, reverse=True)
         if previous is not None and not applied and not patch_check(root, previous):
             raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
         cache = root / ".git" / "strata-source-patches"
         if applied:
             cache_source_patch(cache, current, previous)
-        if current == revision and applied and desired is not None and previous != desired and not patch_check(root, desired):
-            cached = cached_source_patch(cache, revision)
-            if cached == previous:
-                desired = previous
         if previous == desired and current == revision and applied:
             migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
             return root
@@ -203,7 +199,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                         if reverse_layout:
                             subprocess.run([sys.executable, str(Path(__file__).resolve()), "--migrate-layout",
                                             str(root / "terminal")], check=True, stdout=sys.stderr,
-                                           pass_fds=(lock_fd, publication_lock.fileno()))
+                                           pass_fds=(lock_fd, publication_lock.fileno()),
+                                           env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
+                                                    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)})))
             except (OSError, subprocess.CalledProcessError) as restore_error:
                 print(f"Cannot restore source patch in {root}: {restore_error}", file=sys.stderr)
             raise
@@ -829,10 +827,10 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                 ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", "HEAD"],
                 capture_output=True, text=True,
             )
-            if (ledger.is_file() and ledger.read_text() == Path(source_patch).read_text()
+            if (ledger.is_file() and ledger.read_bytes() == Path(source_patch).read_bytes()
                     and head.returncode == 0
                     and head.stdout.strip() == revision
-                    and patch_check(source, ledger.read_text(), reverse=True)):
+                    and patch_check(source, ledger.read_bytes().decode("utf-8"), reverse=True)):
                 python = Path(sys.executable) if args[0] == "launch" else runtime_python(terminal_root(source))
                 if not os.access(python, os.X_OK):
                     python = Path(sys.executable)
