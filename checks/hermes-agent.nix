@@ -319,7 +319,12 @@ pkgs.runCommand "check-hermes-agent"
                 )
             environment = {
                 "HOME": str(root), "HERMES_HOME": str(root / "hermes"), "TMPDIR": str(root),
-                "PATH": "${lib.makeBinPath [ pkgs.coreutils pkgs.bash ]}",
+                "PATH": "${
+                  lib.makeBinPath [
+                    pkgs.coreutils
+                    pkgs.bash
+                  ]
+                }",
                 "HERMES_DISABLE_LAZY_INSTALLS": "1", "HERMES_TEST_ISOLATION": "1",
                 "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
             }
