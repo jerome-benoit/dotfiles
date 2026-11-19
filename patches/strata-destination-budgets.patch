@@ -35,7 +35,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
          return set()
      return set(range(n)) if size >= total else set(range(size // DL_CHUNK))
  
-@@ -3695,6 +3697,89 @@
+@@ -3695,6 +3697,85 @@
          elif f[0] in ("dense", "ple", "embd"):
              out[f[0]] = p
      return out
@@ -97,11 +97,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +    needs = []
 +    for f in ready_needed(model, models_dir, data_dir):
 +        dst = ready_where(models_dir, f, data_dir, checkpoint_dir)
-+        if not ready_verified(dst, f[5]):
-+            if dst.is_file() and dst.stat().st_size == f[4]:
-+                verify_sha256(dst, f[4], f[5])           # validate an interrupted final once, without acquisition
-+                continue                               # the native finish mark makes subsequent checks hash-free
-+
++        if not ready_existing_verified(dst, f):
 +            present = resume_bytes(dst, f[4], url=f"{hf_endpoint()}/{f[1]}/resolve/{f[2]}/{f[3]}")
 +            needs.append((dst, max(0, f[4] - present) / 1e9))
 +    if vision_file is not None and not vision_file.exists():
@@ -125,7 +121,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -10942,11 +11027,16 @@
+@@ -10852,11 +10933,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)

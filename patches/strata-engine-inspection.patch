@@ -7,7 +7,7 @@
 diff --git a/terminal/strata_control/cfg_paths.py b/terminal/strata_control/cfg_paths.py
 --- a/terminal/strata_control/cfg_paths.py
 +++ b/terminal/strata_control/cfg_paths.py
-@@ -29,6 +29,35 @@
+@@ -29,6 +29,44 @@
  _VERSION = re.compile(r"^\d+(?:\.\d+)+")
  SKIP_KEYS = ("log",)                      # paths the engine writes, not reads
  SKIP_FLAGS = ("--expert-profile-save",)
@@ -28,9 +28,14 @@ diff --git a/terminal/strata_control/cfg_paths.py b/terminal/strata_control/cfg_
 +    value = Path(raw).expanduser()
 +    if Path(exe).name != "strata-sycl.sh":
 +        return value
-+    repo = Path(exe).resolve().parents[2]
++    here = (cfg.get("env") or {}).get("STRATA_SYCL_HERE", os.environ.get("STRATA_SYCL_HERE"))
++    repo = Path(here or Path(exe).resolve().parents[2]).expanduser()
++    if not repo.is_absolute():
++        repo = (Path(cfg.get("cwd") or os.getcwd()) / repo).resolve()
++    split = (repo.parent / "terminal/setup.py").is_file() and (repo / "CMakeLists.txt").is_file()
++    default_mount = repo.parent.parent if split else repo.parent
 +    mount = Path((cfg.get("env") or {}).get("STRATA_SYCL_ROOT", os.environ.get("STRATA_SYCL_ROOT"))
-+                 or repo.parent).expanduser()
++                 or default_mount).expanduser()
 +    if not mount.is_absolute():
 +        mount = (Path(cfg.get("cwd") or os.getcwd()) / mount).resolve()
 +    if value == Path("/work"):
@@ -38,7 +43,11 @@ diff --git a/terminal/strata_control/cfg_paths.py b/terminal/strata_control/cfg_
 +    if value.is_relative_to("/work"):
 +        return mount / value.relative_to("/work")
 +    if not value.is_absolute():
-+        return mount / repo.name / value
++        cwd = (cfg.get("env") or {}).get("STRATA_SYCL_CWD", os.environ.get("STRATA_SYCL_CWD"))
++        if split and cwd:
++            return mount / Path(cwd).relative_to("/work") / value
++        # Native flat wrappers use the mounted checkout basename, including custom mirrors.
++        return repo / value if split else mount / repo.name / value
 +    return value
  
  

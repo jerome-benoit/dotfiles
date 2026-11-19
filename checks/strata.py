@@ -22,6 +22,8 @@ UPSTREAM_SOURCE = Path(sys.argv.pop(1)).resolve()
 UPSTREAM = str(UPSTREAM_SOURCE / "terminal")
 LAUNCHERS = json.loads(Path(sys.argv.pop(1)).read_text())
 SOURCE_PATCH = str(Path(sys.argv.pop(1)).resolve())
+OLD_UPSTREAM_SOURCE = Path(sys.argv.pop(1)).resolve()
+WORKSPACE_LIB = Path(WORKSPACE).parent / "strata-managed"
 RUNNER = """
 import importlib.util, pathlib, subprocess, sys
 spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
@@ -87,6 +89,7 @@ class WorkspaceTests(unittest.TestCase):
         self.repo = self.repository / "terminal"
         self.repo.mkdir(parents=True)
         self.env = dict(os.environ, HOME=str(self.base / "home"),
+                        PYTHONPATH=os.pathsep.join((str(WORKSPACE_LIB), os.environ.get("PYTHONPATH", ""))),
                         XDG_CONFIG_HOME=str(self.base / "config"),
                         XDG_STATE_HOME=str(self.base / "state"),
                         NIX_STORE_DIR=str(self.base / "nix-store"),
@@ -127,6 +130,7 @@ class WorkspaceTests(unittest.TestCase):
         shutil.copyfile(UPSTREAM_SOURCE / "engine/CMakeLists.txt", self.repository / "engine/CMakeLists.txt")
         shutil.copyfile(UPSTREAM_SOURCE / "engine/sycl/setup_intel.py", self.repository / "engine/sycl/setup_intel.py")
         for name in (
+            "engine/sycl/serve/strata-sycl.sh",
             "engine/metal/setup_mac.py", "engine/spark/build_engine.sh", "engine/sycl/tools/build.sh",
             "tools/packaging/build_cuda_linux.sh", "tools/packaging/build_cuda_windows.py",
             "tools/packaging/build_hip_linux.sh", "tools/packaging/build_split_cuda.sh",
@@ -164,6 +168,112 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip())
 
+
+    def make_cross_pin_sources(self):
+        """Build two tracked revisions from the exact flat and split upstream consumer bytes."""
+        patch_paths = {line.split()[3][2:] for line in Path(SOURCE_PATCH).read_text().splitlines()
+                       if line.startswith("diff --git ")}
+        def replace(source):
+            for child in self.repository.iterdir():
+                if child.name != ".git":
+                    if child.is_dir():
+                        for directory, _, _ in os.walk(child, followlinks=False):
+                            Path(directory).chmod(Path(directory).stat().st_mode | 0o700)
+                        shutil.rmtree(child)
+                    else:
+                        child.unlink()
+            runtime = source / "terminal" if (source / "terminal/setup.py").is_file() else source
+            relative = runtime.relative_to(source)
+            destination = self.repository / relative
+            destination.mkdir(parents=True, exist_ok=True)
+            for child in runtime.iterdir():
+                if child.is_file():
+                    shutil.copyfile(child, destination / child.name)
+                    shutil.copymode(child, destination / child.name)
+            for name in ("strata_control", "strata_cli", "serve", "tools"):
+                shutil.copytree(runtime / name, destination / name, copy_function=shutil.copyfile)
+            for name in patch_paths | {".gitignore", "setup.sh", "CMakeLists.txt", "engine/CMakeLists.txt",
+                                       "sycl/setup_intel.py", "sycl/serve/strata-sycl.sh",
+                                       "engine/sycl/setup_intel.py", "engine/sycl/serve/strata-sycl.sh"}:
+                original = source / name
+                if original.is_file():
+                    target = self.repository / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists():
+                        target.chmod(target.stat().st_mode | 0o200)
+                    shutil.copyfile(original, target)
+                    shutil.copymode(original, target)
+            for directory, _, files in os.walk(self.repository):
+                if ".git" in Path(directory).parts:
+                    continue
+                Path(directory).chmod(0o700)
+                for name in files:
+                    path = Path(directory) / name
+                    path.chmod(path.stat().st_mode | 0o200)
+            self.git("add", "--force", "--all")  # upstream tracks some paths also matched by its current ignore rules
+            return self.commit()
+        self.old = replace(OLD_UPSTREAM_SOURCE)
+        self.new = replace(UPSTREAM_SOURCE)
+        import difflib
+        original = (OLD_UPSTREAM_SOURCE / "strata.py").read_text().splitlines(keepends=True)
+        accepted = list(original)
+        accepted[0] = accepted[0].replace("entry point.", "entry point (accepted historical overlay).")
+        self.legacy_overlay = self.base / "accepted-flat.patch"
+        self.legacy_overlay.write_text("diff --git a/strata.py b/strata.py\n" + "".join(
+            difflib.unified_diff(original, accepted, fromfile="a/strata.py", tofile="b/strata.py")))
+        self.state = self.base / "cross-pin's workspace with spaces"
+        for key in ("STRATA_SYCL_ROOT", "STRATA_SYCL_BIN", "STRATA_SYCL_CWD"):
+            self.env.pop(key, None)
+
+    def prepare_cross_pin(self, revision, *, overlay=True):
+        selected = self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)
+        result = subprocess.run(self.command(revision), env=dict(self.env, TEST_SOURCE_PATCH=str(selected) if overlay else ""),
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        repository = Path(result.stdout.strip()).parent
+        return repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
+
+    def cross_pin_cli(self, revision, *args, overlay=True):
+        selected = self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)
+        result = subprocess.run(self.command(revision) + ["run", *args],
+                                env=dict(self.env, TEST_SOURCE_PATCH=str(selected) if overlay else ""),
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        return json.loads(result.stdout)
+
+    def assert_cross_pin_sycl_consumers(self, revision, root, config, binary, model, pack, *, overlay=True):
+        selected = self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)
+        env = dict(self.env, TEST_SOURCE_PATCH=str(selected) if overlay else "")
+        result = subprocess.run(self.command(revision) + ["run", "doctor", "--profile", str(config), "--output", "json"],
+                                env=env, capture_output=True, text=True, timeout=60)
+        # Monitor dependencies and hardware qualification are not the filesystem/transport contract.
+        self.assertIn(result.returncode, (0, 5), result.stderr + result.stdout)
+        components = {item["name"]: item for item in json.loads(result.stdout)["report"]["components"]}
+        expected = {"engine": binary, "engine_launcher": WORKSPACE_LIB / "strata-sycl.sh", "native": model, "pack": pack}
+        for name, path in expected.items():
+            self.assertEqual(Path(components[name]["path"]).resolve(), path.resolve(), components[name])
+            self.assertEqual(components[name]["status"], "ok", components[name])
+        server = root / "serve/server_parts/engines.py" if (root / "serve/server_parts/engines.py").is_file() else root / "serve/server.py"
+        # Execute the actual checkout's engine_binary declaration, avoiding unrelated HTTP/model dependencies.
+        script = r"""
+import ast, json, os
+from pathlib import Path
+from serve.runconfig import load
+source = Path(SERVER)
+bindings = [node for node in ast.parse(source.read_text()).body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "engine_binary"
+            or isinstance(node, ast.ImportFrom) and any((item.asname or item.name) == "engine_binary" for item in node.names)]
+assert len(bindings) == 1, bindings
+namespace = {"Path": Path, "os": os}
+exec(compile(ast.Module(body=bindings, type_ignores=[]), str(source), "exec"), namespace)
+cfg = load(CONFIG)
+print(json.dumps(namespace["engine_binary"](cfg["exe"], cfg)))
+""".replace("SERVER", repr(str(server))).replace("CONFIG", repr(str(config)))
+        repository = root.parent if root.name == "terminal" else root
+        result = subprocess.run([sys.executable, "-c", script], cwd=root,
+                                env=dict(self.env, STRATA_MANAGED_SOURCE=str(repository)), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(json.loads(result.stdout)).resolve(), binary.resolve())
 
     def make_local_runtime(self, root):
         """Create an offline real venv whose base interpreter belongs to the managed layout."""
@@ -205,6 +315,16 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual((root / ".venv/bin/relocation-fixture").stat().st_mode & 0o777, 0o750)
         metadata = (root / ".venv/pyvenv.cfg").read_text()
         self.assertIn(str(root / ".python/bin"), metadata)
+        activated = subprocess.run(
+            ["sh", "-c", '. "$1"; "$VIRTUAL_ENV/bin/relocation-fixture"; '
+             'python -c "import json,sys; print(json.dumps([sys.prefix,sys.base_prefix]))"',
+             "activate-fixture", str(root / ".venv/bin/activate")],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        lines = activated.stdout.splitlines()
+        self.assertEqual(lines[0], "retained package")
+        self.assertEqual(json.loads(lines[1]), [str(root / ".venv"), str(root / ".python")])
         for relative, expected in retained.items():
             path = root / relative
             self.assertEqual((path.read_bytes(), path.stat().st_mode & 0o777, path.stat().st_ino), expected)
@@ -763,9 +883,14 @@ sys.exit(result)
         self.state = state
 
     def run_source_script(self, root, script):
+        repository = root.parent if root.name == "terminal" and (root.parent / ".git").is_dir() else root
+        env = dict(self.env)
+        env.pop("STRATA_MANAGED_SOURCE", None)
+        if (repository / ".git").is_dir():
+            env["STRATA_MANAGED_SOURCE"] = str(repository)
         result = subprocess.run(
             [sys.executable, "-c", "import sys\nsys.path.append(" + repr(UPSTREAM) + ")\n" + script],
-            env=self.env, cwd=root, capture_output=True, text=True, timeout=30,
+            env=env, cwd=root, capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
@@ -948,6 +1073,76 @@ for sparse in (False, True):
     assert dst.with_name(dst.name + ".bad").read_bytes() != payload
 """)
 
+    def test_checkpoint_ranking_verifies_unmarked_finals_before_budget_without_rewriting_payloads(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r"""
+import hashlib, json
+from pathlib import Path
+from unittest.mock import patch
+import setup
+models, data, retained = [Path(name).resolve() for name in ("rank-models", "rank-data", "rank-retained")]
+repo, model = "owner/pinned-checkpoint", "NVFP4-QAD"
+setup.MODELS[model]["repo"] = repo
+payloads = {"tensors/first.safetensors": b"first pinned checkpoint", "tensors/second.safetensors": b"second pinned checkpoint"}
+setup.NVFP4_REPOS[repo] = {"revision": "chosen-revision", "files": {
+    name: ("src", len(payload), hashlib.sha256(payload).hexdigest()) for name, payload in payloads.items()}}
+files = setup.ready_files(model)
+roots = [data / "models" / repo.replace("/", "--"), models / repo.replace("/", "--"),
+         retained / "models" / repo.replace("/", "--")]
+def seed(root, values):
+    for name, payload in values.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+def select():
+    return setup.model_download_layout("nvfp4", model, models, data_dir=data, elsewhere=[retained])
+seed(roots[1], payloads)
+originals = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in roots[1].rglob("*.safetensors")}
+native_hash = setup._hash_file
+with patch.object(setup, "_hash_file", wraps=native_hash) as hashes, \
+     patch.object(setup, "download", side_effect=AssertionError("ranking acquired payloads")):
+    # No default checkpoint exists: complete unmarked requested files beat the empty first candidate.
+    layout = select()
+    assert layout[2] == roots[1], layout
+    assert hashes.call_count == len(files), hashes.call_args_list
+    # All next checks use native marks, including budget, fetch and a later selection.
+    with patch.object(setup, "free_gb", return_value=1000):
+        assert setup.ready_disk_problem(model, *layout[:2], checkpoint_dir=layout[2]) is None
+    setup.ready_fetch(model, *layout[:2], checkpoint_dir=layout[2])
+    assert select()[2] == roots[1]
+    assert hashes.call_count == len(files), hashes.call_args_list
+for path, before in originals.items():
+    assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == before
+# A corrupt complete earlier candidate stays untouched and cannot hide a valid later candidate.
+seed(roots[0], {name: b"x" * len(payload) for name, payload in payloads.items()})
+wrong = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in roots[0].rglob("*.safetensors")}
+assert select()[2] == roots[1]
+for path, before in wrong.items():
+    assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == before
+    assert not setup.ready_verified(path, next(f[5] for f in files if f[3] == str(path.relative_to(roots[0]))))
+    assert not path.with_name(path.name + ".bad").exists()
+    path.unlink()
+# A logically complete sparse part and a wrong URL receipt must not outrank genuine resume bytes.
+for path in roots[1].rglob("*.safetensors"):
+    path.unlink()
+    path.with_name(path.name + ".done").unlink(missing_ok=True)
+setup.DL_CHUNK, setup.DL_MIN_PARALLEL = 4, 4
+for f in files:
+    dst = roots[0] / f[3]
+    part = dst.with_name(dst.name + ".part")
+    with part.open("wb") as stream:
+        stream.truncate(f[4])
+    part.with_name(part.name + ".chunks").write_text(json.dumps({
+        "v": 1, "total": f[4], "chunk": 4, "done": []}))
+    part.with_name(part.name + ".src").write_text(json.dumps({"url": "https://wrong.invalid/revision"}))
+    target = roots[2] / f[3]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.with_name(target.name + ".part").write_bytes(payloads[f[3]][:8])
+    target.with_name(target.name + ".part.src").write_text(json.dumps({
+        "url": f"{setup.hf_endpoint()}/{f[1]}/resolve/{f[2]}/{f[3]}"}))
+assert select()[2] == roots[2], "sparse logical size or wrong revision won checkpoint ranking"
+""")
+
     def test_sparse_chunk_resume_evidence_is_read_only_and_not_logical_size(self):
         root = self.prepare(self.old)
         self.run_source_script(root, """
@@ -1081,6 +1276,7 @@ with patch.object(setup.os, "stat", side_effect=stat):
                                                 text=True).strip(), self.old)
 
     def test_native_managed_runtime_layout_renames_and_inverse_preserve_payload_identity(self):
+        self.state = self.base / "native runtime's workspace with spaces"
         root = self.prepare(self.old)
         repository = root.parent
         retained = self.make_local_runtime(repository)
@@ -1113,8 +1309,9 @@ with patch.object(setup.os, "stat", side_effect=stat):
         self.run_source_script(root, """
 import json, os
 import setup
+import strata_managed_state
 os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(setup.ROOT.parent.parent)})
-setup.move_over_old_layout(reverse=True)
+strata_managed_state.migrate_layout(setup.ROOT.parent, reverse=True)
 """)
         self.assertEqual(json.loads(config.read_text()), original)
         self.assert_local_runtime(repository, retained)
@@ -1212,11 +1409,64 @@ assert Path(actual["cwd"]).resolve() == S.ROOT
 assert actual["args"] == ["--engine", "strata", "--config", str(cfg), "--port", "9123"]
 ''')
 
+    @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "SYCL Bash recorder, no Docker or GPU")
+    def test_sycl_default_data_mount_custom_mount_and_selected_binary_use_actual_shell(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r"""
+import importlib.util, json, os, shlex, subprocess, sys
+from pathlib import Path
+from types import SimpleNamespace
+import setup as S
+repository = S.ROOT.parent
+os.environ.pop("STRATA_SYCL_ROOT", None)
+spec = importlib.util.spec_from_file_location("intel_mount_fixture", repository / "engine/sycl/setup_intel.py")
+intel = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(intel)
+data, _ = S.data_folder_for(SimpleNamespace(yes=True))
+assert data == repository.parent / "Strata-data", data
+assert not data.is_relative_to(repository)
+assert intel.MOUNT == repository.parent
+assert intel.sycl_path(data) == "/work/Strata-data"
+docker = repository.parent / "docker-recorder/docker"
+docker.parent.mkdir()
+record = docker.parent / "arguments.json"
+docker.write_text("#!" + sys.executable + "\nimport json,sys\nfrom pathlib import Path\n"
+    + "if sys.argv[1] == 'run': Path(" + repr(str(record)) + ").write_text(json.dumps(sys.argv[1:]))\n")
+docker.chmod(0o700)
+wrapper = repository / "engine/sycl/serve/strata-sycl.sh"
+for mount in (None, repository.parent.parent, repository):
+    actual_mount = repository.parent if mount is None else mount
+    if mount is None:
+        os.environ.pop("STRATA_SYCL_ROOT", None)
+    else:
+        os.environ["STRATA_SYCL_ROOT"] = str(mount)
+    spec.loader.exec_module(intel)
+    assert intel.MOUNT == actual_mount
+    selected_data = data if data.is_relative_to(actual_mount) else repository / "custom-data"
+    selected_data.mkdir(exist_ok=True)
+    data_argument = intel.sycl_path(selected_data)
+    for binary in ("build-sycl-aot/chosen strata", "/work/custom binaries/chosen strata"):
+        env = dict(os.environ, PATH=str(docker.parent) + os.pathsep + os.environ["PATH"], STRATA_SYCL_BIN=binary)
+        env.pop("STRATA_SYCL_ROOT", None)
+        if mount is not None:
+            env["STRATA_SYCL_ROOT"] = str(mount)
+        subprocess.run(["bash", str(wrapper), "--native", data_argument, "value's spaces"],
+                       cwd=repository.parent.parent, env=env, check=True, capture_output=True, text=True)
+        argv = json.loads(record.read_text())
+        actual_mount = repository.parent if mount is None else mount
+        assert str(actual_mount) + ":/work" in argv, argv
+        tokens = shlex.split(argv[-1])
+        expected_cwd = "/work/" + (repository / "engine").relative_to(actual_mount).as_posix()
+        assert tokens[:4] == ["cd", expected_cwd, "&&", "exec"], tokens
+        assert tokens[4:] == [binary, "--native", data_argument, "value's spaces"], tokens
+""")
+
     def test_native_layout_preserves_profiles_and_reuses_external_marks(self):
         root = self.prepare(self.old)
         self.run_source_script(root, r'''
 import json, os
 import setup
+import strata_managed_state
 from strata_control import profiles
 repository = setup.ROOT.parent
 os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
@@ -1246,7 +1496,7 @@ setup.mark(external, "verified external weights")
 identity = setup._kept_mark(external).stat().st_ino
 setup.ROOT = repository / "terminal"
 for reverse in (False, True, False):
-    setup.move_over_old_layout(reverse=reverse)
+    strata_managed_state.migrate_layout(repository, reverse=reverse)
     for target, expected in ((updated_revision, updated), (initial_revision, initial)):
         profiles.rollback("managed", target)
         assert profiles.load("managed")[0]["overrides"] == expected["overrides"]
@@ -1309,6 +1559,347 @@ for source, cached_build, fresh in ((setup.ROOT.parent, build, True),
             self.assertEqual((root / "code.py").read_text(), "overlay " + value + "\n")
             self.assertEqual((root.parent / ".git/strata-source.patch").read_text(), overlay.read_text())
 
+    def test_real_cross_pin_transitions_preserve_runtime_profiles_scripts_and_old_consumer_history(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        profiles_dir = self.base / "cross-profiles"
+        self.env["STRATA_PROFILE_DIR"] = str(profiles_dir)
+        recorder = self.base / "script-consumer.py"
+        observed = self.base / "script-observed.json"
+        recorder.write_text("import json, os, sys\nfrom pathlib import Path\n"
+            + "cfg=json.loads(Path(sys.argv[sys.argv.index('--config')+1]).read_text())\n"
+            + "pack=Path(cfg['args'][cfg['args'].index('--pack')+1]) / 'index.txt'\n"
+            + "Path(" + repr(str(observed)) + ").write_text(json.dumps({'cwd':os.getcwd(),'pack':pack.read_text()}))\n")
+        for mode in ("accepted", "native", "interrupted", "removed"):
+            with self.subTest(mode=mode):
+                self.state = state / mode
+                overlay = mode != "native"
+                flat = self.prepare_cross_pin(self.old, overlay=overlay)
+                self.assertFalse((flat / "terminal/setup.py").exists())
+                self.assertEqual((flat / "setup.py").read_bytes(), (OLD_UPSTREAM_SOURCE / "setup.py").read_bytes())
+                ledger = flat / ".git/strata-source.patch"
+                old_ledger = ledger.read_bytes() if overlay else None
+                old_receipts = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                                for p in (flat / ".git/strata-source-patches").glob("*")}
+                retained = self.make_local_runtime(flat)
+                payloads = {"engine/strata": b"old engine", "engine/.previous/strata": b"previous engine",
+                            "build/user-cache": b"unrelated cache", "models/model.gguf": b"model payload",
+                            "packs/fixture/index.txt": b"relative pack payload"}
+                identity = {}
+                for name, payload in payloads.items():
+                    path = flat / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(payload)
+                    identity[name] = (path.stat().st_dev, path.stat().st_ino)
+                config = flat / "strata-cross.json"
+                config.write_text(json.dumps({"exe": str(flat / "engine/strata"), "tokenizer": "/fixture/tokenizer",
+                    "args": ["--pack", "packs/fixture", "--native", "models/model.gguf"]}))
+                name = "cross-" + mode
+                self.cross_pin_cli(self.old, "profile", "create", name, "--from-config", str(config), "--output", "json", overlay=overlay)
+                self.cross_pin_cli(self.old, "profile", "set", name, "port=9123", "--output", "json", overlay=overlay)
+                def generate_script(root):
+                    script = "import setup; setup.write_run_script('cross', " + repr(str(root / config.name)) + ", 9123, False); "
+                    script += "setup.WIN=True; setup.write_run_script('cross', " + repr(str(root / config.name)) + ", 9123, False)"
+                    result = subprocess.run([sys.executable, "-c", script], cwd=root, env=self.env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    path = root / "run-cross.sh"
+                    path.write_bytes(path.read_bytes().replace(str(root / "serve/server.py").encode(), str(recorder).encode()))
+                def consume_script(root):
+                    result = subprocess.run(["sh", str(root / "run-cross.sh")], cwd=self.base,
+                                            env=self.env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(observed.read_text()), {"cwd": str(root), "pack": "relative pack payload"})
+                    bat = (root / "run-cross.bat").read_bytes()
+                    self.assertIn(('cd /d "' + str(root) + '"').encode() + b"\r\n", bat)
+                    self.assertNotIn(b"\n", bat.replace(b"\r\n", b""))
+                generate_script(flat)
+                consume_script(flat)
+                split = self.prepare_cross_pin(self.new, overlay=overlay)
+                self.assertEqual(split, flat / "terminal")
+                self.assert_local_runtime(split, retained)
+                consume_script(split)
+                generate_script(split)
+                consume_script(split)
+                changed = self.cross_pin_cli(self.new, "profile", "set", name, "port=9234", "--output", "json", overlay=overlay)
+                split_revision = changed["previous_revision"]
+                history = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (profiles_dir / ".history" / name).glob("*.json")}
+                if mode == "removed":
+                    overlay = False
+                    self.assertEqual(self.prepare_cross_pin(self.new, overlay=False), split)
+                    self.assertEqual((split / "setup.py").read_bytes(), (UPSTREAM_SOURCE / "terminal/setup.py").read_bytes())
+                    self.cross_pin_cli(self.new, "profile", "rollback", name, "--to", split_revision, "--output", "json", overlay=False)
+                # The returned old guard cannot accept cache metadata belonging to the split checkout.
+                build = split / "build"
+                (build / "CMakeFiles").mkdir()
+                (build / "CMakeFiles/fixture").write_bytes(b"relocated metadata")
+                (build / "CMakeCache.txt").write_text("CMAKE_GENERATOR:INTERNAL=Ninja\n"
+                    + f"CMAKE_HOME_DIRECTORY:INTERNAL={flat / 'engine'}\n"
+                    + f"CMAKE_CACHEFILE_DIR:INTERNAL={build}\n")
+                if mode == "interrupted":
+                    subprocess.run(["git", "-C", str(flat), "apply", "--reverse", "-"],
+                                   input=ledger.read_bytes(), env=self.env, check=True, capture_output=True)
+                    self.assertEqual((split / "setup.py").read_bytes(), (UPSTREAM_SOURCE / "terminal/setup.py").read_bytes())
+                restored = self.prepare_cross_pin(self.old, overlay=overlay)
+                self.assertEqual(restored, flat)
+                self.assert_local_runtime(flat, retained)
+                consume_script(flat)
+                self.assertFalse((flat / "build/CMakeCache.txt").exists())
+                self.assertFalse((flat / "build/CMakeFiles").exists())
+                result = subprocess.run([sys.executable, "-c", "import setup; assert not setup.fresh_if_other_generator(setup.ROOT/'build', 'Ninja')"],
+                                        cwd=flat, env=self.env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # This is the exact old CLI after checkout, in a fresh interpreter, not a cached head profiles module.
+                rolled = self.cross_pin_cli(self.old, "profile", "rollback", name, "--to", split_revision, "--output", "json", overlay=overlay)
+                self.assertEqual(rolled["profile"]["source_config"], str(config))
+                self.assertEqual(rolled["profile"]["overrides"]["port"], 9123)
+                self.cross_pin_cli(self.old, "profile", "history", name, "--output", "json", overlay=overlay)
+                for path, expected in history.items():
+                    self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), expected)
+                    self.assertEqual(__import__("hashlib").sha256(path.read_bytes()).hexdigest()[:16], path.stem)
+                if overlay:
+                    self.assertEqual(ledger.read_bytes(), old_ledger)
+                else:
+                    self.assertFalse(ledger.exists())
+                for path, expected in old_receipts.items():
+                    self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), expected)
+                for relative, payload in payloads.items():
+                    path = flat / relative
+                    self.assertEqual(path.read_bytes(), payload)
+                    self.assertEqual((path.stat().st_dev, path.stat().st_ino), identity[relative])
+                    self.assertFalse((split / relative).exists())
+
+    def test_real_sycl_cross_pin_mapping_preserves_effective_mount_arguments_and_selected_binary(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        for custom in (False, True):
+            with self.subTest(custom_mount=custom):
+                self.state = state / ("custom-mount" if custom else "default-mount")
+                flat = self.prepare_cross_pin(self.old)
+                mount = flat.parent
+                payloads = {"models/model.gguf": b"model", "packs/fixture/index.txt": b"pack",
+                            "build-sycl-aot/chosen strata": b"selected SYCL engine"}
+                payloads.update({"models/tokenizer/" + name: b"tokenizer fixture"
+                                 for name in ("vocab.json", "merges.txt", "token_type.json")})
+                identities = {}
+                for relative, payload in payloads.items():
+                    path = flat / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(payload)
+                    if relative.startswith("build-sycl"):
+                        path.chmod(0o755)
+                    identities[relative] = (path.stat().st_dev, path.stat().st_ino)
+                configurations = {}
+                for style in ("relative", "container", "environment"):
+                    environment = {"STRATA_SYCL_ROOT": str(mount)} if custom else {}
+                    environment["STRATA_PROMPT"] = "/work/unrelated-text-stays-literal"
+                    binary = "build-sycl-aot/chosen strata" if style != "container" else "/work/" + (flat / "build-sycl-aot/chosen strata").relative_to(mount).as_posix()
+                    if style != "environment":
+                        environment["STRATA_SYCL_BIN"] = binary
+                    else:
+                        self.env["STRATA_SYCL_BIN"] = binary
+                    config = flat / ("strata-sycl-" + style + ".json")
+                    script = "import importlib.util,json; from pathlib import Path; "
+                    script += "spec=importlib.util.spec_from_file_location('native_old_intel', 'sycl/setup_intel.py'); "
+                    script += "intel=importlib.util.module_from_spec(spec); spec.loader.exec_module(intel); "
+                    script += "config={'backend':'sycl','exe':str(Path.cwd()/'sycl/serve/strata-sycl.sh'), 'tokenizer':str(Path.cwd()/'models/tokenizer'), 'env':" + repr(environment) + ", "
+                    script += "'args':['--native',intel.sycl_path(Path.cwd()/'models/model.gguf'), '--pack',intel.sycl_path(Path.cwd()/'packs/fixture'), "
+                    script += "'--control-vector-scaled',intel.sycl_path(Path.cwd()/'models/model.gguf')+':0.5', '--prompt','/work/unrelated-text-stays-literal']}; "
+                    script += "Path(" + repr(str(config)) + ").write_text(json.dumps(config))"
+                    native_env = dict(self.env)
+                    native_env.pop("STRATA_SYCL_ROOT", None)
+                    if custom:
+                        native_env["STRATA_SYCL_ROOT"] = str(mount)
+                    result = subprocess.run([sys.executable, "-c", script], cwd=flat, env=native_env,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    configurations[style] = json.loads(config.read_text())
+                self.assertEqual(self.prepare_cross_pin(self.old, overlay=False), flat)
+                for style in configurations:
+                    self.assert_cross_pin_sycl_consumers(self.old, flat, flat / ("strata-sycl-" + style + ".json"),
+                        flat / "build-sycl-aot/chosen strata", flat / "models/model.gguf", flat / "packs/fixture", overlay=False)
+                split = self.prepare_cross_pin(self.new)
+                for style in configurations:
+                    config_path = split / ("strata-sycl-" + style + ".json")
+                    config = json.loads(config_path.read_text())
+                    self.assertEqual(config["exe"], str(WORKSPACE_LIB / "strata-sycl.sh"))
+                    self.assertEqual(config["env"]["STRATA_SYCL_HERE"], str(flat / "engine"))
+                    self.assertEqual(Path(config["env"]["STRATA_SYCL_BIN"]), flat / "engine/build-sycl-aot/chosen strata")
+                    prefix = "/work/" + split.relative_to(mount).as_posix()
+                    self.assertEqual(config["args"][1], prefix + "/models/model.gguf")
+                    self.assertEqual(config["args"][3], prefix + "/packs/fixture")
+                    self.assertEqual(config["args"][5], prefix + "/models/model.gguf:0.5")
+                    self.assertEqual(config["args"][7], "/work/unrelated-text-stays-literal")
+                    self.assertEqual(config["env"]["STRATA_PROMPT"], "/work/unrelated-text-stays-literal")
+                    self.assert_cross_pin_sycl_consumers(self.new, split, config_path,
+                        flat / "engine/build-sycl-aot/chosen strata", split / "models/model.gguf", split / "packs/fixture")
+                self.assertEqual(self.prepare_cross_pin(self.new, overlay=False), split)
+                self.assertEqual((split / "setup.py").read_bytes(), (UPSTREAM_SOURCE / "terminal/setup.py").read_bytes())
+                for style in configurations:
+                    self.assert_cross_pin_sycl_consumers(self.new, split, split / ("strata-sycl-" + style + ".json"),
+                        flat / "engine/build-sycl-aot/chosen strata", split / "models/model.gguf", split / "packs/fixture", overlay=False)
+                self.assertEqual(self.prepare_cross_pin(self.old), flat)
+                for style, original in configurations.items():
+                    config_path = flat / ("strata-sycl-" + style + ".json")
+                    config = json.loads(config_path.read_text())
+                    self.assertEqual(config["exe"], str(WORKSPACE_LIB / "strata-sycl.sh"))
+                    self.assertEqual(config["args"], original["args"])
+                    self.assertEqual(config["env"]["STRATA_SYCL_HERE"], str(flat))
+                    self.assertEqual(Path(config["env"]["STRATA_SYCL_BIN"]), flat / "build-sycl-aot/chosen strata")
+                    self.assertEqual(config["env"]["STRATA_PROMPT"], original["env"]["STRATA_PROMPT"])
+                    if custom:
+                        self.assertEqual(config["env"]["STRATA_SYCL_ROOT"], original["env"]["STRATA_SYCL_ROOT"])
+                    self.assert_cross_pin_sycl_consumers(self.old, flat, config_path,
+                        flat / "build-sycl-aot/chosen strata", flat / "models/model.gguf", flat / "packs/fixture")
+                for relative, payload in payloads.items():
+                    path = flat / relative
+                    self.assertEqual(path.read_bytes(), payload)
+                    self.assertEqual((path.stat().st_dev, path.stat().st_ino), identities[relative])
+                self.env.pop("STRATA_SYCL_BIN", None)
+
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "Native SYCL Bash recorder, no Docker or GPU")
+    def test_real_sycl_custom_mirror_runs_old_new_and_reverse_shell_consumers(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        mount = flat.parent / "custom mirror's mount"
+        mirrored = mount / flat.name
+        payloads = {"build-sycl-aot/strata": b"mirror selected engine", "models/model.gguf": b"mirror model",
+                    "packs/fixture/index.txt": b"mirror pack"}
+        payloads.update({"models/tokenizer/" + name: b"tokenizer fixture"
+                         for name in ("vocab.json", "merges.txt", "token_type.json")})
+        originals = {}
+        for name, payload in payloads.items():
+            path = mirrored / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            if name.startswith("build-sycl"):
+                path.chmod(0o755)
+            originals[path] = (payload, path.stat().st_dev, path.stat().st_ino)
+        config = flat / "strata-mirror.json"
+        script = "import importlib.util,json; from pathlib import Path; "
+        script += "spec=importlib.util.spec_from_file_location('native_mirror_intel','sycl/setup_intel.py'); "
+        script += "intel=importlib.util.module_from_spec(spec); spec.loader.exec_module(intel); "
+        script += "Path(" + repr(str(config)) + ").write_text(json.dumps({'backend':'sycl', "
+        script += "'exe':str(Path.cwd()/'sycl/serve/strata-sycl.sh'),'tokenizer':" + repr(str(mirrored / "models/tokenizer")) + ",'env':{'STRATA_SYCL_ROOT':" + repr(str(mount)) + ",'STRATA_SYCL_BIN':'build-sycl-aot/strata'},"
+        script += "'args':['--native',intel.sycl_path(" + repr(str(mirrored / "models/model.gguf")) + "), '--pack',intel.sycl_path(" + repr(str(mirrored / "packs/fixture")) + ")]}))"
+        result = subprocess.run([sys.executable, "-c", script], cwd=flat,
+                                env=dict(self.env, STRATA_SYCL_ROOT=str(mount)), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original_config = json.loads(config.read_text())
+        docker = self.base / "mirror-docker-recorder/docker"
+        docker.parent.mkdir()
+        record = docker.parent / "arguments.json"
+        docker.write_text("#!" + sys.executable + "\nimport json,sys\nfrom pathlib import Path\n"
+            + "if sys.argv[1]=='run': Path(" + repr(str(record)) + ").write_text(json.dumps(sys.argv[1:]))\n")
+        docker.chmod(0o700)
+        def consume(root):
+            cfg = json.loads((root / config.name).read_text())
+            env = dict(self.env, PATH=str(docker.parent) + os.pathsep + self.env["PATH"], **cfg["env"])
+            result = subprocess.run(["bash", cfg["exe"], *cfg["args"]], cwd=self.base,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            argv = json.loads(record.read_text())
+            self.assertIn(str(mount) + ":/work", argv)
+            tokens = shlex.split(argv[-1])
+            self.assertEqual(tokens[:4], ["cd", "/work/source", "&&", "exec"])
+            executable = Path(tokens[4])
+            host = mount / executable.relative_to("/work") if executable.is_absolute() else mirrored / executable
+            self.assertEqual(host, mirrored / "build-sycl-aot/strata")
+            self.assertEqual(tokens[5:], cfg["args"])
+        consume(flat)  # The old native wrapper actually supports this existing mirror, before managed normalization.
+        self.assertEqual(self.prepare_cross_pin(self.old, overlay=False), flat)
+        self.assert_cross_pin_sycl_consumers(self.old, flat, config, mirrored / "build-sycl-aot/strata",
+            mirrored / "models/model.gguf", mirrored / "packs/fixture", overlay=False)
+        consume(flat)
+        split = self.prepare_cross_pin(self.new)
+        migrated = json.loads((split / config.name).read_text())
+        self.assertEqual(migrated["exe"], str(WORKSPACE_LIB / "strata-sycl.sh"))
+        self.assertEqual(migrated["env"]["STRATA_SYCL_HERE"], str(flat / "engine"))
+        self.assertEqual(migrated["env"]["STRATA_SYCL_CWD"], "/work/source")
+        self.assertEqual(Path(migrated["env"]["STRATA_SYCL_BIN"]), mirrored / "build-sycl-aot/strata")
+        self.assertEqual(migrated["args"], original_config["args"])
+        consume(split)
+        self.assert_cross_pin_sycl_consumers(self.new, split, split / config.name, mirrored / "build-sycl-aot/strata",
+            mirrored / "models/model.gguf", mirrored / "packs/fixture")
+        self.assertEqual(self.prepare_cross_pin(self.new, overlay=False), split)
+        self.assert_cross_pin_sycl_consumers(self.new, split, split / config.name, mirrored / "build-sycl-aot/strata",
+            mirrored / "models/model.gguf", mirrored / "packs/fixture", overlay=False)
+        consume(split)
+        self.assertEqual(self.prepare_cross_pin(self.old, overlay=False), flat)
+        restored = json.loads(config.read_text())
+        self.assertEqual(restored["exe"], str(WORKSPACE_LIB / "strata-sycl.sh"))
+        self.assertEqual(restored["args"], original_config["args"])
+        self.assertEqual(restored["env"]["STRATA_SYCL_ROOT"], original_config["env"]["STRATA_SYCL_ROOT"])
+        self.assertEqual(restored["env"]["STRATA_SYCL_HERE"], str(flat))
+        self.assertEqual(Path(restored["env"]["STRATA_SYCL_BIN"]), mirrored / "build-sycl-aot/strata")
+        consume(flat)
+        self.assert_cross_pin_sycl_consumers(self.old, flat, config, mirrored / "build-sycl-aot/strata",
+            mirrored / "models/model.gguf", mirrored / "packs/fixture", overlay=False)
+        for path, expected in originals.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino), expected)
+
+
+    def test_real_checkout_failure_retains_semantic_engine_rollback_approval(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old)
+        split = self.prepare_cross_pin(self.new)
+        retained = self.make_local_runtime(split)
+        paths = {"engine/strata": b"deliberately older engine", "engine/.previous/strata": b"newer engine",
+                 "build/user-cache": b"retained cache", "models/model.gguf": b"model"}
+        identity = {}
+        for relative, payload in paths.items():
+            path = split / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            identity[relative] = (path.stat().st_dev, path.stat().st_ino)
+        module = self.workspace_module()
+        entry = {"files": module.engine_identity(split / "engine"), "sources": {}, "operator_reason": "deliberate rollback"}
+        approval = flat / ".git/strata-engine-rollback.json"
+        approval.write_text(json.dumps({"revision": self.new, "engines": {"engine": entry}}))
+        self.assertIn("engine", module.engine_rollbacks(split, self.new))
+        config = split / "strata-approved.json"
+        expected = {"exe": str(split / "engine/strata"), "cwd": str(split), "args": ["--native", str(split / "models/model.gguf")]}
+        config.write_text(json.dumps(expected))
+        source = split / "setup.py"
+        original = source.read_bytes()
+        source.write_bytes(original + b"\n# user-owned checkout conflict\n")
+        ledger = (flat / ".git/strata-source.patch").read_bytes()
+        refused = subprocess.run(self.command(self.old), env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"], text=True).strip(), self.new)
+        self.assertEqual(source.read_bytes(), original + b"\n# user-owned checkout conflict\n")
+        self.assertEqual((flat / ".git/strata-source.patch").read_bytes(), ledger)
+        self.assertEqual(json.loads(config.read_text()), expected)
+        accepted = module.engine_rollbacks(split, self.new)
+        self.assertIn("engine", accepted, "failed checkout revoked the operator's accepted engine")
+        self.assertEqual(accepted["engine"]["operator_reason"], "deliberate rollback")
+        self.assertEqual(accepted["engine"]["files"], module.engine_identity(split / "engine"))
+        self.assert_local_runtime(split, retained)
+        for relative, payload in paths.items():
+            path = split / relative
+            self.assertEqual(path.read_bytes(), payload)
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino), identity[relative])
+        source.write_bytes(original)
+        self.prepare_cross_pin(self.old)
+        self.assertFalse(approval.exists(), "accepted source transition retained an approval for the old namespace")
+
+    def test_incompatible_same_pin_delta_refuses_before_retiring_accepted_overlay(self):
+        root = self.prepare(self.old)
+        ledger = root.parent / ".git/strata-source.patch"
+        accepted = ledger.read_bytes()
+        setup = (root / "setup.py").read_bytes()
+        receipts = {p: p.read_bytes() for p in (root.parent / ".git/strata-source-patches").glob("*")}
+        replacement = self.base / "incompatible.patch"
+        replacement.write_bytes(accepted + b"diff --git a/terminal/code.py b/terminal/code.py\n"
+            b"--- a/terminal/code.py\n+++ b/terminal/code.py\n@@ -1 +1 @@\n-never the pristine source\n+requested delta\n")
+        result = subprocess.run(self.command(self.old), env=dict(self.env, TEST_SOURCE_PATCH=str(replacement)),
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(ledger.read_bytes(), accepted)
+        self.assertEqual((root / "setup.py").read_bytes(), setup)
+        self.assertEqual((root / "code.py").read_text(), "old source\n")
+        self.assertEqual({p: p.read_bytes() for p in (root.parent / ".git/strata-source-patches").glob("*")}, receipts)
+
     def test_source_patch_revision_idempotence_edits_and_offline_unpatched_rollback(self):
         root = self.prepare(self.old)
         ledger = root.parent / ".git/strata-source.patch"
@@ -1357,11 +1948,13 @@ for source, cached_build, fresh in ((setup.ROOT.parent, build, True),
         self.assertEqual(subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(), self.new)
 
     def test_native_profile_publication_failure_restores_layout_and_profile_revisions(self):
+        self.state = self.base / "publication's workspace with spaces"
         root = self.prepare(self.old)
         retained = self.make_local_runtime(root.parent)
         self.run_source_script(root, r'''
 import json, os, subprocess
 import setup
+import strata_managed_state
 from strata_control import profiles
 repository = setup.ROOT.parent
 os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(repository.parent)})
@@ -1397,7 +1990,7 @@ for reverse in (False, True):
     profiles._save_locked = fail_second
     try:
         try:
-            setup.move_over_old_layout(reverse=reverse)
+            strata_managed_state.migrate_layout(repository, reverse=reverse)
         except RuntimeError as error:
             assert "fixture profile publication refused" in str(error), error
         else:
@@ -1411,6 +2004,12 @@ for reverse in (False, True):
     runtime = subprocess.check_output([str(source / ".venv/bin/python"), "-c",
         "import json,sys; print(json.dumps([sys.prefix,sys.base_prefix]))"], text=True)
     assert json.loads(runtime) == [str(source / ".venv"), str(source / ".python")]
+    activated = subprocess.check_output(["sh", "-c", '. "$1"; "$VIRTUAL_ENV/bin/relocation-fixture"; '
+        'python -c "import json,sys; print(json.dumps([sys.prefix,sys.base_prefix]))"',
+        "failure-activation", str(source / ".venv/bin/activate")], text=True)
+    lines = activated.splitlines()
+    assert lines[0] == "retained package"
+    assert json.loads(lines[1]) == [str(source / ".venv"), str(source / ".python")]
     for path, data, inode in originals:
         assert path.read_bytes() == data
         assert path.stat().st_ino == inode
@@ -1424,7 +2023,7 @@ for reverse in (False, True):
         assert profiles.read_run_config(resolved)["cwd"] == str(source)
         assert profile["overrides"] == {"port": 9123, "parallel": 3}
     assert {p: p.read_bytes() for p in profiles.profile_dir().rglob("*.json")} == profile_bytes
-    setup.move_over_old_layout(reverse=reverse)
+    strata_managed_state.migrate_layout(repository, reverse=reverse)
 ''')
         self.assert_local_runtime(root.parent, retained)
 
@@ -1534,6 +2133,7 @@ finally:
             (root / config.name).unlink()
 
     def test_flat_checkout_refusal_after_reverse_restores_managed_runtime(self):
+        self.state = self.base / "refusal's workspace with spaces"
         self.git("mv", "terminal/setup.py", "setup.py")
         self.git("mv", "terminal/code.py", "code.py")
         legacy = self.commit()
@@ -4978,21 +5578,20 @@ profiles.create("external-model", {str(target)!r})
                 note = root / "user-owned.txt"
                 note.write_text("preserved across publication recovery\n")
                 interrupted = subprocess.run([sys.executable, "-c", '''
-import importlib.util, pathlib, sys
+import importlib.util, os, pathlib, sys
 spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 apply = helper.apply_source_patch
 def interrupt(root, text, *, reverse=False):
     if not reverse:
-        raise RuntimeError("injected interruption after journal publication")
+        os._exit(23)  # Abrupt termination leaves the published journal, unlike a synchronous error.
     return apply(root, text, reverse=reverse)
 helper.apply_source_patch = interrupt
 helper.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
 ''', WORKSPACE, str(self.state), self.old, str(self.repository), SOURCE_PATCH],
                     env=self.env, capture_output=True, text=True, timeout=30)
-                self.assertNotEqual(interrupted.returncode, 0)
-                self.assertIn("injected interruption after journal publication", interrupted.stderr)
+                self.assertEqual(interrupted.returncode, 23)
                 self.assertEqual((root.parent / ".git/strata-source.patch").read_text(), Path(SOURCE_PATCH).read_text())
                 # No version/preparation command may repair the tree before this first real JSON client.
                 for _ in range(2):

@@ -14,6 +14,7 @@ let
   # Share one atomic dependency-ordered source ledger with checks.
   # Preserve the helper publication and rollback protocol.
   sourcePatch = import ./strata-source-patch.nix { inherit pkgs; };
+  workspaceHelper = import ./strata-workspace-package.nix { inherit pkgs; };
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
     runtimeInputs = [
@@ -24,7 +25,7 @@ let
       # Configured directory paths are literal arguments, not shell expansions.
       # shellcheck disable=SC2016
       exec nix develop --no-update-lock-file "path:${self}#strata" \
-        --command python3 ${./strata-workspace.py} \
+        --command python3 ${workspaceHelper}/strata-workspace.py \
         ${lib.escapeShellArg cfg.workspaceDirectory} ${inputs.strata.rev} \
         ${lib.escapeShellArg (if cfg.dataDirectory == null then "" else cfg.dataDirectory)} \
         ${lib.escapeShellArg (if cfg.modelsDirectory == null then "" else cfg.modelsDirectory)} \
