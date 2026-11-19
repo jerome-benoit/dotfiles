@@ -1094,11 +1094,20 @@ def seed(root, values):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
-def select():
-    return setup.model_download_layout("nvfp4", model, models, data_dir=data, elsewhere=[retained])
+def select(*, read_only=False, verified_files=None):
+    return setup.model_download_layout("nvfp4", model, models, data_dir=data, elsewhere=[retained],
+                                       read_only=read_only, verified_files=verified_files)
 seed(roots[1], payloads)
 originals = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in roots[1].rglob("*.safetensors")}
 native_hash = setup._hash_file
+with patch.object(setup, "_hash_file", wraps=native_hash) as hashes:
+    verified = {}
+    layout = select(read_only=True, verified_files=verified)
+    assert layout[2] == roots[1], layout
+    assert hashes.call_count == len(files), hashes.call_args_list
+    assert all(call.kwargs == {"progress": False} for call in hashes.call_args_list)
+    assert all(verified[roots[1] / f[3]] for f in files)
+    assert all(not path.with_name(path.name + ".done").exists() for path in originals)
 with patch.object(setup, "_hash_file", wraps=native_hash) as hashes, \
      patch.object(setup, "download", side_effect=AssertionError("ranking acquired payloads")):
     # No default checkpoint exists: complete unmarked requested files beat the empty first candidate.
@@ -1141,6 +1150,11 @@ for f in files:
     target.with_name(target.name + ".part.src").write_text(json.dumps({
         "url": f"{setup.hf_endpoint()}/{f[1]}/resolve/{f[2]}/{f[3]}"}))
 assert select()[2] == roots[2], "sparse logical size or wrong revision won checkpoint ranking"
+before = {p: (p.stat().st_ino, p.stat().st_mtime_ns, p.read_bytes())
+          for root in roots for p in root.rglob("*") if p.is_file()}
+assert select(read_only=True)[2] == roots[2], "read-only ranking credited sparse or wrong-revision bytes"
+assert {p: (p.stat().st_ino, p.stat().st_mtime_ns, p.read_bytes())
+        for root in roots for p in root.rglob("*") if p.is_file()} == before
 """)
 
     def test_sparse_chunk_resume_evidence_is_read_only_and_not_logical_size(self):
@@ -9058,5 +9072,288 @@ Path(sys.argv[1]).write_text(json.dumps({"exe": sys.executable,
         assert first.pct < 99.5 and "already on this computer" not in first.text, first
     config.unlink()
 ''')
+
+    def test_cross_pin_engine_link_targets_follow_actual_runtime_moves_and_restore(self):
+        self.make_cross_pin_sources()
+        fault_script = r'''
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("receipt_fault", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+real_publish = module.publish_source_patch
+def refuse_receipt(path, text):
+    if path.name == module.SOURCE_REQUEST:
+        raise OSError("sourceReceiptFault")
+    return real_publish(path, text)
+module.publish_source_patch = refuse_receipt
+try:
+    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4])
+except OSError as error:
+    assert str(error) == "sourceReceiptFault", error
+else:
+    raise AssertionError("receipt failure committed source")
+'''
+        for target_name in ("engine-cuda12/nested/payload", "models/nested/payload",
+                            "build-sycl-aot/nested/payload", "external"):
+            for absolute in (False, True):
+                with self.subTest(target=target_name, absolute=absolute):
+                    self.state = self.base / (target_name.split('/')[0] + str(absolute))
+                    flat = self.prepare_cross_pin(self.old, overlay=False)
+                    external = self.state / "external-engine/payload"
+                    target = external if target_name == "external" else flat / target_name
+                    target.mkdir(parents=True)
+                    (target / "inert-engine").write_bytes(b"never execute this payload")
+                    payload_identity = ((target / "inert-engine").stat().st_dev,
+                                        (target / "inert-engine").stat().st_ino)
+                    (flat / "engine").symlink_to(str(target) if absolute else os.path.relpath(target, flat))
+                    for old_revision, new_revision in ((self.old, self.new), (self.new, self.old)):
+                        source = flat if old_revision == self.old else flat / "terminal"
+                        destination = flat / "terminal" if new_revision == self.new else flat
+                        link = source / "engine"
+                        before = (os.readlink(link), link.lstat().st_ino)
+                        receipt = flat / ".git/strata-source-request.json"
+                        before_receipt = receipt.read_bytes()
+                        result = subprocess.run([sys.executable, "-c", fault_script, WORKSPACE,
+                                                 str(self.state), new_revision, str(self.repository)],
+                                                env=self.env, capture_output=True, text=True, timeout=60)
+                        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                        self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"],
+                                                                 text=True).strip(), old_revision)
+                        self.assertEqual((os.readlink(link), link.lstat().st_ino), before)
+                        self.assertEqual(receipt.read_bytes(), before_receipt)
+                        self.assertEqual((link / "inert-engine").read_bytes(), b"never execute this payload")
+                        published = self.prepare_cross_pin(new_revision, overlay=False)
+                        self.assertEqual(published, destination)
+                        expected = external if target_name == "external" else destination / target_name
+                        if target_name.startswith("build-sycl-aot/"):
+                            expected = (flat / "engine" if new_revision == self.new else flat) / target_name
+                        self.assertEqual((published / "engine").resolve(), expected)
+                        self.assertEqual(((expected / "inert-engine").stat().st_dev,
+                                          (expected / "inert-engine").stat().st_ino), payload_identity)
+                        expected_source = (UPSTREAM_SOURCE / "terminal/setup.py" if new_revision == self.new
+                                           else OLD_UPSTREAM_SOURCE / "setup.py")
+                        self.assertEqual((published / "setup.py").read_bytes(), expected_source.read_bytes())
+                        if target_name == "external":
+                            self.assertEqual((external / "inert-engine").read_bytes(), b"never execute this payload")
+                            self.assertFalse((destination / "external-engine").exists())
+
+    def test_internal_config_link_target_checkpoint_deduplicates_and_source_receipt_restores(self):
+        self.make_cross_pin_sources()
+        flat = self.prepare_cross_pin(self.old, overlay=False)
+        for old_revision, new_revision in ((self.old, self.new), (self.new, self.old)):
+            runtime = flat if old_revision == self.old else flat / "terminal"
+            target = flat / "config-owned.json"
+            config = {"exe": str(runtime / ("sycl/serve/strata-sycl.sh" if old_revision == self.old
+                                           else "../engine/sycl/serve/strata-sycl.sh")),
+                      "args": [], "cwd": str(runtime), "note": str(runtime / "models")}
+            target.write_text(json.dumps(config, indent=4) + "\n")
+            target.chmod(0o640)
+            for name in ("strata-linked.json", "strata-alias.json"):
+                path = runtime / name
+                if not path.is_symlink():
+                    path.symlink_to(os.path.relpath(target, runtime))
+            external = self.state / "external-config.json"
+            external.write_bytes(target.read_bytes())
+            external_link = runtime / "strata-external.json"
+            if not external_link.is_symlink():
+                external_link.symlink_to(str(external))
+            original = (target.read_bytes(), target.stat().st_ino, target.stat().st_mode)
+            external_original = (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns)
+            links = {path.name: (os.readlink(path), path.lstat().st_ino)
+                     for path in runtime.glob("strata-*.json") if path.is_symlink()}
+            # The native wrapper and actual normalizer are exercised, not a fabricated writer.
+            self.run_source_script(runtime, r'''
+import os
+from pathlib import Path
+import strata_managed_state as state
+repository = Path.cwd().parent if Path.cwd().name == "terminal" else Path.cwd()
+target = repository / "config-owned.json"
+before = (target.read_bytes(), target.stat().st_ino, target.stat().st_mode)
+with state.layout_checkpoint(repository) as restore:
+    state.normalize_sycl_configs(repository)
+    assert target.read_bytes() != before[0]
+    restore()
+    restore()  # Restoring an original link must not consume its sole inode backup.
+    assert (target.read_bytes(), target.stat().st_ino, target.stat().st_mode) == before
+''')
+            script = r'''
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("receipt_fault", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+real_publish = module.publish_source_patch
+def refuse(path, text):
+    if path.name == module.SOURCE_REQUEST:
+        raise OSError("sourceReceiptFault")
+    return real_publish(path, text)
+module.publish_source_patch = refuse
+try:
+    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4])
+except OSError as error:
+    assert str(error) == "sourceReceiptFault", error
+else:
+    raise AssertionError("source receipt unexpectedly committed")
+'''
+            for revision in (old_revision, new_revision):
+                result = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), revision,
+                                         str(self.repository)], env=self.env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertEqual((target.read_bytes(), target.stat().st_ino, target.stat().st_mode), original)
+                self.assertEqual({path.name: (os.readlink(path), path.lstat().st_ino)
+                                  for path in runtime.glob("strata-*.json") if path.is_symlink()}, links)
+                self.assertEqual((external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns), external_original)
+                self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"],
+                                                         text=True).strip(), old_revision)
+            published = self.prepare_cross_pin(new_revision, overlay=False)
+            self.assertEqual((published / "strata-linked.json").resolve(), target)
+            self.assertEqual((published / "strata-alias.json").resolve(), target)
+            self.assertEqual(target.stat().st_ino, original[1])
+            self.assertEqual(target.stat().st_mode, original[2])
+            self.assertNotEqual(target.read_bytes(), original[0])
+            self.assertEqual((external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns), external_original)
+
+
+    def test_hash_file_progress_flag_silences_native_threshold_without_large_fixture(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import contextlib, hashlib, io
+from pathlib import Path
+from unittest.mock import patch
+import setup
+path = Path("checkpoint.safetensors")
+payload = b"verified checkpoint data"
+assert len(payload) == 24
+path.write_bytes(payload)
+expected = hashlib.sha256(payload).hexdigest()
+# The native threshold reads its announced size; this fixture is only 24 bytes, not a GiB checkpoint.
+announced = 1 << 30
+out = io.StringIO()
+with patch.object(setup.time, "time", return_value=3), contextlib.redirect_stdout(out):
+    assert setup._hash_file(path, announced) == expected
+assert out.getvalue().startswith("\r  checking checkpoint.safetensors:")
+assert "1.07 GB (0%)" in out.getvalue()
+out = io.StringIO()
+with patch.object(setup.time, "time", side_effect=AssertionError("silent hashing queried progress clock")), \
+     contextlib.redirect_stdout(out):
+    assert setup._hash_file(path, announced, progress=False) == expected
+assert out.getvalue() == ""
+with __import__("unittest").TestCase().assertRaises(FileNotFoundError):
+    setup._hash_file(path.with_name("missing.safetensors"), announced, progress=False)
+''')
+
+    def test_models_explain_pinned_checkpoint_is_silent_read_only_and_acquisition_certifies(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import contextlib, hashlib, io, json, os, subprocess, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.dont_write_bytecode = True
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch import modelstate
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+from strata_cli.models_explain import explain, words
+root = Path.cwd()
+base = root.parent.parent / "explain-pinned"
+base.mkdir()
+data, models = base / "data", base / "models"
+model, repo = "NVFP4-QAD", "fixture/checkpoint"
+payload = b"verified checkpoint data"
+sha = hashlib.sha256(payload).hexdigest()
+assert len(payload) == 24
+# Only the fixture's pinned table changes; Catalog, native SHA and the public dispatcher stay real.
+with (root / "setup.py").open("a") as source:
+    source.write("\nMODELS[" + repr(model) + "][\"repo\"] = " + repr(repo) + "\n")
+    source.write("NVFP4_REPOS[" + repr(repo) + "] = " + repr({"revision": "fixture-revision", "files": {
+        "tensors/checkpoint.safetensors": ("src", len(payload), sha)}}) + "\n")
+os.environ.update(STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(base / "settings.json"),
+    STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(root.parent.parent),
+        "data_directory": str(data), "models_directory": str(models)}))
+path = models / repo.replace("/", "--") / "tensors/checkpoint.safetensors"
+path.parent.mkdir(parents=True)
+path.write_bytes(payload)
+cat = Catalog(src=root, root=root, hardware={})
+mod = cat.strata.setup_module()
+assert mod is not None and mod.MODELS[model]["repo"] == repo
+native_hash = mod._hash_file
+native_mark = mod.mark
+marker = path.with_name(path.name + ".done")
+def snapshot():
+    result = {}
+    for directory in (base, root / "marks"):
+        if directory.exists():
+            for p in (directory, *directory.rglob("*")):
+                st = p.stat()
+                result[str(p)] = (st.st_ino, st.st_mtime_ns, p.read_bytes() if p.is_file() else None)
+    return result
+before = snapshot()
+out = io.StringIO()
+with patch.object(mod, "_hash_file", wraps=native_hash) as hashes, contextlib.redirect_stdout(out):
+    directories = cat.launch_directories("nvfp4", model.lower())
+    assert directories.layout[2] == path.parent.parent
+    assert directories.verified_files[path]
+    assert hashes.call_count == 1, hashes.call_args_list
+    assert hashes.call_args.kwargs == {"progress": False}, hashes.call_args
+    state = modelstate.assess(cat, "nvfp4", model, directories=directories, rows=[], mtp="off", drafting="off")
+    assert state.remaining_gb == 0 and state.on_disk_gb == len(payload) / 1e9
+    files = cat.mcp.expected_files(mod, "nvfp4", model, models, False, data_dir=data,
+        layout=directories.layout, verified_files=directories.verified_files)
+    assert len(files) == 1 and files[0]["complete"]
+    assert hashes.call_count == 1, "forecast discarded its already verified evidence"
+assert out.getvalue() == ""
+assert snapshot() == before and not marker.exists()
+runner = Runner(LaunchSettings(family="nvfp4", model=model, vision="off", mtp="off", drafting="off"), catalog=cat)
+with patch.object(mod, "_hash_file", wraps=native_hash) as hashes:
+    job = runner.progress_job()
+    assert job["files"][0]["complete"] and hashes.call_count == 1
+    assert hashes.call_args.kwargs == {"progress": False}
+assert runner.ready_pack_gap() is None
+expected = explain("nvfp4/" + model.lower(), catalog=cat)
+for output in ("json", "human"):
+    result = subprocess.run([sys.executable, str(root / "strata.py"), "models", "explain",
+        "nvfp4/" + model.lower(), "--output", output], env=os.environ,
+        capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr + result.stdout
+    if output == "json":
+        assert json.loads(result.stdout) == {"schema_version": 1, "ok": True, **expected}, result.stdout
+    else:
+        assert result.stdout.strip() == words(expected), result.stdout
+    assert snapshot() == before and not marker.exists()
+# Same-size corruption cannot receive SHA credit, a mark, a rename or a partial-resume credit from the reader.
+path.write_bytes(b"x" * len(payload))
+wrong = snapshot()
+with patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
+     patch.object(mod, "mark", wraps=native_mark) as marks:
+    directories = cat.launch_directories("nvfp4", model)
+    assert not directories.verified_files[path]
+    state = modelstate.assess(cat, "nvfp4", model, directories=directories, rows=[], mtp="off", drafting="off")
+    assert state.on_disk_gb == 0 and state.remaining_gb == len(payload) / 1e9
+    files = cat.mcp.expected_files(mod, "nvfp4", model, models, False, data_dir=data,
+        layout=directories.layout, verified_files=directories.verified_files)
+    assert not files[0]["complete"] and hashes.call_count == 1
+    progress = cat.mcp.files_progress({}, {}, files, setup_module=mod)
+    assert progress["parts"][0]["files_done"] == 0
+    assert progress["parts"][0]["done_gb"] == 0
+    mod.model_download_layout("nvfp4", model, models, data_dir=data)
+    assert not marks.called, marks.call_args_list
+assert snapshot() == wrong and not marker.exists()
+assert not path.with_name(path.name + ".bad").exists()
+# Native acquisition, unlike the reader, publishes the certificate after checking the actual SHA.
+path.write_bytes(payload)
+original = (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+with patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
+     patch.object(mod, "mark", wraps=native_mark) as marks:
+    layout = mod.model_download_layout("nvfp4", model, models, data_dir=data)
+    assert hashes.call_count == 1 and hashes.call_args.kwargs == {"progress": True}
+    marks.assert_called_once_with(path, "sha256 " + sha)
+    assert mod.ready_verified(path, sha) and marker.read_text() == "sha256 " + sha
+    mod.ready_fetch(model, *layout[:2], checkpoint_dir=layout[2])
+    assert hashes.call_count == 1, "acquisition discarded its native finish mark"
+assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == original
+assert not data.exists()
+''')
+
 
 unittest.main()

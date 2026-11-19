@@ -185,8 +185,13 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
             cache_source_patch(cache, current, previous)
         if current == revision and (previous is None or applied) and (
                 previous == desired or accepted_source_request(root, revision, requested, previous)):
-            migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
-            publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
+            with managed_state.layout_checkpoint(root) as restore_metadata:
+                try:
+                    migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+                    publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
+                except BaseException:
+                    restore_metadata()
+                    raise
             return root
         target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
         if desired is not None and not patch_revision_check(root, revision, desired):
@@ -209,6 +214,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link:
             reversed_layout = forwarded_layout = removed_patch = desired_applied = False
             try:
+                engine_link.stage()
                 if reverse_layout:
                     migrate_layout(state, root / "terminal", lock_fd, publication_fd=publication_lock.fileno(), reverse=True)
                     reversed_layout = True
@@ -217,7 +223,6 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     removed_patch = True
                 ledger.unlink(missing_ok=True)
                 git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
-                engine_link.stage()
                 git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
                 engine_link.publish()
                 if desired is not None:

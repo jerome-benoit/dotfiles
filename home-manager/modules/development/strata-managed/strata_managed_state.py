@@ -370,8 +370,15 @@ def layout_checkpoint(repository, *, enabled=True):
                                     metadata_entry = stream.read(2) == b"#!"
                             if metadata_entry:
                                 paths.add(entry)
+            # Writers follow config links, but ownership stops at the repository boundary.
+            for path in tuple(paths):
+                if path.is_symlink() and path.name.startswith("strata-") and path.suffix == ".json":
+                    target = path.resolve()
+                    if target.is_relative_to(repository) and _model_config(path.read_bytes()) is not None:
+                        paths.add(target)
             originals = []
             temporary_roots = {}
+            payloads = {}
             for index, path in enumerate(sorted(paths)):
                 info = path.lstat()
                 anchor = directory if path.is_relative_to(directory) else repository / ".git"
@@ -380,7 +387,13 @@ def layout_checkpoint(repository, *, enabled=True):
                     temporary_roots[device] = Path(snapshots.enter_context(
                         tempfile.TemporaryDirectory(prefix="strata-layout-", dir=anchor)))
                 backup = temporary_roots[device] / str(index)
-                payload = None if path.is_symlink() else path.read_bytes()
+                identity = (info.st_dev, info.st_ino)
+                if path.is_symlink():
+                    payload = None
+                else:
+                    if identity not in payloads:
+                        payloads[identity] = path.read_bytes()
+                    payload = payloads[identity]
                 os.link(path, backup, follow_symlinks=False)
                 originals.append((path, backup, payload, info.st_mode))
 
@@ -396,7 +409,10 @@ def layout_checkpoint(repository, *, enabled=True):
                 def restore_entry(path, backup, payload, mode):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     if path.is_symlink() or not path.exists() or path.lstat().st_ino != backup.lstat().st_ino:
-                        os.replace(backup, path)
+                        replacement = backup.with_name(backup.name + ".restore")
+                        replacement.unlink(missing_ok=True)
+                        os.link(backup, replacement, follow_symlinks=False)
+                        os.replace(replacement, path)
                     if payload is not None:
                         if path.read_bytes() != payload:
                             path.write_bytes(payload)
@@ -423,6 +439,32 @@ def layout_checkpoint(repository, *, enabled=True):
                 os.environ["STRATA_PROFILE_NAMESPACE_FD"] = before_fd
 
 
+def runtime_pairs(repository, *, reverse=False):
+    """Describe only payloads present now; use the same moves for links and migration."""
+    source, destination = ((repository / "terminal", repository) if reverse
+                           else (repository, repository / "terminal"))
+    pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
+             for path in sorted(source.glob(pattern)) if path.is_file()]
+    pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
+              if (source / name).is_dir() or (source / name).is_symlink()]
+    engine = source / "engine"
+    if engine.is_dir() and not engine.is_symlink():
+        pairs += [(path, destination / "engine" / path.name) for path in sorted(engine.iterdir())
+                  if path.name not in ENGINE_SOURCE and not path.name.startswith("build")]
+    pairs += [((repository / "engine" / name, repository / name) if reverse
+               else (repository / name, repository / "engine" / name)) for name in ENGINE_BUILDS
+              if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()
+              or ((repository / "engine" / name) if reverse else (repository / name)).is_symlink()]
+    return pairs
+
+
+def relocated_path(path, pairs):
+    for old, new in sorted(pairs, key=lambda pair: -len(pair[0].parts)):
+        if path.is_relative_to(old):
+            return new / path.relative_to(old)
+    return path
+
+
 @contextmanager
 def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_engine=False):
     """Vacate only the runtime engine link before Git creates/removes tracked engine code.
@@ -443,6 +485,13 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
             if enabled and source.is_symlink():
                 self.target = source.resolve(strict=True)
                 self.spelling = os.readlink(source)
+                lexical = Path(self.spelling)
+                lexical = Path(os.path.normpath(lexical if lexical.is_absolute() else source.parent / lexical))
+                pairs = runtime_pairs(repository, reverse=reverse)
+                self.destination_target = relocated_path(lexical, pairs)
+                if lexical.resolve() != self.target or (self.destination_target == lexical
+                        and relocated_path(self.target, pairs) != self.target):
+                    self.destination_target = relocated_path(self.target, pairs)
                 self.backup = temporary / "engine"
                 os.rename(source, self.backup)
 
@@ -458,10 +507,13 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
             self.created_parent = not destination.parent.exists()
             destination.parent.mkdir(parents=True, exist_ok=True)
             target = Path(self.spelling)
-            if target.is_absolute() or (destination.parent / target).resolve() == self.target:
+            if ((target.is_absolute() and target == self.destination_target)
+                    or (not target.is_absolute() and
+                        Path(os.path.normpath(destination.parent / target)) == self.destination_target)):
                 os.link(self.backup, destination, follow_symlinks=False)
             else:
-                destination.symlink_to(os.path.relpath(self.target, destination.parent))
+                destination.symlink_to(str(self.destination_target) if target.is_absolute()
+                                       else os.path.relpath(self.destination_target, destination.parent))
             self.published = destination.lstat()
 
         def withdraw(self):
@@ -512,18 +564,8 @@ def migrate_layout(repository, *, reverse=False):
     sys.path.insert(0, str(terminal))
     from strata_control import profiles
 
-    pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
-             for path in sorted(source.glob(pattern)) if path.is_file()]
-    pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
-              if (source / name).is_dir() or (source / name).is_symlink()]
+    pairs = runtime_pairs(repository, reverse=reverse)
     engine = source / "engine"
-    if engine.is_dir() and not engine.is_symlink():
-        pairs += [(path, destination / "engine" / path.name) for path in sorted(engine.iterdir())
-                  if path.name not in ENGINE_SOURCE and not path.name.startswith("build")]
-    pairs += [((repository / "engine" / name, repository / name) if reverse
-               else (repository / name, repository / "engine" / name)) for name in ENGINE_BUILDS
-              if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()
-              or ((repository / "engine" / name) if reverse else (repository / name)).is_symlink()]
     conflicts = [dst for src, dst in pairs if dst.exists() or dst.is_symlink()]
     if conflicts:
         raise RuntimeError("Cannot migrate managed runtime without replacing existing destinations: "
@@ -537,7 +579,8 @@ def migrate_layout(repository, *, reverse=False):
                      else (repository / name, repository / "engine" / name)) for name in ("metal", "sycl")]
     swaps = set(pairs + engine_paths)
     swaps.update((source / name, destination / name) for name in TERMINAL_ENTRIES)
-    if any(src.parent == engine for src, dst in pairs) or engine.is_symlink() or (destination / "engine").is_symlink():
+    if (any(src.parent == engine for src, dst in pairs) or engine.is_symlink()
+            or (destination / "engine").is_symlink() or (reverse and not engine.exists())):
         swaps.add((engine, destination / "engine"))
     rebase = rebaser(swaps)
     shell_rebase = shell_rebaser(swaps, rebase)
@@ -588,13 +631,8 @@ def migrate_layout(repository, *, reverse=False):
         if mapped != config:
             runtime_edits.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8"), None))
 
-    path_moves = sorted(pairs, key=lambda pair: -len(pair[0].parts))
-
     def moved_path(path):
-        for old, new in path_moves:
-            if path.is_relative_to(old):
-                return new / path.relative_to(old)
-        return path
+        return relocated_path(path, pairs)
 
     for src, dst in pairs:
         if not src.is_symlink() and not src.is_dir():
