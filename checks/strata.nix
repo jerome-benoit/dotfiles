@@ -5,7 +5,19 @@
   home-manager,
 }:
 let
+  sourceRoot = src.sourceInfo.outPath;
+  # Check rollback consumers against the exact previous source, not the current overlay.
+  rollbackSource = builtins.fetchTree {
+    type = "github";
+    owner = "Niko1221";
+    repo = "Strata";
+    rev = "c77572806996349b49995e4f98d41b5294d36a21";
+    narHash = "sha256-ehbQHpljUeclywp0ubGcrGG+xQ35SppRoosVWZLJiDY=";
+  };
   sourcePatch = import ../home-manager/modules/development/strata-source-patch.nix { inherit pkgs; };
+  workspaceHelper = import ../home-manager/modules/development/strata-workspace-package.nix {
+    inherit pkgs;
+  };
   supportedPlatform = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
   configureWith =
     selectedPkgs: settings:
@@ -117,12 +129,16 @@ pkgs.runCommand "check-strata-workspace"
         python.pip
         python.regex
         python.textual
+        python.pyyaml
+        python.psutil
+        python.requests
+        python.pillow
       ]))
     ];
   }
   ''
     export HOME=$TMPDIR/home
     mkdir -p "$HOME"
-    python3 ${./strata.py} ${../home-manager/modules/development/strata-workspace.py} ${src} ${launcherFixtures} ${sourcePatch}
+    python3 ${./strata.py} ${workspaceHelper}/strata-workspace.py ${sourceRoot} ${launcherFixtures} ${sourcePatch} ${rollbackSource.outPath}
     touch $out
   ''

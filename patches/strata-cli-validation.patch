@@ -1,29 +1,12 @@
-# base: Niko1221/Strata c77572806996349b49995e4f98d41b5294d36a21
+# base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract)
 # intent: validate serve and monitor arguments before optional dependencies.
 # upstream: no exact upstream fix established; local shared parser consumers.
 # removal: remove when preflight and native dispatch share equivalent dependency-free validation.
-diff --git a/strata.py b/strata.py
---- a/strata.py
-+++ b/strata.py
-@@ -16,6 +16,13 @@
-     command = next((a for a in argv if not a.startswith("-")), "")
-     if command not in ("serve", "bench"):
-         return 0
-+    if command == "serve":
-+        from strata_cli.cli import parse_args, validate_serve_args
-+        from strata_control.profiles import ProfileError
-+        try:
-+            validate_serve_args(parse_args(argv))
-+        except ProfileError:
-+            return 0  # Native dispatch reports usage errors without requiring server packages.
-     missing = [m for m in SERVER_PACKAGES if importlib.util.find_spec(m) is None]
-     if not missing:
-         return 0
-diff --git a/strata_cli/cli.py b/strata_cli/cli.py
---- a/strata_cli/cli.py
-+++ b/strata_cli/cli.py
-@@ -917,26 +917,43 @@
+diff --git a/terminal/strata_cli/cli.py b/terminal/strata_cli/cli.py
+--- a/terminal/strata_cli/cli.py
++++ b/terminal/strata_cli/cli.py
+@@ -951,26 +951,43 @@
      return server_main(args, interrupt_exit_code=130)
  
  
@@ -78,9 +61,9 @@ diff --git a/strata_cli/cli.py b/strata_cli/cli.py
          plan, args = _launch_plan(a.config, a)
      except ValueError as exc:
          if a.output == "jsonl":
-diff --git a/strata_cli/monitor_commands.py b/strata_cli/monitor_commands.py
---- a/strata_cli/monitor_commands.py
-+++ b/strata_cli/monitor_commands.py
+diff --git a/terminal/strata_cli/monitor_commands.py b/terminal/strata_cli/monitor_commands.py
+--- a/terminal/strata_cli/monitor_commands.py
++++ b/terminal/strata_cli/monitor_commands.py
 @@ -169,6 +169,19 @@
      return 0
  
@@ -117,3 +100,20 @@ diff --git a/strata_cli/monitor_commands.py b/strata_cli/monitor_commands.py
          found = running_launch() if a.command in ("monitor", "status", "logs") and not (a.url or a.connection) else None
          resolved = connections.resolve(url=found["url"] if found else a.url, connection=a.connection,
                                         credential_env=a.credential_env, timeout=a.timeout)
+diff --git a/terminal/strata.py b/terminal/strata.py
+--- a/terminal/strata.py
++++ b/terminal/strata.py
+@@ -21,6 +21,13 @@
+     command = next((a for a in argv if not a.startswith("-")), "")
+     if command not in ("serve", "bench"):
+         return 0
++    if command == "serve":
++        from strata_cli.cli import parse_args, validate_serve_args
++        from strata_control.profiles import ProfileError
++        try:
++            validate_serve_args(parse_args(argv))
++        except ProfileError:
++            return 0  # Native dispatch reports usage errors without requiring server packages.
+     missing = [m for m in SERVER_PACKAGES if importlib.util.find_spec(m) is None]
+     if not missing:
+         return 0
