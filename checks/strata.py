@@ -4261,8 +4261,11 @@ run_module(root, module, sys.argv[4:])
             with self.subTest(pin=label), tempfile.TemporaryDirectory(prefix="s339-native-module-", dir="/tmp") as sockets, ExitStack() as owned:
                 self.state = state / label
                 root = self.prepare_cross_pin(revision, overlay=False)
+                with socket.socket() as available:
+                    available.bind(('127.0.0.1', 0))
+                    port = available.getsockname()[1]
                 cfg = {"exe": sys.executable, "args": [], "backend": "cpu",
-                       "tokenizer": str(root / "no-tokenizer"), "port": 0, "api_key": "none"}
+                       "tokenizer": str(root / "no-tokenizer"), "port": port, "api_key": "none"}
                 (root / "strata-fixture.json").write_text(json.dumps(cfg))
                 launcher = self.base / (label + "-native-module-launcher.py")
                 launcher.write_text(launcher_source)
@@ -4273,9 +4276,10 @@ run_module(root, module, sys.argv[4:])
                            STRATA_PROFILE_DIR=str(Path(sockets) / "profiles"),
                            STRATA_RUNTIME_DIR=str(Path(sockets) / "runtime"),
                            XDG_STATE_HOME=str(Path(sockets) / "state"),
+                           NATIVE_READER_PORT=str(port),
                            XDG_CONFIG_HOME=str(Path(sockets) / "config"))
                 created = subprocess.run([sys.executable, "-c",
-                    "from strata_control import profiles; p, r = profiles.create('launch-native-reader', 'strata-fixture.json'); p['overrides']['port'] = 0; profiles.save('launch-native-reader', p, expected_revision=r)"],
+                    "import os; from strata_control import profiles; p, r = profiles.create('launch-native-reader', 'strata-fixture.json'); p['overrides']['port'] = int(os.environ['NATIVE_READER_PORT']); profiles.save('launch-native-reader', p, expected_revision=r)"],
                     cwd=root, env=env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(created.returncode, 0, created.stderr)
                 module = self.workspace_module()
@@ -4315,16 +4319,33 @@ run_module(root, module, sys.argv[4:])
                         self.assertIsNone(host.poll())
                         reused_entry = root / "native-ready-fixture.py"
                         reused_entry.write_text("import json, os, socket\n"
+                            "import importlib.abc, sys\n"
+                            "import traceback\n"
+                            "peer = socket.socket(socket.AF_UNIX)\n"
+                            "peer.settimeout(30)\n"
+                            "peer.connect(os.environ['NATIVE_MODULE_GATE'])\n"
+                            "def fixture_error(kind, value, trace):\n"
+                            "    peer.sendall(json.dumps({'error': ''.join(traceback.format_exception(kind, value, trace))}).encode() + b'\\n')\n"
+                            "    sys.__excepthook__(kind, value, trace)\n"
+                            "sys.excepthook = fixture_error\n"
+                            "class NoScreens(importlib.abc.MetaPathFinder):\n"
+                            "    def find_spec(self, fullname, path=None, target=None):\n"
+                            "        if fullname.split('.')[0] in {'rich', 'textual'}: raise ModuleNotFoundError(fullname)\n"
+                            "sys.meta_path.insert(0, NoScreens())\n"
                             "from strata_cli.launch.runner import Runner\n"
                             "from strata_cli.launch.settings import LaunchSettings\n"
-                            "runner = Runner(LaunchSettings(name='native-reader', port=0, drafting='off'))\n"
+                            "runner = Runner(LaunchSettings(name='native-reader', port=int(os.environ['NATIVE_READER_PORT']), family='qwen', model='Q2_0', context=8192, parallel=1, vision='off', drafting='off'))\n"
                             "runner.save_choices()\n"
                             "result = runner.run()\n"
                             "assert result.reused\n"
-                            "with socket.socket(socket.AF_UNIX) as peer:\n"
-                            "    peer.connect(os.environ['NATIVE_MODULE_GATE'])\n"
-                            "    peer.sendall(b'ready\\n')\n"
-                            "    assert peer.recv(1) == b'g'\n")
+                            "from strata_cli import cli\n"
+                            "from strata_cli.launch import store\n"
+                            "store.save(runner.s, 'native-reader')\n"
+                            "for output in ('human', 'json'):\n"
+                            "    assert cli.main(['launch', '--preset', 'native-reader', '--no-tui', '--yes', '--output', output]) == 0\n"
+                            "peer.sendall(b'ready\\n')\n"
+                            "assert peer.recv(1) == b'g'\n"
+                            "peer.close()\n")
                         self.addCleanup(reused_entry.unlink, missing_ok=True)
                         context = {"state": str(self.state), "revision": revision}
                         with module.workspace_lock(self.state) as (_, acquisition):
@@ -4335,7 +4356,13 @@ run_module(root, module, sys.argv[4:])
                                 pass_fds=(acquisition.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                         owned.callback(finish_process, ready_runner)
                         with listener.accept()[0] as monitor:
-                            self.assertEqual(monitor.recv(4096), b"ready\n")
+                            monitor.settimeout(30)
+                            payload = b''
+                            while not payload.endswith(b'\n'):
+                                chunk = monitor.recv(4096)
+                                self.assertTrue(chunk, 'Native ready fixture closed before publishing readiness')
+                                payload += chunk
+                            self.assertEqual(payload, b"ready\n", payload.decode())
                             self.assert_workspace_unlocked()
                             self.assertIsNone(ready_runner.poll())
                             os.kill(observed["pid"], 0)
@@ -4395,6 +4422,97 @@ print(json.dumps({"acquire": acquisition_action(args), "argv": raw}))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("usage:", result.stdout.lower())
                 self.assertNotIn("acquire", result.stdout)
+
+    def test_native_monitor_worker_after_ready_refuses_busy_and_releases_on_failure(self):
+        self.make_cross_pin_sources()
+        script = r'''import fcntl, json, os, sys, threading
+from pathlib import Path
+from strata_native_observer import _MonitorMutation
+root, state = map(Path, sys.argv[1:3])
+sys.path.insert(0, str(root))
+from strata_cli.launch.monitor_ext import LaunchMonitor
+from strata_control import engine_update
+os.environ.update(STRATA_WORKSPACE_CONTEXT=json.dumps({'state': str(state)}),
+                  STRATA_WORKSPACE_HELPER=sys.argv[3])
+guard = _MonitorMutation(root)
+# The observer has finished readiness; no environment lease or reader survives.
+os.environ.pop('STRATA_WORKSPACE_CONTEXT')
+os.environ.pop('STRATA_WORKSPACE_HELPER')
+guard.install()
+from strata_cli.client import Endpoint
+app = LaunchMonitor(Endpoint('http://127.0.0.1:1', None, 0.1, ''), None, info={})
+messages = []
+app._say_line = messages.append
+app._note_refresh = lambda: None
+app.call_from_thread = lambda fn: fn()
+app._ask_from_thread = lambda *args: False
+entered = []
+def intercept(frame, event, arg):
+    if event == 'line' and frame.f_code is engine_update.run_flow.__code__:
+        entered.append(True)
+        with (state / '.source.lock').open('a') as other:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                raise AssertionError('flow lost its mutation lease')
+        raise RuntimeError('inert flow failure')
+    return intercept
+threading.settrace(intercept)
+try:
+    with (state / '.source.lock').open('a') as busy:
+        fcntl.flock(busy, fcntl.LOCK_EX)
+        app.updating = True
+        worker = threading.Thread(target=app._update_worker)
+        worker.start(); worker.join(10)
+        assert not worker.is_alive() and not app.updating
+        assert not entered and 'busy' in app.selection_notice.lower()
+    app.updating = True
+    worker = threading.Thread(target=app._update_worker)
+    worker.start(); worker.join(10)
+    assert not worker.is_alive() and not app.updating and entered, (worker.is_alive(), app.updating, entered, app.selection_notice)
+    assert 'inert flow failure' in app.selection_notice
+    with (state / '.source.lock').open('a') as free:
+        fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    threading.settrace(None)
+    # Inert dependency boundary: retain the real flow and real worker, but do
+    # not contact feeds, engines or models. Its Python child must inherit the
+    # exact mutation description and the existing acquisition bootstrap.
+    import subprocess
+    engine_update.build_context = lambda *args: None
+    def inert_update(ctx, gate, **options):
+        child = subprocess.run([sys.executable, '-c',
+            "import fcntl, os; from pathlib import Path; "
+            "fd=int(os.environ['STRATA_WORKSPACE_LOCK_FD']); "
+            "held=os.fstat(fd); "
+            "assert os.environ['STRATA_ACQUISITION_BOOTSTRAP']==f'{held.st_dev}:{held.st_ino}'; "
+            "assert held.st_ino==Path(os.environ['TEST_MUTATION_LOCK']).stat().st_ino"],
+            env=dict(os.environ, TEST_MUTATION_LOCK=str(state / '.source.lock')),
+            capture_output=True, text=True)
+        assert child.returncode == 0, child.stderr
+        return {'results': []}
+    engine_update.update_with_models = inert_update
+    app.updating = True
+    worker = threading.Thread(target=app._update_worker)
+    worker.start(); worker.join(10)
+    assert not worker.is_alive() and not app.updating
+    assert app.selection_notice == 'Nothing needed updating.'
+    with (state / '.source.lock').open('a') as free:
+        fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    print('observer alive')
+finally:
+    threading.settrace(None)
+    guard.close()
+'''
+        for revision in (self.old, self.new):
+            with self.subTest(revision=revision):
+                root = self.prepare_cross_pin(revision, overlay=False)
+                result = subprocess.run([sys.executable, '-c', script, str(root), str(self.state), WORKSPACE],
+                    cwd=root, env=dict(self.env, PYTHONPATH=str(WORKSPACE_LIB)),
+                    capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('observer alive', result.stdout)
 
     def test_native_install_descendant_keeps_acquisition_after_cli_death_flat_and_split(self):
         self.make_cross_pin_sources()
@@ -11931,6 +12049,198 @@ assert runtime.ROOT==old_root, 'endpoint selection mutated independent host name
                         str(area), json.dumps(reverse), kind, driver], env=env,
                         capture_output=True, text=True, timeout=60)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+    def test_patched_host_restart_keeps_publication_reader_through_transaction_and_rollback(self):
+        """Exact Host transaction bodies; inert service boundaries and a real waiting publisher."""
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import ast, fcntl, hashlib, importlib.util, os, subprocess, sys, tempfile
+from pathlib import Path
+from strata_control.profiles import ProfileError
+
+# Do not import runtime's service/UI dependencies or replace its transaction code.
+source = Path.cwd() / "strata_control/runtime.py"
+tree = ast.parse(source.read_text())
+original = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Host")
+methods = [node for node in original.body
+           if isinstance(node, ast.FunctionDef) and node.name in ("_restart", "_restart_observed")]
+assert {node.name for node in methods} == {"_restart", "_restart_observed"}
+for key in ("STRATA_SOURCE_LOCK_FD", "STRATA_WORKSPACE_CONTEXT"):
+    os.environ.pop(key, None)
+spec = importlib.util.spec_from_file_location("restart_acquisition_fixture", source.with_name("acquisition.py"))
+acquisition = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(acquisition)
+ns = {"acquisition": acquisition, "hashlib": hashlib, "ProfileError": ProfileError}
+consumer = ast.ClassDef(name="RestartConsumer", bases=[], keywords=[], body=methods, decorator_list=[])
+exec(compile(ast.fix_missing_locations(ast.Module(body=[consumer], type_ignores=[])), str(source), "exec"), ns)
+
+writer_script = r"""
+import fcntl, sys
+from pathlib import Path
+state = Path(sys.argv[1])
+with (state / '.source-publication.lock').open('a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print('blocked', flush=True)
+    else:
+        raise AssertionError('publisher entered the restart drain')
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    (state / 'source/terminal/config.json').rename(state / 'source/config.json')
+    print('published', flush=True)
+"""
+
+cases = (
+    "success", "launch-failure", "readiness-failure", "rollback-launch-failure",
+    "rollback-readiness-failure", "drain-failure", "source-byte-change", "snapshot-failure",
+    "preflight-failure", "owner-mismatch", "instance-mismatch", "not-ready",
+    "source-rejected", "hash-mismatch", "revision-mismatch", "instance-changed",
+    "not-ready-after-plan", "unexpected-error", "unmanaged",
+)
+for mode in cases:
+    with tempfile.TemporaryDirectory(prefix="restart-lease-") as tmp:
+        state = Path(tmp)
+        lock_path = state / ".source-publication.lock"
+        lock_path.touch()
+        stages = []
+        active = False
+        managed = mode != "unmanaged"
+        def checkpoint(label):
+            if not active:
+                return
+            stages.append(label)
+            with lock_path.open("a") as publisher:
+                try:
+                    fcntl.flock(publisher, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    assert managed, (mode, label, "unmanaged Host acquired a workspace reader")
+                else:
+                    assert not managed, (mode, label, "publication entered the transaction")
+        class ConfigPath(type(Path())):
+            def read_bytes(self):
+                checkpoint("read-bytes:" + self.name)
+                return super().read_bytes()
+        config = ConfigPath(state / "source/terminal/config.json")
+        config.parent.mkdir(parents=True)
+        config.write_bytes(b"running config")
+        original_bytes = config.read_bytes()
+        snapshot = ConfigPath(state / "snapshot.json")
+        class Boundary(ns["RestartConsumer"]):
+            name = "lease-regression"
+            workspace_state = state if managed else None
+            source = config
+            source_bytes = original_bytes
+            args = ["--config", str(config)]
+            revision = "revision"
+            child = None
+            launches = 0
+            statuses = 0
+            writer = None
+            def _status(self):
+                checkpoint("status")
+                self.statuses += 1
+                instance = "changed" if mode == "instance-changed" and self.statuses > 1 else "instance"
+                ready = not (mode == "not-ready" or (mode == "not-ready-after-plan" and self.statuses > 1))
+                return {"ok": True, "state": "ready" if ready else "failed",
+                        "owner_id": "owner", "instance_id": instance}
+            def _plan(self):
+                checkpoint("plan")
+                if mode == "preflight-failure":
+                    raise ProfileError("fixture preflight", 5)
+                return {"profile_revision": "revision"}, list(self.args), config, config.read_bytes()
+            def _source_change_check(self, source, payload, allow_switch, allow_migration):
+                checkpoint("source-check")
+                assert allow_switch and allow_migration
+                return False, True, "fixture-source-rejected" if mode == "source-rejected" else None
+            def _snapshot_running_config(self):
+                checkpoint("snapshot")
+                if mode == "snapshot-failure":
+                    raise OSError("fixture snapshot refused")
+                snapshot.write_bytes(original_bytes)
+                return snapshot
+            def _config_args(self, args, source):
+                return ["--config", str(source)]
+            def _retire_snapshot(self, path):
+                checkpoint("retire-snapshot")
+                return True
+            def _stop_child(self):
+                checkpoint("drain")
+                if managed and self.writer is None:
+                    self.writer = subprocess.Popen([sys.executable, "-c", writer_script, str(state)],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    assert self.writer.stdout.readline().strip() == "blocked", mode
+                if mode == "source-byte-change":
+                    config.write_bytes(b"operator edit during drain")
+                if mode == "unexpected-error":
+                    raise RuntimeError("fixture unexpected drain error")
+                return {"ok": mode != "drain-failure", "state": "failed", "exit_code": 8}
+            def _launch(self, args, source, payload, revision):
+                checkpoint("launch")
+                self.launches += 1
+                assert source.read_bytes() == payload
+                if ((self.launches == 1 and mode in ("launch-failure", "rollback-launch-failure"))
+                        or (self.launches == 2 and mode == "rollback-launch-failure")):
+                    raise OSError("fixture launch refused")
+            def _wait_ready(self, timeout):
+                checkpoint("wait-ready")
+                ready = not ((self.launches == 1 and mode in
+                    ("readiness-failure", "rollback-readiness-failure"))
+                    or (self.launches == 2 and mode == "rollback-readiness-failure"))
+                return {"ok": ready, "state": "ready" if ready else "failed", "instance_id": "replacement"}
+        host = Boundary()
+        active = True
+        kwargs = dict(expected_profile_revision="wrong" if mode == "revision-mismatch" else "revision",
+                      allow_source_switch=True, allow_source_migration=True,
+                      expected_source_sha256="wrong" if mode == "hash-mismatch" else hashlib.sha256(original_bytes).hexdigest(),
+                      expected_owner_id="wrong" if mode == "owner-mismatch" else "owner",
+                      expected_instance_id="wrong" if mode == "instance-mismatch" else "instance")
+        try:
+            try:
+                result = host._restart(1, **kwargs)
+            except RuntimeError as error:
+                assert mode == "unexpected-error" and str(error) == "fixture unexpected drain error", error
+            else:
+                if mode in ("success", "unmanaged"):
+                    assert result["ok"] and result["restarted"], (mode, result)
+                elif mode in ("launch-failure", "readiness-failure", "source-byte-change"):
+                    assert not result["ok"] and result["rolled_back"] and result["state"] == "ready", (mode, result)
+                elif mode in ("rollback-launch-failure", "rollback-readiness-failure"):
+                    assert not result["rolled_back"] and result["state"] == "failed", (mode, result)
+                else:
+                    expected = {"snapshot-failure": "rollback_snapshot_failed",
+                        "preflight-failure": "new_profile_preflight_failed",
+                        "owner-mismatch": "owner_changed_after_restart_plan",
+                        "instance-mismatch": "instance_changed_after_restart_plan",
+                        "not-ready": "runtime_not_ready", "source-rejected": "fixture-source-rejected",
+                        "hash-mismatch": "source_changed_after_preview",
+                        "revision-mismatch": "profile_changed_after_preview",
+                        "instance-changed": "instance_changed_after_restart_plan",
+                        "not-ready-after-plan": "runtime_not_ready"}
+                    assert not result["ok"], (mode, result)
+                    if mode in expected:
+                        assert result["error"] == expected[mode], (mode, result)
+                        assert "drain" not in stages, (mode, stages)
+            active = False
+            if host.writer is not None:
+                output, errors = host.writer.communicate(timeout=5)
+                assert host.writer.returncode == 0 and output.strip() == "published", (mode, output, errors)
+                assert (state / "source/config.json").is_file() and not config.exists()
+            with lock_path.open("a") as publisher:
+                fcntl.flock(publisher, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if mode in ("launch-failure", "readiness-failure", "source-byte-change",
+                        "rollback-launch-failure", "rollback-readiness-failure"):
+                assert stages.count("launch") == (1 if mode == "source-byte-change" else 2), (mode, stages)
+                assert "read-bytes:snapshot.json" in stages, (mode, stages)
+            assert "status" in stages
+        finally:
+            if host.writer is not None:
+                if host.writer.poll() is None:
+                    host.writer.kill()
+                host.writer.communicate(timeout=5)
+                host.writer.stdout.close()
+                host.writer.stderr.close()
+''')
 
 
 unittest.main()

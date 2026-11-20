@@ -68,6 +68,105 @@ def probe(root, entry, args):
         sys.setprofile(previous)
 
 
+class _MonitorMutation:
+    """Own update leases at native thread/flow boundaries, never patch native methods."""
+
+    def __init__(self, root):
+        import threading
+        self.context = os.environ.get("STRATA_WORKSPACE_CONTEXT")
+        self.helper = os.environ.get("STRATA_WORKSPACE_HELPER")
+        self.thread = threading.Thread
+        self.process = subprocess.Popen
+        self.local = threading.local()
+        owner = self
+
+        class WorkerThread(owner.thread):
+            def run(self):
+                module = sys.modules.get("strata_cli.launch.monitor_ext")
+                worker = getattr(getattr(module, "LaunchMonitor", None), "_update_worker", None)
+                if (owner.context is None or getattr(self._target, "__func__", None) is not worker
+                        or worker.__code__.co_filename != str(root / "strata_cli/launch/monitor_ext.py")):
+                    return super().run()
+                previous = sys.getprofile()
+
+                def entering(frame, event, result):
+                    if (event == "call" and _native_call(frame, "strata_control.engine_update", "run_flow",
+                            str(root / "strata_control/engine_update.py"))
+                            and frame.f_back.f_code is worker.__code__):
+                        import fcntl
+                        state = Path(json.loads(owner.context)["state"])
+                        lease = (state / ".source.lock").open("a")
+                        try:
+                            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            lease.close()
+                            raise RuntimeError("Workspace is busy; retry the engine update after the current operation finishes")
+                        owner.local.lease = lease
+                        os.set_inheritable(lease.fileno(), False)
+                    if previous is not None:
+                        previous(frame, event, result)
+
+                sys.setprofile(entering)
+                try:
+                    return super().run()
+                finally:
+                    sys.setprofile(previous)
+                    lease = getattr(owner.local, "lease", None)
+                    if lease is not None:
+                        lease.close()
+                        del owner.local.lease
+
+        class WorkerProcess(owner.process):
+            def __init__(self, args, *positional, **options):
+                import strata_managed_state as managed_state
+                lease = getattr(owner.local, "lease", None)
+                command = args
+                if lease is not None:
+                    fd = lease.fileno()
+                    held = os.fstat(fd)
+                    state = Path(json.loads(owner.context)["state"])
+                    expected = (state / ".source.lock").stat()
+                    if (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino):
+                        raise RuntimeError("Native update descriptor does not belong to this workspace")
+                    env = dict(options.get("env") or os.environ)
+                    env.update(STRATA_WORKSPACE_LOCK_FD=str(fd), STRATA_WORKSPACE_CONTEXT=owner.context,
+                               STRATA_WORKSPACE_HELPER=owner.helper,
+                               STRATA_ACQUISITION_BOOTSTRAP=f"{held.st_dev}:{held.st_ino}")
+                    independent = False
+                    if isinstance(command, (list, tuple)) and len(command) >= 2 and Path(command[1]).name == "setup.py":
+                        target = (Path(options.get("cwd") or os.getcwd()) / command[1]).resolve()
+                        independent = target != (root / "setup.py").resolve()
+                        if not independent:
+                            command = [command[0], owner.helper, "--native-setup", str(root), *command[2:]]
+                    if independent:
+                        options["env"] = managed_state.external_environment(env)
+                    elif env.get("STRATA_NO_ACQUIRE") != "1":
+                        options["env"] = managed_state.source_environment(env, root)
+                        options["pass_fds"] = tuple(dict.fromkeys((*options.get("pass_fds", ()), fd)))
+                    if (isinstance(command, (list, tuple)) and list(command[1:3]) == ["-m", "strata_control.runtime"]
+                            and "--host" in command[3:] and Path(options.get("cwd") or os.getcwd()).resolve() == root):
+                        with _source_reader(state) as reader:
+                            command, options = _module_spawn(state, owner.helper, command, options, reader)
+                            super().__init__(command, *positional, **options)
+                        return
+                super().__init__(command, *positional, **options)
+
+        self.managed_thread = WorkerThread
+        self.managed_process = WorkerProcess
+
+    def install(self):
+        import threading
+        threading.Thread = self.managed_thread
+        subprocess.Popen = self.managed_process
+
+    def close(self):
+        import threading
+        if threading.Thread is self.managed_thread:
+            threading.Thread = self.thread
+        if subprocess.Popen is self.managed_process:
+            subprocess.Popen = self.process
+
+
 def run(root, entry, args):
     """Keep the inherited reader through native initialization, not its long loop."""
     descriptor = int(os.environ.pop("STRATA_SOURCE_LOCK_FD"))
@@ -77,6 +176,7 @@ def run(root, entry, args):
     logs = str(root / "strata_cli/logs.py")
     monitor_file = str(root / "strata_cli/monitor.py")
     previous = sys.getprofile()
+    mutation = _MonitorMutation(root)
 
     def ready(frame, event, arg):
         if event != "call" or frame.f_code.co_name != "run":
@@ -102,6 +202,7 @@ def run(root, entry, args):
             return
         # Closing this reader must not unlock other processes sharing its file description.
         lease.close()
+        mutation.install()
         sys.setprofile(previous)
 
     sys.setprofile(ready)
@@ -110,6 +211,7 @@ def run(root, entry, args):
     finally:
         sys.setprofile(previous)
         lease.close()
+        mutation.close()
 
 
 def run_active(root, entry, args):
@@ -163,6 +265,7 @@ def run_active(root, entry, args):
     previous = sys.getprofile()
     previous_thread = threading.getprofile()
     runner_file = str(root / "strata_cli/launch/runner.py")
+    mutation = _MonitorMutation(root)
 
     def prepared(frame, event, result):
         module = sys.modules.get("strata_cli.launch.runner")
@@ -171,16 +274,27 @@ def run_active(root, entry, args):
                 and frame.f_code.co_filename == runner_file
                 and frame.f_globals is module.__dict__
                 and frame.f_code is runner.run.__code__):
-            # Runner returns only after preparation and, when requested, service
-            # readiness. Preload the launch monitor before dropping protection.
-            for name in ("strata_cli.launch.monitor_ext", "strata_cli.consoleinfo",
-                         "strata_cli.overview"):
-                importlib.import_module(name)
+            # Only the native interactive LaunchApp worker consumes UI modules.
+            caller = frame.f_back
+            app = sys.modules.get("strata_cli.launch.app")
+            app_class = getattr(app, "LaunchApp", None)
+            if (app_class is not None and caller is not None
+                    and caller.f_code is app_class._work.__code__
+                    and caller.f_code.co_filename == str(root / "strata_cli/launch/app.py")):
+                for name in ("strata_cli.launch.monitor_ext", "strata_cli.consoleinfo",
+                             "strata_cli.overview", "strata_control.engine_update",
+                             "strata_control.updater", "strata_control.runtime",
+                             "strata_control.discovery", "strata_control.feed_models",
+                             "strata_cli.update_cmd", "strata_control.cfg_paths",
+                             "strata_control.signing", "strata_control.engine_component",
+                             "strata_control.retired"):
+                    importlib.import_module(name)
             lease.close()
             for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
                         "STRATA_WORKSPACE_CONTEXT", "STRATA_ACQUISITION_BOOTSTRAP"):
                 os.environ.pop(key, None)
             subprocess.Popen = original
+            mutation.install()
 
     subprocess.Popen = ScopedNativeInstaller
     sys.setprofile(prepared)
@@ -192,6 +306,7 @@ def run_active(root, entry, args):
         threading.setprofile(previous_thread)
         subprocess.Popen = original
         lease.close()
+        mutation.close()
 
 
 def _source_reader(state):

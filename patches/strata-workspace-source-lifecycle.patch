@@ -1,6 +1,6 @@
 # base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: none
-# intent: keep source CLI/bootstrap, lease handoffs, relocatable Python, transactional profile references/history and relocation-safe builds together.
+# intent: keep source CLI/bootstrap, lease handoffs and whole-restart transactions, relocatable Python, transactional profile references/history and relocation-safe builds together.
 # upstream: https://github.com/Niko1221/Strata/issues/5586 open: bootstrap need only partially related; no engine build supplied.
 # removal: remove only with equivalent helper publication, acquisition receipts and service/import leases, reversible interpreter/runtime migration, namespace-locked profile history resolution, relocation-aware builds and hash-addressed source-delta receipts after offline rollback.
 diff --git a/engine/metal/setup_mac.py b/engine/metal/setup_mac.py
@@ -1461,7 +1461,27 @@ index 6b192ac..1518a81 100644
          except BaseException:
              if writer is not None:
                  os.close(writer)
-@@ -1532,6 +1601,9 @@ class Host:
+@@ -1252,6 +1321,19 @@ class Host:
+                  expected_source_sha256: str | None = None,
+                  expected_owner_id: str | None = None,
+                  expected_instance_id: str | None = None) -> dict:
++        # Source publication precedes the planner's profile namespace lock, as in writers.
++        # Keep the same publication through drain, readiness and any rollback.
++        with acquisition.source_lease(self.workspace_state):
++            return self._restart_observed(
++                startup_wait, expected_profile_revision, allow_source_switch, allow_source_migration,
++                expected_source_sha256, expected_owner_id, expected_instance_id)
++
++    def _restart_observed(self, startup_wait: float, expected_profile_revision: str | None = None,
++                          allow_source_switch: bool = False,
++                          allow_source_migration: bool = False,
++                          expected_source_sha256: str | None = None,
++                          expected_owner_id: str | None = None,
++                          expected_instance_id: str | None = None) -> dict:
+         old = self._status()
+         if expected_owner_id is not None and old.get("owner_id") != expected_owner_id:
+             return {"ok": False, "error": "owner_changed_after_restart_plan", "exit_code": 6}
+@@ -1532,6 +1614,9 @@ class Host:
          except BaseException as exc:               # noqa: BLE001 - a thread that dies silently would leave "preparing" forever
              self.last_error = type(exc).__name__
          finally:
@@ -1471,7 +1491,7 @@ index 6b192ac..1518a81 100644
              self.starting = False
              self.phase = None
  
-@@ -1642,6 +1714,15 @@ class Host:
+@@ -1642,6 +1727,15 @@ class Host:
  
  
  def main(argv: list[str] | None = None) -> int:
@@ -1487,7 +1507,7 @@ index 6b192ac..1518a81 100644
      quiet_crash_env()                                   # the host's children inherit it (strata_control/childenv.py)
      try:                                                # a native death (an access violation) names its Python line in the host log (stderr is that file)
          import faulthandler
-@@ -1657,6 +1738,7 @@ def main(argv: list[str] | None = None) -> int:
+@@ -1657,6 +1751,7 @@ def main(argv: list[str] | None = None) -> int:
      parser.add_argument("--expected-source-sha256")
      parser.add_argument("--die-with-pid", type=int)
      parser.add_argument("--die-with-token")
@@ -1495,7 +1515,7 @@ index 6b192ac..1518a81 100644
      args = parser.parse_args(argv)
      if not 0 <= args.shutdown_timeout <= 300 or not 1 <= args.startup_wait <= MAX_START_WAIT:
          parser.error("shutdown timeout must be 0..300")
-@@ -1667,7 +1749,8 @@ def main(argv: list[str] | None = None) -> int:
+@@ -1667,7 +1762,8 @@ def main(argv: list[str] | None = None) -> int:
      try:
          die_with = (args.die_with_pid, args.die_with_token) if args.die_with_pid and args.die_with_token else None
          return Host(args.host, args.shutdown_timeout, args.startup_wait,

@@ -811,6 +811,8 @@ def exec_observer(root, python, args, lock, *, state, native=False):
         os.environ.pop(key, None)
     if args[:1] == ["monitor"]:
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
+        if native:
+            os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
     os.set_inheritable(lock.fileno(), True)
     os.environ["STRATA_SOURCE_LOCK_FD"] = str(lock.fileno())
     command = ([str(Path(__file__).resolve()), "--native-observer", str(root), TERMINAL_CLI]
