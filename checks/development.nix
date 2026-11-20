@@ -85,9 +85,9 @@ let
   };
   ollamaOn = gpuModule: extra: (configureGpuWith inputs gpuModule (ollamaSettings // extra)).config;
   ollamaVulkanHost = ollamaOn vulkanGpu { };
-  # Single key override, the opt-out the module documents for a host that
-  # prefers its discrete device; Ollama reports Vulkan iGPUs as unstable on
-  # mixed iGPU/dGPU systems.
+  # Single key override of a profile-assigned flag, for a host preferring its
+  # discrete device; Ollama reports Vulkan iGPUs as unstable on mixed
+  # iGPU/dGPU systems.
   ollamaVulkanHostOptedOut = ollamaOn vulkanGpu {
     services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE = lib.mkForce "0";
   };
@@ -309,6 +309,7 @@ assert customCli.modules.development.opencode.desktopPackage.node_modules == cus
 assert
   if pkgs.stdenv.hostPlatform.isLinux then
     ollamaVulkanHost.modules.core.gpu.acceleration == "vulkan"
+    && ollamaVulkanHost.modules.core.gpu.rocmTargets == [ ]
     && ollamaIgpuFlag ollamaVulkanHost == "1"
     && ollamaIgpuFlag ollamaVulkanHostOptedOut == "0"
     && ollamaCudaHost.modules.core.gpu.acceleration == "cuda"
