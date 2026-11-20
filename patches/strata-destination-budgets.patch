@@ -123,7 +123,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -10862,11 +10945,16 @@
+@@ -10866,11 +10949,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
