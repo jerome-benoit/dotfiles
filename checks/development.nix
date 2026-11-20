@@ -104,8 +104,20 @@ let
     (configure {
       modules.development.ollama.enable = true;
     }).config;
+  ollamaLanHost =
+    (configure {
+      modules.development.ollama = {
+        enable = true;
+        enableService = true;
+        host = "0.0.0.0";
+      };
+      services.ollama.package = pkgs.hello;
+    }).config;
   # Flag Ollama requires before admitting a Vulkan integrated GPU.
   ollamaIgpuFlag = config: config.services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE or null;
+  # Listen address as the option and the generated user unit hold it.
+  ollamaHost = config: config.services.ollama.host;
+  ollamaUnitEnv = config: config.systemd.user.services.ollama.Service.Environment or [ ];
   ollamaDisabled =
     (configure {
       modules.development.ollama.enable = false;
@@ -318,6 +330,17 @@ assert
     true;
 assert
   ollamaEnabled.modules.core.gpu.acceleration == "default" && ollamaIgpuFlag ollamaEnabled == null;
+assert
+  if pkgs.stdenv.hostPlatform.isLinux then
+    ollamaHost ollamaEnabled == "127.0.0.1" && ollamaHost ollamaLanHost == "0.0.0.0"
+  else
+    true;
+assert
+  if pkgs.stdenv.hostPlatform.isLinux then
+    builtins.elem "OLLAMA_HOST=127.0.0.1:11434" (ollamaUnitEnv ollamaEnabled)
+    && builtins.elem "OLLAMA_HOST=0.0.0.0:11434" (ollamaUnitEnv ollamaLanHost)
+  else
+    true;
 assert !(ollamaDisabled.systemd.user.services ? ollama);
 assert !(ollamaDisabled.launchd.agents ? ollama);
 assert !(ollamaDisabled.home.file ? ".Brewfile");

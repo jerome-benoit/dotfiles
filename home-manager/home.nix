@@ -86,6 +86,7 @@ in
       ollama = {
         enable = profileModules.development.ollama.enable;
         enableService = (isMorphee || isFaust) && profileModules.development.ollama.enableService;
+        host = lib.mkIf isFaust "0.0.0.0";
       };
       omp.enable = bunSupported && profileModules.development.omp;
       opencode = {

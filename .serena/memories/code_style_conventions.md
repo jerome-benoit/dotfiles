@@ -203,6 +203,21 @@ programs.git = lib.mkMerge [
 ];
 ```
 
+## Conditional option values
+
+```nix
+# Option default is the fallback: leave the option undefined
+host = lib.mkIf isFaust "0.0.0.0";
+
+# null belongs to the option domain: assign it
+package = if isDarwin then null else pkgs.ghostty;
+
+# Computed value inside a let binding
+mod = if isDarwin then "Command" else "Control";
+```
+
+`lib.mkPackageOption` defaults to the named package, so a platform without a package needs the explicit `null`.
+
 ## Assertions Pattern
 
 Validate module dependencies:
