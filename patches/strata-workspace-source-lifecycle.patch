@@ -247,7 +247,7 @@ index b91f8bf..4c13ecb 100644
 -if __name__ == "__main__":
 -    sys.exit(main())
 diff --git a/terminal/setup.py b/terminal/setup.py
-index c695062..c4483f3 100644
+index c695062..2d48b6c 100644
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
 @@ -998,7 +998,7 @@ def run(cmd, cwd=None, env=None, check=True, quiet=False):
@@ -364,16 +364,18 @@ index c695062..c4483f3 100644
  
  
  # the draft subsets setup copied before (sha256): replaced by the current one, a subset made by hand is kept
-@@ -8787,7 +8813,7 @@ def sycl_setup(argv) -> int:
+@@ -8787,7 +8813,9 @@ def sycl_setup(argv) -> int:
      script = engine_src() / "sycl" / "setup_intel.py"
      if not script.exists():
          fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
 -    return subprocess.call([sys.executable, str(script), *rest])
++    for fd in acquisition.workspace_fds():
++        os.set_inheritable(fd, True)
 +    os.execv(sys.executable, [sys.executable, str(script), *rest])
  
  
  def intel_control_setup(a) -> int:
-@@ -9785,7 +9811,8 @@ def mac_control_setup(a) -> int:
+@@ -9785,7 +9813,8 @@ def mac_control_setup(a) -> int:
      return 0
  
  
@@ -383,7 +385,7 @@ index c695062..c4483f3 100644
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -9796,22 +9823,29 @@ def main() -> int:
+@@ -9796,22 +9825,29 @@ def main() -> int:
          _pf.adopt_user_defaults()
      except Exception:
          pass
@@ -428,7 +430,7 @@ index c695062..c4483f3 100644
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md)")
-@@ -9968,19 +10002,26 @@ def main() -> int:
+@@ -9968,19 +10004,26 @@ def main() -> int:
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
@@ -462,7 +464,7 @@ index c695062..c4483f3 100644
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES:
          ap.error(f"--model {a.model} is a size of " + ", ".join(f"--family {f}" for f, d in PREVIEW_FAMILIES.items()
                                                                if a.model in d["models"]))
-@@ -9995,7 +10036,7 @@ def main() -> int:
+@@ -9995,7 +10038,7 @@ def main() -> int:
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -471,7 +473,7 @@ index c695062..c4483f3 100644
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -10905,9 +10946,15 @@ def main() -> int:
+@@ -10905,9 +10948,15 @@ def main() -> int:
      return start(cfg_path, port)
  
  
@@ -1299,7 +1301,7 @@ index 06f09c4..063f733 100644
  _depth = 0
  
 diff --git a/terminal/strata_control/runtime.py b/terminal/strata_control/runtime.py
-index 6b192ac..8ca4a27 100644
+index 6b192ac..1518a81 100644
 --- a/terminal/strata_control/runtime.py
 +++ b/terminal/strata_control/runtime.py
 @@ -44,7 +44,7 @@ try:
@@ -1345,23 +1347,74 @@ index 6b192ac..8ca4a27 100644
          self.die_with = die_with           # (pid, start token): stop the server when that process is gone
          self.shutdown_timeout = shutdown_timeout
          self.expected_profile_revision = expected_profile_revision
-@@ -979,10 +990,11 @@ class Host:
+@@ -978,11 +989,62 @@ class Host:
+                     payload["started"] = started   # tells this process from a later one with the same number
          profiles._atomic(_child_marker(self.name, self.token), (json.dumps(payload) + "\n").encode())
  
++    def _runtime_endpoint(self) -> tuple[Path, str]:
++        if self.workspace_state is None:
++            return ROOT, sys.executable
++        repository = (Path(self.workspace_state) / "source").resolve(strict=True)
++        root = repository / "terminal" if (repository / "terminal" / "setup.py").is_file() else repository
++        bundled = root / "python/bin/python3"
++        python = bundled if os.access(bundled, os.X_OK) else root / ".venv/bin/python"
++        if not os.access(python, os.X_OK):
++            current = Path(sys.executable).absolute()
++            # A cold host may already run on an external interpreter without a private runtime.
++            if (os.access(current, os.X_OK) and not current.is_relative_to(repository)
++                    and not current.is_relative_to(Path(self.workspace_state).absolute())):
++                python = current
++        return root, str(python)
++
++    def _runtime_environment(self, root: Path, env: dict) -> dict:
++        if self.workspace_state is not None:
++            # The surviving host's import environment can name the layout that was just moved.
++            import_paths = [entry for entry in env.get("PYTHONPATH", "").split(os.pathsep)
++                            if entry and Path(entry).absolute() not in (ROOT, root)]
++            env["PYTHONPATH"] = os.pathsep.join((str(root), *import_paths))
++        return env
++
      def _plan(self) -> tuple[dict, list[str], Path, bytes]:
 -        from strata_cli.cli import _launch_plan
 -        plan, args = _launch_plan(self.name)
 -        source = Path(plan["source_config"])
 -        return plan, args, source, source.read_bytes()
-+        with acquisition.source_lease(self.workspace_state):
-+            from strata_cli.cli import _launch_plan
-+            plan, args = _launch_plan(self.name)
-+            source = Path(plan["source_config"])
-+            return plan, args, source, source.read_bytes()
++        with acquisition.source_lease(self.workspace_state) as source_lease:
++            if self.workspace_state is None:
++                from strata_cli.cli import _launch_plan
++                plan, args = _launch_plan(self.name)
++                source = Path(plan["source_config"])
++                return plan, args, source, source.read_bytes()
++            # A fresh interpreter imports the published planner, not this host's retired modules.
++            root, python = self._runtime_endpoint()
++            env = self._runtime_environment(root, os.environ.copy())
++            source_fds = acquisition.source_handoff(source_lease, environ=env)
++            script = """
++import json, sys
++from pathlib import Path
++from strata_cli.cli import _launch_plan
++from strata_control.profiles import ProfileError
++try:
++    plan, args = _launch_plan(sys.argv[1])
++    source = Path(plan["source_config"])
++    result = {"plan": plan, "args": args, "source_bytes": source.read_bytes().hex()}
++except ProfileError as error:
++    result = {"error": str(error), "exit_code": error.exit_code}
++print(json.dumps(result))
++"""
++            child = subprocess.run([python, "-c", script, self.name], cwd=root, env=env,
++                                   pass_fds=source_fds, capture_output=True, text=True)
++            if child.returncode:
++                raise ProfileError(child.stderr.strip(), 5)
++            result = json.loads(child.stdout)
++            if "error" in result:
++                raise ProfileError(result["error"], result["exit_code"])
++            plan = result["plan"]
++            return plan, result["args"], Path(plan["source_config"]), bytes.fromhex(result["source_bytes"])
  
      def _source_change_check(self, source: Path, source_bytes: bytes,
                               allow_source_switch: bool,
-@@ -1033,6 +1045,11 @@ class Host:
+@@ -1033,6 +1095,12 @@ class Host:
  
      def _launch(self, args: list[str], source: Path, source_bytes: bytes,
                  revision: str | None) -> None:
@@ -1370,27 +1423,44 @@ index 6b192ac..8ca4a27 100644
 +
 +    def _launch_observed(self, args: list[str], source: Path, source_bytes: bytes,
 +                         revision: str | None, source_lease) -> None:
++        root, python = self._runtime_endpoint()
          ready = self.state_path.parent / f"{self.name}-{uuid.uuid4().hex}.ready.json"
          flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
          if hasattr(os, "O_NOFOLLOW"):
-@@ -1048,6 +1065,7 @@ class Host:
+@@ -1047,25 +1115,26 @@ class Host:
+                        "--owner-fd", "0" if WINDOWS else str(reader)]
          attestation_key = secrets.token_bytes(32)
          expected_attestation = launch_identity.attestation(attestation_key, source_bytes, server_args)
-         child_env = arena_env(quiet_crash_env(os.environ.copy()))   # no debugger on a user's machine for the server's engine and reader; glibc arenas capped (childenv)
+-        child_env = arena_env(quiet_crash_env(os.environ.copy()))   # no debugger on a user's machine for the server's engine and reader; glibc arenas capped (childenv)
++        child_env = self._runtime_environment(root, arena_env(quiet_crash_env(os.environ.copy())))
 +        source_fds = acquisition.source_handoff(source_lease, environ=child_env)
          child_env["STRATA_OWNER_ATTEST_KEY"] = attestation_key.hex()
          child_env["STRATA_NO_ACQUIRE"] = "1"      # a managed server never installs or downloads (acquisition.py)
          child_env["STRATA_RUNTIME_PROFILE"] = self.name   # the records of its engine say which profile they belong to
-@@ -1065,7 +1083,7 @@ class Host:
-                     self.child = subprocess.Popen([sys.executable, "-m", "serve.server", *server_args],
-                                                   cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
+         try:
+             with os.fdopen(descriptor, "ab") as stream:
+                 if WINDOWS:
+-                    self.child = subprocess.Popen([sys.executable, "-m", "serve.server", *server_args],
+-                                                  cwd=ROOT, stdin=subprocess.PIPE, stdout=stream,
++                    self.child = subprocess.Popen([python, "-m", "serve.server", *server_args],
++                                                  cwd=root, stdin=subprocess.PIPE, stdout=stream,
+                                                   stderr=subprocess.STDOUT, close_fds=True, env=child_env,
+                                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                     # the whole server tree ends with this host, however the host ends (a kill-on-close job)
+                     from serve import winjob
+                     winjob.contain(self.child)
+                 else:
+-                    self.child = subprocess.Popen([sys.executable, "-m", "serve.server", *server_args],
+-                                                  cwd=ROOT, stdin=subprocess.DEVNULL, stdout=stream,
++                    self.child = subprocess.Popen([python, "-m", "serve.server", *server_args],
++                                                  cwd=root, stdin=subprocess.DEVNULL, stdout=stream,
                                                    stderr=subprocess.STDOUT, close_fds=True,
 -                                                  pass_fds=(reader,), start_new_session=True, env=child_env)
 +                                                  pass_fds=(reader, *source_fds), start_new_session=True, env=child_env)
          except BaseException:
              if writer is not None:
                  os.close(writer)
-@@ -1532,6 +1550,9 @@ class Host:
+@@ -1532,6 +1601,9 @@ class Host:
          except BaseException as exc:               # noqa: BLE001 - a thread that dies silently would leave "preparing" forever
              self.last_error = type(exc).__name__
          finally:
@@ -1400,7 +1470,7 @@ index 6b192ac..8ca4a27 100644
              self.starting = False
              self.phase = None
  
-@@ -1642,6 +1663,15 @@ class Host:
+@@ -1642,6 +1714,15 @@ class Host:
  
  
  def main(argv: list[str] | None = None) -> int:
@@ -1416,7 +1486,7 @@ index 6b192ac..8ca4a27 100644
      quiet_crash_env()                                   # the host's children inherit it (strata_control/childenv.py)
      try:                                                # a native death (an access violation) names its Python line in the host log (stderr is that file)
          import faulthandler
-@@ -1657,6 +1687,7 @@ def main(argv: list[str] | None = None) -> int:
+@@ -1657,6 +1738,7 @@ def main(argv: list[str] | None = None) -> int:
      parser.add_argument("--expected-source-sha256")
      parser.add_argument("--die-with-pid", type=int)
      parser.add_argument("--die-with-token")
@@ -1424,7 +1494,7 @@ index 6b192ac..8ca4a27 100644
      args = parser.parse_args(argv)
      if not 0 <= args.shutdown_timeout <= 300 or not 1 <= args.startup_wait <= MAX_START_WAIT:
          parser.error("shutdown timeout must be 0..300")
-@@ -1667,7 +1698,8 @@ def main(argv: list[str] | None = None) -> int:
+@@ -1667,7 +1749,8 @@ def main(argv: list[str] | None = None) -> int:
      try:
          die_with = (args.die_with_pid, args.die_with_token) if args.die_with_pid and args.die_with_token else None
          return Host(args.host, args.shutdown_timeout, args.startup_wait,

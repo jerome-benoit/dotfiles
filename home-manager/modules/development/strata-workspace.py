@@ -1038,9 +1038,10 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
                 python = Path(sys.executable)
             from strata_native_observer import probe
             a = probe(root, TERMINAL_CLI, args)
-            # Native install is the acquisition handoff; update also mutates managed engine state.
-            # Other native dispatch keeps its existing source-reader/service readiness contract.
-            if a.command not in {"install", "update"}:
+            # Native launch also acquires through Runner setup children; early returns
+            # need only the source-reader readiness contract.
+            from strata_native_observer import acquisition_action
+            if not acquisition_action(a):
                 with source_publication_lock(state, shared=True) as source_lock:
                     lock.close()
                     exec_observer(root, python, args, source_lock, state=state, native=True)
@@ -1108,6 +1109,9 @@ if __name__ == "__main__":
         elif sys.argv[1] == "--native-active":
             from strata_native_observer import run_active
             run_active(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
+        elif sys.argv[1] == "--native-module":
+            from strata_native_observer import run_module
+            run_module(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
         elif sys.argv[1] == "--validate-selected":
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
             root = terminal_root((Path(context["state"]) / "source").resolve())
