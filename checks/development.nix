@@ -6,8 +6,8 @@
 let
   lib = pkgs.lib;
   fixtureHome = "/home/development-check";
-  configureWith =
-    selectedInputs: settings:
+  configureGpuWith =
+    selectedInputs: gpuModule: settings:
     home-manager.lib.homeManagerConfiguration {
       inherit pkgs;
       extraSpecialArgs = {
@@ -15,7 +15,7 @@ let
       };
       modules = [
         ../home-manager/modules/core/lib.nix
-        ../home-manager/modules/core/gpu.nix
+        gpuModule
         ../home-manager/modules/themes/default.nix
         ../home-manager/modules/development/aoe.nix
         ../home-manager/modules/development/herdr.nix
@@ -32,7 +32,43 @@ let
         settings
       ];
     };
+  configureWith =
+    selectedInputs: configureGpuWith selectedInputs ../home-manager/modules/core/gpu.nix;
   configure = configureWith inputs;
+
+  # An AMD or Intel host that reaches Vulkan is how this flake ships an
+  # integrated GPU, so assert the Ollama service keeps the admission flag that
+  # Vulkan devices need. The host is shadowed the way checks/gpu.nix does it:
+  # gfx902 is no ROCm target and there is no /dev/kfd, so ROCm is out and the
+  # module must land on Vulkan.
+  vulkanGpu =
+    let
+      shadow = builtins // {
+        getEnv =
+          name:
+          {
+            NIX_GPU_ROCM_TARGETS = "gfx902";
+          }
+          .${name} or "";
+        pathExists =
+          path:
+          let
+            p = toString path;
+          in
+          p == "/dev/dri" || p == "/sys/module/amdgpu";
+        readDir = path: if toString path == "/dev/dri" then { renderD128 = "unknown"; } else { };
+      };
+    in
+    builtins.scopedImport { builtins = shadow; } ../home-manager/modules/core/gpu.nix;
+  ollamaVulkanHost =
+    (configureGpuWith inputs vulkanGpu {
+      modules.core.gpu.enable = true;
+      modules.development.ollama = {
+        enable = true;
+        enableService = true;
+      };
+      services.ollama.package = pkgs.hello;
+    }).config;
   ollamaEnabled =
     (configure {
       modules.development.ollama = {
@@ -45,6 +81,9 @@ let
     (configure {
       modules.development.ollama.enable = true;
     }).config;
+  # Ollama admits a Vulkan integrated GPU only when this flag is set, so the
+  # service must carry it on hosts where the module selected the Vulkan package.
+  ollamaIgpuFlag = config: config.services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE or null;
   ollamaDisabled =
     (configure {
       modules.development.ollama.enable = false;
@@ -245,6 +284,18 @@ assert
   opencodePackages.desktopPackage.node_modules == opencodePackages.opencodePackage.node_modules;
 assert customCli.modules.development.opencode.opencodePackage.node_modules == customDependency;
 assert customCli.modules.development.opencode.desktopPackage.node_modules == customDependency;
+assert
+  if pkgs.stdenv.hostPlatform.isLinux then
+    ollamaVulkanHost.modules.core.gpu.acceleration == "vulkan" && ollamaIgpuFlag ollamaVulkanHost == "1"
+  else
+    true;
+# An explicit false value would also drop the integrated GPUs Ollama admits on
+# its own, so the flag stays unset unless Vulkan selected the package.
+assert
+  if ollamaEnabled.modules.core.gpu.acceleration or "default" == "vulkan" then
+    ollamaIgpuFlag ollamaEnabled == "1"
+  else
+    ollamaIgpuFlag ollamaEnabled == null;
 assert !(ollamaDisabled.systemd.user.services ? ollama);
 assert !(ollamaDisabled.launchd.agents ? ollama);
 assert !(ollamaDisabled.home.file ? ".Brewfile");

@@ -34,11 +34,20 @@ in
         services.ollama = {
           enable = cfg.enableService;
           package = lib.mkDefault ollamaPackage;
-          environmentVariables = lib.mkIf config.services.ollama.enable {
-            OLLAMA_CONTEXT_LENGTH = lib.mkDefault (toString (128 * 1024));
-            OLLAMA_FLASH_ATTENTION = lib.mkDefault "1";
-            OLLAMA_KV_CACHE_TYPE = lib.mkDefault "q8_0";
-          };
+          environmentVariables = lib.mkIf config.services.ollama.enable (
+            {
+              OLLAMA_CONTEXT_LENGTH = lib.mkDefault (toString (128 * 1024));
+              OLLAMA_FLASH_ATTENTION = lib.mkDefault "1";
+              OLLAMA_KV_CACHE_TYPE = lib.mkDefault "q8_0";
+            }
+            # Ollama only admits an integrated GPU once this variable is set
+            # explicitly, and Vulkan devices are never admitted by default.
+            # Set it for Vulkan alone: any explicit value, including a false
+            # one, also drops the integrated GPUs Ollama allows on its own.
+            // lib.optionalAttrs (gpu.acceleration == "vulkan") {
+              OLLAMA_IGPU_ENABLE = lib.mkDefault "1";
+            }
+          );
         };
 
         home.packages = lib.optional (!config.services.ollama.enable) config.services.ollama.package;
