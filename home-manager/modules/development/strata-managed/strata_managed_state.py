@@ -752,10 +752,10 @@ def relocated_path(path, pairs):
 
 
 def runtime_links(repository, pairs, *, reference_moves=()):
-    """Inventory owned link locations, including stationary consumers of a staged engine alias."""
+    """Inventory owned link locations, including stationary consumers of relocated payloads."""
     roots = {source: destination for source, destination in pairs if source.is_symlink() or source.is_dir()}
-    if reference_moves:
-        # An unmoved owned payload can still refer to the engine alias being staged.
+    if pairs or reference_moves:
+        # Unmoved owned payloads can still refer to physically or logically relocated targets.
         for runtime in (repository, repository / "terminal"):
             candidates = [runtime / name for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS, *ENGINE_BUILDS)]
             candidates.extend(path for pattern in LAYOUT_FILES for path in runtime.glob(pattern) if path.is_symlink())

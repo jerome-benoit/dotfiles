@@ -2422,6 +2422,90 @@ for depth in ("0", "2", "12"):
     assert engine_argument_path(reverse["args"][3], reverse["exe"], reverse) == repository / "packs/model"
 ''')
 
+    def test_stationary_runtime_links_follow_physical_moves_and_restore_after_failure(self):
+        self.run_source_script(self.repo, r'''
+import json, os
+import setup
+import strata_managed_state as state
+from strata_control import profiles
+repository = setup.ROOT.parent
+terminal = repository / "terminal"
+models = repository / "models"
+models.mkdir()
+payload = models / "custom.json"
+config = {"exe": "/fixture/inert-engine", "args": [], "tokenizer": "/fixture/tokenizer"}
+payload.write_text(json.dumps(config))
+alias = terminal / "strata-model.json"
+alias.symlink_to("../models/custom.json")
+(terminal / "packs").mkdir()
+nested = terminal / "packs/selection"
+nested.symlink_to("../../models/custom.json")
+external = repository.parent / "external-config.json"
+external.write_text(json.dumps(config))
+external_alias = terminal / "strata-external.json"
+external_alias.symlink_to(os.path.relpath(external, terminal))
+unowned = terminal / "unowned-selection"
+unowned.symlink_to("../models/custom.json")
+links = (alias, nested, external_alias, unowned)
+before_links = {path: (os.readlink(path), path.lstat().st_dev, path.lstat().st_ino) for path in links}
+before_payload = (payload.read_bytes(), payload.stat().st_dev, payload.stat().st_ino)
+before_external = (external.read_bytes(), external.stat().st_dev, external.stat().st_ino)
+pairs = [(models, terminal / "models")]
+
+def assert_original():
+    assert (payload.read_bytes(), payload.stat().st_dev, payload.stat().st_ino) == before_payload
+    assert {path: (os.readlink(path), path.lstat().st_dev, path.lstat().st_ino) for path in links} == before_links
+    assert profiles.read_run_config(alias) == config
+    assert not (terminal / "models").exists()
+
+def assert_published():
+    moved_payload = terminal / "models/custom.json"
+    assert not models.exists()
+    assert (moved_payload.read_bytes(), moved_payload.stat().st_dev, moved_payload.stat().st_ino) == before_payload
+    assert os.readlink(alias) == "models/custom.json"
+    assert os.readlink(nested) == "../models/custom.json"
+    assert alias.resolve() == nested.resolve() == moved_payload
+    assert profiles.read_run_config(alias) == config
+    assert nested.read_bytes() == before_payload[0]
+    for path in (external_alias, unowned):
+        assert (os.readlink(path), path.lstat().st_dev, path.lstat().st_ino) == before_links[path]
+    assert (external.read_bytes(), external.stat().st_dev, external.stat().st_ino) == before_external
+
+publications = []
+def refuse_publication():
+    assert_published()
+    publications.append(True)
+    raise OSError("stationary-link publication refused")
+
+try:
+    state._migrate_payloads(repository, repository, terminal, pairs, refuse_publication,
+                            reverse=False, reference_moves=())
+except RuntimeError as error:
+    assert "stationary-link publication refused" in str(error), error
+else:
+    raise AssertionError("failed publication committed a stationary alias")
+assert publications == [True]
+assert_original()
+
+# Source transaction rollback restores the original alias inode after accepted payload renames.
+with state.layout_checkpoint(repository, runtime_moves=pairs) as restore:
+    moved = state._migrate_payloads(repository, repository, terminal, pairs, assert_published,
+                                    reverse=False, reference_moves=())
+    assert moved == pairs
+    assert_published()
+    state.restore_runtime_moves(moved)
+    restore()
+assert_original()
+
+# With no physical or logical move, stationary link identities remain unchanged.
+assert state._migrate_payloads(repository, terminal, terminal, [], lambda: None,
+                               reverse=False, reference_moves=()) == []
+assert_original()
+state._migrate_payloads(repository, repository, terminal, pairs, assert_published,
+                        reverse=False, reference_moves=())
+assert_published()
+''')
+
     def test_relative_runtime_links_preserve_external_moved_and_dangling_targets_on_failure_and_reverse(self):
         self.make_cross_pin_sources()
         self.env["STRATA_PROFILE_DIR"] = str(self.base / "relative profiles' namespace")
