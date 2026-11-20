@@ -1,4 +1,4 @@
-# base: hermes-agent 2a68a3a94e4e0806106907c451e0c4d4da10c6a9
+# base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
 # prerequisites: none
 # intent: preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 and https://github.com/NousResearch/hermes-agent/pull/157087 are open partial fixes for concurrent scans and completed-registration replay, absent from this pin. They still wait on discovery and do not cover the contracts below.

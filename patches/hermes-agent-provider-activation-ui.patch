@@ -1,4 +1,4 @@
-# base: hermes-agent 31ce88f86e6cf4a66ef6aa315e4657a31bcf9915
+# base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
 # prerequisites: none
 # intent: do not classify pending provider activation as next-chat tools or prompts.
 # upstream: https://github.com/NousResearch/hermes-agent/issues/156558 open tracks publication-vs-next-chat activation; no fix in the pin or exact desktop/webapp replacement established.
