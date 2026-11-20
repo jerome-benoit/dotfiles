@@ -625,6 +625,8 @@ def native_setup(root, args):
     os.environ["STRATA_MANAGED_SOURCE"] = str(repository_root(root))
     managed_state.enable_source(root)
     os.chdir(root)
+    if "STRATA_WORKSPACE_LOCK_FD" in os.environ:
+        os.set_inheritable(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), False)
     sys.path.insert(0, str(root))
     sys.argv = [str(root / "setup.py"), *args]
     # Use this pin's real script entry, including native parser/error handling and the source-pull guard.
@@ -1034,9 +1036,17 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
             python = runtime_python(root)
             if not os.access(python, os.X_OK):
                 python = Path(sys.executable)
-            with source_publication_lock(state, shared=True) as source_lock:
-                lock.close()
-                exec_observer(root, python, args, source_lock, state=state, native=True)
+            from strata_native_observer import probe
+            a = probe(root, TERMINAL_CLI, args)
+            # Native install is the acquisition handoff; update also mutates managed engine state.
+            # Other native dispatch keeps its existing source-reader/service readiness contract.
+            if a.command not in {"install", "update"}:
+                with source_publication_lock(state, shared=True) as source_lock:
+                    lock.close()
+                    exec_observer(root, python, args, source_lock, state=state, native=True)
+            os.set_inheritable(lock.fileno(), True)
+            os.execv(str(python), [str(python), str(Path(__file__).resolve()),
+                                  "--native-active", str(root), TERMINAL_CLI, *args])
         if managed_setup:
             return source_exec(context, args)
         a = terminal_args(root, args)
@@ -1095,6 +1105,9 @@ if __name__ == "__main__":
         elif sys.argv[1] == "--native-observer":
             from strata_native_observer import run
             run(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
+        elif sys.argv[1] == "--native-active":
+            from strata_native_observer import run_active
+            run_active(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
         elif sys.argv[1] == "--validate-selected":
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
             root = terminal_root((Path(context["state"]) / "source").resolve())

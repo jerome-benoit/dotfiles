@@ -1,15 +1,20 @@
-"""Consume source readers for native pins without modifying their parser or functions.
+"""Protect native pins without modifying their parser or checkout functions.
 
 Both supported native CLIs dispatch through ``cli._run``. Their logs entry and
 Textual run call are the short-read boundary: imports and the UI constructor have
 finished, but no long polling/event loop has begun. A temporary Python profile
 hook observes those calls; it never substitutes a checkout function or module.
 An error before readiness leaves imports protected until exit closes the reader.
+Active dispatch instead retains acquisition and hands the native managed setup
+child the same lease through a scoped stdlib spawn adapter and stable bootstrap.
 """
 
 import importlib
+import json
 import os
+from pathlib import Path
 import runpy
+import subprocess
 import sys
 
 
@@ -91,4 +96,51 @@ def run(root, entry, args):
         _entry(root, entry, args)
     finally:
         sys.setprofile(previous)
+        lease.close()
+
+
+def run_active(root, entry, args):
+    """Keep native mutators and their managed installer under the same acquisition lease.
+
+    Only the native Python setup spawn is adapted. Its argv is restored by the
+    stable helper's native setup entry; no checkout function or parser is replaced.
+    pass_fds transfers the open file description even though it is non-inheritable
+    elsewhere. The child keeps it until exit, including after its CLI parent dies.
+    Independent installers keep their native command and unmanaged environment.
+    """
+    import strata_managed_state as managed_state
+
+    descriptor = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+    os.set_inheritable(descriptor, False)
+    lease = os.fdopen(descriptor, "a")
+    original = subprocess.Popen
+    held = os.fstat(descriptor)
+    state = Path(json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])["state"])
+    expected = (state / ".source.lock").stat()
+    if (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino):
+        raise RuntimeError("Native acquisition descriptor does not belong to this workspace")
+    installer = (root / "setup.py").resolve()
+    helper = os.environ["STRATA_WORKSPACE_HELPER"]
+
+    class NativeInstaller(original):
+        def __init__(self, command, *positional, **options):
+            if (isinstance(command, (list, tuple)) and len(command) >= 2
+                    and command[0] == sys.executable and Path(command[1]).name == "setup.py"):
+                cwd = Path(options.get("cwd") or os.getcwd())
+                target = Path(command[1])
+                target = (cwd / target).resolve() if not target.is_absolute() else target.resolve()
+                if target == installer:
+                    options["pass_fds"] = tuple(dict.fromkeys((*options.get("pass_fds", ()), descriptor)))
+                    options["env"] = dict(options.get("env") or os.environ,
+                                          STRATA_WORKSPACE_LOCK_FD=str(descriptor))
+                    command = [command[0], helper, "--native-setup", str(root), *command[2:]]
+                else:
+                    options["env"] = managed_state.external_environment(options.get("env") or os.environ)
+            super().__init__(command, *positional, **options)
+
+    subprocess.Popen = NativeInstaller
+    try:
+        _entry(root, entry, args)
+    finally:
+        subprocess.Popen = original
         lease.close()

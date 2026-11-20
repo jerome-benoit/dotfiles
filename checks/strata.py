@@ -195,6 +195,7 @@ class WorkspaceTests(unittest.TestCase):
                 shutil.copytree(runtime / name, destination / name, copy_function=shutil.copyfile)
             for name in patch_paths | {".gitignore", "setup.sh", "CMakeLists.txt", "engine/CMakeLists.txt",
                                        "sycl/setup_intel.py", "sycl/serve/strata-sycl.sh",
+                                       "metal/setup_mac.py",
                                        "engine/sycl/setup_intel.py", "engine/sycl/serve/strata-sycl.sh"}:
                 original = source / name
                 if original.is_file():
@@ -4179,6 +4180,119 @@ _fixture_subprocess.Popen = _fixture_popen
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(result.stdout.startswith("strata "), result.stdout)
                 self.assertIn("python ", result.stdout)
+
+    def test_native_install_descendant_keeps_acquisition_after_cli_death_flat_and_split(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        writer = r'''import json, os, socket, sys
+from pathlib import Path
+with socket.socket(socket.AF_UNIX) as peer:
+    peer.settimeout(30)
+    peer.connect(os.environ["NATIVE_INSTALL_GATE"])
+    peer.sendall(json.dumps({"pid": os.getpid(), "argv": sys.argv,
+                            "lease": os.fstat(int(os.environ["STRATA_WORKSPACE_LOCK_FD"])).st_ino}).encode() + b"\n")
+    assert peer.recv(1) == b"g"
+Path(os.environ["NATIVE_INSTALL_DONE"]).write_text("completed")
+sys.exit(23)
+'''
+        contender = r'''import fcntl, sys
+from pathlib import Path
+with Path(sys.argv[1]).open("a") as lock:
+    print("waiting", flush=True)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    print("acquired", flush=True)
+'''
+        for label, revision, overlay in (("flat-native", self.old, False),
+                                          ("flat-accepted", self.old, True),
+                                          ("split-native", self.new, False)):
+            with self.subTest(pin=label), tempfile.TemporaryDirectory(prefix="s339-install-", dir="/tmp") as sockets:
+                self.state = state / label
+                root = self.prepare_cross_pin(revision, overlay=overlay)
+                setup = root / "setup.py"
+                original = setup.read_bytes()
+                setup.write_text(writer)
+                self.addCleanup(setup.write_bytes, original)
+                address = str(Path(sockets) / "g")
+                done = self.base / (label + "-done")
+                repository = root.parent if root.name == "terminal" else root
+                context = {"state": str(self.state), "revision": revision,
+                           "remote": str(self.repository), "terminal_cli": "strata.py"}
+                module = self.workspace_module()
+                env = dict(self.env, PYTHONPATH=str(WORKSPACE_LIB), NATIVE_INSTALL_GATE=address,
+                           NATIVE_INSTALL_DONE=str(done), STRATA_NO_ACQUIRE="1", PIP_NO_INDEX="1")
+                with socket.socket(socket.AF_UNIX) as listener:
+                    listener.bind(address)
+                    listener.listen(1)
+                    listener.settimeout(30)
+                    with module.workspace_lock(self.state) as (_, lock):
+                        process = subprocess.Popen([sys.executable, WORKSPACE, "--prepared-workspace",
+                            "install", "--family", "fixture", "--data-dir", "value with spaces"],
+                            env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                     STRATA_WORKSPACE_HELPER=WORKSPACE, STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                            pass_fds=(lock.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        self.addCleanup(lambda p=process: p.kill() if p.poll() is None else None)
+                        self.addCleanup(process.stdout.close)
+                        self.addCleanup(process.stderr.close)
+                        peer, _ = listener.accept()
+                        self.addCleanup(peer.close)
+                        peer.settimeout(30)
+                        payload = b""
+                        while not payload.endswith(b"\n"):
+                            payload += peer.recv(4096)
+                        observed = json.loads(payload)
+                        self.assertEqual(observed["argv"], [str(setup), "--setup", "--family", "fixture",
+                                                            "--data-dir", "value with spaces"])
+                        self.assertEqual(observed["lease"], os.fstat(lock.fileno()).st_ino)
+                    process.kill()
+                    process.wait(timeout=10)
+                    os.kill(observed["pid"], 0)
+                    with (self.state / ".source.lock").open("a") as lock:
+                        with self.assertRaises(BlockingIOError):
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    waiting = subprocess.Popen([sys.executable, "-c", contender, str(self.state / ".source.lock")],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    self.addCleanup(lambda p=waiting: p.kill() if p.poll() is None else None)
+                    self.addCleanup(waiting.stdout.close)
+                    self.addCleanup(waiting.stderr.close)
+                    self.assertEqual(waiting.stdout.readline().strip(), "waiting")
+                    self.assertIsNone(waiting.poll())
+                    self.assertFalse(done.exists())
+                    peer.sendall(b"g")
+                    output, errors = waiting.communicate(timeout=30)
+                    self.assertEqual(waiting.returncode, 0, errors)
+                    self.assertEqual(output.strip(), "acquired")
+                    self.assertEqual(done.read_text(), "completed")
+                    process.communicate(timeout=10)
+                    # The same real native dispatch returns the installer status when its parent survives.
+                    with module.workspace_lock(self.state) as (_, lock):
+                        normal = subprocess.Popen([sys.executable, WORKSPACE, "--prepared-workspace",
+                            "install", "--update", "--family", "fixture"],
+                            env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                     STRATA_WORKSPACE_HELPER=WORKSPACE, STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                            pass_fds=(lock.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        self.addCleanup(lambda p=normal: p.kill() if p.poll() is None else None)
+                        self.addCleanup(normal.stdout.close)
+                        self.addCleanup(normal.stderr.close)
+                        with listener.accept()[0] as status_peer:
+                            payload = b""
+                            while not payload.endswith(b"\n"):
+                                payload += status_peer.recv(4096)
+                            self.assertEqual(json.loads(payload)["argv"],
+                                             [str(setup), "--update", "--family", "fixture"])
+                            status_peer.sendall(b"g")
+                        output, errors = normal.communicate(timeout=30)
+                        self.assertEqual(normal.returncode, 23, errors + output)
+                setup.write_bytes(original)
+                for mode, args in (("--prepared-workspace", ["install", "--help"]),
+                                   ("--prepared-setup", ["--help"])):
+                    with module.workspace_lock(self.state) as (_, lock):
+                        help_result = subprocess.run([sys.executable, WORKSPACE, mode, *args],
+                            env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                     STRATA_WORKSPACE_HELPER=WORKSPACE, STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                            pass_fds=(lock.fileno(),), capture_output=True, text=True, timeout=30)
+                    self.assertEqual(help_result.returncode, 0, help_result.stderr)
+                    self.assertIn("usage:", help_result.stdout.lower())
+                self.assertFalse((repository / ".git/strata-runtime-revision").exists())
 
     def test_native_old_and_split_long_observers_release_source_after_imports_and_ui_ready(self):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10976,6 +11090,141 @@ mounted_checkpoint_regression(managed_state, Path(sys.argv[1]), bind=sys.argv[2]
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
 
+
+
+    def test_same_pin_regular_engine_link_excludes_parent_local_snapshots(self):
+        """A real prepare must never relocate its own engine/strata checkpoint."""
+        import hashlib
+        prefixes = (".strata-layout-", ".strata-links-", ".strata-link-", ".strata-cmake-",
+                    "strata-links-", "strata-engine-link-")
+        for failure in (None, "cache", "request"):
+            with self.subTest(failure=failure):
+                name = failure or "success"
+                self.state = self.base / ("regular engine snapshot " + name)
+                self.env["STRATA_PROFILE_DIR"] = str(self.base / ("snapshot profiles " + name))
+                root = self.prepare(self.old)
+                repository = root.parent
+                external = self.base / ("inert external payload " + name)
+                external.mkdir()
+                binary = external / "strata"
+                binary.write_bytes(b"inert executable payload; never launched\n")
+                binary.chmod(0o700)
+                model = external / "model.gguf"
+                model.write_bytes(b"inert model payload\n")
+                old_link = repository / "engine/strata"
+                self.assertTrue(old_link.parent.is_dir())
+                self.assertFalse(old_link.parent.is_symlink())
+                old_link.symlink_to(os.path.relpath(binary, old_link.parent))
+                models = repository / "models"
+                models.symlink_to(external, target_is_directory=True)
+                new_link = root / "engine/strata"
+                def identity(path):
+                    info = path.lstat()
+                    return info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns
+                link_before = (os.readlink(old_link), identity(old_link))
+                models_before = (os.readlink(models), identity(models))
+                payload_before = {path: (path.read_bytes(), identity(path)) for path in (binary, model)}
+                request = repository / ".git/strata-source-request.json"
+                cache = repository / ".git/strata-source-patches"
+                cache_receipt = cache / (self.old + ".sha256")
+                if failure:
+                    cache_receipt.unlink()
+                receipt_before = {path: (path.read_bytes(), identity(path))
+                                  for path in (request, repository / ".git/strata-source.patch", *cache.iterdir())}
+                script = r'''
+import importlib.util, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+repository = Path(sys.argv[2]) / "source"
+failure = sys.argv[6]
+prefixes = (".strata-layout-", ".strata-links-", ".strata-link-", ".strata-cmake-", "strata-links-", "strata-engine-link-")
+import strata_managed_state as state
+before_pairs = state.runtime_pairs(repository)
+before_reverse = state.runtime_pairs(repository, reverse=True)
+with state.layout_checkpoint(repository, runtime_moves=before_pairs):
+    assert any(path.name.startswith(".strata-layout-") for path in (repository / "engine").iterdir())
+    assert state.runtime_pairs(repository) == before_pairs
+    assert state.runtime_pairs(repository, reverse=True) == before_reverse
+original_migrate = module.migrate_layout
+original_publish = module.publish_source_patch
+original_replace = Path.replace
+journal = []
+def migrate(*args, **kwargs):
+    moves = original_migrate(*args, **kwargs)
+    assert all(not part.startswith(prefixes) for pair in moves for path in pair for part in path.parts), moves
+    journal.extend(moves)
+    return moves
+def migrated():
+    link = repository / "terminal/engine/strata"
+    assert link.is_symlink() and link.resolve() == Path(sys.argv[7])
+    assert (repository / "engine/strata", link) in journal, journal
+    assert not any(child.name.startswith(prefixes) for child in link.parent.iterdir())
+def publish(path, text):
+    if failure == "request" and path.name == module.SOURCE_REQUEST:
+        migrated()
+        raise OSError("snapshot publication refusal: request")
+    return original_publish(path, text)
+def replace(path, target):
+    target = Path(target)
+    if failure == "cache" and target.parent.name == "strata-source-patches" and target.suffix == ".sha256":
+        migrated()
+        raise OSError("snapshot publication refusal: cache")
+    return original_replace(path, target)
+module.migrate_layout = migrate
+module.publish_source_patch = publish
+Path.replace = replace
+try:
+    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+except OSError as error:
+    assert failure and str(error) == "snapshot publication refusal: " + failure, error
+else:
+    assert not failure, "publication unexpectedly accepted"
+    migrated()
+finally:
+    Path.replace = original_replace
+'''
+                result = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), self.old,
+                                         str(self.repository), SOURCE_PATCH, failure or "", str(binary)],
+                                        env=self.env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                def assert_no_snapshots():
+                    for directory, dirs, files in os.walk(repository, followlinks=False):
+                        for entry in dirs + files:
+                            self.assertFalse(entry.startswith(prefixes), str(Path(directory) / entry))
+                assert_no_snapshots()
+                if failure:
+                    self.assertFalse(new_link.exists() or new_link.is_symlink())
+                    self.assertEqual((os.readlink(old_link), identity(old_link)), link_before)
+                    self.assertEqual((os.readlink(models), identity(models)), models_before)
+                    self.assertFalse((root / "models").exists() or (root / "models").is_symlink())
+                    self.assertFalse(cache_receipt.exists())
+                    self.assertEqual(set(cache.iterdir()), {path for path in receipt_before if path.parent == cache})
+                    for path, before in receipt_before.items():
+                        self.assertEqual((path.read_bytes(), identity(path)), before, path)
+                # Retry after refusal, or repeat the already successful prepare.
+                self.assertEqual(self.prepare(self.old), root)
+                self.assertEqual(os.readlink(new_link), os.path.relpath(binary, new_link.parent))
+                self.assertEqual(new_link.resolve(), binary)
+                settled_link = (os.readlink(new_link), identity(new_link))
+                self.assertEqual((os.readlink(root / "models"), identity(root / "models")), models_before)
+                self.assertFalse(old_link.exists() or old_link.is_symlink())
+                for path, before in payload_before.items():
+                    self.assertEqual((path.read_bytes(), identity(path)), before, path)
+                accepted = (repository / ".git/strata-source.patch").read_bytes().decode("utf-8")
+                digest = hashlib.sha256(accepted.encode()).hexdigest()
+                requested_digest = hashlib.sha256(Path(SOURCE_PATCH).read_bytes()).hexdigest()
+                self.assertEqual(json.loads(request.read_text()),
+                                 {"revision": self.old, "requested": requested_digest, "accepted": digest})
+                self.assertEqual(cache_receipt.read_bytes(), (digest + "\n").encode())
+                self.assertEqual((cache / (self.old + "-" + digest + ".patch")).read_bytes(), accepted.encode())
+                settled_receipts = {path: path.read_bytes() for path in (request, cache_receipt)}
+                self.assertEqual(self.prepare(self.old), root)
+                self.assertEqual((os.readlink(new_link), identity(new_link)), settled_link)
+                for path, before in settled_receipts.items():
+                    self.assertEqual(path.read_bytes(), before, path)
+                assert_no_snapshots()
 
 
 unittest.main()

@@ -31,6 +31,9 @@ ENGINE_SOURCE = {"src", "include", "cmake", "metal", "sycl", "spark", "third_par
                  "CMakeLists.txt", "CMakePresets.json"}
 TERMINAL_ENTRIES = ("strata.py", "setup.py", "serve", "strata_cli", "strata_control", "tools", "data", "ref", "bin",
                     ".venv", ".python", "python")
+# Transaction-owned backups must never become payloads or link-edit consumers.
+TRANSACTION_PREFIXES = (".strata-layout-", ".strata-links-", ".strata-link-", ".strata-cmake-",
+                        "strata-links-", "strata-engine-link-")
 SYCL_PATH_FLAGS = {"--pack", "--native", "--native-dense-gguf", "--embd-gguf",
                    "--ple-gguf", "--expert-profile", "--mtp", "--control-vector-scaled"}
 
@@ -331,8 +334,8 @@ def interpreter_entries(root):
     if not root.is_symlink():
         for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
             # Parent-local transaction snapshots are not runtime payloads.
-            dirs[:] = [name for name in dirs if not name.startswith((".strata-layout-", ".strata-cmake-"))]
-            for name in dirs + files:
+            dirs[:] = [name for name in dirs if not name.startswith(TRANSACTION_PREFIXES)]
+            for name in dirs + [name for name in files if not name.startswith(TRANSACTION_PREFIXES)]:
                 yield Path(directory) / name
 
 
@@ -525,7 +528,7 @@ def runtime_pairs(repository, *, reverse=False):
     engine = source / "engine"
     if engine.is_dir() and not engine.is_symlink():
         pairs += [(path, destination / "engine" / path.name) for path in sorted(engine.iterdir())
-                  if path.name not in ENGINE_SOURCE and not path.name.startswith("build")]
+                  if path.name not in ENGINE_SOURCE and not path.name.startswith(("build", *TRANSACTION_PREFIXES))]
     pairs += [((repository / "engine" / name, repository / name) if reverse
                else (repository / name, repository / "engine" / name)) for name in ENGINE_BUILDS
               if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()
