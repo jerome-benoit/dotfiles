@@ -813,6 +813,11 @@ def exec_observer(root, python, args, lock, *, state, native=False):
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
         if native:
             os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
+    if native:
+        # Native runtime start hands its reader to a background Host before the
+        # producer can return; this is source state, never an acquisition lease.
+        os.environ["STRATA_NATIVE_SOURCE_STATE"] = str(state)
+        os.environ["STRATA_NATIVE_MODULE_HELPER"] = str(Path(__file__).resolve())
     os.set_inheritable(lock.fileno(), True)
     os.environ["STRATA_SOURCE_LOCK_FD"] = str(lock.fileno())
     command = ([str(Path(__file__).resolve()), "--native-observer", str(root), TERMINAL_CLI]

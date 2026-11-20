@@ -1,13 +1,14 @@
 """Protect native pins without modifying their parser or checkout functions.
 
-Both supported native CLIs dispatch through ``cli._run``. Their logs entry and
-Textual run call are the short-read boundary: imports and the UI constructor have
-finished, but no long polling/event loop has begun. A temporary Python profile
-hook observes those calls; it never substitutes a checkout function or module.
-An error before readiness leaves imports protected until exit closes the reader.
-Active dispatch retains acquisition through native preparation and service readiness,
-including Runner setup children. A scoped spawn adapter hands only managed setup
-the lease; the real Runner return releases it before any steady-state monitor.
+Both supported native CLIs dispatch through ``cli._run``. Temporary, thread-scoped
+profile hooks observe their real readiness calls without replacing checkout code.
+Logs and screens release after imports/UI construction; foreground servers release
+after their actual ready publication or initialized steady-state loop entry.
+Their deferred service helpers are loaded before either boundary. Native runtime
+producers hand a separate reader to the Host, which protects its startup workers
+and server descendants independently of a wait-zero producer's lifetime.
+Active dispatch and monitor update workers retain acquisition only through their
+own native preparation, never in the read-only Host they start.
 """
 
 import importlib
@@ -17,6 +18,46 @@ from pathlib import Path
 import runpy
 import subprocess
 import sys
+import time
+
+
+# These imports are deferred by the pinned Service's SAVE, load, telemetry and
+# exit paths. Optional Rich/Textual clients are deliberately not server helpers.
+_SERVER_DEFERRED_MODULES = (
+    "serve.session_save_retry", "serve.loader_diag", "serve.cache_drop",
+    "serve.telemetry", "strata_control.own_path_fit", "strata_control.presets",
+)
+
+
+def _preload_server(root):
+    for name in _SERVER_DEFERRED_MODULES:
+        importlib.import_module(name)
+    if (root / "serve/server_parts/engines.py").is_file():
+        # Only the split pin's engine diagnostics defer this Linux helper.
+        importlib.import_module("serve.oomd_pacer")
+
+
+def _server_ready(root, frame, event, result):
+    """One native readiness rule for CLI foreground and module server entries."""
+    ready = sys.modules.get("serve.ready")
+    if (event == "return" and ready is not None
+            and getattr(ready, "__file__", None) == str(root / "serve/ready.py")
+            and frame.f_globals is ready.__dict__
+            and frame.f_code is getattr(getattr(ready, "publish", None), "__code__", None)):
+        path, payload = frame.f_locals["path"], frame.f_locals["payload"]
+        try:
+            return json.loads(path.read_text()) == payload
+        except (OSError, ValueError):
+            return False
+    # Human/quiet foreground mode has no file or lifecycle callback. Both pins
+    # enter this sole _main sleep only after binding HTTP and initializing svc.
+    # A requested file must succeed above; never turn failed publication into ready.
+    return (event == "c_call" and result is time.sleep
+            and frame.f_code.co_filename == str(root / "serve/server.py")
+            and frame.f_code is getattr(frame.f_globals.get("_main"), "__code__", None)
+            and frame.f_locals.get("ready_path") is None
+            and frame.f_locals.get("httpd") is not None
+            and frame.f_locals.get("svc") is not None)
 
 def acquisition_action(args):
     """Classify acquisition after the native parser, respecting launch early returns."""
@@ -176,9 +217,34 @@ def run(root, entry, args):
     logs = str(root / "strata_cli/logs.py")
     monitor_file = str(root / "strata_cli/monitor.py")
     previous = sys.getprofile()
+    original = subprocess.Popen
+    state = os.environ.get("STRATA_NATIVE_SOURCE_STATE")
+    helper = os.environ.get("STRATA_NATIVE_MODULE_HELPER")
+
+    class NativeHost(original):
+        def __init__(self, args, *positional, **options):
+            if (state is not None and helper is not None
+                    and isinstance(args, (list, tuple))
+                    and list(args[1:3]) == ["-m", "strata_control.runtime"]
+                    and "--host" in args[3:]
+                    and Path(options.get("cwd") or os.getcwd()).resolve() == root):
+                with _source_reader(Path(state)) as child_reader:
+                    command, options = _module_spawn(Path(state), helper, args, options, child_reader)
+                    super().__init__(command, *positional, **options)
+            else:
+                super().__init__(args, *positional, **options)
+
+    subprocess.Popen = NativeHost
     mutation = _MonitorMutation(root)
 
     def ready(frame, event, arg):
+        if previous is not None:
+            previous(frame, event, arg)
+        if not lease.closed and _server_ready(root, frame, event, arg):
+            _preload_server(root)
+            lease.close()
+            sys.setprofile(previous)
+            return
         if event != "call" or frame.f_code.co_name != "run":
             return
         if _native_call(frame, "strata_cli.logs", "run", logs) and frame.f_locals.get("follow"):
@@ -212,6 +278,7 @@ def run(root, entry, args):
         sys.setprofile(previous)
         lease.close()
         mutation.close()
+        subprocess.Popen = original
 
 
 def run_active(root, entry, args):
@@ -335,11 +402,24 @@ def _module_spawn(state, helper, command, options, reader):
         python = str(python)
     options = dict(options)
     options["cwd"] = str(root)
-    options["pass_fds"] = tuple(dict.fromkeys((*options.get("pass_fds", ()), reader.fileno())))
-    options["env"] = dict(options.get("env") or os.environ,
-                          STRATA_SOURCE_LOCK_FD=str(reader.fileno()),
-                          STRATA_NATIVE_SOURCE_STATE=str(state),
-                          STRATA_NATIVE_MODULE_HELPER=helper)
+    env = dict(options.get("env") if options.get("env") is not None else os.environ)
+    mutation_fd = env.get("STRATA_WORKSPACE_LOCK_FD")
+    if mutation_fd is not None:
+        # Remove only the protocol's validated acquisition description. Owner
+        # pipes, source readers and unrelated pass_fds must survive this handoff.
+        mutation_fd = int(mutation_fd)
+        held = os.fstat(mutation_fd)
+        expected = (state / ".source.lock").stat()
+        context = json.loads(env["STRATA_WORKSPACE_CONTEXT"])
+        marker = env.get("STRATA_ACQUISITION_BOOTSTRAP")
+        if ((held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino)
+                or Path(context["state"]).resolve() != state.resolve()
+                or (marker is not None and marker != f"{held.st_dev}:{held.st_ino}")):
+            raise RuntimeError("Native handoff acquisition descriptor does not belong to this workspace")
+    options["pass_fds"] = tuple(dict.fromkeys((
+        *(fd for fd in options.get("pass_fds", ()) if fd != mutation_fd), reader.fileno())))
+    options["env"] = dict(env, STRATA_SOURCE_LOCK_FD=str(reader.fileno()),
+                          STRATA_NATIVE_SOURCE_STATE=str(state), STRATA_NATIVE_MODULE_HELPER=helper)
     for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
                 "STRATA_ACQUISITION_BOOTSTRAP"):
         options["env"].pop(key, None)
@@ -400,26 +480,16 @@ def run_module(root, module_name, args):
             inherited_profile(frame, event, result)
         with reader_mutex:
             done = finished
-        if done:
-            sys.setprofile(previous_thread)
+        if done or (module_name == "serve.server" and reader.closed):
+            sys.setprofile(inherited_profile)
             return
-        if module_name == "serve.server" and event == "return":
-            ready = sys.modules.get("serve.ready")
-            publish = getattr(ready, "publish", None)
-            if (ready is not None and getattr(ready, "__file__", None) == str(root / "serve/ready.py")
-                    and frame.f_code is getattr(publish, "__code__", None)
-                    and frame.f_globals is ready.__dict__):
-                # Publication follows all server initialization. Failed publication
-                # retains protection until exit; it is not service readiness.
-                path, payload = frame.f_locals["path"], frame.f_locals["payload"]
-                try:
-                    published = json.loads(path.read_text())
-                except (OSError, ValueError):
-                    return
-                if published == payload:
-                    with reader_mutex:
-                        reader.close()
-                return
+        if module_name == "serve.server" and not reader.closed and _server_ready(root, frame, event, result):
+            _preload_server(root)
+            with reader_mutex:
+                reader.close()
+            sys.setprofile(inherited_profile)
+            threading.setprofile(previous_thread)
+            return
         if frame.f_code.co_filename != filename or frame.f_globals.get("__name__") != "__main__":
             return
         if module_name == "strata_control.runtime":

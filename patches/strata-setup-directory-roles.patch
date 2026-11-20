@@ -1,6 +1,6 @@
 # base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
-# intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir; reuse SHA proofs only within one Runner forecast.
+# intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir; reuse SHA proofs only within one forecast or Folder repaint.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open includes flat-root reuse, not equivalent split-layout coverage.
 # issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events.
 # removal: remove only when setup, forecast, progress, models explain, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
@@ -575,19 +575,23 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 diff --git a/terminal/strata_cli/launch/app.py b/terminal/strata_cli/launch/app.py
 --- a/terminal/strata_cli/launch/app.py
 +++ b/terminal/strata_cli/launch/app.py
-@@ -227,26 +227,17 @@
+@@ -226,27 +226,19 @@
+-    def model_state(self, data_dir: str | None = None):
++    def model_state(self, data_dir: str | None = None, *, directories=None):
          """The chosen model's state (installed, what helper files are missing, sizes) for these choices."""
          from strata_cli.launch import modelstate
          s = self.settings
 -        return modelstate.assess(self.catalog, s.family, s.model, vision=s.vision, model_path=s.model_path,
 -                                 data_dir=data_dir if data_dir is not None else s.data_dir, rows=self.rows, mtp=s.mtp,
-+        directories = self.catalog.launch_directories(s.family, s.model, data_dir=data_dir if data_dir is not None else s.data_dir,
-+                                                       model_path=s.model_path, move=self.move_data)
++        if directories is None:
++            directories = self.catalog.launch_directories(s.family, s.model, data_dir=data_dir if data_dir is not None else s.data_dir,
++                                                           model_path=s.model_path, move=self.move_data)
 +        return modelstate.assess(self.catalog, directories.family, directories.model, vision=s.vision, model_path=s.model_path,
 +                                 directories=directories, data_dir=data_dir if data_dir is not None else s.data_dir, rows=self.rows, mtp=s.mtp,
                                   drafting=modelstate.resolved_drafting(s.drafting, s.family, **auto_signals(self.catalog, s, s.family)))
  
-     def default_folder(self) -> Path:
+-    def default_folder(self) -> Path:
++    def default_folder(self, *, verified_files=None) -> Path:
          """The folder the Folder step starts with: where the chosen model already is (installed, or the person's own files with their
          prepared data), else the data folder every command agrees on."""
          s = self.settings
@@ -603,7 +607,7 @@ diff --git a/terminal/strata_cli/launch/app.py b/terminal/strata_cli/launch/app.
 -                pass
 -            return self.catalog.data_dir()
 -        return self.catalog.data_dir_for(s.family, s.model)
-+        return self.catalog.launch_directories(s.family, s.model, model_path=s.model_path).data_dir
++        return self.catalog.launch_directories(s.family, s.model, model_path=s.model_path, verified_files=verified_files).data_dir
  
      def invalidate_rows(self) -> None:
          self._adv = None
@@ -1078,7 +1082,7 @@ diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/
 -                    pass
 -        return self.data_dir()
 +    def launch_directories(self, family: str | None, model: str | None, *, data_dir=None, model_path=None,
-+                           move: bool = False) -> LaunchDirectories:
++                           move: bool = False, verified_files=None) -> LaunchDirectories:
 +        """Read setup's effective destinations and retained downloads without creating, moving or saving data."""
 +        try:                                                 # saved choices use lower-case tags; setup's tables use canonical keys
 +            family, model = self.resolve(str(model), None if family is None else str(family))
@@ -1124,7 +1128,7 @@ diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/
 +            moving_sources = tuple(source for source in available
 +                                   if not any(mod.same_folder(source, retained) for retained in elsewhere))
 +        layout = None
-+        verified_files = {}
++        verified_files = {} if verified_files is None else verified_files
 +        if mod is not None and family in getattr(mod, "FAMILIES", {}) and model in getattr(mod, "MODELS", {}):
 +            own = Path(model_path).expanduser() if model_path else None
 +            layout = mod.model_download_layout(family, model, models, data_dir=data if models_arg else None,
@@ -1340,15 +1344,77 @@ diff --git a/terminal/strata_cli/launch/modelstate.py b/terminal/strata_cli/laun
 diff --git a/terminal/strata_cli/launch/screens.py b/terminal/strata_cli/launch/screens.py
 --- a/terminal/strata_cli/launch/screens.py
 +++ b/terminal/strata_cli/launch/screens.py
-@@ -820,10 +820,13 @@
+@@ -164,19 +164,22 @@
+                 out.append(f"   Step {n + 1} of {len(flow)}: {labels[self.step_id]}", style="")
+         return out
+ 
+-    def paint(self) -> None:
++    def paint(self, *, directories=None) -> None:
+         try:
+             self.query_one("#head", Static).update(self.head_text())
+             self.query_one("#rule1", Static).update(Text(self.rule(), style=MUTE))
+             self.query_one("#rule2", Static).update(Text(self.rule(), style=MUTE))
+-            explanation = self.explain()
++            explanation = self.explain() if directories is None else self.explain(directories=directories)
+             self.query_one("#explain", Static).update(explanation)
+             self.query_one("#explain", Static).display = bool(explanation.plain.strip())     # no empty row where there is nothing to say
+             self.query_one("#hints", Static).update(Text(self.hints_text(), style=MUTE))
+             self.query_one("#message", Static).update(Text(self.message, style=WARN if self.message.startswith("!") else MUTE))
+         except Exception:                                    # noqa: BLE001 - a screen that is closing
+             return
+-        self.refresh_body()
++        if directories is None:
++            self.refresh_body()
++        else:
++            self.refresh_body(directories=directories)
+ 
+     def hints_text(self) -> str:
+         return self.hints.replace("↑↓", self.g.updown)
+@@ -798,6 +801,17 @@
+         f.focus()
+         self.paint()
+ 
++    def paint(self) -> None:
++        try:
++            value = self.query_one("#folderpath", Input).value.strip()
++        except Exception:                                    # noqa: BLE001 - a screen that is closing
++            return
++        s = self.ctx.settings
++        directories = self.ctx.catalog.launch_directories(s.family, s.model, data_dir=value or s.data_dir,
++                                                           model_path=s.model_path, move=self.ctx.move_data)
++        # Evidence belongs to this repaint only, including the default-folder comparison.
++        super().paint(directories=directories)
++
+     def action_noop(self) -> None:
+         pass
+ 
+@@ -807,23 +821,27 @@
+     def on_input_submitted(self, event: Input.Submitted) -> None:
+         self.action_next()
+ 
+-    def state(self, value: str | None = None):
+-        return self.ctx.model_state(value or None)
++    def state(self, value: str | None = None, *, directories=None):
++        return self.ctx.model_state(value or None, directories=directories)
+ 
+     def need_gb(self, st=None) -> float:
+         """The room to ask for: what is still to download plus working room (a little when the model is already there)."""
+         st = st or self.state()
+         return st.remaining_gb + (2.0 if (st.installed or st.own_files) else 8.0)
+ 
+-    def refresh_body(self) -> None:
++    def refresh_body(self, *, directories=None) -> None:
+         try:
              value = self.query_one("#folderpath", Input).value.strip()
          except Exception:                                    # noqa: BLE001
              return
 -        free = self.ctx.catalog.disk_free(value or self.ctx.default_folder())
+-        st = self.state(value)
 +        s = self.ctx.settings
-+        directories = self.ctx.catalog.launch_directories(s.family, s.model, data_dir=value or s.data_dir,
-+                                                           model_path=s.model_path, move=self.ctx.move_data)
-         st = self.state(value)
++        if directories is None:
++            directories = self.ctx.catalog.launch_directories(s.family, s.model, data_dir=value or s.data_dir,
++                                                               model_path=s.model_path, move=self.ctx.move_data)
++        st = self.state(value, directories=directories)
 +        destination = directories.download_directory(p.kind for p in st.parts if p.gb > 0)
 +        free = self.ctx.catalog.disk_free(destination)
          need = self.need_gb(st)
@@ -1356,7 +1422,39 @@ diff --git a/terminal/strata_cli/launch/screens.py b/terminal/strata_cli/launch/
          out = Text()
          if s.model_path:
              out.append(f"Your model files stay where they are: {s.model_path}\n", style=FG)
-@@ -885,7 +888,8 @@
+@@ -842,16 +860,16 @@
+                 out.append(f"   Not enough for the {need:.0f} GB needed. You can still go on, but the download is likely to stop; pick a bigger drive.", style=WARN)
+         else:
+             out.append("The free space of that folder could not be read.", style=MUTE)
+-        moving = self.models_that_would_move(value)
++        moving = self.models_that_would_move(value, directories=directories)
+         if moving:
+             out.append(f"\nModel files Strata already keeps in {moving} stay there and keep working. This folder is used for new downloads. "
+                        "To move them here, use: strata models move.", style=MUTE)
+         self.query_one("#folderinfo", Static).update(out)
+ 
+-    def models_that_would_move(self, value: str) -> str | None:
++    def models_that_would_move(self, value: str, *, directories=None) -> str | None:
+         """The folder holding model files today when a different one is typed (setup gathers the model files into the data folder), else None."""
+         try:
+-            old = Path(self.ctx.default_folder())
++            old = Path(self.ctx.default_folder(verified_files=directories.verified_files if directories is not None else None))
+             new = Path(value).expanduser() if value else old
+             if os.path.normcase(str(new.resolve())) == os.path.normcase(str(old.resolve())):
+                 return None
+@@ -862,8 +880,9 @@
+             pass
+         return None
+ 
+-    def explain(self) -> Text:
+-        if self.state().installed:
++    def explain(self, *, directories=None) -> Text:
++        value = self.query_one("#folderpath", Input).value.strip()
++        if self.state(value, directories=directories).installed:
+             return Text("This model is already on this computer, so the folder starts where it is. Press Enter to keep it. "
+                         "Another folder only matters for files that still have to be downloaded.", style=MUTE)
+         return Text("Models are large files. Strata keeps them in one folder; the default is Strata's own data folder. "
+@@ -885,7 +904,8 @@
      def commit(self) -> None:
          value = self.typed()
          default = str(self.ctx.default_folder())

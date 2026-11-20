@@ -4385,6 +4385,421 @@ run_module(root, module, sys.argv[4:])
                     self.assertEqual(stopped.returncode, 0, stopped.stderr)
                     host.communicate(timeout=25)
 
+    def native_service_readiness_case(self, mode):
+        """Run exact native consumers; gates hold real imports, never native functions."""
+        from contextlib import ExitStack
+        self.make_cross_pin_sources()
+        state = self.state
+        bootstrap_source = r"""from strata_managed_state import install_consumer
+install_consumer()
+import importlib.abc, json, os, socket, subprocess, sys, threading, time
+from pathlib import Path
+if os.environ.get('NATIVE_SERVICE_GATE'):
+    root = Path(os.environ['NATIVE_CASE_ROOT'])
+    role = ('host' if '--native-module' in sys.argv and 'strata_control.runtime' in sys.argv
+            else 'server' if '--native-module' in sys.argv and 'serve.server' in sys.argv
+            else 'foreground' if '--native-observer' in sys.argv and 'serve' in sys.argv else 'producer')
+    def gate(phase, **values):
+        with socket.socket(socket.AF_UNIX) as peer:
+            peer.settimeout(45)
+            peer.connect(os.environ['NATIVE_SERVICE_GATE'])
+            peer.sendall(json.dumps(dict(phase=phase, role=role, pid=os.getpid(), **values)).encode() + b'\n')
+            assert peer.recv(1) == b'g'
+    original_process = subprocess.Popen
+    class CaptureProcess(original_process):
+        def __init__(self, args, *positional, **options):
+            if (os.environ['NATIVE_CASE_MODE'] == 'worker' and isinstance(args, (list, tuple))
+                    and '--native-module' in args):
+                forwarded = {str(fd): [os.fstat(fd).st_dev, os.fstat(fd).st_ino]
+                             for fd in options.get('pass_fds', ())}
+                env = options.get('env') or os.environ
+                if 'strata_control.runtime' in args:
+                    extras = json.loads(os.environ['NATIVE_EXTRA_FDS'])
+                    assert all(str(fd) in forwarded for fd in extras)
+                    gate('spawn', forwarded=forwarded, extras=extras,
+                         private=any(key in env for key in ('STRATA_WORKSPACE_LOCK_FD',
+                             'STRATA_WORKSPACE_CONTEXT', 'STRATA_ACQUISITION_BOOTSTRAP')))
+                elif 'serve.server' in args:
+                    owner_fd = int(args[args.index('--owner-fd') + 1])
+                    assert str(owner_fd) in forwarded
+                    gate('server-spawn', forwarded=forwarded, owner_fd=owner_fd)
+            super().__init__(args, *positional, **options)
+    subprocess.Popen = CaptureProcess
+    class Imports(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if role in {'host', 'server', 'foreground'} and fullname == 'serve.server':
+                inventory = {}
+                for entry in os.listdir('/dev/fd'):
+                    try:
+                        held = os.fstat(int(entry))
+                    except OSError:
+                        continue
+                    inventory[entry] = [held.st_dev, held.st_ino]
+                gate('imports', worker=threading.get_ident() != threading.main_thread().ident,
+                     private='STRATA_WORKSPACE_LOCK_FD' in os.environ, inventory=inventory)
+            if role in {'server', 'foreground'} and fullname == 'serve.session_save_retry':
+                gate('helpers')
+            return None
+    finder = Imports()
+    sys.meta_path.insert(0, finder)
+    previous, previous_thread = sys.getprofile(), threading.getprofile()
+    owner = threading.get_ident()
+    ready_seen = False
+    def profile(frame, event, result):
+        global ready_seen
+        inherited = previous if threading.get_ident() == owner else previous_thread
+        if inherited is not None:
+            inherited(frame, event, result)
+        if os.environ['NATIVE_CASE_MODE'] == 'worker' and role == 'producer' and event == 'return':
+            update = sys.modules.get('strata_control.engine_update')
+            gate_class = getattr(update, 'ModelGate', None)
+            if (frame.f_code.co_filename == str(root / 'strata_control/engine_update.py')
+                    and frame.f_code is getattr(getattr(gate_class, '__init__', None), '__code__', None)):
+                # Seed the native gate's supported state, not its implementation:
+                # a signed empty local feed completes without engines/downloads,
+                # then real finish/start_model restarts this saved profile.
+                gate_instance = frame.f_locals['self']
+                gate_instance.stopped.append(update.RunningModel('native-handoff', 'inert model', kind='profile'))
+                gate_instance.start_again = True
+        host = frame.f_globals.get('Host')
+        if (role == 'host' and event == 'call'
+                and frame.f_code.co_filename == str(root / 'strata_control/runtime.py')
+                and frame.f_code is getattr(getattr(host, '_launch', None), '__code__', None)):
+            # The supported mock engine is selected before Host computes its
+            # attestation. Neither Host/server launch bytes nor parsers are replaced.
+            args = frame.f_locals['args']
+            args[args.index('--engine') + 1] = 'mock'
+        if (role in {'server', 'foreground'} and not ready_seen and event == 'c_return'
+                and result is time.sleep and frame.f_code.co_filename == str(root / 'serve/server.py')
+                and frame.f_code is getattr(frame.f_globals.get('_main'), '__code__', None)):
+            ready_seen = True
+            svc = frame.f_locals['svc']
+            from strata_native_observer import _SERVER_DEFERRED_MODULES
+            assert all(name in sys.modules for name in _SERVER_DEFERRED_MODULES)
+            gate('ready', port=frame.f_locals['bound_port'], instance=svc.instance_id,
+                 ready_file=str(frame.f_locals.get('ready_path') or ''))
+            # Extend only the inert MockEngine's test surface. The real Service
+            # validates/adopts the request and calls the real deferred SAVE helper.
+            def session_file(action, path):
+                assert action == 'save'
+                Path(path).write_bytes(b'isolated session')
+                return dict(tokens=3, bytes=16, ms=1)
+            assert not hasattr(svc.engine, 'session_file')
+            svc.engine.session_file = session_file
+            svc.engine.session_save_reclaim = True
+            svc.slot_save_path = os.environ['NATIVE_SESSION_DIR']
+            code, body = svc.slot_action('0', 'save', 'after-cutover.bin')
+            assert code == 200 and body['n_saved'] == 3, (code, body)
+            assert Path(svc.slot_save_path, 'after-cutover.bin').read_bytes() == b'isolated session'
+            gate('saved', result=body)
+    sys.setprofile(profile)
+    threading.setprofile(profile)
+    def restore():
+        sys.setprofile(previous)
+        threading.setprofile(previous_thread)
+        if subprocess.Popen is CaptureProcess:
+            subprocess.Popen = original_process
+        if finder in sys.meta_path:
+            sys.meta_path.remove(finder)
+"""
+        worker_source = r"""import fcntl, json, os, socket, sys, threading
+from pathlib import Path
+from strata_managed_state import enable_source
+from strata_native_observer import _MonitorMutation
+root, state = Path(os.environ['NATIVE_CASE_ROOT']), Path(os.environ['NATIVE_CASE_STATE'])
+enable_source(root)
+from strata_cli.launch.monitor_ext import LaunchMonitor
+from strata_cli.client import Endpoint
+os.environ.update(STRATA_WORKSPACE_CONTEXT=json.dumps(dict(state=str(state))), STRATA_WORKSPACE_HELPER=os.environ['NATIVE_CASE_HELPER'])
+guard = _MonitorMutation(root)
+os.environ.pop('STRATA_WORKSPACE_CONTEXT'); os.environ.pop('STRATA_WORKSPACE_HELPER')
+pipe_read, pipe_write = os.pipe()
+extra = Path(os.environ['NATIVE_SESSION_DIR'], 'unrelated-reader').open('a')
+os.environ['NATIVE_EXTRA_FDS'] = json.dumps([pipe_read, extra.fileno()])
+class Extras(guard.managed_process):
+    def __init__(self, args, *positional, **options):
+        options['pass_fds'] = tuple(dict.fromkeys((*options.get('pass_fds', ()), pipe_read, extra.fileno())))
+        super().__init__(args, *positional, **options)
+guard.managed_process = Extras
+guard.install()
+try:
+    app = LaunchMonitor(Endpoint('http://127.0.0.1:1', None, 0.1, ''), None, info={})
+    app._say_line = lambda message: None
+    app._note_refresh = lambda: None
+    app.call_from_thread = lambda function: function()
+    app._ask_from_thread = lambda *args: True
+    app.updating = True
+    worker = threading.Thread(target=app._update_worker)
+    worker.start(); worker.join(120)
+    assert not worker.is_alive() and not app.updating
+    with (state / '.source.lock').open('a') as free:
+        fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with socket.socket(socket.AF_UNIX) as peer:
+        peer.settimeout(45); peer.connect(os.environ['NATIVE_SERVICE_GATE'])
+        peer.sendall(json.dumps(dict(phase='worker-complete', role='producer', pid=os.getpid(), notice=app.selection_notice)).encode() + b'\n')
+        assert peer.recv(1) == b'g'
+finally:
+    guard.close()
+    extra.close(); os.close(pipe_read); os.close(pipe_write)
+"""
+        for label, revision, next_revision in (("flat", self.old, self.new), ("split", self.new, self.old)):
+            with self.subTest(pin=label, mode=mode), tempfile.TemporaryDirectory(prefix="s339-service-", dir="/tmp") as temporary, ExitStack() as owned:
+                self.state = state / (label + "-" + mode)
+                root = self.prepare_cross_pin(revision, overlay=False)
+                private_python = root / ".venv/bin/python"
+                private_python.parent.mkdir(parents=True, exist_ok=True)
+                fixture = Path(temporary)
+                bootstrap = fixture / "bootstrap"
+                bootstrap.mkdir()
+                bootstrap_file = bootstrap / "native-bootstrap.py"
+                bootstrap_file.write_text(bootstrap_source)
+                # Test interpreter shim runs bootstrap explicitly even when the
+                # managed consumer moves its own sitecustomize first in PYTHONPATH.
+                private_python.write_text("#!" + sys.executable + "\n"
+                    "import os, runpy, sys\n"
+                    "sys.executable = os.path.abspath(__file__)\n"
+                    "entry, args = sys.argv[1], sys.argv[2:]\n"
+                    "sys.argv = [entry, *args]\n"
+                    "boot = runpy.run_path(" + repr(str(bootstrap_file)) + ")\n"
+                    "try:\n"
+                    "    if entry == '-c': exec(args[0], {'__name__': '__main__'})\n"
+                    "    elif entry == '-m':\n"
+                    "        sys.argv = [args[0], *args[1:]]\n"
+                    "        runpy.run_module(args[0], run_name='__main__', alter_sys=True)\n"
+                    "    else: runpy.run_path(entry, run_name='__main__')\n"
+                    "finally:\n"
+                    "    if 'restore' in boot: boot['restore']()\n")
+                private_python.chmod(0o700)
+                sessions = fixture / "sessions"
+                sessions.mkdir()
+                config = root / "strata-native-service.json"
+                config.write_text(json.dumps({"exe": sys.executable, "args": [], "backend": "cpu",
+                    "tokenizer": str(root / "no-tokenizer"), "port": 0, "api_key": "none"}))
+                address = str(fixture / "gate")
+                env = dict(self.env, PYTHONPATH=os.pathsep.join((str(WORKSPACE_LIB), str(root))),
+                    STRATA_PROFILE_DIR=str(fixture / "profiles"), STRATA_RUNTIME_DIR=str(fixture / "runtime"),
+                    XDG_CONFIG_HOME=str(fixture / "config"), XDG_STATE_HOME=str(fixture / "state"),
+                    NATIVE_SERVICE_GATE=address, NATIVE_CASE_ROOT=str(root), NATIVE_SESSION_DIR=str(sessions),
+                    STRATA_ENGINE_BACKEND="cpu", STRATA_UPDATE_CHECK="0", PYTHONDONTWRITEBYTECODE="1")
+                env.update(NATIVE_CASE_MODE=mode, NATIVE_CASE_STATE=str(self.state), NATIVE_CASE_HELPER=WORKSPACE,
+                           STRATA_COMPONENTS_DIR=str(fixture / "components"))
+                env["STRATA_UPDATE_FEED"] = str(fixture / "strata-feed.json")
+                env["STRATA_UPDATE_TRUSTED_KEYS"] = str(fixture / "feed-keys.json")
+                # The same profile name is intentionally reused across pins, but
+                # no profile/runtime/environment namespace is shared between cases.
+                profile = "native-handoff"
+                created = subprocess.run([str(private_python), "-c",
+                    "import json, os; from pathlib import Path; from strata_control import profiles, signing; "
+                    "profiles.create('native-handoff', 'strata-native-service.json'); "
+                    "key = signing.generate_key(); "
+                    "Path(os.environ['STRATA_UPDATE_TRUSTED_KEYS']).write_text(json.dumps({'keys': [signing.public_part(key)]})); "
+                    "payload = json.dumps(dict(schema_version=1, channel='stable', sequence=1, "
+                    "generated_at='2026-11-06T00:00:00Z', expires_at=None)).encode(); "
+                    "feed = Path(os.environ['STRATA_UPDATE_FEED']); feed.write_bytes(payload); "
+                    "feed.with_name(feed.name + '.sig').write_text(json.dumps(signing.sign_bytes(key, payload)))"],
+                    cwd=root, env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(created.returncode, 0, created.stderr)
+                module = self.workspace_module()
+                children = set()
+                process = None
+                current_root = root
+                def finish():
+                    clean_env = dict(env, PYTHONPATH=os.pathsep.join((str(WORKSPACE_LIB), str(current_root))))
+                    if mode in {"runtime", "worker"}:
+                        try:
+                            subprocess.run([sys.executable, "-c",
+                                "from strata_control import runtime; runtime.stop('native-handoff', timeout=8)"],
+                                cwd=current_root, env=clean_env, capture_output=True, timeout=12)
+                        except subprocess.TimeoutExpired:
+                            pass
+                    for pid in children:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                    if process is not None:
+                        if process.poll() is None:
+                            process.terminate()
+                        try:
+                            process.communicate(timeout=15)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.communicate(timeout=10)
+                        process.stdout.close()
+                        process.stderr.close()
+                    for pid in children:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                owned.callback(finish)
+                with socket.socket(socket.AF_UNIX) as listener:
+                    listener.bind(address)
+                    listener.listen(8)
+                    listener.settimeout(45)
+                    pending = {}
+                    observed_events = []
+                    def receive(expected):
+                        if expected in pending:
+                            return pending.pop(expected)
+                        while True:
+                            try:
+                                peer = owned.enter_context(listener.accept()[0])
+                            except TimeoutError:
+                                details = [f"waiting for {expected}; events={observed_events}"]
+                                if process is not None:
+                                    code = process.poll()
+                                    details.append(f"producer pid={process.pid}, exit={code}")
+                                    if code is not None:
+                                        output, errors = process.communicate(timeout=10)
+                                        details.extend(("producer stdout:\n" + output, "producer stderr:\n" + errors))
+                                for log in (fixture / "runtime").rglob("*.log"):
+                                    details.append(str(log) + ":\n" + log.read_text(errors="replace")[-8192:])
+                                self.fail("\n".join(details))
+                            peer.settimeout(45)
+                            raw = b""
+                            while not raw.endswith(b"\n"):
+                                chunk = peer.recv(65536)
+                                self.assertTrue(chunk, raw)
+                                raw += chunk
+                            payload = json.loads(raw)
+                            observed_events.append((payload["phase"], payload["role"], payload["pid"]))
+                            if payload["role"] in {"host", "server"}:
+                                children.add(payload["pid"])
+                            if payload["phase"] == expected:
+                                return peer, payload
+                            # Native readiness verification runs independently of
+                            # the server's deferred-import/steady-state gates. Keep
+                            # an early completed worker parked, never discard it.
+                            self.assertEqual((mode, payload["phase"], payload["role"]),
+                                             ("worker", "worker-complete", "producer"), observed_events)
+                            self.assertNotIn("worker-complete", pending)
+                            self.assertIn("serving again with the same settings", payload["notice"])
+                            self.assert_workspace_unlocked()
+                            for pid in children:
+                                os.kill(pid, 0)
+                            pending["worker-complete"] = peer, payload
+                    args = (["runtime", "start", "--profile", profile, "--wait", "0", "--output", "json"]
+                        if mode == "runtime" else ["serve", "--profile", profile, "--engine", "mock", "--output", "human"])
+                    ready_path = fixture / "foreground-ready.json"
+                    if mode == "file":
+                        args += ["--ready-file", str(ready_path)]
+                    context = dict(state=str(self.state), revision=revision, remote=str(self.repository))
+                    if mode == "worker":
+                        worker_entry = root / "native-worker-fixture.py"
+                        worker_entry.write_text(worker_source)
+                        process = subprocess.Popen([str(private_python), str(worker_entry)], cwd=root, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        spawned, capture = receive("spawn")
+                        self.assertEqual(capture["phase"], "spawn")
+                        self.assertFalse(capture["private"], capture)
+                        mutation = (self.state / ".source.lock").stat()
+                        identity = [mutation.st_dev, mutation.st_ino]
+                        self.assertNotIn(identity, capture["forwarded"].values())
+                        self.assertTrue(all(str(fd) in capture["forwarded"] for fd in capture["extras"]))
+                        spawned.sendall(b"g")
+                    else:
+                        with module.workspace_lock(self.state) as (_, acquisition):
+                            process = subprocess.Popen([str(private_python), WORKSPACE, "--prepared-workspace", *args],
+                                cwd=root, env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(acquisition.fileno()),
+                                    STRATA_WORKSPACE_HELPER=WORKSPACE, STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                                pass_fds=(acquisition.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    imported, payload = receive("imports")
+                    self.assertEqual(payload["phase"], "imports")
+                    self.assertEqual(payload["role"], "host" if mode in {"runtime", "worker"} else "foreground")
+                    if mode == "runtime":
+                        self.assertTrue(payload["worker"], payload)
+                        self.assertFalse(payload["private"], payload)
+                        # Host has published state but startup is still held inside
+                        # its actual import; a wait-zero CLI must already return.
+                        output, errors = process.communicate(timeout=15)
+                        self.assertEqual(process.returncode, 0, errors + output)
+                        self.assertEqual(json.loads(output)["state"], "starting")
+                    if mode == "worker":
+                        self.assertTrue(payload["worker"], payload)
+                        self.assertNotIn(identity, payload["inventory"].values())
+                        for fd in capture["extras"]:
+                            self.assertEqual(payload["inventory"][str(fd)], capture["forwarded"][str(fd)])
+                    if mode != "worker":
+                        self.assert_workspace_unlocked()
+                    with (self.state / ".source-publication.lock").open("a") as writer:
+                        with self.assertRaises(BlockingIOError):
+                            fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    imported.sendall(b"g")
+                    if mode in {"runtime", "worker"}:
+                        if mode == "worker":
+                            spawned, capture = receive("server-spawn")
+                            self.assertEqual(capture["phase"], "server-spawn")
+                            self.assertIn(str(capture["owner_fd"]), capture["forwarded"])
+                            self.assertNotIn(identity, capture["forwarded"].values())
+                            spawned.sendall(b"g")
+                        imported, payload = receive("imports")
+                        self.assertEqual((payload["phase"], payload["role"]), ("imports", "server"))
+                        self.assertFalse(payload["private"], payload)
+                        with (self.state / ".source-publication.lock").open("a") as writer:
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        imported.sendall(b"g")
+                    helpers, payload = receive("helpers")
+                    self.assertEqual(payload["phase"], "helpers")
+                    with (self.state / ".source-publication.lock").open("a") as writer:
+                        with self.assertRaises(BlockingIOError):
+                            fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    helpers.sendall(b"g")
+                    ready, payload = receive("ready")
+                    self.assertEqual(payload["phase"], "ready")
+                    os.kill(payload["pid"], 0)
+                    if mode != "runtime":
+                        self.assertIsNone(process.poll())
+                    with (self.state / ".source-publication.lock").open("a") as writer:
+                        fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if mode == "file":
+                        self.assertEqual(json.loads(ready_path.read_text())["instance_id"], payload["instance"])
+                    elif mode == "human":
+                        self.assertFalse(payload["ready_file"])
+                    else:
+                        status = subprocess.run([sys.executable, "-c",
+                            "import json; from strata_control import runtime; print(json.dumps(runtime._await_start('native-handoff', 30)))"],
+                            cwd=root, env=env, capture_output=True, text=True, timeout=40)
+                        self.assertEqual(status.returncode, 0, status.stderr)
+                        self.assertTrue(json.loads(status.stdout)["ok"], status.stdout)
+                        for pid in children:
+                            os.kill(pid, 0)
+                    if mode == "worker":
+                        completed, payload = receive("worker-complete")
+                        self.assertEqual(payload["phase"], "worker-complete")
+                        self.assertIn("serving again with the same settings", payload["notice"])
+                        self.assert_workspace_unlocked()
+                        for pid in children:
+                            os.kill(pid, 0)
+                        completed.sendall(b"g")
+                        output, errors = process.communicate(timeout=15)
+                        self.assertEqual(process.returncode, 0, errors + output)
+                    # Real pin/layout cutover while initialized consumers remain
+                    # alive: the next SAVE must use the already-loaded native helper.
+                    current_root = self.prepare_cross_pin(next_revision, overlay=False)
+                    self.assertNotEqual(current_root, root)
+                    self.assertTrue((current_root / "serve/session_save_retry.py").is_file())
+                    self.assertFalse((root / "serve/session_save_retry.py").is_file())
+                    ready.sendall(b"g")
+                    saved, payload = receive("saved")
+                    self.assertEqual(payload["phase"], "saved")
+                    self.assertEqual(payload["result"]["n_saved"], 3)
+                    self.assertEqual((sessions / "after-cutover.bin").read_bytes(), b"isolated session")
+                    saved.sendall(b"g")
+
+    def test_native_cli_runtime_start_wait_zero_hands_source_reader_to_real_host_both_pins(self):
+        self.native_service_readiness_case("runtime")
+
+    def test_native_foreground_serve_ready_file_releases_after_deferred_helpers_both_pins(self):
+        self.native_service_readiness_case("file")
+
+    def test_native_foreground_serve_human_without_ready_file_releases_before_loop_both_pins(self):
+        self.native_service_readiness_case("human")
+
+    def test_native_monitor_update_real_flow_host_handoff_drops_only_acquisition_fd_both_pins(self):
+        self.native_service_readiness_case("worker")
+
     def test_native_launch_acquisition_classification_respects_real_parser_early_returns(self):
         self.make_cross_pin_sources()
         script = r'''import json, sys
@@ -12241,6 +12656,117 @@ for mode in cases:
                 host.writer.stdout.close()
                 host.writer.stderr.close()
 ''')
+
+
+    def test_folder_real_textual_repaint_reuses_only_current_sha_evidence(self):
+        root = self.make_ready_workspace()
+        script = root / "folder-repaint-regression.py"
+        script.write_text(r'''
+import asyncio
+from collections import Counter
+import contextlib
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from textual.app import App
+from textual.widgets import Input
+from strata_cli.launch.app import Ctx
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.screens import FolderScreen
+from strata_cli.launch.settings import LaunchSettings
+
+root = Path(__file__).parent
+cat = Catalog(src=root, root=root, hardware={})
+setup = cat.strata.setup_module()
+# Only table data is shrunk: actual SHA verification, layout, assessment and widgets run.
+payloads = {hashlib.sha256(sha.encode()).hexdigest(): sha.encode()
+            for repo in setup.NVFP4_REPOS.values()
+            for role, size, sha in repo['files'].values()}
+for repo in setup.NVFP4_REPOS.values():
+    repo['files'] = {name: (role, len(sha.encode()), hashlib.sha256(sha.encode()).hexdigest())
+                     for name, (role, size, sha) in repo['files'].items()}
+family, model = cat.resolve('NVFP4-QAD')
+data = root / 'folder-evidence-data'
+models = root / 'folder-evidence-models'
+data.mkdir()
+models.mkdir()
+context = {'state': str(root.parents[1]), 'data_directory': str(data), 'models_directory': str(models)}
+os.environ['STRATA_WORKSPACE_CONTEXT'] = json.dumps(context)
+files = setup.ready_files(model)
+expected = []
+for item in files:
+    path = setup.ready_where(models, item, data)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = payloads[item[5]]
+    path.write_bytes(payload)
+    expected.append(path)
+settings = LaunchSettings(family=family, model=model, data_dir=str(data),
+                          vision='off', mtp='off', drafting='off')
+ctx = Ctx(cat, SimpleNamespace(raw={}, usable_gpus=[]), cat.rows(), settings)
+class FixtureApp(App):
+    def __init__(self):
+        super().__init__()
+        self.ctx = ctx
+    def on_mount(self):
+        self.push_screen(FolderScreen())
+
+async def exercise():
+    app = FixtureApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        field = screen.query_one('#folderpath', Input)
+        hashes = Counter()
+        selections = []
+        original_directories = cat.launch_directories
+        def selected(*args, **kwargs):
+            directories = original_directories(*args, **kwargs)
+            selections.append(directories)
+            return directories
+        original_hash = setup._hash_file
+        def counted(path, size, *, progress=True):
+            assert progress is False, 'reader emitted acquisition hash progress'
+            hashes[Path(path)] += 1
+            return original_hash(path, size, progress=progress)
+        def snapshot():
+            from dataclasses import asdict
+            paths = [*data.rglob('*'), *models.rglob('*'), *root.glob('*.json')]
+            return ({p: p.read_bytes() for p in paths if p.is_file()}, asdict(settings))
+        before = snapshot()
+        with patch.object(setup, '_hash_file', counted), patch.object(cat, 'launch_directories', selected):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                screen.paint()
+            assert hashes == Counter({p: 1 for p in expected}), hashes
+            assert output.getvalue() == '', output.getvalue()
+            assert snapshot() == before, 'reader changed data, marks or settings'
+            hashes.clear()
+            selections.clear()
+            screen.on_input_changed(Input.Changed(field, field.value))
+            assert hashes == Counter({p: 1 for p in expected}), hashes
+            assert snapshot() == before
+            # Same path and size, different bytes: a fresh repaint must reject old proof.
+            victim = expected[-1]
+            victim.write_bytes(b'!' * victim.stat().st_size)
+            changed = snapshot()
+            hashes.clear()
+            selections.clear()
+            screen.paint()
+            assert hashes == Counter({p: 1 for p in expected}), hashes
+            assert selections and not selections[0].verified_files[victim], 'same-size changed shard retained completion proof'
+            assert snapshot() == changed
+            assert not any(p.name.endswith('.done') for p in data.rglob('*'))
+            assert not any(p.name.endswith('.done') for p in models.rglob('*'))
+asyncio.run(exercise())
+''')
+        env = dict(self.env, PYTHONPATH=str(root))
+        result = subprocess.run([sys.executable, str(script)], env=env, cwd=root,
+                                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 unittest.main()
