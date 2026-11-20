@@ -40,10 +40,12 @@ in
               OLLAMA_FLASH_ATTENTION = lib.mkDefault "1";
               OLLAMA_KV_CACHE_TYPE = lib.mkDefault "q8_0";
             }
-            # Ollama only admits an integrated GPU once this variable is set
-            # explicitly, and Vulkan devices are never admitted by default.
-            # Set it for Vulkan alone: any explicit value, including a false
-            # one, also drops the integrated GPUs Ollama allows on its own.
+            # Ollama admits an integrated GPU only when this variable is set
+            # explicitly, and never admits a Vulkan one by default. Any
+            # explicit value is an admission decision, so a false one also
+            # withdraws the CUDA integrated GPUs Ollama admits by default. A
+            # host preferring its discrete device overrides this key with
+            # lib.mkForce.
             // lib.optionalAttrs (gpu.acceleration == "vulkan") {
               OLLAMA_IGPU_ENABLE = lib.mkDefault "1";
             }

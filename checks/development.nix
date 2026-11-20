@@ -36,11 +36,8 @@ let
     selectedInputs: configureGpuWith selectedInputs ../home-manager/modules/core/gpu.nix;
   configure = configureWith inputs;
 
-  # An AMD or Intel host that reaches Vulkan is how this flake ships an
-  # integrated GPU, so assert the Ollama service keeps the admission flag that
-  # Vulkan devices need. The host is shadowed the way checks/gpu.nix does it:
-  # gfx902 is no ROCm target and there is no /dev/kfd, so ROCm is out and the
-  # module must land on Vulkan.
+  # Shadowed host selecting Vulkan: gfx902 is not a ROCm target and /dev/kfd
+  # is absent. Vulkan is this flake's path to an integrated GPU.
   vulkanGpu =
     let
       shadow = builtins // {
@@ -60,15 +57,41 @@ let
       };
     in
     builtins.scopedImport { builtins = shadow; } ../home-manager/modules/core/gpu.nix;
-  ollamaVulkanHost =
-    (configureGpuWith inputs vulkanGpu {
-      modules.core.gpu.enable = true;
-      modules.development.ollama = {
-        enable = true;
-        enableService = true;
+  # Shadowed host selecting CUDA, where Ollama admits integrated GPUs by
+  # default and the flag is absent.
+  cudaGpu =
+    let
+      shadow = builtins // {
+        getEnv =
+          name:
+          {
+            NIX_GPU_NVIDIA_DRIVER_VERSION = "615.71.09";
+            NIX_GPU_CUDA_PROBE_STATUS = "ok";
+            NIX_GPU_CUDA_CAPABILITIES = "8.9";
+          }
+          .${name} or "";
+        pathExists = path: toString path == "/sys/module/nvidia";
+        readDir = _: { };
       };
-      services.ollama.package = pkgs.hello;
-    }).config;
+    in
+    builtins.scopedImport { builtins = shadow; } ../home-manager/modules/core/gpu.nix;
+  ollamaSettings = {
+    modules.core.gpu.enable = true;
+    modules.development.ollama = {
+      enable = true;
+      enableService = true;
+    };
+    services.ollama.package = pkgs.hello;
+  };
+  ollamaOn = gpuModule: extra: (configureGpuWith inputs gpuModule (ollamaSettings // extra)).config;
+  ollamaVulkanHost = ollamaOn vulkanGpu { };
+  # Single key override, the opt-out the module documents for a host that
+  # prefers its discrete device; Ollama reports Vulkan iGPUs as unstable on
+  # mixed iGPU/dGPU systems.
+  ollamaVulkanHostOptedOut = ollamaOn vulkanGpu {
+    services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE = lib.mkForce "0";
+  };
+  ollamaCudaHost = ollamaOn cudaGpu { };
   ollamaEnabled =
     (configure {
       modules.development.ollama = {
@@ -81,8 +104,7 @@ let
     (configure {
       modules.development.ollama.enable = true;
     }).config;
-  # Ollama admits a Vulkan integrated GPU only when this flag is set, so the
-  # service must carry it on hosts where the module selected the Vulkan package.
+  # Flag Ollama requires before admitting a Vulkan integrated GPU.
   ollamaIgpuFlag = config: config.services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE or null;
   ollamaDisabled =
     (configure {
@@ -286,16 +308,15 @@ assert customCli.modules.development.opencode.opencodePackage.node_modules == cu
 assert customCli.modules.development.opencode.desktopPackage.node_modules == customDependency;
 assert
   if pkgs.stdenv.hostPlatform.isLinux then
-    ollamaVulkanHost.modules.core.gpu.acceleration == "vulkan" && ollamaIgpuFlag ollamaVulkanHost == "1"
+    ollamaVulkanHost.modules.core.gpu.acceleration == "vulkan"
+    && ollamaIgpuFlag ollamaVulkanHost == "1"
+    && ollamaIgpuFlag ollamaVulkanHostOptedOut == "0"
+    && ollamaCudaHost.modules.core.gpu.acceleration == "cuda"
+    && ollamaIgpuFlag ollamaCudaHost == null
   else
     true;
-# An explicit false value would also drop the integrated GPUs Ollama admits on
-# its own, so the flag stays unset unless Vulkan selected the package.
 assert
-  if ollamaEnabled.modules.core.gpu.acceleration or "default" == "vulkan" then
-    ollamaIgpuFlag ollamaEnabled == "1"
-  else
-    ollamaIgpuFlag ollamaEnabled == null;
+  ollamaEnabled.modules.core.gpu.acceleration == "default" && ollamaIgpuFlag ollamaEnabled == null;
 assert !(ollamaDisabled.systemd.user.services ? ollama);
 assert !(ollamaDisabled.launchd.agents ? ollama);
 assert !(ollamaDisabled.home.file ? ".Brewfile");
