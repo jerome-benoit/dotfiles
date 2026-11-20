@@ -1370,43 +1370,117 @@ assert not marker.exists() and not receipt.exists()
 assert (external.read_bytes(), external.stat().st_ino, external.stat().st_mtime_ns) == before
 ''')
 
+    def test_already_migrated_regular_engine_noop_preserves_native_selected_config(self):
+        root = self.prepare(self.old)
+        engine = root / "engine/strata"
+        engine.parent.mkdir()
+        engine.write_bytes(b"inert regular engine")
+        config = root / "strata-noop.json"
+        config.write_text(json.dumps({"exe": str(engine), "cwd": str(root), "args": [], "tokenizer": "/fixture/tokenizer"}))
+        self.run_source_script(root, "from strata_control import profiles\nprofiles.create('noop', 'strata-noop.json')\n")
+        before = {path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) for path in (config, engine)}
+        for _ in range(2):
+            self.assertEqual(self.prepare(self.old), root)
+            self.run_source_script(root, r'''
+from pathlib import Path
+from strata_control import profiles, doctor, cfg_paths
+selected = profiles.resolve("noop")[0]
+cfg = profiles.read_run_config(selected)
+assert doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, selected).read_bytes() == b"inert regular engine"
+''')
+            self.assertEqual({path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+                              for path in before}, before)
+
     def test_same_pin_cache_and_request_fault_restore_pending_links_and_existing_payloads(self):
         for failure in ("cache", "request"):
             with self.subTest(failure=failure):
-                self.state = self.base / (failure + " same-pin workspace")
                 self.assert_same_pin_publication_failure_restores_links(failure)
 
-    def assert_same_pin_publication_failure_restores_links(self, failure):
+    def test_valid_same_pin_overlay_replacement_restores_only_pending_moves_and_retries(self):
+        for failure in ("cache", "request"):
+            with self.subTest(failure=failure):
+                self.assert_same_pin_publication_failure_restores_links(failure, transaction="replacement")
+
+    def test_split_revision_fault_stages_restore_pending_moves_and_retry(self):
+        for failure in ("checkout", "overlay", "migration", "cache", "request"):
+            with self.subTest(failure=failure):
+                self.assert_same_pin_publication_failure_restores_links(failure, transaction="revision")
+
+    def assert_same_pin_publication_failure_restores_links(self, failure, *, transaction="idempotent"):
+        name = transaction + "-" + failure
+        self.state = self.base / (name + " same-pin workspace")
         root = self.prepare(self.old)
         repository = root.parent
-        self.env["STRATA_PROFILE_DIR"] = str(self.base / (failure + " same-pin cache profiles"))
+        target_revision = self.new if transaction == "revision" else self.old
+        overlay = Path(SOURCE_PATCH)
+        if transaction != "idempotent":
+            import difflib
+            original = self.git("show", target_revision + ":terminal/code.py") + "\n"
+            overlay = self.base / (name + " valid replacement.patch")
+            overlay.write_bytes((Path(SOURCE_PATCH).read_bytes().decode("utf-8") + "diff --git a/terminal/code.py b/terminal/code.py\n"
+                + "".join(difflib.unified_diff(original.splitlines(keepends=True), ["replacement source\n"],
+                                             fromfile="a/terminal/code.py", tofile="b/terminal/code.py"))).encode("utf-8"))
+        self.env["STRATA_PROFILE_DIR"] = str(self.base / (name + " cache profiles"))
         model = repository / "models/same-pin.gguf"
-        shared = repository.parent / "shared"
+        shared = self.base / (name + " shared")
         shared.mkdir()
         (shared / "same-pin.gguf").write_bytes(b"pending model")
-        model.parent.symlink_to("../shared", target_is_directory=True)
+        (shared / "tokenizer").mkdir()
+        model.parent.symlink_to(os.path.relpath(shared, repository), target_is_directory=True)
         nested_link = repository / "python/bin/reader"
         nested_link.parent.mkdir(parents=True)
-        nested_link.symlink_to("../../../shared/same-pin.gguf")
-        link_before = {path: (os.readlink(path), path.lstat().st_ino) for path in (model.parent, nested_link)}
+        nested_link.symlink_to(os.path.relpath(shared / "same-pin.gguf", nested_link.parent))
+        python = nested_link.with_name("python3")
+        python.symlink_to(sys.executable)
         config = repository / "strata-same-pin-cache.json"
         config.write_text(json.dumps({"exe": "/bin/true", "cwd": str(repository), "args": [],
-                                     "tokenizer": "/fixture/tokenizer"}))
+                                     "tokenizer": str(shared / "tokenizer")}))
+        alias = repository / "strata-same-pin-alias.json"
+        alias.symlink_to(config.name)
+        link_before = {path: (os.readlink(path), path.lstat().st_dev, path.lstat().st_ino)
+                       for path in (model.parent, nested_link, python, alias)}
         existing = root / "packs/existing/index.txt"
         existing.parent.mkdir(parents=True)
         existing.write_bytes(b"already migrated pack")
+        existing_config = root / "strata-existing.json"
+        existing_config.write_text(json.dumps({"exe": "/bin/true", "cwd": str(root), "args": [],
+                                              "tokenizer": str(shared / "tokenizer")}))
+        source_builds = [repository / "engine" / build / "strata" for build in ("build-metal", "build-sycl-aot")]
+        for path in source_builds:
+            path.parent.mkdir()
+            path.write_bytes(b"source build payload")
+        runtime_engine = shared / "runtime-engine/strata"
+        runtime_engine.parent.mkdir()
+        runtime_engine.write_bytes(b"published runtime engine")
+        (root / "engine").symlink_to(os.path.relpath(runtime_engine.parent, root), target_is_directory=True)
+        link_before[root / "engine"] = (os.readlink(root / "engine"), (root / "engine").lstat().st_dev,
+                                       (root / "engine").lstat().st_ino)
+        source_config = root / "strata-source-build.json"
+        source_config.write_text(json.dumps({"exe": str(source_builds[0]), "cwd": str(repository / "engine"),
+            "args": [], "tokenizer": str(shared / "tokenizer"), "env": {"SELECTED_SOURCE_BUILD": str(source_builds[1])}}))
         self.run_source_script(root, r'''
 from pathlib import Path
 from strata_control import profiles
-profiles.create("same-pin-cache", str(Path.cwd().parent / "strata-same-pin-cache.json"))
+profiles.create("same-pin-cache", str(Path.cwd().parent / "strata-same-pin-alias.json"))
 profiles.set_values("same-pin-cache", ["port=9123"])
+profiles.create("same-pin-existing", str(Path.cwd() / "strata-existing.json"))
+profiles.create("same-pin-source-build", str(Path.cwd() / "strata-source-build.json"))
 ''')
+        lifecycle = [repository / ".git" / file for file in
+                     ("strata-runtime-revision", "strata-source-refresh-revision")]
+        for path in lifecycle:
+            path.write_text(self.old + "\n")
         cache = repository / ".git/strata-source-patches"
         cache_receipt = cache / f"{self.old}.sha256"
-        cache_receipt.unlink()
-        paths = [shared / "same-pin.gguf", config, existing, repository / ".git/strata-source.patch", repository / ".git/strata-source-request.json"]
+        if transaction == "idempotent":
+            cache_receipt.unlink()
+        paths = [shared / "same-pin.gguf", config, existing, existing_config,
+                 repository / ".git/strata-source.patch", repository / ".git/strata-source-request.json", *lifecycle]
+        paths += [source_config, *source_builds, runtime_engine]
         paths += list(cache.iterdir()) + list(Path(self.env["STRATA_PROFILE_DIR"]).rglob("*.json"))
-        before = {path: (path.read_bytes(), path.stat().st_dev, path.stat().st_ino) for path in paths}
+        before = {path: (path.read_bytes(), path.stat().st_dev, path.stat().st_ino, path.stat().st_mtime_ns)
+                  for path in paths}
+        source_before = {root / file: (root / file).read_bytes() for file in ("setup.py", "code.py", "strata.py")}
         script = r'''
 import importlib.util, sys
 from pathlib import Path
@@ -1414,59 +1488,113 @@ spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 root = Path(sys.argv[2]) / "source"
-replace = Path.replace
-publish = module.publish_source_patch
+failure = sys.argv[6]
+replace, publish, checkout, apply, migrate = Path.replace, module.publish_source_patch, module.git, module.apply_source_patch, module.migrate_layout
+requested = Path(sys.argv[5]).read_bytes().decode("utf-8")
+def migrated():
+    assert (root / "terminal/models/same-pin.gguf").read_bytes() == b"pending model"
+    assert (root / "terminal/strata-same-pin-cache.json").is_file()
+    assert (root / "terminal/python/bin/reader").read_bytes() == b"pending model"
 def refuse_request(path, text):
-    if sys.argv[6] == "request" and path.name == module.SOURCE_REQUEST:
-        assert (root / "terminal/models/same-pin.gguf").read_bytes() == b"pending model"
-        raise OSError("same-pin cache publication after migration")
+    if failure == "request" and path.name == module.SOURCE_REQUEST:
+        migrated()
+        raise OSError("same-pin publication fault: " + failure)
     return publish(path, text)
-module.publish_source_patch = refuse_request
 def refuse_cache_receipt(path, target):
     target = Path(target)
-    if sys.argv[6] == "cache" and target.parent.name == "strata-source-patches" and target.suffix == ".sha256":
-        assert (root / "terminal/models/same-pin.gguf").read_bytes() == b"pending model"
-        assert (root / "terminal/strata-same-pin-cache.json").is_file()
-        raise OSError("same-pin cache publication after migration")
+    if failure == "cache" and target.parent.name == "strata-source-patches" and target.suffix == ".sha256":
+        migrated()
+        raise OSError("same-pin publication fault: " + failure)
     return replace(path, target)
-Path.replace = refuse_cache_receipt
+def refuse_checkout(root, *args, **kwargs):
+    if failure == "checkout" and args[0] == "checkout" and args[-1] == sys.argv[3]:
+        raise OSError("same-pin publication fault: " + failure)
+    return checkout(root, *args, **kwargs)
+def refuse_overlay(root, text, *, reverse=False):
+    if failure == "overlay" and not reverse and text == requested:
+        raise OSError("same-pin publication fault: " + failure)
+    return apply(root, text, reverse=reverse)
+def refuse_migration(*args, **kwargs):
+    if failure == "migration":
+        raise OSError("same-pin publication fault: " + failure)
+    return migrate(*args, **kwargs)
+module.publish_source_patch, Path.replace = refuse_request, refuse_cache_receipt
+module.git, module.apply_source_patch, module.migrate_layout = refuse_checkout, refuse_overlay, refuse_migration
 try:
     module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
 except OSError as error:
-    assert str(error) == "same-pin cache publication after migration", error
+    assert str(error) == "same-pin publication fault: " + failure, error
 else:
-    raise AssertionError("same-pin cache write unexpectedly committed")
+    raise AssertionError("same-pin publication unexpectedly committed")
 finally:
     Path.replace = replace
 '''
-        result = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), self.old,
-                                 str(self.repository), SOURCE_PATCH, failure], env=self.env, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), target_revision,
+                                 str(self.repository), str(overlay), failure], env=self.env,
+                                capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("Cannot restore source transaction", result.stderr)
         self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip(), self.old)
         self.assertEqual(set(cache.iterdir()), {path for path in paths if path.parent == cache})
-        self.assertFalse(cache_receipt.exists())
-        self.assertFalse((root / "models/same-pin.gguf").exists())
-        self.assertFalse((root / config.name).exists())
-        self.assertFalse((repository / "packs").exists())
+        self.assertEqual(cache_receipt.exists(), transaction != "idempotent")
+        for path in (root / "models", root / config.name, root / alias.name, root / "python", repository / "packs"):
+            self.assertFalse(path.exists() or path.is_symlink(), path)
         for path, original in before.items():
-            self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino), original,
-                             f"Same-pin cache refusal changed bytes/inodes: {path}")
+            self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino, path.stat().st_mtime_ns), original,
+                             f"Publication refusal changed bytes/inodes/metadata: {path}")
         for path, original in link_before.items():
-            self.assertEqual((os.readlink(path), path.lstat().st_ino), original)
+            self.assertEqual((os.readlink(path), path.lstat().st_dev, path.lstat().st_ino), original)
+        for path, original in source_before.items():
+            self.assertEqual(path.read_bytes(), original)
         self.assertEqual(model.read_bytes(), b"pending model")
-        self.assertFalse((root / "python").exists())
         self.run_source_script(root, r'''
 from pathlib import Path
 from strata_control import profiles
-selected = profiles.resolve("same-pin-cache")[0]
+selected, profile, revision = profiles.resolve("same-pin-cache")
 assert selected == Path.cwd().parent / "strata-same-pin-cache.json"
+assert profile["overrides"] == {"port": 9123}
 profiles.read_run_config(selected)
+assert profiles.resolve("same-pin-existing")[0] == Path.cwd() / "strata-existing.json"
 ''')
-        self.assertEqual(self.prepare(self.old), root)
+        result = subprocess.run(self.command(target_revision), env=dict(self.env, TEST_SOURCE_PATCH=str(overlay)),
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(Path(result.stdout.strip()), root)
         self.assertEqual((root / "models/same-pin.gguf").stat().st_ino, before[shared / "same-pin.gguf"][2])
+        self.assertEqual((root / "python/bin/reader").read_bytes(), b"pending model")
+        self.assertEqual((root / alias.name).resolve(), root / config.name)
         self.assertEqual(json.loads((root / config.name).read_text())["cwd"], str(root))
-        self.assertTrue(cache_receipt.is_file())
+        self.assertEqual((repository / ".git/strata-source.patch").read_bytes(), overlay.read_bytes())
+        self.assertTrue((cache / f"{target_revision}.sha256").is_file())
         self.assertEqual(existing.read_bytes(), b"already migrated pack")
+        self.assertEqual((existing.stat().st_dev, existing.stat().st_ino), before[existing][1:3])
+        self.run_source_script(root, r'''
+from pathlib import Path
+from strata_control import profiles
+selected, profile, revision = profiles.resolve("same-pin-cache")
+assert selected == Path.cwd() / "strata-same-pin-cache.json"
+assert profiles.read_run_config(selected)["cwd"] == str(Path.cwd())
+assert profile["overrides"] == {"port": 9123}
+assert profiles.resolve("same-pin-existing")[0] == Path.cwd() / "strata-existing.json"
+''')
+        self.assert_source_build_selection_preserved(root, source_builds, runtime_engine)
+        stable_paths = [*lifecycle, source_config, *source_builds, runtime_engine, existing]
+        stable = {path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) for path in stable_paths}
+        result = subprocess.run(self.command(target_revision), env=dict(self.env, TEST_SOURCE_PATCH=str(overlay)),
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual({path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+                          for path in stable_paths}, stable)
+        self.assert_source_build_selection_preserved(root, source_builds, runtime_engine)
+
+    def assert_source_build_selection_preserved(self, root, source_builds, runtime_engine):
+        self.assertEqual((root / "engine").resolve(), runtime_engine.parent)
+        self.run_source_script(root, "from pathlib import Path\nfrom strata_control import profiles, doctor, cfg_paths\n"
+            + "selected = profiles.resolve('same-pin-source-build')[0]\ncfg = profiles.read_run_config(selected)\n"
+            + "engine = doctor._location(cfg_paths.engine_binary(cfg['exe'], cfg), cfg, selected)\n"
+            + "assert engine == Path(" + repr(str(source_builds[0])) + ")\n"
+            + "assert engine.read_bytes() == b'source build payload'\n"
+            + "assert Path(cfg['env']['SELECTED_SOURCE_BUILD']) == Path(" + repr(str(source_builds[1])) + ")\n")
 
     def test_valid_requested_overlay_refuses_corrupt_visited_target_cache_before_migration(self):
         import hashlib
@@ -7754,25 +7882,44 @@ with contextlib.ExitStack() as guards:
         for overlay in (False, True):
             with self.subTest(overlay=overlay):
                 self.state = state / ('overlay' if overlay else 'native')
-                profiles_dir = self.base / ('linked-profiles-overlay' if overlay else 'linked-profiles-native')
-                self.env['STRATA_PROFILE_DIR'] = str(profiles_dir)
+                self.env['STRATA_PROFILE_DIR'] = str(self.base / ('linked-profiles-overlay' if overlay else 'linked-profiles-native'))
                 flat = self.prepare_cross_pin(self.old, overlay=overlay)
                 retained = self.make_local_runtime(flat)
                 external = flat.parent / 'external-engine'
                 external.mkdir()
-                binary = external / 'strata'
-                binary.write_bytes(b'external engine payload\n')
-                userdata = external / 'user-cache'
-                userdata.write_bytes(b'never copy or delete this payload\n')
-                identities = {p: (p.stat().st_dev, p.stat().st_ino, p.read_bytes()) for p in (binary, userdata)}
+                payloads = {'strata': b'external engine payload', 'model.gguf': b'external model payload',
+                            'projection.gguf': b'external vision payload', 'user-cache': b'never copy or delete this payload'}
+                for name, payload in payloads.items():
+                    (external / name).write_bytes(payload)
+                (external / 'strata').chmod(0o700)  # Deliberately not an executable program; consumers must only inspect it.
+                (external / 'tokenizer').mkdir()
+                (external / 'tokenizer/vocab.json').write_bytes(b'{}')
+                identities = {p: (p.stat().st_dev, p.stat().st_ino, p.read_bytes())
+                              for p in external.rglob('*') if p.is_file()}
                 (flat / 'engine').symlink_to('../external-engine')
-                config = flat / 'strata-linked.json'
-                config.write_text(json.dumps({'exe': str(flat / 'engine/strata'), 'cwd': str(flat),
-                                             'tokenizer': '/fixture/tokenizer', 'args': []}))
-                self.cross_pin_cli(self.old, 'profile', 'create', 'linked', '--from-config', str(config),
-                                   '--output', 'json', overlay=overlay)
-                for revision, expected in ((self.new, flat / 'terminal'), (self.old, flat),
-                                           (self.new, flat / 'terminal')):
+                for kind in ('absolute', 'relative', 'independent'):
+                    def reference(name):
+                        if kind == 'independent':
+                            return str(external / name)
+                        return str(flat / 'engine' / name) if kind == 'absolute' else 'engine/' + name
+                    config = flat / ('strata-linked-' + kind + '.json')
+                    config.write_text(json.dumps({'exe': reference('strata'),
+                        'cwd': str(external if kind == 'independent' else flat),
+                        'tokenizer': reference('tokenizer'),
+                        'args': ['--native', reference('model.gguf'), '--mmproj', reference('projection.gguf'), '--mtp', '2'],
+                        'env': {'SELECTED_PAYLOAD': str(external / 'user-cache') if kind == 'independent'
+                                else str(flat / 'engine/user-cache')},
+                        'vision': {'exe': reference('strata'), 'model': reference('model.gguf'),
+                                   'mmproj': reference('projection.gguf'), 'note': 'engine/description'},
+                        'images': {'exe': reference('strata'), 'diffusion_model': reference('model.gguf'),
+                                   'vae': reference('projection.gguf'), 'llm': reference('model.gguf'),
+                                   'args': ['--diffusion-model', str((external if kind == 'independent'
+                                                                     else flat / 'engine') / 'model.gguf')],
+                                   'note': 'engine/description'}}))
+                    self.cross_pin_cli(self.old, 'profile', 'create', 'linked-' + kind, '--from-config', str(config),
+                                       '--output', 'json', overlay=overlay)
+                for revision, expected in ((self.old, flat), (self.new, flat / 'terminal'),
+                                           (self.old, flat), (self.new, flat / 'terminal')):
                     root = self.prepare_cross_pin(revision, overlay=overlay)
                     self.assertEqual(root, expected)
                     self.assert_local_runtime(root, retained)
@@ -7782,15 +7929,52 @@ with contextlib.ExitStack() as guards:
                         self.assertFalse((flat / 'engine').is_symlink())
                         self.assertEqual((flat / 'engine/CMakeLists.txt').read_bytes(),
                                          (UPSTREAM_SOURCE / 'engine/CMakeLists.txt').read_bytes())
-                    mapped = json.loads((root / config.name).read_text())
-                    self.assertEqual(Path(mapped['exe']), root / 'engine/strata')
-                    self.assertEqual(Path(mapped['exe']).resolve(), binary)
-                    self.assertEqual(mapped['cwd'], str(root))
-                    selected = self.cross_pin_cli(revision, 'profile', 'set', 'linked', 'port=9123',
-                                                  '--output', 'json', overlay=overlay)
-                    self.assertEqual(selected['profile']['source_config'], str(root / config.name))
+                    self.run_source_script(root, r'''
+import os
+from pathlib import Path
+from serve.runconfig import load
+from strata_control import profiles, cfg_paths, doctor
+root = Path.cwd()
+external = (root.parent if root.name == 'terminal' else root).parent / 'external-engine'
+for kind in ('absolute', 'relative', 'independent'):
+    selected, profile, revision = profiles.resolve('linked-' + kind)
+    assert selected == root / ('strata-linked-' + kind + '.json')
+    cfg = load(selected)
+    assert profiles.read_run_config(selected) == cfg
+    expected = external if kind == 'independent' else root / 'engine'
+    launch = doctor._location(cfg_paths.engine_binary(cfg['exe'], cfg), cfg, selected)
+    assert launch == expected / 'strata', (kind, launch, expected)
+    assert os.access(launch, os.X_OK)
+    assert launch.read_bytes() == b'external engine payload'
+    assert doctor._location(cfg['tokenizer'], cfg, selected) == expected / 'tokenizer'
+    assert doctor._location(cfg['tokenizer'], cfg, selected).joinpath('vocab.json').read_bytes() == b'{}'
+    for index, name in ((1, 'model.gguf'), (3, 'projection.gguf')):
+        operand = doctor._location(cfg['args'][index], cfg, selected)
+        assert operand == expected / name, (kind, operand, expected)
+        assert operand.read_bytes() == (external / name).read_bytes()
+    assert cfg['args'][-2:] == ['--mtp', '2']
+    assert Path(cfg['env']['SELECTED_PAYLOAD']) == expected / 'user-cache'
+    assert Path(cfg['env']['SELECTED_PAYLOAD']).read_bytes() == b'never copy or delete this payload'
+    for section, fields in (('vision', ('exe', 'model', 'mmproj')),
+                            ('images', ('exe', 'diffusion_model', 'vae', 'llm'))):
+        for field in fields:
+            operand = doctor._location(cfg[section][field], cfg, selected)
+            assert operand.parent == expected, (kind, section, field, operand, expected)
+            assert operand.read_bytes() == (external / operand.name).read_bytes()
+        assert cfg[section]['note'] == 'engine/description'
+    image_operand = Path(cfg['images']['args'][1])
+    assert image_operand.is_absolute() and image_operand == expected / 'model.gguf'
+    before = selected.read_bytes()
+    assert cfg_paths.repair([selected]) == ([], [])
+    assert selected.read_bytes() == before
+''')
+                    for kind in ('absolute', 'relative', 'independent'):
+                        selected = self.cross_pin_cli(revision, 'profile', 'set', 'linked-' + kind, 'port=9123',
+                                                      '--output', 'json', overlay=overlay)
+                        self.assertEqual(selected['profile']['source_config'], str(root / ('strata-linked-' + kind + '.json')))
                     for path, identity in identities.items():
                         self.assertEqual((path.stat().st_dev, path.stat().st_ino, path.read_bytes()), identity)
+
 
     def test_real_cross_pin_linked_engine_refused_checkout_restores_original_link_and_userdata(self):
         self.make_cross_pin_sources()
@@ -9556,28 +9740,53 @@ Path(sys.argv[1]).write_text(json.dumps({"exe": sys.executable,
         fault_script = r'''
 import importlib.util, sys
 from pathlib import Path
-spec = importlib.util.spec_from_file_location("receipt_fault", sys.argv[1])
+spec = importlib.util.spec_from_file_location("source_fault", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-real_publish = module.publish_source_patch
+failure = sys.argv[6]
+requested = Path(sys.argv[5]).read_bytes().decode("utf-8") if sys.argv[5] else None
+publish, checkout, apply, migrate, cache = module.publish_source_patch, module.git, module.apply_source_patch, module.migrate_layout, module.cache_source_patch
+def refuse(stage):
+    if failure == stage:
+        raise OSError("source transaction fault: " + stage)
 def refuse_receipt(path, text):
     if path.name == module.SOURCE_REQUEST:
-        raise OSError("sourceReceiptFault")
-    return real_publish(path, text)
-module.publish_source_patch = refuse_receipt
+        refuse("request")
+    return publish(path, text)
+def refuse_checkout(root, *args, **kwargs):
+    if args[0] == "checkout" and args[-1] == sys.argv[3]:
+        refuse("checkout")
+    return checkout(root, *args, **kwargs)
+def refuse_overlay(root, text, *, reverse=False):
+    if not reverse and text == requested:
+        refuse("overlay")
+    return apply(root, text, reverse=reverse)
+def refuse_migration(*args, **kwargs):
+    if not kwargs.get("reverse"):
+        refuse("migration")
+    return migrate(*args, **kwargs)
+def refuse_cache(directory, revision, text):
+    if revision == sys.argv[3]:
+        refuse("cache")
+    return cache(directory, revision, text)
+module.publish_source_patch, module.git, module.apply_source_patch = refuse_receipt, refuse_checkout, refuse_overlay
+module.migrate_layout, module.cache_source_patch = refuse_migration, refuse_cache
 try:
-    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4])
+    module.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5] or None)
 except OSError as error:
-    assert str(error) == "sourceReceiptFault", error
+    assert str(error) == "source transaction fault: " + failure, error
 else:
-    raise AssertionError("receipt failure committed source")
+    raise AssertionError("source fault committed source")
 '''
         for target_name in ("engine-cuda12/nested/payload", "models/nested/payload",
                             "build-sycl-aot/nested/payload", "external"):
             for absolute in (False, True):
                 with self.subTest(target=target_name, absolute=absolute):
-                    self.state = self.base / (target_name.split('/')[0] + str(absolute))
-                    flat = self.prepare_cross_pin(self.old, overlay=False)
+                    name = target_name.split('/')[0] + str(absolute)
+                    self.state = self.base / name
+                    self.env["STRATA_PROFILE_DIR"] = str(self.base / (name + " journal profiles"))
+                    overlay = target_name == "external"
+                    flat = self.prepare_cross_pin(self.old, overlay=overlay)
                     external = self.state / "external-engine/payload"
                     target = external if target_name == "external" else flat / target_name
                     target.mkdir(parents=True)
@@ -9585,23 +9794,147 @@ else:
                     payload_identity = ((target / "inert-engine").stat().st_dev,
                                         (target / "inert-engine").stat().st_ino)
                     (flat / "engine").symlink_to(str(target) if absolute else os.path.relpath(target, flat))
+                    independent = self.state / "independent runtime"
+                    (independent / "tokenizer").mkdir(parents=True)
+                    (independent / "tokenizer/vocab.json").write_bytes(b"{}")
+                    payload_config = target / "config.json"
+                    payload_config.write_text(json.dumps({"exe": sys.executable, "cwd": str(independent),
+                        "args": [], "tokenizer": str(independent / "tokenizer")}))
+                    config_alias_names = ("strata-engine-config.json", "strata-engine-config-absolute.json")
+                    for absolute_target, alias_name in zip((False, True), config_alias_names):
+                        alias = flat / alias_name
+                        alias.symlink_to(str(flat / "engine/config.json") if absolute_target else "engine/config.json")
+                    self.env["TEST_WORKSPACE"] = WORKSPACE
+                    pack = flat / "packs/journal/index.txt"
+                    pack.parent.mkdir(parents=True)
+                    pack.write_bytes(b"journaled pack payload")
+                    selected_names = ("selected-relative", "selected-absolute")
+                    for absolute_target, selected_name in zip((False, True), selected_names):
+                        selected = flat / "packs" / selected_name
+                        selected.symlink_to(str(flat / "engine/inert-engine") if absolute_target else "../engine/inert-engine")
+                        # This owned Terminal payload stays put during the first forward transition.
+                        stationary = flat / "terminal/marks" / selected_name
+                        stationary.parent.mkdir(parents=True, exist_ok=True)
+                        stationary.symlink_to(str(flat / "engine/inert-engine") if absolute_target
+                                              else os.path.relpath(flat / "engine/inert-engine", stationary.parent))
+                    operator_alias = flat / "operator-alias"
+                    operator_alias.symlink_to("engine/inert-engine")
+                    indirect = flat / "terminal/marks/selected-indirect"
+                    indirect.symlink_to(os.path.relpath(operator_alias, indirect.parent))
+                    config = flat / "strata-journal.json"
+                    config.write_text(json.dumps({"exe": str(flat / "engine/inert-engine"), "cwd": str(flat),
+                        "args": ["--pack", "packs/journal"], "tokenizer": "/fixture/tokenizer"}))
+                    selected_config = flat / "strata-journal-selected.json"
+                    selected_config.write_text(json.dumps({"exe": "packs/selected-relative", "cwd": str(flat),
+                        "args": [], "tokenizer": "/fixture/tokenizer",
+                        "env": {"SELECTED_PAYLOAD": str(flat / "packs/selected-absolute")}}))
+                    indirect_config = flat / "strata-journal-indirect.json"
+                    indirect_config.write_text(json.dumps({"exe": str(indirect), "cwd": str(flat),
+                        "args": [], "tokenizer": "/fixture/tokenizer"}))
+                    self.cross_pin_cli(self.old, "profile", "create", "journal", "--from-config", str(config),
+                                       "--output", "json", overlay=overlay)
+                    self.cross_pin_cli(self.old, "profile", "create", "journal-selected", "--from-config", str(selected_config),
+                                       "--output", "json", overlay=overlay)
+                    self.cross_pin_cli(self.old, "profile", "create", "journal-indirect", "--from-config", str(indirect_config),
+                                       "--output", "json", overlay=overlay)
+                    lifecycle = [flat / ".git" / file for file in
+                                 ("strata-runtime-revision", "strata-source-refresh-revision")]
+                    for path in lifecycle:
+                        path.write_text(self.old + "\n")
                     for old_revision, new_revision in ((self.old, self.new), (self.new, self.old)):
                         source = flat if old_revision == self.old else flat / "terminal"
                         destination = flat / "terminal" if new_revision == self.new else flat
+                        config_alias_entries = [source / name for name in config_alias_names]
                         link = source / "engine"
-                        before = (os.readlink(link), link.lstat().st_ino)
-                        receipt = flat / ".git/strata-source-request.json"
-                        before_receipt = receipt.read_bytes()
-                        result = subprocess.run([sys.executable, "-c", fault_script, WORKSPACE,
-                                                 str(self.state), new_revision, str(self.repository)],
-                                                env=self.env, capture_output=True, text=True, timeout=60)
-                        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                        self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"],
-                                                                 text=True).strip(), old_revision)
-                        self.assertEqual((os.readlink(link), link.lstat().st_ino), before)
-                        self.assertEqual(receipt.read_bytes(), before_receipt)
-                        self.assertEqual((link / "inert-engine").read_bytes(), b"never execute this payload")
-                        published = self.prepare_cross_pin(new_revision, overlay=False)
+                        before_link = (os.readlink(link), link.lstat().st_ino)
+                        config_payload = source / "engine/config.json"
+                        config_identity = (config_payload.read_bytes(), config_payload.stat().st_dev,
+                                           config_payload.stat().st_ino, config_payload.stat().st_mtime_ns)
+                        if old_revision == self.new:
+                            # Exercise the reverse stage through an unmoved alias and an unmoved owned payload.
+                            operator_alias.unlink()
+                            operator_alias.symlink_to("terminal/engine/inert-engine")
+                            indirect = flat / ".strata-mcp/selected-indirect"
+                            indirect.parent.mkdir()
+                            indirect.symlink_to(os.path.relpath(operator_alias, indirect.parent))
+                            current_config = source / indirect_config.name
+                            current = json.loads(current_config.read_text())
+                            current["exe"] = str(indirect)
+                            current_config.write_text(json.dumps(current))
+                        link_entries = [source / "packs" / name for name in selected_names]
+                        link_entries += [flat / "terminal/marks" / name for name in selected_names]
+                        link_entries += [indirect, operator_alias]
+                        link_entries += config_alias_entries
+                        entry_before = {path: (os.readlink(path), path.lstat().st_dev, path.lstat().st_ino)
+                                        for path in link_entries}
+                        build = source / "build"
+                        (build / "CMakeFiles").mkdir(parents=True, exist_ok=True)
+                        (build / "CMakeFiles/journal").write_bytes(b"original CMake metadata")
+                        (build / "CMakeCache.txt").write_text("CMAKE_GENERATOR:INTERNAL=Ninja\n"
+                            + f"CMAKE_HOME_DIRECTORY:INTERNAL={flat / 'engine'}\nCMAKE_CACHEFILE_DIR:INTERNAL={build}\n")
+                        profiles = Path(self.env["STRATA_PROFILE_DIR"])
+                        cache = flat / ".git/strata-source-patches"
+                        cache_existed = cache.exists()
+                        paths = [source / config.name, source / "packs/journal/index.txt", build / "CMakeFiles/journal",
+                                 build / "CMakeCache.txt", flat / ".git/strata-source-request.json", *lifecycle]
+                        paths.append(source / indirect_config.name)
+                        paths.append(source / selected_config.name)
+                        paths += list(cache.glob("*")) + list(profiles.rglob("*.json"))
+                        ledger = flat / ".git/strata-source.patch"
+                        if ledger.exists():
+                            paths.append(ledger)
+                        before = {p: (p.read_bytes(), p.stat().st_dev, p.stat().st_ino, p.stat().st_mtime_ns) for p in paths}
+                        source_before = {source / file: (source / file).read_bytes() for file in ("setup.py", "strata.py")}
+                        failures = ("checkout", "overlay", "migration", "cache", "request") if overlay else ("request",)
+                        selected_patch = self.legacy_overlay if new_revision == self.old else Path(SOURCE_PATCH)
+                        for failure in failures:
+                            with self.subTest(source=old_revision, failure=failure):
+                                result = subprocess.run([sys.executable, "-c", fault_script, WORKSPACE,
+                                    str(self.state), new_revision, str(self.repository), str(selected_patch) if overlay else "", failure],
+                                    env=self.env, capture_output=True, text=True, timeout=60)
+                                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                                self.assertNotIn("Cannot restore source transaction", result.stderr)
+                                self.assertEqual(subprocess.check_output(["git", "-C", str(flat), "rev-parse", "HEAD"],
+                                                                         text=True).strip(), old_revision)
+                                self.assertEqual((os.readlink(link), link.lstat().st_ino), before_link)
+                                self.assertEqual((link / "inert-engine").read_bytes(), b"never execute this payload")
+                                for path, original in entry_before.items():
+                                    self.assertEqual((os.readlink(path), path.lstat().st_dev, path.lstat().st_ino), original, path)
+                                    self.assertEqual(path.read_bytes(), config_identity[0] if path in config_alias_entries
+                                                     else b"never execute this payload")
+                                self.assertEqual((config_payload.read_bytes(), config_payload.stat().st_dev,
+                                                  config_payload.stat().st_ino, config_payload.stat().st_mtime_ns), config_identity)
+                                self.assertEqual(cache.exists(), cache_existed)
+                                self.assertEqual(set(cache.glob("*")), {p for p in paths if p.parent == cache})
+                                self.assertEqual(set(profiles.rglob("*.json")), {p for p in paths if p.is_relative_to(profiles)})
+                                for path, original in before.items():
+                                    self.assertEqual((path.read_bytes(), path.stat().st_dev, path.stat().st_ino,
+                                                      path.stat().st_mtime_ns), original, path)
+                                for path, original in source_before.items():
+                                    self.assertEqual(path.read_bytes(), original)
+                                self.run_source_script(source, r'''
+from pathlib import Path
+from strata_control import profiles, doctor, cfg_paths
+selected = profiles.resolve("journal")[0]
+assert selected == Path.cwd() / "strata-journal.json"
+cfg = profiles.read_run_config(selected)
+assert doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, selected).read_bytes() == b"never execute this payload"
+assert (doctor._location(cfg["args"][1], cfg, selected) / "index.txt").read_bytes() == b"journaled pack payload"
+selected = profiles.resolve("journal-selected")[0]
+assert selected == Path.cwd() / "strata-journal-selected.json"
+cfg = profiles.read_run_config(selected)
+engine = doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, selected)
+assert engine == Path.cwd() / "packs/selected-relative"
+assert engine.read_bytes() == b"never execute this payload"
+assert Path(cfg["env"]["SELECTED_PAYLOAD"]).read_bytes() == b"never execute this payload"
+selected = profiles.resolve("journal-indirect")[0]
+assert selected == Path.cwd() / "strata-journal-indirect.json"
+cfg = profiles.read_run_config(selected)
+engine = doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, selected)
+assert engine.read_bytes() == b"never execute this payload"
+assert engine.resolve() == (Path.cwd() / "engine/inert-engine").resolve()
+''')
+                        published = self.prepare_cross_pin(new_revision, overlay=overlay)
                         self.assertEqual(published, destination)
                         expected = external if target_name == "external" else destination / target_name
                         if target_name.startswith("build-sycl-aot/"):
@@ -9609,12 +9942,69 @@ else:
                         self.assertEqual((published / "engine").resolve(), expected)
                         self.assertEqual(((expected / "inert-engine").stat().st_dev,
                                           (expected / "inert-engine").stat().st_ino), payload_identity)
-                        expected_source = (UPSTREAM_SOURCE / "terminal/setup.py" if new_revision == self.new
-                                           else OLD_UPSTREAM_SOURCE / "setup.py")
-                        self.assertEqual((published / "setup.py").read_bytes(), expected_source.read_bytes())
+                        self.assertEqual((published / "packs/journal/index.txt").stat().st_ino,
+                                         before[source / "packs/journal/index.txt"][2])
+                        self.assertEqual(Path(json.loads((published / config.name).read_text())["exe"]),
+                                         published / "engine/inert-engine")
+                        for directory in ("packs", "marks"):
+                            for name in selected_names:
+                                entry = published / directory / name
+                                spelling = Path(os.readlink(entry))
+                                lexical = Path(os.path.normpath(spelling if spelling.is_absolute() else entry.parent / spelling))
+                                self.assertEqual(lexical, published / "engine/inert-engine")
+                                self.assertEqual(entry.resolve(), expected / "inert-engine")
+                                self.assertEqual(entry.read_bytes(), b"never execute this payload")
+                        spelling = Path(os.readlink(indirect))
+                        lexical = Path(os.path.normpath(spelling if spelling.is_absolute() else indirect.parent / spelling))
+                        self.assertEqual(lexical, published / "engine/inert-engine")
+                        self.assertEqual(indirect.resolve(), expected / "inert-engine")
+                        self.assertEqual((os.readlink(operator_alias), operator_alias.lstat().st_dev,
+                                          operator_alias.lstat().st_ino), entry_before[operator_alias])
+                        published_config = published / "engine/config.json"
+                        self.assertEqual((published_config.read_bytes(), published_config.stat().st_dev,
+                                          published_config.stat().st_ino, published_config.stat().st_mtime_ns), config_identity)
+                        for alias_name in config_alias_names:
+                            alias = published / alias_name
+                            self.assertTrue(alias.is_symlink())
+                            self.assertEqual(alias.resolve(), expected / "config.json")
+                            self.assertEqual(alias.read_bytes(), config_identity[0])
+                            self.assertFalse((source / alias_name).exists() or (source / alias_name).is_symlink())
+                        self.assertEqual((published / config_alias_names[0]).lstat().st_ino,
+                                         entry_before[source / config_alias_names[0]][2])
+                        self.run_source_script(published, r'''
+from pathlib import Path
+from strata_control import profiles, doctor, cfg_paths
+selected = profiles.resolve("journal-selected")[0]
+cfg = profiles.read_run_config(selected)
+engine = doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, selected)
+assert engine == Path.cwd() / "packs/selected-relative"
+assert engine.read_bytes() == b"never execute this payload"
+assert Path(cfg["env"]["SELECTED_PAYLOAD"]).read_bytes() == b"never execute this payload"
+selected = profiles.resolve("journal-indirect")[0]
+cfg = profiles.read_run_config(selected)
+engine = doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, selected)
+assert engine.read_bytes() == b"never execute this payload"
+assert engine.resolve() == (Path.cwd() / "engine/inert-engine").resolve()
+import importlib.util, os
+spec = importlib.util.spec_from_file_location("workspace", os.environ["TEST_WORKSPACE"])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+selected = workspace.model_configs(Path.cwd())
+for name in ("strata-engine-config.json", "strata-engine-config-absolute.json"):
+    alias = Path.cwd() / name
+    assert alias in selected, (alias, selected)
+    cfg = profiles.read_run_config(alias)
+    independent = Path(cfg["cwd"])
+    assert independent.is_dir() and not independent.is_relative_to(workspace.repository_root(Path.cwd()))
+    assert doctor._location(cfg_paths.engine_binary(cfg["exe"], cfg), cfg, alias).is_file()
+''')
+                        if new_revision == self.old:
+                            self.assertFalse((published / "build/CMakeCache.txt").exists())
+                            self.assertFalse((published / "build/CMakeFiles").exists())
                         if target_name == "external":
                             self.assertEqual((external / "inert-engine").read_bytes(), b"never execute this payload")
                             self.assertFalse((destination / "external-engine").exists())
+
 
     def test_internal_config_link_target_checkpoint_deduplicates_and_source_receipt_restores(self):
         self.make_cross_pin_sources()

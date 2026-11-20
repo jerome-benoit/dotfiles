@@ -2,8 +2,8 @@
 
 Managed profile, path and inventory consumers are selected only inside the managed
 source package; independent installations retain every native module/API.
-Payload moves are renames. Only configs, launch scripts and interpreter metadata
-are edited in place, with exact-byte restoration on failure.
+Payload moves are journaled renames; staged engine links project references without a second physical move.
+Only configs, launch scripts and interpreter metadata are edited, with exact-byte restoration on failure.
 """
 
 from contextlib import ExitStack, contextmanager
@@ -361,7 +361,8 @@ def namespace_fds():
 
 
 @contextmanager
-def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None):
+def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None,
+                      reference_moves=()):
     """Keep small original bytes/inodes and the profile namespace until a source transaction settles."""
     if not enabled:
         yield lambda: None
@@ -412,7 +413,10 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                          (path for path in paths if path.suffix == ".json" and path.name.startswith("strata-"))))
             moves = (runtime_pairs(repository) + runtime_pairs(repository, reverse=True)
                      if runtime_moves is None else runtime_moves)
-            paths.update(entry for entry, relocated, before, after, mode in runtime_link_edits(moves))
+            # Staging changes alias resolution; retain all related owned links, not a pre-stage edit prediction.
+            links = (runtime_links(repository, moves, reference_moves=reference_moves) if reference_moves
+                     else runtime_link_edits(repository, moves))
+            paths.update(link[0] for link in links)
             for path in tuple(paths):
                 if path.is_symlink() and path.name.startswith("strata-") and path.suffix == ".json":
                     target = path.resolve()
@@ -511,11 +515,11 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
 
 
 def runtime_pairs(repository, *, reverse=False):
-    """Describe only payloads present now; use the same moves for links and migration."""
+    """Describe owned entry identities, retaining links while source staging temporarily vacates their targets."""
     source, destination = ((repository / "terminal", repository) if reverse
                            else (repository, repository / "terminal"))
     pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
-             for path in sorted(source.glob(pattern)) if path.is_file()]
+             for path in sorted(source.glob(pattern)) if path.is_file() or path.is_symlink()]
     pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
               if (source / name).is_dir() or (source / name).is_symlink()]
     engine = source / "engine"
@@ -529,6 +533,15 @@ def runtime_pairs(repository, *, reverse=False):
     return pairs
 
 
+def restore_runtime_moves(moves):
+    """Undo only accepted renames, before source checkout and metadata restoration."""
+    for source, destination in reversed(moves):
+        if source.exists() or source.is_symlink():
+            raise RuntimeError(f"Cannot restore moved runtime without replacing {source}")
+        source.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(destination, source)
+
+
 def relocated_path(path, pairs):
     for old, new in sorted(pairs, key=lambda pair: -len(pair[0].parts)):
         if path.is_relative_to(old):
@@ -536,26 +549,46 @@ def relocated_path(path, pairs):
     return path
 
 
-def runtime_link_edits(pairs):
-    """Project only links a payload move changes; checkpoints and the writer share this inventory."""
-    for source, destination in pairs:
-        if not source.is_symlink() and not source.is_dir():
-            continue
+def runtime_links(repository, pairs, *, reference_moves=()):
+    """Inventory owned link locations, including stationary consumers of a staged engine alias."""
+    roots = {source: destination for source, destination in pairs if source.is_symlink() or source.is_dir()}
+    if reference_moves:
+        # An unmoved owned payload can still refer to the engine alias being staged.
+        for runtime in (repository, repository / "terminal"):
+            candidates = [runtime / name for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS, *ENGINE_BUILDS)]
+            candidates.extend(path for pattern in LAYOUT_FILES for path in runtime.glob(pattern) if path.is_symlink())
+            for entry in candidates:
+                if entry not in roots and (entry.is_symlink() or entry.is_dir()):
+                    roots[entry] = entry
+        engine = repository / "engine"
+        if engine.is_dir() and not engine.is_symlink():
+            for name in ENGINE_BUILDS:
+                entry = engine / name
+                if entry not in roots and (entry.is_symlink() or entry.is_dir()):
+                    roots[entry] = entry
+    for source, destination in roots.items():
         for entry in interpreter_entries(source):
             if not entry.is_symlink():
                 continue
             relocated = destination / entry.relative_to(source)
             before = os.readlink(entry)
-            target = Path(before) if os.path.isabs(before) else entry.parent / before
-            lexical = Path(os.path.normpath(target))
-            effective = target.resolve()
-            mapped = relocated_path(lexical, pairs)
-            # Keep chains and dangling targets; an unmoved alias may still reach a moved payload.
-            if lexical.resolve() != effective or (mapped == lexical and relocated_path(effective, pairs) != effective):
-                mapped = relocated_path(effective, pairs)
-            after = str(mapped) if os.path.isabs(before) else os.path.relpath(mapped, relocated.parent)
-            if after != before:
-                yield entry, relocated, before, after, entry.lstat().st_mode
+            yield entry, relocated, before, entry.lstat().st_mode
+
+
+def runtime_link_edits(repository, pairs, *, reference_moves=()):
+    """Physical pairs move entries; logical projections move only their targets."""
+    references = (*pairs, *reference_moves)
+    for entry, relocated, before, mode in runtime_links(repository, pairs, reference_moves=reference_moves):
+        target = Path(before) if os.path.isabs(before) else entry.parent / before
+        lexical = Path(os.path.normpath(target))
+        effective = target.resolve()
+        mapped = relocated_path(lexical, references)
+        # Keep chains and dangling targets; an unmoved alias may still reach a moved payload.
+        if lexical.resolve() != effective or (mapped == lexical and relocated_path(effective, references) != effective):
+            mapped = relocated_path(effective, references)
+        after = str(mapped) if os.path.isabs(before) else os.path.relpath(mapped, relocated.parent)
+        if after != before:
+            yield entry, relocated, before, after, mode
 
 
 @contextmanager
@@ -573,6 +606,12 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
         backup = None
         published = None
         created_parent = False
+
+        def planned_reference_moves(self):
+            return ((source, destination),) if enabled and source.is_symlink() else ()
+
+        def reference_moves(self):
+            return ((source, destination),) if self.backup is not None else ()
 
         def stage(self):
             if enabled and source.is_symlink():
@@ -646,7 +685,7 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
             print(f"Preserved engine link checkpoint for recovery: {temporary}", file=sys.stderr)
 
 
-def migrate_layout(repository, *, reverse=False):
+def migrate_layout(repository, *, reverse=False, reference_moves=()):
     repository = Path(repository).resolve()
     terminal = repository / "terminal"
     if not (terminal / "setup.py").is_file():
@@ -658,16 +697,16 @@ def migrate_layout(repository, *, reverse=False):
     from strata_control import profiles
 
     pairs = runtime_pairs(repository, reverse=reverse)
-    engine = source / "engine"
     conflicts = [dst for src, dst in pairs if dst.exists() or dst.is_symlink()]
     if conflicts:
         raise RuntimeError("Cannot migrate managed runtime without replacing existing destinations: "
                            + ", ".join(map(str, conflicts)))
     with profiles.relocate_sources([], runtime_moves=pairs) as publish_profiles:
-        return _migrate_payloads(repository, source, destination, pairs, publish_profiles, reverse=reverse)
+        return _migrate_payloads(repository, source, destination, pairs, publish_profiles,
+                                 reverse=reverse, reference_moves=reference_moves)
 
 
-def _migrate_payloads(repository, source, destination, pairs, publish_profiles, *, reverse):
+def _migrate_payloads(repository, source, destination, pairs, publish_profiles, *, reverse, reference_moves):
     engine = source / "engine"
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
@@ -678,10 +717,12 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
     engine_paths = [((repository / "engine" / name, repository / name) if reverse
                      else (repository / name, repository / "engine" / name)) for name in ("metal", "sycl")]
     swaps = set(pairs + engine_paths)
+    references = set(pairs) | set(reference_moves)
+    swaps.update(reference_moves)
     swaps.update((source / name, destination / name) for name in TERMINAL_ENTRIES)
-    if (any(src.parent == engine for src, dst in pairs) or engine.is_symlink()
-            or (destination / "engine").is_symlink() or (reverse and not engine.exists())):
+    if any(src.parent == engine for src, dst in pairs):
         swaps.add((engine, destination / "engine"))
+    reference_rebase = rebaser(references) if references else lambda value: value
     rebase = rebaser(swaps)
     shell_rebase = shell_rebaser(swaps, rebase)
 
@@ -691,17 +732,16 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
         independent = not managed and Path(str(config.get("exe", ""))).name == "strata-sycl.sh"
         old_cwd = _sycl_cwd(config, base)
         new_base = relocated_path(path, pairs).parent
-        new_cwd = relocated_path(old_cwd, pairs)
+        new_cwd = relocated_path(old_cwd, references)
         if not independent and old_cwd == source:
             new_cwd = destination
-        actual_rebase = rebaser(pairs) if pairs else lambda value: value
 
         def walk(value):
             if isinstance(value, dict):
                 return {key: walk(item) for key, item in value.items()}
             if isinstance(value, list):
                 return [walk(item) for item in value]
-            return actual_rebase(value) if isinstance(value, str) else value
+            return reference_rebase(value) if isinstance(value, str) else value
 
         rebased = walk(config)
         if config.get("cwd"):
@@ -714,10 +754,10 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
             if executable and not path.is_absolute() and not os.path.dirname(value):
                 return value                         # A bare executable is selected through PATH.
             lexical = Path(os.path.normpath(path if path.is_absolute() else old_cwd / path))
-            mapped = relocated_path(lexical, pairs)
+            mapped = relocated_path(lexical, references)
             if mapped == lexical:
                 effective = lexical.resolve()
-                projected = relocated_path(effective, pairs)
+                projected = relocated_path(effective, references)
                 if projected != effective:
                     mapped = projected
             if mapped == lexical and (path.is_absolute() or old_cwd == (new_cwd if config.get("cwd") else new_base)):
@@ -787,7 +827,8 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
                 runtime_edits.append((dst, originals[src], after, None))
 
     runtime_edits.extend((relocated, before, after, mode)
-                         for entry, relocated, before, after, mode in runtime_link_edits(pairs))
+                         for entry, relocated, before, after, mode in
+                         runtime_link_edits(repository, pairs, reference_moves=reference_moves))
     for src, dst in pairs:
         if src.name not in (".venv", ".python", "python") or src.is_symlink() or not src.is_dir():
             continue

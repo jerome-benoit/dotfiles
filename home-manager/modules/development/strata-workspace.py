@@ -2,6 +2,7 @@
 
 Keep revision refs and accepted source-delta hashes for offline rollback, serialize source/runtime changes, and root Nix Python.
 Git publication owns the repository; runtime APIs use the selected revision's actual Terminal layout.
+Source rollback reverses only successful payload renames; staged engine links provide separate reference coordinates.
 The public Terminal grammar owns the root; `source` delegates raw arguments to setup's real parser.
 Only real actions bootstrap Python or reconcile an installed runtime after a pin change.
 A source-refresh receipt records updater success and Python readiness; only complete inventory earns a runtime revision.
@@ -9,7 +10,7 @@ Component references retain upstream compatibility and pins; raw paths use legac
 Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
 
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 import fcntl
 import hashlib
 import json
@@ -202,22 +203,17 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         if current == revision and (previous is None or applied) and (
                 previous == desired or accepted_source_request(root, revision, requested, previous)):
             pairs = managed_state.runtime_pairs(root) if (root / "terminal/setup.py").is_file() else ()
-            migrated = False
+            moved = []
             with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
                                                  runtime_moves=pairs) as restore_metadata:
                 try:
-                    migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
-                    migrated = True
+                    moved = migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
                     for cached_revision, text in publications:
                         cache_source_patch(cache, cached_revision, text)
                     publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
                 except BaseException:
                     try:
-                        if migrated:
-                            for source, destination in reversed(pairs):
-                                if source.exists() or source.is_symlink():
-                                    raise RuntimeError(f"Cannot restore moved runtime without replacing {source}")
-                                os.rename(destination, source)
+                        managed_state.restore_runtime_moves(moved)
                     finally:
                         restore_metadata()
                     raise
@@ -240,16 +236,21 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
         forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
         approval = snapshot_engine_approvals(terminal_root(root), current)
+        pairs = managed_state.runtime_pairs(root, reverse=reverse_layout) if target_terminal or reverse_layout else ()
         # Layout, profiles, accepted cache bytes and the request receipt settle together.
-        with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,)) as restore_metadata, managed_state.engine_link_checkpoint(
+        with managed_state.engine_link_checkpoint(
                 root, reverse=reverse_layout, enabled=forward_layout or reverse_layout,
-                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link, managed_state.cmake_metadata_checkpoint() as cmake_metadata:
-            reversed_layout = forwarded_layout = removed_patch = desired_applied = False
+                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link, managed_state.layout_checkpoint(
+                root, metadata_paths=cache_paths, metadata_directories=(cache,), runtime_moves=pairs,
+                reference_moves=engine_link.planned_reference_moves()) as restore_metadata, managed_state.cmake_metadata_checkpoint() as cmake_metadata:
+            moved = []
+            removed_patch = desired_applied = False
             try:
                 engine_link.stage()
                 if reverse_layout:
-                    migrate_layout(state, root / "terminal", lock_fd, publication_fd=publication_lock.fileno(), reverse=True)
-                    reversed_layout = True
+                    moved.extend(migrate_layout(state, root / "terminal", lock_fd,
+                                                publication_fd=publication_lock.fileno(), reverse=True,
+                                                reference_moves=engine_link.reference_moves()))
                 if applied:
                     apply_source_patch(root, previous, reverse=True)
                     removed_patch = True
@@ -263,8 +264,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     publish_source_patch(ledger, desired)
                     apply_source_patch(root, desired)
                     desired_applied = True
-                migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
-                forwarded_layout = forward_layout
+                moved.extend(migrate_layout(state, terminal_root(root), lock_fd,
+                                            publication_fd=publication_lock.fileno(),
+                                            reference_moves=engine_link.reference_moves()))
                 if not target_terminal:
                     cmake_metadata.invalidate(root)
                 for cached_revision, text in publications:
@@ -279,23 +281,18 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
                         print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
 
-                # Undo accepted payload moves while their source consumers are still checked out.
-                if forwarded_layout:
-                    restore(lambda: migrate_layout(state, root / "terminal", lock_fd,
-                            publication_fd=publication_lock.fileno(), reverse=True))
+                # Uncover old source coordinates, then undo only this transaction's accepted renames.
+                restore(engine_link.withdraw)
+                restore(lambda: managed_state.restore_runtime_moves(moved))
                 if desired_applied:
                     restore(lambda: apply_source_patch(root, desired, reverse=True))
                 restore(lambda: ledger.unlink(missing_ok=True))
-                restore(engine_link.withdraw)
                 restore(lambda: git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current))
                 restore(engine_link.restore)
                 if previous is not None:
                     restore(lambda: publish_source_patch(ledger, previous))
                     if removed_patch:
                         restore(lambda: apply_source_patch(root, previous))
-                if reversed_layout:
-                    restore(lambda: migrate_layout(state, root / "terminal", lock_fd,
-                            publication_fd=publication_lock.fileno()))
                 restore(cmake_metadata.restore)
                 restore(restore_metadata)
                 restore(lambda: restore_engine_approvals(terminal_root(root), approval))
@@ -726,19 +723,23 @@ def runtime_python(root):
     return bundled if os.access(bundled, os.X_OK) else root / ".venv/bin/python"
 
 
-def migrate_layout(state, root, lock_fd, *, publication_fd=None, reverse=False):
-    """Run the stable state migration under managed publication and acquisition leases, at every source pin."""
+def migrate_layout(state, root, lock_fd, *, publication_fd=None, reverse=False, reference_moves=()):
+    """Migrate under publication/acquisition leases and return only successful payload renames."""
     if publication_fd is None:
         with source_publication_lock(state) as publication_lock:
-            return migrate_layout(state, root, lock_fd, publication_fd=publication_lock.fileno(), reverse=reverse)
+            return migrate_layout(state, root, lock_fd, publication_fd=publication_lock.fileno(),
+                                  reverse=reverse, reference_moves=reference_moves)
     previous = root / ".venv" if reverse else repository_root(root) / ".venv"
     if previous.is_dir():
         retain_interpreter(state, previous)
-    subprocess.run([sys.executable, str(Path(__file__).resolve()), "--migrate-layout", str(root),
-                    *(["--reverse"] if reverse else [])],
-                   check=True, stdout=sys.stderr, pass_fds=(lock_fd, publication_fd, *managed_state.namespace_fds()),
-                   env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
-                            STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)})))
+    result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--migrate-layout", str(root),
+                             json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
+                             *(["--reverse"] if reverse else [])],
+                            check=True, stdout=subprocess.PIPE, text=True,
+                            pass_fds=(lock_fd, publication_fd, *managed_state.namespace_fds()),
+                            env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
+                                     STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)})))
+    return [(Path(source), Path(destination)) for source, destination in json.loads(result.stdout)]
 
 
 def bootstrap_runtime(state, root, lock_fd):
@@ -1052,7 +1053,13 @@ if __name__ == "__main__":
             TERMINAL_CLI = context.pop("terminal_cli", TERMINAL_CLI)
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--migrate-layout":
-            managed_state.migrate_layout(repository_root(Path(sys.argv[2]).resolve()), reverse="--reverse" in sys.argv[3:])
+            # Keep consumer diagnostics separate from the actual successful rename journal.
+            with redirect_stdout(sys.stderr):
+                moved = managed_state.migrate_layout(repository_root(Path(sys.argv[2]).resolve()),
+                                                     reverse="--reverse" in sys.argv[4:],
+                                                     reference_moves=[(Path(source), Path(destination))
+                                                         for source, destination in json.loads(sys.argv[3])])
+            print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))
         elif sys.argv[1] == "--launch-exec":
