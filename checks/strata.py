@@ -171,6 +171,7 @@ class WorkspaceTests(unittest.TestCase):
 
     def make_cross_pin_sources(self):
         """Build two tracked revisions from the exact flat and split upstream consumer bytes."""
+        (self.repository / ".git/info/attributes").write_text("* -text\n")
         patch_paths = {line.split()[3][2:] for line in Path(SOURCE_PATCH).read_text().splitlines()
                        if line.startswith("diff --git ")}
         def replace(source):
@@ -210,17 +211,20 @@ class WorkspaceTests(unittest.TestCase):
                 for name in files:
                     path = Path(directory) / name
                     path.chmod(path.stat().st_mode | 0o200)
+            # Keep native CRLF bytes in both synthetic commits and managed checkouts.
+            attributes = self.repository / ".gitattributes"
+            attributes.write_bytes((attributes.read_bytes() if attributes.exists() else b"") + b"\n* -text\n")
             self.git("add", "--force", "--all")  # upstream tracks some paths also matched by its current ignore rules
             return self.commit()
         self.old = replace(OLD_UPSTREAM_SOURCE)
         self.new = replace(UPSTREAM_SOURCE)
         import difflib
-        original = (OLD_UPSTREAM_SOURCE / "strata.py").read_text().splitlines(keepends=True)
+        original = (OLD_UPSTREAM_SOURCE / "strata.py").read_bytes().decode().splitlines(keepends=True)
         accepted = list(original)
         accepted[0] = accepted[0].replace("entry point.", "entry point (accepted historical overlay).")
         self.legacy_overlay = self.base / "accepted-flat.patch"
-        self.legacy_overlay.write_text("diff --git a/strata.py b/strata.py\n" + "".join(
-            difflib.unified_diff(original, accepted, fromfile="a/strata.py", tofile="b/strata.py")))
+        self.legacy_overlay.write_bytes(("diff --git a/strata.py b/strata.py\n" + "".join(
+            difflib.unified_diff(original, accepted, fromfile="a/strata.py", tofile="b/strata.py"))).encode())
         self.state = self.base / "cross-pin's workspace with spaces"
         for key in ("STRATA_SYCL_ROOT", "STRATA_SYCL_BIN", "STRATA_SYCL_CWD"):
             self.env.pop(key, None)
@@ -3202,6 +3206,192 @@ for reverse in (False, True):
         source.write_bytes(original)
         self.prepare_cross_pin(self.old)
         self.assertFalse(approval.exists(), "accepted source transition retained an approval for the old namespace")
+
+    def test_public_forecast_shares_hash_evidence_and_revalidates_changed_bytes(self):
+        root = self.prepare(self.new)
+        script = "import sys\nsys.path.insert(0, " + repr(str(Path(UPSTREAM) / "tests/terminal")) + ")\n" + r'''
+from collections import Counter
+from pathlib import Path
+import hashlib
+import os
+from unittest.mock import patch
+
+
+def forecast_hash_boundary(terminal_root):
+    from strata_cli.launch.catalog import Catalog
+    from strata_cli.launch.runner import Runner
+    from strata_cli.launch.settings import LaunchSettings
+    from launch_support import Home, HW_12
+
+    with Home() as isolated, patch.dict(os.environ, {"STRATA_WORKSPACE_CONTEXT": "{}"}):
+        cat = Catalog(root=Path(terminal_root), hardware=HW_12)
+        native = cat.strata.setup_module()
+        assert native is not None
+        model = "NVFP4-QAD"
+        repo = native.MODELS[model]["repo"]
+        data = (isolated.base / "forecast-data").resolve()
+        checkpoint = data / "models" / repo.replace("/", "--")
+        checkpoint.mkdir(parents=True)
+        contents = {
+            "tensors/model-00001-of-00002.safetensors": b"inert checkpoint one\n",
+            "tensors/model-00002-of-00002.safetensors": b"inert checkpoint two\n",
+        }
+        files = {}
+        for name, payload in contents.items():
+            path = checkpoint / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            files[name] = ("src", len(payload), hashlib.sha256(payload).hexdigest())
+        fixture = {"revision": "0" * 40, "files": files}
+        hashed = Counter()
+        native_hash = native._hash_file
+
+        def observe(path, size, *, progress=True):
+            hashed[Path(path)] += 1
+            return native_hash(path, size, progress=progress)
+
+        runner = Runner(LaunchSettings(family="nvfp4", model=model, data_dir=str(data),
+                                       vision="off", mtp="off", drafting="off", context=32768),
+                        catalog=cat)
+        expected = Counter({checkpoint / name: 1 for name in contents})
+        with patch.dict(native.NVFP4_REPOS, {repo: fixture}), patch.object(native, "_hash_file", observe):
+            runner.download_plan()
+            assert hashed == expected, (hashed, expected)
+            assert not any(checkpoint.rglob("*.done")), "forecast published finish marks"
+            public = runner.plan()  # Includes download_plan AND drafting_plan_line.
+            assert public["download"]["gb"] is not None, public
+            assert hashed == Counter({path: 2 for path in expected}), hashed
+            changed = checkpoint / next(iter(contents))
+            before = changed.read_bytes()
+            changed.write_bytes(b"X" + before[1:])  # Same size; the pinned SHA is now invalid.
+            public = runner.plan()  # Same Runner, a fresh public forecast after changed bytes.
+            assert public["download"]["gb"] is not None, public
+            assert hashed == Counter({path: 3 for path in expected}), hashed
+            assert changed.read_bytes() == b"X" + before[1:], "forecast altered invalid bytes"
+            assert not any(checkpoint.rglob("*.done")), "forecast published finish marks"
+
+forecast_hash_boundary(Path.cwd())
+'''
+        self.run_source_script(root, script)
+
+    def test_first_command_consumes_published_flat_split_and_split_pin_parsers(self):
+        self.make_cross_pin_sources()
+        cli = self.repository / "terminal/strata_cli/cli.py"
+        original = cli.read_bytes()
+        anchor = b'    profile_list.add_argument("--output", choices=("human", "json"), default="human")\n'
+        self.assertEqual(original.count(anchor), 1)
+        cli.write_bytes(original.replace(anchor, anchor +
+            b'    from strata_control.private_files import DISPATCH_GENERATION\n'
+            b'    profile_list.add_argument("--dispatch-generation", choices=(DISPATCH_GENERATION,))\n'))
+        private_files = self.repository / "terminal/strata_control/private_files.py"
+        private_files.write_bytes(private_files.read_bytes() + b'\nDISPATCH_GENERATION = "published"\n')
+        third = self.commit()
+        module = self.workspace_module()
+        for revision in (self.new, third):
+            self.assertTrue(module.patch_revision_check(self.repository, revision, Path(SOURCE_PATCH).read_bytes().decode()))
+        state = self.state
+        for overlay, initial in ((True, self.old), (True, self.new), (False, self.old), (False, self.new)):
+            self.state = state / (("accepted" if overlay else "native") + ("-flat-first" if initial == self.old else "-split-first"))
+            sequence = ((self.old, self.legacy_overlay), (self.old, self.legacy_overlay),
+                        (self.new, Path(SOURCE_PATCH)), (self.new, Path(SOURCE_PATCH)),
+                        (self.old, Path(SOURCE_PATCH)), (self.old, Path(SOURCE_PATCH)),
+                        (self.new, Path(SOURCE_PATCH)), (third, Path(SOURCE_PATCH)), (third, Path(SOURCE_PATCH)))
+            if initial == self.new:
+                sequence = ((self.new, Path(SOURCE_PATCH)), (self.new, Path(SOURCE_PATCH)), *sequence)
+            for index, (revision, requested) in enumerate(sequence):
+                with self.subTest(overlay=overlay, invocation=index, revision=revision):
+                    flags = ["--dispatch-generation", "published"] if revision == third else []
+                    result = subprocess.run(self.command(revision) + ["run", "profile", "list", "--output", "json", *flags],
+                        env=dict(self.env, TEST_SOURCE_PATCH=str(requested) if overlay else "", STRATA_NO_ACQUIRE="1",
+                                 PIP_NO_INDEX="1", PYTHONNOUSERSITE="1"),
+                        cwd=self.base, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertEqual(json.loads(result.stdout)["profiles"], [])
+                    repository = self.state / "source"
+                    self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"],
+                                                            text=True).strip(), revision)
+                    root = repository if revision == self.old else repository / "terminal"
+                    ledger = repository / ".git/strata-source.patch"
+                    if overlay:
+                        accepted = self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)
+                        self.assertEqual(ledger.read_bytes(), accepted.read_bytes())
+                        self.assertTrue(module.patch_check(repository, accepted.read_bytes().decode(), reverse=True))
+                    else:
+                        self.assertFalse(ledger.exists())
+                    self.assertFalse((root / ".venv").exists())
+                    self.assertFalse((root / "python").exists())
+                    self.assertFalse((self.state / ".python-root").exists())
+                    self.assertFalse((repository / ".git/strata-runtime-revision").exists())
+                    self.assertFalse((repository / ".git/strata-source-refresh-revision").exists())
+
+    def test_first_source_and_managed_setup_parse_published_pin_without_bootstrap(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        for entry in ("source", "--managed-setup"):
+            self.state = state / entry.lstrip("-")
+            for index, revision in enumerate((self.old, self.new, self.old, self.new, self.new)):
+                with self.subTest(entry=entry, invocation=index, revision=revision):
+                    patch = self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)
+                    env = dict(self.env, TEST_SOURCE_PATCH=str(patch), STRATA_NO_ACQUIRE="1", PIP_NO_INDEX="1",
+                               STRATA_CONTROL_INSTALL="1", TEST_DATA_DIRECTORY=str(self.base / "configured data"),
+                               TEST_MODELS_DIRECTORY=str(self.base / "configured models"))
+                    args = ["--context", "not-an-int", "--data-dir", "source", "--models-dir", "status"]
+                    if entry == "source":
+                        result = subprocess.run(self.command(revision) + ["run", "source", *args], env=env,
+                                                cwd=self.base, capture_output=True, text=True, timeout=60)
+                    else:
+                        module = self.workspace_module()
+                        context = {"state": str(self.state), "revision": revision, "remote": str(self.repository),
+                                   "source_patch": str(patch), "data_directory": env["TEST_DATA_DIRECTORY"],
+                                   "models_directory": env["TEST_MODELS_DIRECTORY"]}
+                        with module.workspace_lock(self.state) as (_, lock):
+                            result = subprocess.run([sys.executable, WORKSPACE, entry, *args],
+                                env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                         STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                                pass_fds=(lock.fileno(),), cwd=self.base, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+                    if entry == "source" and revision == self.old:
+                        self.assertIn("invalid choice: 'source'", result.stderr)
+                    else:
+                        self.assertIn("not-an-int", result.stderr)
+                    self.assertNotIn("unrecognized arguments", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+                    repository = self.state / "source"
+                    self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"],
+                                                            text=True).strip(), revision)
+                    root = repository if revision == self.old else repository / "terminal"
+                    self.assertFalse((root / ".venv").exists())
+                    self.assertFalse((self.state / ".python-root").exists())
+                    self.assertFalse((self.base / "configured data").exists())
+                    self.assertFalse((self.base / "configured models").exists())
+                    self.assertFalse((repository / ".git/strata-runtime-revision").exists())
+
+    def test_first_managed_setup_retains_relocated_interpreter_and_workspace_lease(self):
+        self.make_cross_pin_sources()
+        root = self.prepare_cross_pin(self.old)
+        retained = self.make_local_runtime(root)
+        module = self.workspace_module()
+        for revision in (self.new, self.old):
+            with self.subTest(revision=revision):
+                context = {"state": str(self.state), "revision": revision, "remote": str(self.repository),
+                           "source_patch": str(self.legacy_overlay if revision == self.old else Path(SOURCE_PATCH)),
+                           "data_directory": None, "models_directory": None}
+                with module.workspace_lock(self.state) as (_, lock):
+                    result = subprocess.run([str(root / ".venv/bin/python"), WORKSPACE, "--managed-setup",
+                                             "--context", "not-an-int"],
+                        env=dict(self.env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                 STRATA_WORKSPACE_CONTEXT=json.dumps(context), STRATA_NO_ACQUIRE="1", PIP_NO_INDEX="1",
+                                 STRATA_CONTROL_INSTALL="1"),
+                        pass_fds=(lock.fileno(),), cwd=self.base, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+                self.assertIn("not-an-int", result.stderr)
+                repository = self.state / "source"
+                self.assertEqual(subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"],
+                                                        text=True).strip(), revision)
+                root = repository if revision == self.old else repository / "terminal"
+                self.assert_local_runtime(root, retained)
+                self.assertFalse((repository / ".git/strata-runtime-revision").exists())
+                self.assertFalse((repository / ".git/strata-source-refresh-revision").exists())
 
     def test_native_split_fallback_repeats_active_passive_and_setup_handoffs(self):
         requested = self.base / "requested.patch"
@@ -7077,18 +7267,29 @@ with workspace.workspace_lock(root.parent) as (_, lock):
         self.assertFalse(certificate.exists())
         (root / "engine/BUILD.json").write_text(valid_build)
         receipt.write_text(self.new + "\n")
-        doctor = root / "strata_control/doctor.py"
-        doctor.write_text(doctor.read_text() + '''
+        consumer = self.base / "isolated-workspace-consumer"
+        consumer.mkdir()
+        helper = consumer / Path(WORKSPACE).name
+        shutil.copyfile(WORKSPACE, helper)
+        library = consumer / "strata-managed"
+        shutil.copytree(WORKSPACE_LIB, library, copy_function=shutil.copyfile)
+        doctor = library / "doctor.py"
+        original_doctor = (WORKSPACE_LIB / "doctor.py").read_bytes()
+        doctor.write_bytes(doctor.read_bytes() + b'''
 if "--runtime-status" in __import__("sys").argv:
     def inspect(*args, **kwargs):
-        raise RuntimeError("unexpected inventory failure fixture")
+        raise RuntimeError("unexpected inventory failure fixture: " + __file__)
 ''')
-        result = subprocess.run(command + ["valid"], env=self.env, cwd=root,
+        command[3] = str(helper)
+        isolated_env = dict(self.env, PYTHONPATH=str(library))
+        result = subprocess.run(command + ["valid"], env=isolated_env, cwd=root,
                                 capture_output=True, text=True, timeout=60)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("unexpected inventory failure fixture", result.stderr)
+        self.assertIn(str(doctor), result.stderr)
         self.assertFalse((root / "tuned").exists())
         self.assertFalse(certificate.exists())
+        self.assertEqual((WORKSPACE_LIB / "doctor.py").read_bytes(), original_doctor)
 
     def test_native_pin_refresh_precedes_launch(self):
         self.assert_native_lifecycle("launch")

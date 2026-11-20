@@ -1,6 +1,6 @@
 # base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch)
-# intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir.
+# intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir; reuse SHA proofs only within one Runner forecast.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open includes flat-root reuse, not equivalent split-layout coverage.
 # issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events.
 # removal: remove only when setup, forecast, progress, models explain, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
@@ -684,20 +684,40 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
      def _first_own_gguf(self) -> Path | None:
          s = self.s
          if not s.model_path:
-@@ -1389,8 +1368,10 @@
+@@ -1376,23 +1355,26 @@
+         except Exception:                                    # noqa: BLE001
+             return None
+ 
+-    def model_state(self):
++    def model_state(self, *, directories=None):
+         """What this launch still needs for the model, in numbers and words (strata_cli/launch/modelstate.py)."""
+         from strata_cli.launch import modelstate
+         s = self.s
+         self.resolved_vision()
++        if directories is None:
++            directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
+         path, desc = (None, None)
+         installed = True
+         if s.family and s.model and not s.model_path:
+             path, desc = self.installed_state()
+-            if path is not None and self.other_copy() is not None:
++            if path is not None and self.other_copy(directories=directories) is not None:
                  # the copy that is installed is not what this launch uses (another --data-dir): the start runs setup with the given folder, so
                  # the plan counts what setup fetches there, not the other copy (lane NET 4a)
                  path, desc, installed = None, None, False
 -        return modelstate.assess(self.catalog, s.family, s.model, vision=s.vision, model_path=s.model_path, data_dir=s.data_dir,
 -                                 config=path, desc=desc, mtp=s.mtp, drafting=self.resolved_drafting(s.family), use_installed=installed)
-+        directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
+-
+-    def other_copy(self) -> Path | None:
 +        return modelstate.assess(self.catalog, directories.family, directories.model, vision=s.vision, model_path=s.model_path,
 +                                 directories=directories, data_dir=s.data_dir, config=path, desc=desc, mtp=s.mtp,
 +                                 drafting=self.resolved_drafting(s.family), use_installed=installed)
- 
-     def other_copy(self) -> Path | None:
++
++    def other_copy(self, *, directories=None) -> Path | None:
          """The data folder of an installed copy of this model that this launch does not use, else None: another --data-dir was given, and the
-@@ -1404,18 +1385,12 @@
+         copy is not in a folder setup itself takes model files from (setup.data_folder_for keeps the remembered data folder and Strata's own
+         folder as sources and uses complete files there where they are; any other folder it does not look at, so everything is fetched)."""
+@@ -1404,18 +1386,13 @@
              if path is None or self.installed_serves_request(path):
                  return None
              from strata_control import discovery
@@ -715,12 +735,13 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 -                if here == src or here == src / "Strata-data":
 -                    return None                              # setup reuses it: the plan's installed answer is the start's
 -            return found
-+            directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
++            if directories is None:
++                directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
 +            return None if self.catalog.reuses_model_data(footprint, directories, vision=s.vision != "off") else found
          except Exception:                                    # noqa: BLE001 - a plan line, never a reason to stop
              return None
  
-@@ -1471,19 +1446,26 @@
+@@ -1471,19 +1448,26 @@
                  return
              yield ln
  
@@ -756,7 +777,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
                  first = next((f for f in job["files"] if f.get("role") == "model"), None)
                  if first:                                    # the folder setup names it (Q2_0), not the lower-case run-config tag (q2_0)
                      job["folder"] = str(Path(first["path"]).parent)
-@@ -1542,10 +1524,13 @@
+@@ -1542,10 +1526,13 @@
          for k in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
              env.pop(k, None)
          env["PYTHONPATH"] = str(cat.src)
@@ -771,7 +792,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          pace, last_dl = DownloadPace(), None                 # T12: the last pieces of a big download crawl; say so
          steady = SteadyBar()
          step_seen, step_since, quiet_since, said = None, time.monotonic(), time.monotonic(), None
-@@ -1567,7 +1552,9 @@
+@@ -1567,7 +1554,9 @@
              lines.append(line)
              lines[:] = lines[-1500:]
              prog = cat.mcp.install_progress(lines)
@@ -782,25 +803,53 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
              dl, phase, label = prog.get("download"), prog.get("phase"), prog.get("label")
              if prog.get("step") != step_seen:
                  step_seen, step_since = prog.get("step"), time.monotonic()
-@@ -1875,7 +1862,8 @@
+@@ -1853,7 +1842,7 @@
+         self._split_expected = got
+         return got
+ 
+-    def drafting_inputs(self, cfg: dict) -> dict:
++    def drafting_inputs(self, cfg: dict, *, directories=None) -> dict:
+         """What strata_control/drafting.py needs to decide for this launch: the choice, the card class, the model and the data folder."""
+         from strata_control import drafting
+         backend, archs = drafting.hardware_for(cfg.get("backend"))   # #5109: the config's card family on a mixed NVIDIA + AMD computer
+@@ -1874,8 +1863,14 @@
+         if str(backend or "").lower() == "cuda" and drafting.request_count(args, int(self.s.parallel or 0)) in drafting.SLOT_DRAFT_REQUESTS:     # (the card is only read for a start that could be in the class)
              sig = self.drafting_signals(cfg, {"backend": backend, "archs": archs})
              slot_drafts = drafting.slot_drafts_by_default(mode, backend=backend, archs=archs, vram_mib=sig["vram_mib"], args=sig["args"], slots=int(self.s.parallel or 0), split=split)   # the drafter is fetched before the start (ensure_drafter)
++        data_dir = drafting.data_dir_of(args)
++        if data_dir is None:
++            if directories is None:
++                directories = self.catalog.launch_directories(self.s.family, self.s.model, data_dir=self.s.data_dir,
++                                                              model_path=self.s.model_path, move=self.move_data)
++            data_dir = directories.data_dir
          return {"mode": mode, "klass": drafting.card_class(archs), "model_name": name, "family": self.s.family,
 -                "data_dir": drafting.data_dir_of(args) or (Path(self.s.data_dir) if self.s.data_dir else None),
-+                "data_dir": drafting.data_dir_of(args) or self.catalog.launch_directories(
-+                    self.s.family, self.s.model, data_dir=self.s.data_dir, model_path=self.s.model_path, move=self.move_data).data_dir,
++                "data_dir": data_dir,
                  "backend": backend, "archs": archs, "mtp_here": drafting.mtp_ready(args) if cfg else None,
                  "blocked": drafting.blocked_by(args, split=split, slots=int(self.s.parallel or 0), named=drafting.normalize(mode) == "dflash2", backend=backend, slot_drafts=slot_drafts),
                  "slots_none": drafting.slots_draft_nothing(drafting.merged_args(cfg), int(self.s.parallel or 0)),
-@@ -2610,6 +2598,7 @@
+@@ -2603,14 +2598,18 @@
+         s = self.s
+         return next((r for r in self.catalog.rows() if (r.family, r.model) == (s.family, s.model)), None)
+ 
+-    def download_plan(self) -> dict:
++    def download_plan(self, *, directories=None) -> dict:
+         """What this launch would download, in numbers and words (nothing is changed): the model's missing files, and for a model that is
+         not on this computer yet also the draft layer and the picture reader that setup fetches after it. 0 when everything is here."""
+         from strata_control import engine_component
          from strata_control import discovery
          from strata_control.discovery import MMPROJ_GB, MTP_FETCH_GB
          s = self.s
-+        directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
-         st = self.model_state()
+-        st = self.model_state()
++        self.resolved_vision()
++        # One forecast owns its selection and SHA proofs; the next call reads the files again.
++        if directories is None:
++            directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
++        st = self.model_state(directories=directories)
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
-@@ -2620,9 +2609,7 @@
+         helpers = s.family in modelstate.HELPER_FAMILIES
+@@ -2620,9 +2619,7 @@
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -811,7 +860,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
                  if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
                      parts.append({"kind": "mtp", "label": "the draft layer", "gb": MTP_FETCH_GB})
                  own = None
-@@ -2630,7 +2617,7 @@
+@@ -2630,7 +2627,7 @@
                      own = Path(s.model_path)
                      own = own if own.is_dir() else own.parent
                  # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
@@ -820,21 +869,53 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
                  if wants_pictures and "mmproj" not in have and not has_reader:
                      parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
-@@ -2641,7 +2628,6 @@
-             if _b is not None and self.other_copy() is not None:
+@@ -2638,17 +2635,16 @@
+         try:
+             from strata_control import drafting
+             _b, _cfg = self.installed_state()
+-            if _b is not None and self.other_copy() is not None:
++            if _b is not None and self.other_copy(directories=directories) is not None:
                  _cfg = None                                  # another data folder's copy: its drafter is not the one this launch uses
-             want = self.drafting_inputs(_cfg or {})
+-            want = self.drafting_inputs(_cfg or {})
 -            want["data_dir"] = want["data_dir"] or self.existing_data_dir() or self.catalog.data_dir()
++            want = self.drafting_inputs(_cfg or {}, directories=directories)
              sig = self.drafting_signals(_cfg or {}, want)
              if drafting.needs_pack(**want, **sig) or drafting.needs_tuned(**want, **sig):            # chosen DFlash2 (or Auto picking it) and the drafter (the tuned one, where the set has it) is not here: it is part of the download
                  parts.append({"kind": "dflash2", "label": "the DFlash2 drafter",
-@@ -2707,17 +2693,20 @@
+                               "gb": drafting.tuned_pack(drafting.tuned_variant(want["backend"], want["model_name"])).gb if drafting.tuned_applies(want["backend"], want["model_name"], want["archs"], **sig) else drafting.DOWNLOAD_GB})
+         except Exception:                                    # noqa: BLE001 - the plan still shows the rest
+             pass
+-        gap = self.ready_pack_gap() if st.own_files else None
++        gap = self.ready_pack_gap(directories=directories) if st.own_files else None
+         if gap:
+             # a ready-made pack (NVFP4) is taken from setup's own models folder, not from where the person's files are (round 8, N2: the plan
+             # said "nothing to download" and setup then asked for 129 GB): count what setup will fetch
+@@ -2670,7 +2666,7 @@
+         else:
+             names = [f"{p['label']} ({p['gb']:.2f} GB)" if p["kind"] == "dflash2" and p["gb"] < 1 else f"{p['label']} ({p['gb']:.1f} GB)" for p in parts]       # (the tuned drafter is 0.34 / 0.52 GB: one decimal said 0.3 / 0.5)
+             what = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+-            other = self.other_copy()
++            other = self.other_copy(directories=directories)
+             text = (f"About {gb:.1f} GB to download into {Path(s.data_dir).expanduser()}: {what}." if other is not None else
+                     f"About {gb:.1f} GB to download: {what}.")
+             if other is not None:                            # lane NET 4a: the start uses --data-dir, not the copy installed elsewhere
+@@ -2699,7 +2695,7 @@
+             text += " For the Intel card Strata builds the model's pack from your files itself, once; it takes a few minutes and downloads nothing."
+         return {"gb": gb, "parts": parts, "engine_missing": not engine and not here, "engine_usable": engine, "own_files": st.own_files, "text": text}
+ 
+-    def ready_pack_gap(self) -> dict | None:
++    def ready_pack_gap(self, *, directories=None) -> dict | None:
+         """For a ready-made pack family (NVFP4): what setup would still fetch into its models folder for these choices, {gb, folder, free_gb}, or None."""
+         s = self.s
+         try:
+@@ -2707,17 +2703,21 @@
              _m, families, _c, _src = self.catalog.tables()
              if mod is None or not (families.get(s.family or "") or {}).get("ready") or not hasattr(mod, "ready_needed"):
                  return None
 -            data = Path(s.data_dir) if s.data_dir else (self.existing_data_dir() or self.catalog.data_dir())
 -            models_dir = data / "models"
-+            directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
++            if directories is None:
++                directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
 +            if directories.layout is None:
 +                return None
 +            models_dir, ready_data, checkpoint, _shards = directories.layout
@@ -855,6 +936,46 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          except Exception:                                    # noqa: BLE001 - a plan that cannot work this out still shows the rest
              return None
  
+@@ -2752,8 +2752,10 @@
+             self.resolved_vision()
+         except Exception:                                    # noqa: BLE001
+             pass
+-        try:
+-            download = self.download_plan()
++        directories = None
++        try:
++            directories = self.catalog.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path, move=self.move_data)
++            download = self.download_plan(directories=directories)
+         except Exception:                                    # noqa: BLE001 - a plan that cannot count the download still shows the rest
+             download = {"gb": None, "parts": [], "engine_missing": None, "own_files": bool(s.model_path),
+                         "text": "How much would be downloaded could not be worked out here."}
+@@ -2761,7 +2763,8 @@
+         model = {"title": title, "family": s.family, "model": s.model, "model_gb": row.download_gb if row is not None else None,
+                  "own_files": bool(s.model_path), "folder": s.model_path}
+         out = {"profile": self.profile, "settings": s.to_dict(with_key=False), "warnings": warns,
+-               "flags": S.flags_text(s), "steps": list(STAGES), "model": model, "download": download, "drafting": self.drafting_plan_line()}
++               "flags": S.flags_text(s), "steps": list(STAGES), "model": model, "download": download,
++               "drafting": self.drafting_plan_line(directories=directories)}
+         return out
+ 
+     def feed_without_draft_layer(self, family: str | None = None) -> bool:
+@@ -2865,14 +2868,14 @@
+         except Exception:                                    # noqa: BLE001 - an unreadable file keeps the launch as it was
+             return
+ 
+-    def drafting_plan_line(self) -> str:
++    def drafting_plan_line(self, *, directories=None) -> str:
+         """The drafting line of --plan: what drafts, or why not what was asked for. Nothing is changed or downloaded."""
+         from strata_control import drafting
+         if self.feed_without_draft_layer():                  # the model list says this model has no draft layer: setup fetches none and the engine starts without a drafter
+             return drafting.summary_line(drafting.Decision("off", "off"))
+         try:
+             base, cfg = self.installed_state()
+-            want = self.drafting_inputs(cfg or {})
++            want = self.drafting_inputs(cfg or {}, directories=directories)
+             if self.split_expected(cfg) and drafting.normalize(want.get("mode")) == "mtp":
+                 from strata_control.discovery import MTP_FETCH_GB
+                 from strata_control import split_engine as SE
 diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/catalog.py
 --- a/terminal/strata_cli/launch/catalog.py
 +++ b/terminal/strata_cli/launch/catalog.py

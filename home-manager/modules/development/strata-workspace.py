@@ -3,6 +3,7 @@
 Keep revision refs and accepted source-delta hashes for offline rollback, serialize source/runtime changes, and root Nix Python.
 Git publication owns the repository; runtime APIs use the selected revision's actual Terminal layout.
 Source rollback reverses only successful payload renames; staged engine links provide separate reference coordinates.
+Native dispatch resumes in a fresh interpreter after publication, retaining acquisition or observer leases.
 The public Terminal grammar owns the root; `source` delegates raw arguments to setup's real parser.
 Only real actions bootstrap Python or reconcile an installed runtime after a pin change.
 A source-refresh receipt records updater success and Python readiness; only complete inventory earns a runtime revision.
@@ -17,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -625,10 +627,9 @@ def native_setup(root, args):
     os.chdir(root)
     sys.path.insert(0, str(root))
     sys.argv = [str(root / "setup.py"), *args]
-    import setup
-    # The selected native parser owns every argument; only its upstream source-pull guard is pinned.
-    os.environ[setup.PULLED_ENV] = "1"
-    return setup.acquisition.main_guard(setup.main, fail=setup.fail)
+    # Use this pin's real script entry, including native parser/error handling and the source-pull guard.
+    os.environ["STRATA_UPDATE_PULLED"] = "1"
+    runpy.run_path(str(root / "setup.py"), run_name="__main__")
 
 
 def prepare_launch_runtime(root, revision, lock_fd):
@@ -732,7 +733,11 @@ def migrate_layout(state, root, lock_fd, *, publication_fd=None, reverse=False, 
     previous = root / ".venv" if reverse else repository_root(root) / ".venv"
     if previous.is_dir():
         retain_interpreter(state, previous)
-    result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--migrate-layout", str(root),
+    # A previous phase may already have moved this process's interpreter to the current runtime root.
+    python = Path(sys.executable)
+    if not os.access(python, os.X_OK):
+        python = runtime_python(root)
+    result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(root),
                              json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
                              *(["--reverse"] if reverse else [])],
                             check=True, stdout=subprocess.PIPE, text=True,
@@ -997,9 +1002,10 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                     probe.check_returncode()
                     return 0  # Native help finished in the probe.
     with workspace_lock(state, inherited=managed_setup) as (state, lock):
-        repository = _prepare_workspace(state, revision, REMOTE, source_patch, lock_fd=lock.fileno())
-        root = terminal_root(repository)
-        managed_state.enable_source(root)
+        _prepare_workspace(state, revision, REMOTE, source_patch, lock_fd=lock.fileno())
+        python = Path(sys.executable)
+        if not os.access(python, os.X_OK):
+            python = runtime_python(terminal_root((state / "source").resolve()))
         context = {
             "state": str(state), "revision": revision, "data_directory": data_directory,
             "models_directory": models_directory, "source_patch": source_patch, "remote": REMOTE,
@@ -1009,6 +1015,18 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps(context)
         os.set_inheritable(lock.fileno(), True)
+        # Checkpoints import the previous pin. Keep the lease, never its module cache.
+        mode = "--prepared-setup" if managed_setup else "--prepared-workspace"
+        os.execv(str(python), [str(python), str(Path(__file__).resolve()), mode, *args])
+
+
+def run_prepared_workspace(context, args, *, managed_setup=False):
+    """Continue the published pin under its inherited lease, without preparing or bootstrapping again."""
+    with workspace_lock(context["state"], inherited=True) as (state, lock):
+        repository = (state / "source").resolve()
+        root = terminal_root(repository)
+        revision = context["revision"]
+        managed_state.enable_source(root)
         if root == repository or not (repository / ".git" / SOURCE_PATCH).is_file():
             # Execute this pin's native CLI, not newer parser/setup hooks that may not exist.
             if managed_setup:
@@ -1044,13 +1062,16 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1] in {"--managed-setup", "--source-exec"}:
+        if sys.argv[1] in {"--managed-setup", "--source-exec", "--prepared-workspace", "--prepared-setup"}:
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
             REMOTE = context["remote"]
+            TERMINAL_CLI = context.get("terminal_cli", TERMINAL_CLI)
             if sys.argv[1] == "--source-exec":
                 sys.exit(source_exec(context, sys.argv[2:]))
+            if sys.argv[1] in {"--prepared-workspace", "--prepared-setup"}:
+                sys.exit(run_prepared_workspace(context, sys.argv[2:], managed_setup=sys.argv[1] == "--prepared-setup"))
             context.pop("remote")
-            TERMINAL_CLI = context.pop("terminal_cli", TERMINAL_CLI)
+            context.pop("terminal_cli", None)
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--migrate-layout":
             # Keep consumer diagnostics separate from the actual successful rename journal.
