@@ -56,6 +56,10 @@ def install_consumer():
     """Install a lazy, package-scoped consumer; never import checkout code at Python startup."""
     if not any(isinstance(finder, ManagedConsumers) for finder in sys.meta_path):
         sys.meta_path.insert(0, ManagedConsumers())
+    if os.environ.get("STRATA_NATIVE_INTEL_READER"):
+        from strata_native_observer import install_intel_reader
+
+        install_intel_reader()
 
 
 def enable_source(root):
@@ -70,10 +74,10 @@ def install_acquisition(*, native_setup=False, acquisition=None):
     """Propagate one validated acquisition lease through native setup subprocesses.
 
     Python descendants re-install this adapter through the stable bootstrap.
-    Other executables retain the descriptor until exit, but their own spawns
-    are outside Python's subprocess boundary.
-    Native setup transfers its read-only server to a publication reader, then
-    closes its acquisition copy before waiting. An optional file owner avoids
+    Native setup transfers mutation ownership to the Intel driver after spawn,
+    or its read-only server to a publication reader before waiting. The Intel
+    driver's true shell exec inherits only that reader through server readiness.
+    An optional file owner avoids
     closing a raw descriptor still owned by the caller's workspace context.
     """
     import subprocess
@@ -156,6 +160,29 @@ def install_acquisition(*, native_setup=False, acquisition=None):
             if independent:
                 options["env"] = external_environment(env)
                 options["pass_fds"] = tuple(fd for fd in options.get("pass_fds", ()) if fd != descriptor)
+            elif (AcquisitionProcess._strata_native_setup and AcquisitionProcess._strata_acquisition_active
+                  and isinstance(args, (list, tuple)) and len(args) >= 2
+                  and (Path(options.get("cwd") or os.getcwd()) / args[1]).resolve()
+                      == repository / "sycl/setup_intel.py"):
+                from strata_native_observer import _native_call
+
+                caller = sys._getframe(1)
+                while caller is not None and caller.f_globals.get("__name__") == "subprocess":
+                    caller = caller.f_back
+                script_call = (caller is not None
+                               and caller.f_globals.get("__name__") == "__main__"
+                               and caller.f_code.co_filename == str(repository / "setup.py")
+                               and caller.f_code is getattr(caller.f_globals.get("sycl_setup"), "__code__", None))
+                if script_call or _native_call(caller, "setup", "sycl_setup", str(repository / "setup.py")):
+                    options["pass_fds"] = tuple(dict.fromkeys((*options.get("pass_fds", ()), descriptor)))
+                    options["env"] = source_environment(env, repository)
+                    command = [args[0], env["STRATA_WORKSPACE_HELPER"], "--native-intel-setup",
+                               str(repository), *args[2:]]
+                    super().__init__(command, *positional, **options)
+                    release_setup()
+                    return
+                options["pass_fds"] = tuple(dict.fromkeys((*options.get("pass_fds", ()), descriptor)))
+                options["env"] = source_environment(env, repository)
             elif native_server(args, env, options.get("cwd")):
                 from strata_native_observer import _module_spawn, _source_reader
 
@@ -183,6 +210,7 @@ def install_acquisition(*, native_setup=False, acquisition=None):
 
     subprocess.Popen = AcquisitionProcess
     original_execve = os.execve
+    original_execv = os.execv
 
     def acquisition_execve(path, args, env):
         if native_server(args, env):
@@ -207,6 +235,31 @@ def install_acquisition(*, native_setup=False, acquisition=None):
 
     os.execve = acquisition_execve
 
+    def acquisition_execv(path, args):
+        caller = sys._getframe(1)
+        setup = caller.f_globals.get("S")
+        if (AcquisitionProcess._strata_native_setup and AcquisitionProcess._strata_acquisition_active
+                and path == "/bin/sh" and isinstance(args, (list, tuple)) and len(args) == 2
+                and caller.f_code.co_filename == str(repository / "sycl/setup_intel.py")
+                and caller.f_code is getattr(getattr(setup, "start", None), "__code__", None)
+                and caller.f_code.co_name == "start_sycl"):
+            from strata_native_observer import _source_reader
+
+            state = Path(json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])["state"])
+            with _source_reader(state) as reader:
+                env = source_environment(without_acquisition(os.environ), repository)
+                env["STRATA_NATIVE_INTEL_READER"] = json.dumps({"state": str(state), "fd": reader.fileno()})
+                # Only this intentional exec inherits the reader. Failed exec
+                # leaves the mutator and its file owner untouched.
+                os.set_inheritable(reader.fileno(), True)
+                try:
+                    return original_execve(path, args, env)
+                finally:
+                    os.set_inheritable(reader.fileno(), False)
+        return original_execv(path, args)
+
+    os.execv = acquisition_execv
+
 
 def external_environment(environ):
     """Remove only this managed bootstrap when handing execution to an independent installation."""
@@ -214,7 +267,7 @@ def external_environment(environ):
     for key in ("STRATA_MANAGED_SOURCE", "STRATA_PROFILE_NAMESPACE_FD", "STRATA_WORKSPACE_HELPER",
                 "STRATA_WORKSPACE_CONTEXT", "STRATA_WORKSPACE_LOCK_FD", "STRATA_SOURCE_LOCK_FD",
                 "STRATA_BOOTSTRAP_ONLY", "STRATA_RUNTIME_READY", "STRATA_LAUNCH_RUNTIME_READY",
-                "STRATA_ACQUISITION_BOOTSTRAP"):
+                "STRATA_ACQUISITION_BOOTSTRAP", "STRATA_NATIVE_INTEL_READER"):
         env.pop(key, None)
     paths = [path for path in env.get("PYTHONPATH", "").split(os.pathsep) if path and Path(path).resolve() != DIRECTORY]
     if paths:
@@ -340,7 +393,10 @@ def sycl_config(config, source, destination, repository, reverse, rebase, *, bas
     else:
         old_workdir = old_here if fixed else old_mount / old_here.name
     here = repository / "engine" if not reverse and (repository / "terminal/setup.py").is_file() else repository
-    new_workdir = here if here.is_relative_to(new_mount) else Path(rebase(str(old_workdir)))
+    if fixed and selected_cwd:
+        new_workdir = Path(rebase(str(old_workdir)))
+    else:
+        new_workdir = here if here.is_relative_to(new_mount) else Path(rebase(str(old_workdir)))
     if not new_workdir.is_relative_to(new_mount):
         raise RuntimeError(f"Migrated SYCL working directory {new_workdir} is outside {new_mount}")
     environment["STRATA_SYCL_HERE"] = str(here)

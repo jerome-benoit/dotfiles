@@ -331,7 +331,7 @@ index c695062..2d48b6c 100644
  #: engine/ of a 0.2.16 clone is the engine's source; anything else in it is the engine an older setup downloaded or compiled there
  ENGINE_SOURCE_ENTRIES = {"src", "include", "cmake", "metal", "sycl", "spark", "third_party", "tests", "bench", "CMakeLists.txt",
                           "CMakePresets.json"}
-@@ -8180,13 +8194,25 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
+@@ -8180,13 +8194,27 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
      for n, line in enumerate(textwrap.wrap(f"Settings ({cfg_path.name}): {settings_summary(cfg, port)}", 100,
                                             break_on_hyphens=False)):   # #564: what this start uses
          say(("  " if n == 0 else "    ") + line)
@@ -343,16 +343,18 @@ index c695062..2d48b6c 100644
 -    # the server and everything it starts are told, too: nothing in a running model installs or downloads
 -    return subprocess.call(cmd, env={**os.environ, acquisition.ENV: "1"})
 +    with acquisition.source_observation(acquisition.workspace_state()):
-+        source_fds = acquisition.source_handoff()
 +        acquisition.release_workspace()
 +        if not WIN and os.environ.get("STRATA_EXECV"):
 +            # Replace this process instead of spawning a child. The Docker image sets STRATA_EXECV=1,
 +            # so there the server is PID 1 and docker stop's SIGTERM reaches the process that can
 +            # answer the engine with QUIT. Normal Linux starts keep spawning the server as a child.
++            acquisition.source_handoff()
 +            os.execve(cmd[0], cmd, {**os.environ, acquisition.ENV: "1"})
++        env = {**os.environ, acquisition.ENV: "1"}
++        source_fds = acquisition.source_handoff(environ=env)
 +        # A parent waiting on its service must not retain the child's source read lease.
 +        if source_fds:
-+            with subprocess.Popen(cmd, env={**os.environ, acquisition.ENV: "1"}, pass_fds=source_fds) as process:
++            with subprocess.Popen(cmd, env=env, pass_fds=source_fds) as process:
 +                acquisition.source_ready()
 +                try:
 +                    return process.wait()
@@ -360,11 +362,11 @@ index c695062..2d48b6c 100644
 +                    process.kill()
 +                    raise
 +        # the server and everything it starts are told, too: nothing in a running model installs or downloads
-+        return subprocess.call(cmd, env={**os.environ, acquisition.ENV: "1"})
++        return subprocess.call(cmd, env=env)
  
  
  # the draft subsets setup copied before (sha256): replaced by the current one, a subset made by hand is kept
-@@ -8787,7 +8813,9 @@ def sycl_setup(argv) -> int:
+@@ -8787,7 +8815,9 @@ def sycl_setup(argv) -> int:
      script = engine_src() / "sycl" / "setup_intel.py"
      if not script.exists():
          fail(f"{script} is missing", "use a full Strata checkout (git clone) - docs/INTEL_ARC.md")
@@ -375,7 +377,7 @@ index c695062..2d48b6c 100644
  
  
  def intel_control_setup(a) -> int:
-@@ -9785,7 +9813,8 @@ def mac_control_setup(a) -> int:
+@@ -9785,7 +9815,8 @@ def mac_control_setup(a) -> int:
      return 0
  
  
@@ -385,7 +387,7 @@ index c695062..2d48b6c 100644
      try:                                               # the engine programs setup runs start no debugger on a user's machine (strata_control/childenv.py)
          from strata_control.childenv import quiet_crash_env
          quiet_crash_env()
-@@ -9796,22 +9825,29 @@ def main() -> int:
+@@ -9796,22 +9827,29 @@ def main() -> int:
          _pf.adopt_user_defaults()
      except Exception:
          pass
@@ -430,7 +432,7 @@ index c695062..2d48b6c 100644
      ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES),
                      help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                           "several requests at once with --parallel; docs/QWEN36.md)")
-@@ -9968,19 +10004,26 @@ def main() -> int:
+@@ -9968,19 +10006,26 @@ def main() -> int:
                           "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                           "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
      ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
@@ -464,7 +466,7 @@ index c695062..2d48b6c 100644
      if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES:
          ap.error(f"--model {a.model} is a size of " + ", ".join(f"--family {f}" for f, d in PREVIEW_FAMILIES.items()
                                                                if a.model in d["models"]))
-@@ -9995,7 +10038,7 @@ def main() -> int:
+@@ -9995,7 +10040,7 @@ def main() -> int:
      if a.backend == "sycl":                            # Intel Arc: the app / Terminal's installer mode prepares the files and writes the config; a checkout builds from source
          if CONTROL:
              return intel_control_setup(a)
@@ -473,7 +475,7 @@ index c695062..2d48b6c 100644
      if a.resident_budget_gib is not None and not a.resident_budget_gib > 0:
          ap.error("--resident-budget-gib takes a number of GiB above 0, e.g. --resident-budget-gib 32")
      if a.vision_tokens is not None and a.vision_tokens < 1:
-@@ -10905,9 +10948,15 @@ def main() -> int:
+@@ -10905,9 +10950,15 @@ def main() -> int:
      return start(cfg_path, port)
  
  
@@ -1066,7 +1068,7 @@ diff --git a/terminal/strata_control/acquisition.py b/terminal/strata_control/ac
 index 06f09c4..063f733 100644
 --- a/terminal/strata_control/acquisition.py
 +++ b/terminal/strata_control/acquisition.py
-@@ -25,6 +25,234 @@ import threading
+@@ -25,6 +25,254 @@ import threading
  
  ENV = "STRATA_NO_ACQUIRE"
  
@@ -1083,6 +1085,24 @@ index 06f09c4..063f733 100644
 +    return json.loads(context)["state"] if context is not None else None
 +
 +
++def _source_reader(fd, *, duplicate=False):
++    """Keep a reader above stdio without unlocking its shared open file description."""
++    import fcntl
++    owned = not duplicate
++    try:
++        if duplicate or fd < 3:
++            promoted = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
++            if owned:
++                os.close(fd)
++            fd = promoted
++            owned = True
++        else:
++            os.set_inheritable(fd, False)
++        return os.fdopen(fd, "a")
++    except BaseException:
++        if owned:
++            os.close(fd)
++        raise
 +
 +
 +def open_source_lease(state=None):
@@ -1090,19 +1110,21 @@ index 06f09c4..063f733 100644
 +    inherited = os.environ.pop("STRATA_SOURCE_LOCK_FD", None)
 +    if inherited is not None:
 +        fd = int(inherited)
-+        if _source_file is not None and fd == _source_file.fileno():
-+            fd = os.dup(fd)
-+        lock = os.fdopen(fd, "a")
++        lock = _source_reader(fd, duplicate=_source_file is not None and fd == _source_file.fileno())
 +    elif _source_file is not None:
-+        lock = os.fdopen(os.dup(_source_file.fileno()), "a")
++        lock = _source_reader(_source_file.fileno(), duplicate=True)
 +    elif state is not None:
 +        import fcntl
 +        from pathlib import Path
-+        lock = (Path(state) / ".source-publication.lock").open("a")
-+        fcntl.flock(lock, fcntl.LOCK_SH)
++        lock = _source_reader(os.open(Path(state) / ".source-publication.lock",
++                                      os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o666))
++        try:
++            fcntl.flock(lock, fcntl.LOCK_SH)
++        except BaseException:
++            lock.close()
++            raise
 +    else:
 +        return None
-+    os.set_inheritable(lock.fileno(), False)
 +    return lock
 +
 +
@@ -1136,7 +1158,7 @@ index 06f09c4..063f733 100644
 +    if lock is None:
 +        return ()
 +    fd = lock.fileno()
-+    os.set_inheritable(fd, True)
++    os.set_inheritable(fd, environ is None)
 +    target = os.environ if environ is None else environ
 +    target["STRATA_SOURCE_LOCK_FD"] = str(fd)
 +    return (fd,)
@@ -1681,18 +1703,6 @@ index 63118fc..d1abe08 100755
    -DSTRATA_PORTABLE=ON -DSTRATA_VISION_METAL=ON -DSTRATA_VISION_CUDA=OFF
  ninja -C "$build" ${jobs:+-j "$jobs"} strata-vision
  cp "$build/bin/strata-vision" "$out/strata-vision"
-diff --git a/tools/packaging/build_vision_windows.bat b/tools/packaging/build_vision_windows.bat
-index 39a1ab3..eccc778 100644
---- a/tools/packaging/build_vision_windows.bat
-+++ b/tools/packaging/build_vision_windows.bat
-@@ -51,6 +51,7 @@ for %%A in (%ARCHS:;= %) do (
-   set "LAST=%%A"
-   if defined REAL (set "REAL=!REAL!;%%A-real") else (set "REAL=%%A-real")
- )
-+py -3 -c "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import setup; setup.fresh_if_other_generator(Path(sys.argv[3]), src=Path(sys.argv[2]))" "%SRC%\terminal" "%SRC%\terminal\tools\vision" "%VISION_BUILD_DIR%" || exit /b 1
- cmake -G Ninja -S "%SRC%\terminal\tools\vision" -B "%VISION_BUILD_DIR%" -DCMAKE_BUILD_TYPE=Release ^
-   -DSTRATA_VISION_CUDA=ON -DSTRATA_PORTABLE=ON ^
-   "-DCMAKE_CUDA_ARCHITECTURES=!REAL!;!LAST!-virtual" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl ^
 diff --git a/tools/packaging/cmake_cache.sh b/tools/packaging/cmake_cache.sh
 new file mode 100644
 index 0000000..3d4a891

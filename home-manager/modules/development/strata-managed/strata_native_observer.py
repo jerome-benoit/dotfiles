@@ -59,6 +59,45 @@ def _server_ready(root, frame, event, result):
             and frame.f_locals.get("httpd") is not None
             and frame.f_locals.get("svc") is not None)
 
+
+def install_intel_reader():
+    """Observe the real Intel script after its shell exec, preserving all extensions."""
+    marker = json.loads(os.environ.pop("STRATA_NATIVE_INTEL_READER"))
+    state = Path(marker["state"]).resolve()
+    root = Path(os.environ["STRATA_MANAGED_SOURCE"]).resolve()
+    descriptor = int(marker["fd"])
+    os.set_inheritable(descriptor, False)
+    held = os.fstat(descriptor)
+    expected = (state / ".source-publication.lock").stat()
+    if (descriptor < 3 or root != (state / "source").resolve()
+            or (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino)
+            or Path(sys.argv[0]).resolve() != root / "sycl/serve/server_intel.py"):
+        os.close(descriptor)
+        raise RuntimeError("Native Intel reader does not belong to this server")
+    reader = os.fdopen(descriptor, "a")
+    import atexit
+    import threading
+
+    previous = sys.getprofile()
+    previous_thread = threading.getprofile()
+    owner = threading.get_ident()
+
+    def boundary(frame, event, result):
+        inherited = previous if threading.get_ident() == owner else previous_thread
+        if inherited is not None:
+            inherited(frame, event, result)
+        if reader.closed:
+            sys.setprofile(inherited)
+        elif _server_ready(root, frame, event, result):
+            _preload_server(root)
+            reader.close()
+            sys.setprofile(inherited)
+            threading.setprofile(previous_thread)
+
+    atexit.register(reader.close)
+    sys.setprofile(boundary)
+    threading.setprofile(boundary)
+
 def acquisition_action(args):
     """Classify acquisition after the native parser, respecting launch early returns."""
     if args.command in {"install", "update"}:
@@ -394,6 +433,14 @@ def run_active(root, entry, args):
 def _source_reader(state):
     import fcntl
     reader = (state / ".source-publication.lock").open("a")
+    if reader.fileno() < 3:
+        try:
+            descriptor = fcntl.fcntl(reader.fileno(), fcntl.F_DUPFD_CLOEXEC, 3)
+        except BaseException:
+            reader.close()
+            raise
+        reader.close()
+        reader = os.fdopen(descriptor, "a")
     try:
         fcntl.flock(reader, fcntl.LOCK_SH)
     except BaseException:

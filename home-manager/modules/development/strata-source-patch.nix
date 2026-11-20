@@ -6,6 +6,9 @@ pkgs.writeText "strata-source.patch" (
       # Managed source/bootstrap and workspace/source leases are one protocol.
       # Remove with equivalent publication, receipts and service handoffs.
       ../../../patches/strata-workspace-source-lifecycle.patch
+      # Keep Windows batch contexts in their native CRLF form.
+      # Remove with equivalent native vision CMake metadata handling.
+      ../../../patches/strata-windows-cmake-metadata.patch
       # Setup, forecast and progress share one artifact-role layout.
       # Remove when all consumers use the same selected destinations.
       ../../../patches/strata-setup-directory-roles.patch

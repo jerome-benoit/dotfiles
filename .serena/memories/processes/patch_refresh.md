@@ -66,6 +66,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/strata-engine-inspection.patch` — inspect SYCL launcher and mapped host engine/argument paths without importing server.
 - `patches/strata-selected-executable.patch` — verify the selected manifest executable, hash and execute permission.
 - `patches/strata-setup-directory-roles.patch` — share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir. Prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch).
+- `patches/strata-windows-cmake-metadata.patch` — refresh Windows vision metadata with native CRLF contexts. Prerequisites: strata-workspace-source-lifecycle.patch.
 - `patches/strata-workspace-source-lifecycle.patch` — keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
 
 ### Partition and source equivalence

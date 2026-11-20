@@ -13,6 +13,7 @@ Validation does not prove GPU compatibility, model integrity, or successful infe
 
 from contextlib import contextmanager, redirect_stdout
 import ast
+import errno
 import fcntl
 import hashlib
 import json
@@ -49,6 +50,34 @@ def git(root, *args, check=True):
     )
 
 
+def _reserve_standard_descriptors():
+    """Keep legacy lease duplicates out of closed stdio slots after lock promotion."""
+    repaired = 0
+    for descriptor in range(3):
+        try:
+            os.fstat(descriptor)
+        except OSError as error:
+            if error.errno != errno.EBADF:
+                raise
+            opened = os.open(os.devnull, os.O_RDWR)
+            if opened != descriptor:
+                try:
+                    os.dup2(opened, descriptor)
+                finally:
+                    os.close(opened)
+            else:
+                os.set_inheritable(descriptor, True)
+            repaired |= 1 << descriptor
+    # Python initializes these to None when its standard descriptors are closed.
+    # Reuse the reserved descriptors; never allocate another lease-sized slot.
+    for descriptor, name, mode in ((0, "stdin", "r"), (1, "stdout", "w"), (2, "stderr", "w")):
+        if repaired & (1 << descriptor) and getattr(sys, name) is None:
+            stream = open(descriptor, mode, closefd=False)
+            setattr(sys, name, stream)
+            if getattr(sys, "__" + name + "__") is None:
+                setattr(sys, "__" + name + "__", stream)
+
+
 @contextmanager
 def workspace_lock(state, *, inherited=False):
     state = Path(state).expanduser().resolve()
@@ -72,7 +101,16 @@ def workspace_lock(state, *, inherited=False):
 def source_publication_lock(state, *, shared=False):
     """Protect source readers without tying observations to runtime acquisition."""
     state.mkdir(parents=True, exist_ok=True)
-    with (state / ".source-publication.lock").open("a") as lock:
+    lock = (state / ".source-publication.lock").open("a")
+    if lock.fileno() < 3:
+        try:
+            descriptor = fcntl.fcntl(lock.fileno(), fcntl.F_DUPFD_CLOEXEC, 3)
+        except BaseException:
+            lock.close()
+            raise
+        lock.close()
+        lock = os.fdopen(descriptor, "a")
+    with lock:
         fcntl.flock(lock, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
         yield lock
 
@@ -649,6 +687,7 @@ def native_setup(root, args, *, acquisition=None):
     os.chdir(root)
     if "STRATA_WORKSPACE_LOCK_FD" in os.environ:
         managed_state.install_acquisition(native_setup=True, acquisition=acquisition)
+    _reserve_standard_descriptors()
     sys.path.insert(0, str(root))
     sys.argv = [str(root / "setup.py"), *args]
     # Use this pin's real script entry, including native parser/error handling and the source-pull guard.
@@ -1055,6 +1094,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
 def run_prepared_workspace(context, args, *, managed_setup=False):
     """Continue the published pin under its inherited lease, without preparing or bootstrapping again."""
     with workspace_lock(context["state"], inherited=True) as (state, lock):
+        _reserve_standard_descriptors()
         repository = (state / "source").resolve()
         root = terminal_root(repository)
         revision = context["revision"]
@@ -1124,6 +1164,13 @@ if __name__ == "__main__":
             print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))
+        elif sys.argv[1] == "--native-intel-setup":
+            root = Path(sys.argv[2]).resolve()
+            managed_state.enable_source(root)
+            managed_state.install_acquisition(native_setup=True)
+            sys.path.insert(0, str(root))
+            sys.argv = [str(root / "sycl/setup_intel.py"), *sys.argv[3:]]
+            runpy.run_path(sys.argv[0], run_name="__main__")
         elif sys.argv[1] == "--launch-exec":
             launch_exec(sys.argv[2], sys.argv[3:])
         elif sys.argv[1] == "--observer-probe":

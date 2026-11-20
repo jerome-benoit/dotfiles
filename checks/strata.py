@@ -13249,4 +13249,464 @@ with w.workspace_lock(sys.argv[2]) as (state, acquisition):
 
 
 
+    def test_explicit_sycl_workdir_keeps_relative_cache_across_readers_and_relocation(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json
+import os
+from pathlib import Path
+from strata_control import cfg_paths, profiles
+import strata_managed_state as managed
+
+for key in ('STRATA_SYCL_ROOT', 'STRATA_SYCL_CWD', 'STRATA_SYCL_HERE', 'STRATA_SYCL_BIN'):
+    os.environ.pop(key, None)
+repository = Path.cwd().parent
+mount = repository.parent
+mirror = mount / 'explicit runtime mirror'
+(mirror / 'relative-cache').mkdir(parents=True)
+cache = mirror / 'relative-cache/i8-crossover.txt'
+cache.write_bytes(b'existing measured crossover')
+binary = mirror / 'strata'; binary.write_bytes(b'inert; never executed')
+model = mirror / 'model.gguf'; model.write_bytes(b'inert payload')
+cwd = '/work/' + mirror.relative_to(mount).as_posix()
+config = {'exe': str(managed.DIRECTORY / 'strata-sycl.sh'), 'tokenizer': str(mirror / 'tokenizer'),
+          'args': ['--native', 'model.gguf'],
+          'env': {'STRATA_SYCL_ROOT': str(mount), 'STRATA_SYCL_HERE': str(repository / 'engine'),
+                  'STRATA_SYCL_CWD': cwd, 'STRATA_SYCL_BIN': str(binary),
+                  'STRATA_CACHE_DIR': 'relative-cache'}}
+path = Path('strata-explicit-mirror.json'); path.write_text(json.dumps(config))
+before = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in (cache, binary, model, path)}
+for resolved in (managed.normalize_sycl_config(config, repository),
+                 cfg_paths.resolve_config(config, base=path.resolve().parent)[0],
+                 profiles.read_run_config(path.resolve())):
+    workdir = mount / Path(resolved['env']['STRATA_SYCL_CWD']).relative_to('/work')
+    selected_cache = workdir / resolved['env']['STRATA_CACHE_DIR'] / 'i8-crossover.txt'
+    assert selected_cache.samefile(cache)
+    assert selected_cache.read_bytes() == b'existing measured crossover'
+    assert cfg_paths.engine_argument_path(resolved['args'][1], resolved['exe'], resolved).samefile(model)
+    assert Path(resolved['env']['STRATA_SYCL_BIN']).samefile(binary)
+assert {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in before} == before
+# Explicit process coordinates have the same precedence when config omits cwd.
+without_cwd = {**config, 'env': {k: v for k, v in config['env'].items() if k != 'STRATA_SYCL_CWD'}}
+os.environ['STRATA_SYCL_CWD'] = cwd
+assert managed.normalize_sycl_config(without_cwd, repository)['env']['STRATA_SYCL_CWD'] == cwd
+os.environ.pop('STRATA_SYCL_CWD')
+# A real move projects only the moved cwd and its payloads, keeping the relative cache.
+moved = mount / 'relocated runtime mirror'
+mirror.rename(moved)
+def rebase(value):
+    return value.replace(str(mirror), str(moved))
+projected = managed.sycl_config(config, root, repository, repository, True, rebase)
+workdir = mount / Path(projected['env']['STRATA_SYCL_CWD']).relative_to('/work')
+assert (workdir / projected['env']['STRATA_CACHE_DIR'] / 'i8-crossover.txt').samefile(moved / 'relative-cache/i8-crossover.txt')
+assert Path(projected['env']['STRATA_SYCL_BIN']).samefile(moved / 'strata')
+assert cfg_paths.engine_argument_path(projected['args'][1], projected['exe'], projected).samefile(moved / 'model.gguf')
+invalid = {**config, 'env': {**config['env'], 'STRATA_SYCL_CWD': '/outside'}}
+try:
+    managed.normalize_sycl_config(invalid, repository)
+except RuntimeError:
+    pass
+else:
+    raise AssertionError('explicit cwd outside /work accepted')
+'''.replace('managed.sycl_config(config, root,', 'managed.sycl_config(config, Path.cwd(),'))
+
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX publication descriptors and stdio')
+    def test_publication_reader_survives_real_producer_stdio_and_releases_at_ready(self):
+        root = self.prepare(self.old)
+        script = r'''
+import ast, fcntl, importlib.util, json, os, signal, subprocess, sys, tempfile
+from pathlib import Path
+sys.dont_write_bytecode = True
+root, helper, state = map(Path, sys.argv[1:4])
+sys.path[:0] = [str(helper.parent / 'strata-managed'), str(root)]
+import strata_managed_state as managed
+os.environ['STRATA_MANAGED_SOURCE'] = str(root.parent)
+managed.install_consumer()
+from strata_control import acquisition, profiles
+from strata_control.childenv import arena_env
+spec = importlib.util.spec_from_file_location('workspace', helper)
+w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
+allowed = {'script': None}
+def deny(event, args):
+    if event.startswith('socket.') or event in ('os.exec', 'os.system', 'os.posix_spawn'):
+        raise RuntimeError('network/engine forbidden')
+    if event == 'subprocess.Popen' and not (args[0] == sys.executable and args[1][1:3] == ['-S', str(allowed['script'])]):
+        raise RuntimeError('only inert reader inspector allowed')
+sys.addaudithook(deny)
+source = ast.parse((root / 'strata_control/runtime.py').read_text())
+start = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == '_start_once')
+context = next(n for n in start.body if isinstance(n, ast.With) and ast.unparse(n.items[0].context_expr) == 'profiles._lock(lock_name)')
+first = next(i for i,n in enumerate(context.body) if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'descriptor' for t in n.targets))
+context.body = context.body[first:first+2]
+stream = context.body[1]
+spawn = next(n for n in stream.body if isinstance(n, ast.With) and ast.unparse(n.items[0].context_expr).startswith('acquisition.source_lease'))
+# Change only the process endpoint. Keep native profile/log/source allocation and Popen redirections.
+stream.body.insert(stream.body.index(spawn), ast.parse("command[:] = [sys.executable, '-S', str(inspector)]").body[0])
+producer = ast.fix_missing_locations(ast.Module(body=[context], type_ignores=[]))
+state.mkdir()
+os.environ.update(STRATA_PROFILE_DIR=str(state / 'profiles'), STRATA_NO_ACQUIRE='1', PIP_NO_INDEX='1')
+inspector = state / 'reader.py'; allowed['script'] = inspector
+inspector.write_text('import fcntl,json,os,signal,sys\nfrom pathlib import Path\nsys.path.insert(0,' + repr(str(root)) + ')\nfrom strata_control import acquisition\nlease=acquisition.open_source_lease()\na=os.fstat(lease.fileno());b=Path(os.environ["EXPECTED_SOURCE"]).stat()\nprint(json.dumps({"fd_safe":lease.fileno()>=3,"identity":(a.st_dev,a.st_ino)==(b.st_dev,b.st_ino)}),flush=True)\nos.kill(os.getpid(),signal.SIGSTOP)\nacquisition._source_file=lease\nacquisition.source_ready()\nos.kill(os.getpid(),signal.SIGSTOP)\n')
+output = fcntl.fcntl(1, fcntl.F_DUPFD_CLOEXEC, 100)
+process = None
+try:
+    for fd in (0,1,2): os.close(fd)
+    with w.workspace_lock(state) as (_, lock):
+        os.environ.update(STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()), STRATA_WORKSPACE_CONTEXT=json.dumps({'state':str(state)}), EXPECTED_SOURCE=str(state / '.source-publication.lock'))
+        namespace = dict(profiles=profiles,os=os,sys=sys,subprocess=subprocess,acquisition=acquisition,arena_env=arena_env,lock_name='rt-reader',name='reader',log_path=state/'host.log',flags=os.O_WRONLY|os.O_CREAT|os.O_APPEND,shutdown_timeout=30,wait=0,expected_profile_revision=None,expected_source_sha256=None,die_with=None,WINDOWS=False,ROOT=root,inspector=inspector)
+        exec(compile(producer,'real-producer','exec'),namespace)
+        process=namespace['proc']
+        pid,status=os.waitpid(process.pid,os.WUNTRACED)
+        assert pid==process.pid and os.WIFSTOPPED(status)
+        observed=json.loads((state/'host.log').read_text())
+        assert observed == {'fd_safe': True, 'identity': True}, observed
+    with (state/'.source-publication.lock').open('a') as writer:
+        try: fcntl.flock(writer,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError: pass
+        else: raise AssertionError('publication entered before readiness')
+    os.kill(process.pid,signal.SIGCONT)
+    pid,status=os.waitpid(process.pid,os.WUNTRACED)
+    assert pid==process.pid and os.WIFSTOPPED(status)
+    with (state/'.source-publication.lock').open('a') as writer:
+        fcntl.flock(writer,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    os.kill(process.pid,signal.SIGCONT)
+    assert process.wait(timeout=10)==0
+    os.write(output,b'publication reader protected through stdio and released at ready\n')
+finally:
+    if process is not None and process.poll() is None:
+        os.kill(process.pid,signal.SIGCONT);process.kill();process.wait(timeout=10)
+    os.close(output)
+'''
+        result = subprocess.run([sys.executable, '-B', '-c', script, str(root), WORKSPACE,
+                                 str(self.base / 'reader-stdio-state')], env=self.env,
+                                capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux Intel setup dispatch")
+    def test_native_flat_intel_driver_shell_publication_handoff(self):
+        """Run the frozen flat pin's real SYCL driver, shell and Intel entry."""
+        self.make_cross_pin_sources()
+        original_state = self.state
+        bootstrap = r'''
+import importlib.abc, json, os, socket, subprocess, sys, time
+sys.argv[0] = fixture_entry
+import platform
+platform.processor = lambda: 'fixture CPU'  # Hardware discovery is inert before telemetry uses it.
+from pathlib import Path
+from strata_managed_state import install_consumer, install_acquisition
+root = Path(os.environ['F2_ROOT']).resolve()
+mode = os.environ['F2_MODE']
+role = ('server' if Path(sys.argv[0]).resolve() == root / 'sycl/serve/server_intel.py'
+        else 'driver' if '--native-intel-setup' in sys.argv else 'setup')
+reader_marker = os.environ.get('STRATA_NATIVE_INTEL_READER')
+install_consumer()
+if os.environ.get('STRATA_ACQUISITION_BOOTSTRAP'):
+    install_acquisition()
+if role == 'setup' and not os.environ.get('STRATA_ACQUISITION_BOOTSTRAP'):
+    install_acquisition(native_setup=True)
+def gate(phase):
+    with socket.socket(socket.AF_UNIX) as peer:
+        peer.settimeout(45); peer.connect(os.environ['F2_GATE'])
+        peer.sendall(json.dumps(dict(phase=phase, role=role, pid=os.getpid())).encode()+b'\n')
+        assert peer.recv(1) == b'g'
+class SetupBoundary(BaseException): pass
+class FailedExec(BaseException): pass
+class FailedSpawn(BaseException): pass
+skip_setup = role == 'setup'
+saved_env = None
+recovery = False
+
+def audit(event, values):
+    global skip_setup, recovery
+    if event in {'socket.getaddrinfo', 'socket.gethostbyname', 'socket.gethostbyaddr'}:
+        raise AssertionError('network resolution forbidden')
+    if event == 'socket.connect' and not isinstance(values[1], str):
+        raise AssertionError('network connection forbidden')
+    if event == 'subprocess.Popen':
+        command = values[1]
+        assert isinstance(command, (list, tuple)) and command
+        assert Path(command[0]).name in {'python', 'python3', 'fixture-python'}, command
+        if mode == 'failed-spawn' and '--native-intel-setup' in command:
+            raise FailedSpawn()
+    if event == 'os.exec' and role == 'driver' and values[0] == '/bin/sh':
+        assert values[1] == ['/bin/sh', str(root / 'run-f2.sh')], values
+        assert saved_env == dict(os.environ), 'exec adapter modified parent environment'
+        target_env = values[2]
+        assert not any(key in target_env for key in ('STRATA_WORKSPACE_LOCK_FD',
+            'STRATA_WORKSPACE_CONTEXT', 'STRATA_WORKSPACE_HELPER', 'STRATA_ACQUISITION_BOOTSTRAP'))
+        marker = json.loads(target_env['STRATA_NATIVE_INTEL_READER'])
+        actual = os.fstat(marker['fd']); expected = os.stat(Path(marker['state']) / '.source-publication.lock')
+        assert marker['fd'] >= 3 and (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+        assert os.get_inheritable(marker['fd'])
+        if mode == 'failed-exec': raise FailedExec()
+    if (skip_setup and event == 'exec' and values[0].co_name == '<module>'
+            and values[0].co_filename == str(root / 'setup.py')
+            and sys.argv[0] == str(root / 'setup.py')):
+        skip_setup = False
+        raise SetupBoundary()
+    if (role == 'server' and not recovery and event == 'open'
+            and isinstance(values[0], (str, bytes))
+            and os.fsdecode(values[0]).endswith('.shared-settings.json')):
+        recovery = True
+        gate('recovery')
+sys.addaudithook(audit)
+if role == 'server':
+    assert reader_marker is not None
+    marker = json.loads(reader_marker)
+    assert 'STRATA_NATIVE_INTEL_READER' not in os.environ
+    assert not any(key in os.environ for key in ('STRATA_WORKSPACE_LOCK_FD',
+        'STRATA_WORKSPACE_CONTEXT', 'STRATA_WORKSPACE_HELPER', 'STRATA_ACQUISITION_BOOTSTRAP'))
+    fd = marker['fd']; actual = os.fstat(fd)
+    expected = os.stat(Path(marker['state']) / '.source-publication.lock')
+    assert fd >= 3 and not os.get_inheritable(fd)
+    assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+    gate('after-exec-reader')
+class Imports(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if role == 'server' and fullname == 'serve.server': gate('imports')
+        if role == 'server' and fullname == 'serve.session_save_retry': gate('preload')
+        return None
+sys.meta_path.insert(0, Imports())
+previous = sys.getprofile()
+script_written = False
+ready_seen = False
+def profile(frame, event, result):
+    global script_written, saved_env, ready_seen
+    if previous is not None: previous(frame, event, result)
+    if (event == 'call' and frame.f_code.co_filename == str(root / 'sycl/setup_intel.py')
+            and frame.f_code.co_name == 'install'):
+        # Hardware/acquisition only: retain every native dispatch/parser/entry.
+        ns = frame.f_globals
+        ns['intel_gpus'] = lambda: [dict(name='fixture Arc', driver='xe', vram_gb=64, devid='fixture')]
+        ns['sycl_engine'] = lambda: (root / 'build-sycl' / 'strata', '')
+        ns['sycl_version'] = lambda: 'fixture'
+        ns['S'].ram_gb = lambda: 128.0
+        ns['S'].calibrate_config = lambda path: True
+        gate('driver-mutator')
+    if (role == 'driver' and event == 'call' and frame.f_code.co_filename == str(root / 'setup.py')
+            and frame.f_code.co_name == 'main' and not script_written and mode not in {'help', 'invalid'}):
+        script_written = True
+        import setup as S
+        script = S.write_run_script('f2', Path(os.environ['F2_CONFIG']), 0, False)
+        assert script == root / 'run-f2.sh'
+        assert S.start.__code__.co_filename == str(root / 'sycl/setup_intel.py')
+    if (event == 'call' and frame.f_code.co_filename == str(root / 'sycl/setup_intel.py')
+            and frame.f_code.co_name == 'start_sycl'):
+        saved_env = dict(os.environ)
+        gate('before-exec-mutator')
+    service = frame.f_globals.get('Service')
+    if (role == 'server' and event == 'call' and service is not None
+            and frame.f_code is service.__init__.__code__
+            and frame.f_code.co_filename == str(root / 'serve/server.py')):
+        gate('service')
+    if (role == 'server' and not ready_seen and event == 'c_call' and result is time.sleep
+            and frame.f_code.co_filename == str(root / 'serve/server.py')
+            and frame.f_code is getattr(frame.f_globals.get('_main'), '__code__', None)):
+        ready_seen = True
+        from strata_native_observer import _SERVER_DEFERRED_MODULES
+        assert all(name in sys.modules for name in _SERVER_DEFERRED_MODULES)
+        gate('ready')
+sys.setprofile(profile)
+def inert_engine(frame, event, value):
+    if (event == 'line' and frame.f_code.co_filename == str(root / 'serve/server.py')
+            and frame.f_code.co_name == '_main' and 'a' in frame.f_locals):
+        frame.f_locals['a'].engine = 'mock'  # hardware endpoint, not a replacement parser/server
+    return inert_engine
+sys.settrace(inert_engine)
+def setup_dispatch():
+    import setup as S
+    assert S.sycl_setup.__code__.co_filename == str(root / 'setup.py')
+    gate('before-driver-mutator')
+    if mode == 'independent':
+        independent = Path(os.environ['F2_AREA']) / 'independent' / 'setup.py'
+        independent.parent.mkdir()
+        independent.write_text("import os, sys\n" +
+            "assert not any(k in os.environ for k in ('STRATA_MANAGED_SOURCE', 'STRATA_WORKSPACE_LOCK_FD', 'STRATA_ACQUISITION_BOOTSTRAP', 'STRATA_NATIVE_INTEL_READER'))\n" +
+            "os.fstat(int(sys.argv[1]))\n")
+        with (independent.parent / 'foreign-fd').open('a') as foreign:
+            child = subprocess.Popen([os.environ['F2_REAL_PYTHON'], str(independent), str(foreign.fileno())],
+                pass_fds=(foreign.fileno(),))
+            assert child.wait(timeout=10) == 0
+        gate('independent-mutator')
+        return 0
+    args = ['--backend', 'sycl', '--yes', '--no-browser']
+    if mode == 'no-start': args += ['--calibrate', '--no-start']
+    elif mode == 'help': args += ['--help']
+    elif mode == 'invalid': args += ['--not-a-real-option']
+    if mode == 'script-serve':
+        import ast
+        node = next(n for n in ast.parse((root / 'setup.py').read_text()).body
+                    if isinstance(n, ast.FunctionDef) and n.name == 'sycl_setup')
+        namespace = dict(S.__dict__, __name__='__main__')
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(root / 'setup.py'), 'exec'), namespace)
+        return namespace['sycl_setup'](args)
+    return S.sycl_setup(args)
+def failed(kind):
+    fd = int(os.environ['STRATA_WORKSPACE_LOCK_FD'])
+    assert not os.get_inheritable(fd)
+    actual = os.fstat(fd); expected = os.stat(os.environ['F2_LOCK'])
+    assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+    if kind == 'exec': assert saved_env == dict(os.environ)
+    gate('failed-' + kind + '-mutator')
+    '''
+        shim = ('#!' + sys.executable + ' -S\n'
+            'import os, runpy, sys\n'
+            'sys.executable = os.path.abspath(__file__)\n'
+            'entry, args = sys.argv[1], sys.argv[2:]\n'
+            'sys.argv = [entry, *args]\n'
+            'import site\n'
+            'managed = os.environ.pop("STRATA_MANAGED_SOURCE", None)\n'
+            'site.main()\n'
+            'if managed is not None: os.environ["STRATA_MANAGED_SOURCE"] = managed\n'
+            'boot = runpy.run_path(os.environ["F2_BOOT"], init_globals={"fixture_entry": entry})\n'
+            'try:\n'
+            '    try: runpy.run_path(entry, run_name="__main__")\n'
+            '    except boot["SetupBoundary"]: sys.exit(boot["setup_dispatch"]())\n'
+            'except boot["FailedExec"]: boot["failed"]("exec")\n'
+            'except boot["FailedSpawn"]: boot["failed"]("spawn")\n')
+        for mode in ('serve', 'script-serve', 'no-start', 'help', 'invalid', 'failed-exec', 'failed-spawn', 'independent'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='s339-intel-', dir='/tmp') as temporary, ExitStack() as owned:
+                self.state = original_state / ('intel-' + mode)
+                root = self.prepare_cross_pin(self.old, overlay=False)
+                shutil.copytree(OLD_UPSTREAM_SOURCE / 'sycl', root / 'sycl',
+                                copy_function=shutil.copyfile, dirs_exist_ok=True)
+                # prepare_cross_pin must retain the complete frozen flat primary,
+                # including sycl/setup_intel.py and sycl/serve/server_intel.py.
+                fixture = Path(temporary)
+                boot = fixture / 'bootstrap.py'; boot.write_text(bootstrap)
+                python = root / '.venv/bin/python'; python.parent.mkdir(parents=True, exist_ok=True)
+                python.write_text(shim); python.chmod(0o700)
+                config = root / 'strata-f2.json'
+                config.write_text(json.dumps(dict(exe=str(root / 'build-sycl/strata'), args=[], backend='sycl',
+                    port=0, cwd=str(root), tokenizer=str(root / 'absent-tokenizer'),
+                    model_name='fixture', api_key='none', open_browser=False)))
+                config.with_name(config.stem + '.shared-settings.json').write_text('{}')
+                listener = owned.enter_context(socket.socket(socket.AF_UNIX))
+                gate_path = str(fixture / 'gate'); listener.bind(gate_path); listener.listen(8); listener.settimeout(45)
+                env = dict(self.env, PYTHONPATH=os.pathsep.join((str(WORKSPACE_LIB), str(root))),
+                    STRATA_MANAGED_SOURCE=str(root), F2_BOOT=str(boot), F2_ROOT=str(root), F2_MODE=mode,
+                    F2_GATE=gate_path, F2_CONFIG=str(config), F2_LOCK=str(self.state / '.source.lock'),
+                    F2_AREA=str(fixture), F2_REAL_PYTHON=sys.executable, PYTHONDONTWRITEBYTECODE='1',
+                    STRATA_UPDATE_CHECK='0', STRATA_RUNTIME_DIR=str(fixture / 'runtime'),
+                    STRATA_PROFILE_DIR=str(fixture / 'profiles'), XDG_CONFIG_HOME=str(fixture / 'config'),
+                    XDG_STATE_HOME=str(fixture / 'state'))
+                env.pop('STRATA_NO_ACQUIRE', None)
+                context = dict(state=str(self.state), revision=self.old, remote=str(self.repository), terminal_cli='strata.py')
+                module = self.workspace_module()
+                with module.workspace_lock(self.state) as (_, lock):
+                    process = subprocess.Popen([str(python), WORKSPACE, '--native-setup', str(root), '--backend', 'sycl'],
+                        env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()), STRATA_WORKSPACE_HELPER=WORKSPACE,
+                                 STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                        pass_fds=(lock.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, start_new_session=True)
+                def cleanup():
+                    try: os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                    process.communicate(timeout=10)
+                owned.callback(cleanup)
+                def assert_locks(mutator, reader):
+                    for filename, blocked in (('.source.lock', mutator), ('.source-publication.lock', reader)):
+                        with (self.state / filename).open('a') as contender:
+                            if blocked:
+                                self.assertRaises(BlockingIOError, fcntl.flock, contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            else:
+                                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                expected = (['before-driver-mutator', 'failed-spawn-mutator'] if mode == 'failed-spawn'
+                            else ['before-driver-mutator', 'driver-mutator'])
+                if mode == 'independent': expected = ['before-driver-mutator', 'independent-mutator']
+                if mode in {'serve', 'script-serve', 'failed-exec'}: expected += ['before-exec-mutator']
+                if mode == 'failed-exec': expected += ['failed-exec-mutator']
+                if mode in {'serve', 'script-serve'}: expected += ['after-exec-reader', 'imports', 'recovery', 'service', 'preload', 'ready']
+                phases = set()
+                while not set(expected) <= phases:
+                    try: peer = owned.enter_context(listener.accept()[0])
+                    except TimeoutError:
+                        if process.poll() is not None:
+                            out, err = process.communicate(timeout=10)
+                            self.fail(f'{mode}: rc={process.returncode} phases={phases}\n{out}\n{err}')
+                        raise
+                    peer.settimeout(45); payload = b''
+                    while not payload.endswith(b'\n'):
+                        chunk = peer.recv(4096); self.assertTrue(chunk, payload); payload += chunk
+                    event = json.loads(payload); phase = event['phase']; phases.add(phase)
+                    self.assertIn(phase, expected)
+                    assert_locks(mutator=phase.endswith('mutator'), reader=phase in
+                                 {'after-exec-reader', 'imports', 'recovery', 'service', 'preload'})
+                    if phase == 'ready':
+                        self.assertIsNone(process.poll(), 'setup wait ended while Intel service is alive')
+                        os.kill(event['pid'], 0)
+                        assert_locks(False, False)
+                    peer.sendall(b'g')
+                if mode not in {'serve', 'script-serve'}:
+                    out, err = process.communicate(timeout=45)
+                    self.assertEqual(process.returncode, 2 if mode == 'invalid' else 0, out + err)
+                    assert_locks(False, False)
+        self.state = original_state
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX legacy dup and standard descriptors')
+    def test_prepared_stdio_reservation_keeps_legacy_duplicates_and_existing_descriptors(self):
+        script = r'''
+import fcntl, importlib.util, json, os, signal, stat, subprocess, sys
+from pathlib import Path
+s=importlib.util.spec_from_file_location('workspace',sys.argv[1])
+w=importlib.util.module_from_spec(s);s.loader.exec_module(w)
+state=Path(sys.argv[2]); report=Path(sys.argv[3])
+state.mkdir()
+foreign=os.open(state/'foreign',os.O_CREAT|os.O_RDWR,0o600)
+identity=os.fstat(foreign)
+# Existing descriptors and Python streams must be untouched.
+streams=(sys.stdin,sys.stdout,sys.stderr)
+standard=[os.fstat(fd) for fd in (0,1,2)]
+w._reserve_standard_descriptors()
+assert streams==(sys.stdin,sys.stdout,sys.stderr)
+assert standard==[os.fstat(fd) for fd in (0,1,2)]
+for fd in (0,1,2):os.close(fd)
+process=None
+try:
+    with w.workspace_lock(state) as (_, acquisition):
+        w._reserve_standard_descriptors()
+        assert all(stat.S_ISCHR(os.fstat(fd).st_mode) for fd in (0,1,2))
+        with w.source_publication_lock(state,shared=True) as reader:
+            duplicated=os.dup(reader.fileno())  # The historical acquisition API's ordinary dup.
+            child=r"""import json,os,signal,sys
+from pathlib import Path
+fd=int(sys.argv[1]);expected=Path(sys.argv[2]).stat();held=os.fstat(fd)
+assert fd>=3 and (held.st_dev,held.st_ino)==(expected.st_dev,expected.st_ino)
+os.kill(os.getpid(),signal.SIGSTOP)
+os.close(fd)
+os.kill(os.getpid(),signal.SIGSTOP)
+"""
+            process=subprocess.Popen([sys.executable,'-S','-c',child,str(duplicated),str(state/'.source-publication.lock')],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,pass_fds=(duplicated,))
+            os.close(duplicated)
+            pid,status=os.waitpid(process.pid,os.WUNTRACED)
+            assert pid==process.pid and os.WIFSTOPPED(status)
+    with (state/'.source-publication.lock').open('a') as contender:
+        try:fcntl.flock(contender,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:pass
+        else:raise AssertionError('historical reader disappeared after producer return')
+    os.kill(process.pid,signal.SIGCONT)
+    pid,status=os.waitpid(process.pid,os.WUNTRACED)
+    assert pid==process.pid and os.WIFSTOPPED(status)
+    with (state/'.source-publication.lock').open('a') as contender:
+        fcntl.flock(contender,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    os.kill(process.pid,signal.SIGCONT)
+    output=process.communicate(timeout=10)[0]
+    assert process.returncode==0,output
+    assert os.fstat(foreign)==identity
+    report.write_text('legacy reader identity and publication lifetime preserved')
+finally:
+    if process is not None and process.poll() is None:
+        os.kill(process.pid,signal.SIGCONT);process.kill();process.wait(timeout=10)
+    os.close(foreign)
+'''
+        state = self.base / 'legacy-stdio'
+        report = self.base / 'legacy-stdio-result'
+        process = subprocess.run([sys.executable, '-B', '-c', script, WORKSPACE, str(state), str(report)],
+                                 env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertTrue(report.is_file())
+
+
 unittest.main()
