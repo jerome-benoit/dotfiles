@@ -695,6 +695,41 @@ def native_setup(root, args, *, acquisition=None):
     runpy.run_path(str(root / "setup.py"), run_name="__main__")
 
 
+def retained_engine_update_args(root, args=()):
+    """Negotiate a proven native update guard, never infer --build semantics from a source revision."""
+    source = ast.parse((Path(root) / "setup.py").read_text())
+    update = next((node for node in source.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "update_install"), None)
+    parser = next((node for node in source.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "main"), None)
+    if update is not None and parser is not None and [arg.arg for arg in update.args.args] == ["have", "a"]:
+        calls = [node for node in ast.walk(update) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "update_installed_engine"]
+        for flag, attribute in (("--keep-installed-engine", "keep_installed_engine"), ("--build", "build")):
+            accepted = any(
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "ap"
+                and node.func.attr == "add_argument"
+                and any(isinstance(arg, ast.Constant) and arg.value == flag for arg in node.args)
+                and any(keyword.arg == "action" and isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value == "store_true" for keyword in node.keywords)
+                for node in ast.walk(parser)
+            )
+            guarded = any(
+                isinstance(node, ast.If) and isinstance(node.test, ast.UnaryOp)
+                and isinstance(node.test.op, ast.Not) and isinstance(node.test.operand, ast.Attribute)
+                and isinstance(node.test.operand.value, ast.Name) and node.test.operand.value.id == "a"
+                and node.test.operand.attr == attribute and not node.orelse
+                and len(node.body) == 1 and isinstance(node.body[0], ast.Expr)
+                and len(calls) == 1 and node.body[0].value is calls[0]
+                for node in update.body
+            )
+            if accepted and guarded:
+                return [*args, flag]
+    raise RuntimeError("Pinned setup has no proven installed-engine preservation capability; "
+                       "source and approved engines remain available, but automatic runtime repair was refused")
+
+
 def prepare_launch_runtime(root, revision, lock_fd):
     """Refresh source/Python once per pin, leaving engine and model acquisition to native launch."""
     receipt = repository_root(root) / ".git" / SOURCE_REFRESH_REVISION
@@ -702,10 +737,11 @@ def prepare_launch_runtime(root, revision, lock_fd):
     status = runtime_status(root, lock_fd, mode="--python-status")
     if current and status.returncode == 0:
         return
+    rollbacks = engine_rollbacks(root, revision)
+    update_args = retained_engine_update_args(root) if rollbacks else []
     receipt.unlink(missing_ok=True)
     (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-    rollbacks = engine_rollbacks(root, revision)
-    command, env = setup_command(root, ["--update", *(["--build"] if rollbacks else [])])
+    command, env = setup_command(root, ["--update", *update_args])
     subprocess.run(command, check=True, stdout=sys.stderr, pass_fds=(lock_fd,), env=env)
     status = runtime_status(root, lock_fd, mode="--python-status")
     if status.returncode:
@@ -739,6 +775,7 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
         rollback_path.unlink(missing_ok=True)
         receipt.unlink(missing_ok=True)
     rollbacks = engine_rollbacks(root, revision) if not force else {}
+    repair_args = retained_engine_update_args(root, args) if rollbacks else args
     current = marker.exists() and marker.read_text().strip() == revision
     status = None
     if not force and (current or rollbacks):
@@ -750,8 +787,7 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
     if not rollbacks:
         rollback_path.unlink(missing_ok=True)
     if force or not current or status is None or status.returncode:
-        # Upstream --build preserves approved rolled-back engines while repairing Python and configs.
-        repair_args = [*args, "--build"] if rollbacks else args
+        # Preserve approved engines only through a native parser and updater guard with proven semantics.
         command, env = setup_command(root, ["--update", *repair_args])
         subprocess.run(command, check=True, stdout=sys.stderr, pass_fds=(lock_fd,), env=env)
         status = runtime_status(root, lock_fd, configs, reconcile=True)
@@ -844,10 +880,41 @@ def bootstrap_runtime(state, root, lock_fd):
     return python
 
 
+def native_settings_migration(root):
+    """Load the selected pin's native one-time migration without running its setup or hardware probes."""
+    path = Path(root) / "strata_cli/ram_budget_move.py"
+    if not path.is_file():
+        return None
+    from importlib import util
+    spec = util.spec_from_file_location("strata_workspace_settings_migration", path)
+    migration = util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    if (not isinstance(getattr(migration, "MARK", None), str)
+            or not callable(getattr(migration, "_folders", None))
+            or not callable(getattr(migration, "run", None))):
+        raise RuntimeError("Pinned native settings migration has no read-only pending contract")
+    return migration
+
+
+def native_settings_migration_pending(root):
+    """Use native install discovery and its real marker; observers never import setup to decide readiness."""
+    migration = native_settings_migration(root)
+    if migration is None:
+        return False
+    try:
+        return any(Path(folder).is_dir() and not (Path(folder) / migration.MARK).exists()
+                   for folder in migration._folders())
+    except Exception:
+        # Native entry treats discovery failures as best-effort; make that attempt under acquisition.
+        return True
+
+
 def observer_probe(root, args):
     """Use the real parser and UI constructor in an isolated interpreter, never a stale import cache."""
     managed_state.enable_source(root)
     sys.path.insert(0, str(root))
+    if native_settings_migration_pending(root):
+        return 72
     from strata_control import acquisition
     with acquisition.source_observation():
         a = terminal_args(root, args)
@@ -865,12 +932,15 @@ def observer_probe(root, args):
     return 73
 
 
-def exec_observer(root, python, args, lock, *, state, native=False):
+def exec_observer(root, python, args, lock, *, state, native=False, keep_acquisition=False):
     managed_state.enable_source(root)
-    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
-                "STRATA_ACQUISITION_BOOTSTRAP"):
-        os.environ.pop(key, None)
-    if args[:1] == ["monitor"]:
+    if keep_acquisition:
+        os.set_inheritable(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), True)
+    else:
+        for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
+                    "STRATA_ACQUISITION_BOOTSTRAP"):
+            os.environ.pop(key, None)
+    if args[:1] == ["monitor"] and not keep_acquisition:
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
         if native:
             os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
@@ -1099,7 +1169,17 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         root = terminal_root(repository)
         revision = context["revision"]
         managed_state.enable_source(root)
-        if not managed_source_hooks(root):
+        # Native migration discovers installs through this pin's lazily imported packages.
+        sys.path.insert(0, str(root))
+        managed = managed_source_hooks(root)
+        if managed or managed_setup:
+            migration = native_settings_migration(root)
+            if migration is not None:
+                try:
+                    migration.run()
+                except Exception:
+                    pass  # Match the native entry's best-effort migration policy.
+        if not managed:
             # Execute this pin's native CLI when its accepted source lacks managed APIs.
             if managed_setup:
                 return native_setup(root, args, acquisition=lock)
@@ -1113,8 +1193,11 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
             from strata_native_observer import acquisition_action
             if not acquisition_action(a):
                 with source_publication_lock(state, shared=True) as source_lock:
-                    lock.close()
-                    exec_observer(root, python, args, source_lock, state=state, native=True)
+                    pending = native_settings_migration_pending(root)
+                    if not pending:
+                        lock.close()
+                    exec_observer(root, python, args, source_lock, state=state, native=True,
+                                  keep_acquisition=pending)
             os.set_inheritable(lock.fileno(), True)
             os.execv(str(python), [str(python), str(Path(__file__).resolve()),
                                   "--native-active", str(root), TERMINAL_CLI, *args])
@@ -1136,8 +1219,10 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         if passive_action(a):
             with source_publication_lock(state, shared=True) as source_lock:
                 # Close the owning object, not its raw descriptor; context cleanup stays idempotent.
-                lock.close()
-                exec_observer(root, python, args, source_lock, state=state)
+                pending = native_settings_migration_pending(root)
+                if not pending:
+                    lock.close()
+                exec_observer(root, python, args, source_lock, state=state, keep_acquisition=pending)
         os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
 
 
@@ -1179,6 +1264,9 @@ if __name__ == "__main__":
             from strata_native_observer import probe
             root = Path(sys.argv[2]).resolve()
             managed_state.enable_source(root)
+            sys.path.insert(0, str(root))
+            if native_settings_migration_pending(root):
+                sys.exit(72)
             sys.exit(73 if passive_action(probe(root, sys.argv[3], sys.argv[4:])) else 72)
         elif sys.argv[1] == "--native-observer":
             from strata_native_observer import run

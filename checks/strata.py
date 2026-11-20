@@ -24,6 +24,7 @@ UPSTREAM = str(UPSTREAM_SOURCE / "terminal")
 LAUNCHERS = json.loads(Path(sys.argv.pop(1)).read_text())
 SOURCE_PATCH = str(Path(sys.argv.pop(1)).resolve())
 OLD_UPSTREAM_SOURCE = Path(sys.argv.pop(1)).resolve()
+PREVIOUS_UPSTREAM_SOURCE = Path(sys.argv.pop(1)).resolve()
 WORKSPACE_LIB = Path(WORKSPACE).parent / "strata-managed"
 RUNNER = """
 import importlib.util, pathlib, subprocess, sys
@@ -1988,13 +1989,21 @@ for reverse in (False, True):
         root = self.prepare(self.old)
         repository = root.parent
         retained = self.make_local_runtime(repository)
+        source_helper = repository / "engine/sycl/serve/strata-sycl.sh"
+        self.assertTrue(source_helper.is_file())
+        source_bytes = source_helper.read_bytes()
+        source_identity = (source_helper.stat().st_dev, source_helper.stat().st_ino)
         config = repository / "strata-layout.json"
         original = {"exe": str(repository / "engine/strata"), "cwd": str(repository),
                     "args": ["--native", str(repository / "models/model.gguf")],
-                    "helper": str(repository / "sycl/serve/strata-sycl.sh"), "custom": "preserved"}
+                    "tokenizer": str(repository / "packs/tokenizer"),
+                    "helper": str(source_helper), "runtime_helper": str(repository / "packs/helpers/reader.py"),
+                    "unowned_helper": str(repository / "sycl/serve/strata-sycl.sh"), "custom": "preserved"}
         config.write_text(json.dumps(original))
         paths = {"engine/strata": b"current payload", "engine/.previous/strata": b"previous payload",
-                 "models/model.gguf": b"model", "build/user-cache": b"cache"}
+                 "models/model.gguf": b"model", "build/user-cache": b"cache",
+                 "packs/helpers/reader.py": b"runtime helper", "packs/tokenizer/vocab.json": b"{}\n",
+                 "ram-budget-0217.done": b"native migration completed\n"}
         identity = {}
         for name, data in paths.items():
             path = repository / name
@@ -2013,7 +2022,13 @@ for reverse in (False, True):
         moved = json.loads((root / config.name).read_text())
         self.assertEqual(moved["exe"], str(root / "engine/strata"))
         self.assertEqual(moved["cwd"], str(root))
-        self.assertEqual(moved["helper"], str(repository / "engine/sycl/serve/strata-sycl.sh"))
+        # This same-pin payload migration never moves the already-selected engine source tree.
+        self.assertEqual(moved["helper"], str(source_helper))
+        self.assertEqual(moved["runtime_helper"], str(root / "packs/helpers/reader.py"))
+        self.assertEqual(moved["tokenizer"], str(root / "packs/tokenizer"))
+        self.assertEqual(moved["unowned_helper"], original["unowned_helper"])
+        self.assertEqual(source_helper.read_bytes(), source_bytes)
+        self.assertEqual((source_helper.stat().st_dev, source_helper.stat().st_ino), source_identity)
         self.run_source_script(root, """
 import json, os
 import setup
@@ -2023,6 +2038,8 @@ strata_managed_state.migrate_layout(setup.ROOT.parent, reverse=True)
 """)
         self.assertEqual(json.loads(config.read_text()), original)
         self.assert_local_runtime(repository, retained)
+        self.assertEqual(source_helper.read_bytes(), source_bytes)
+        self.assertEqual((source_helper.stat().st_dev, source_helper.stat().st_ino), source_identity)
         for name, data in paths.items():
             path = repository / name
             self.assertEqual(path.read_bytes(), data)
@@ -3293,6 +3310,272 @@ for reverse in (False, True):
         self.prepare_cross_pin(self.old)
         self.assertFalse(approval.exists(), "accepted source transition retained an approval for the old namespace")
 
+    def test_native_completion_uses_published_parser_without_runtime_bootstrap(self):
+        root = self.prepare(self.new)
+        for shell in ("bash", "zsh", "fish"):
+            with self.subTest(shell=shell):
+                result = subprocess.run(self.command(self.new) + ["run", "complete", "--shell", shell],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("strata", result.stdout)
+                self.assertIn("launch", result.stdout)
+                self.assertIn("source", result.stdout)
+                self.assertFalse((root / ".venv").exists())
+                self.assertFalse((root / "engine-feed").exists())
+                self.assertFalse((root.parent / ".git/strata-runtime-revision").exists())
+
+    def test_native_settings_migration_serializes_pending_help_and_all_install_targets(self):
+        # Exercise the real Terminal entry and parser, not a cli.main-only fixture or Darwin's Metal installer.
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        root = self.prepare(self.new)
+        external = self.base / "Strata-external"
+        external.mkdir()
+        for folder in (root, external):
+            (folder / "strata-migration.json").write_text(json.dumps({"exe": "unused", "args": [], "tokenizer": "unused"}))
+        settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps({"installs": [str(external)]}))
+        mark_name = "ram-budget-0217.done"
+        markers = [folder / mark_name for folder in (root, external)]
+        writer_log = self.base / "native-migration-writers"
+        native_errors = self.base / "native-migration-errors"
+        native_runs = self.base / "native-migration-runs"
+        migration = root / "strata_cli/ram_budget_move.py"
+        source = migration.read_text()
+        anchor = "            (folder / MARK).write_text("
+        self.assertEqual(source.count(anchor), 1)
+        guard = r"""
+
+def _assert_managed_writer(folder):
+    import fcntl, os
+    context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
+    descriptor = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+    expected = Path(context["state"]) / ".source.lock"
+    held, wanted = os.fstat(descriptor), expected.stat()
+    assert (held.st_dev, held.st_ino) == (wanted.st_dev, wanted.st_ino)
+    with expected.open("a") as competing:
+        try:
+            fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            raise AssertionError("native migration writer has no acquisition lease")
+    with Path(WRITER_LOG).open("a") as log:
+        log.write(str(folder) + "\n")
+
+def _record_native_failure(folder):
+    import traceback
+    with Path(NATIVE_ERRORS).open("a") as log:
+        log.write(str(folder) + "\n" + traceback.format_exc())
+
+def _record_native_run():
+    import os
+    with Path(NATIVE_RUNS).open("a") as log:
+        log.write(json.dumps({"source": __file__, "entry": sys.argv[0],
+                              "lease": os.environ.get("STRATA_WORKSPACE_LOCK_FD")}) + "\n")
+""".replace("WRITER_LOG", repr(str(writer_log))).replace("NATIVE_ERRORS", repr(str(native_errors))).replace("NATIVE_RUNS", repr(str(native_runs)))
+        failure_handler = "        except Exception:                              # noqa: BLE001 - never a reason for the command to fail\n"
+        run_anchor = '    say = say or (lambda text: sys.stderr.write(text + "\\n"))\n'
+        self.assertEqual(source.count(failure_handler), 1)
+        self.assertEqual(source.count(run_anchor), 1)
+        migration.write_text(source.replace(anchor, "            _assert_managed_writer(folder)\n" + anchor).replace(
+            run_anchor, "    _record_native_run()\n" + run_anchor).replace(
+            failure_handler, failure_handler + "            _record_native_failure(folder)\n") + guard)
+        discovery = r"""
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+root = Path(sys.argv[2])
+module.managed_state.enable_source(root)
+sys.path.insert(0, str(root))
+migration = module.native_settings_migration(root)
+assert migration is not None
+print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
+                  "managed": module.managed_source_hooks(root)}))
+"""
+        result = subprocess.run([sys.executable, "-c", discovery, WORKSPACE, str(root)], env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        discovered = json.loads(result.stdout)
+        self.assertEqual(set(discovered["folders"]), {str(root), str(external)})
+        self.assertTrue(discovered["managed"], "fixture did not accept the source/parser overlay")
+        for mode in ("--observer-probe", "--native-observer-probe"):
+            args = [sys.executable, WORKSPACE, mode, str(root)]
+            if mode == "--native-observer-probe":
+                args.append("strata.py")
+            result = subprocess.run([*args, "--help"], env=self.env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 72, result.stderr + result.stdout)
+            self.assertFalse(writer_log.exists())
+            self.assertFalse(native_runs.exists(), "shared-only probe entered the native migration")
+            self.assertTrue(all(not marker.exists() for marker in markers))
+        for args in (("--help",), ("source", "--help")):
+            for marker in markers:
+                marker.unlink(missing_ok=True)
+            writer_log.unlink(missing_ok=True)
+            native_runs.unlink(missing_ok=True)
+            with (self.state / ".source.lock").open("a") as lease:
+                fcntl.flock(lease, fcntl.LOCK_EX)
+                process = subprocess.Popen(self.command(self.new) + ["run", *args], env=self.env,
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        process.wait(timeout=0.2)
+                    self.assertTrue(all(not marker.exists() for marker in markers))
+                finally:
+                    fcntl.flock(lease, fcntl.LOCK_UN)
+                output, errors = process.communicate(timeout=30)
+            self.assertEqual(process.returncode, 0, errors + output)
+            self.assertTrue(native_runs.is_file(), f"{args}: the native pre-parser migration was not entered; {errors}{output}")
+            runs = [json.loads(line) for line in native_runs.read_text().splitlines()]
+            self.assertEqual(len(runs), 1, f"{args}: {runs}")
+            self.assertEqual(runs[0]["source"], str(migration))
+            self.assertIsNotNone(runs[0]["lease"], f"{args}: native migration was entered without acquisition")
+            self.assertFalse(native_errors.exists(),
+                             f"{args}: " + (native_errors.read_text() if native_errors.exists() else ""))
+            self.assertTrue(writer_log.is_file(), f"{args}: native writer was not reached; {errors}{output}")
+            self.assertEqual(set(writer_log.read_text().splitlines()), {str(root), str(external)})
+            self.assertTrue(all(marker.is_file() for marker in markers))
+            self.assertFalse((root / ".venv").exists(), "help bootstrapped Python")
+            writer_log.unlink()
+            result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertFalse(writer_log.exists(), "completed migration was repeated")
+
+    def test_native_failed_migration_keeps_writer_lease_until_real_parser_dispatch(self):
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        root = Path(subprocess.check_output(self.command(self.new), env=dict(self.env, TEST_SOURCE_PATCH=""), text=True).strip())
+        self.env["TEST_SOURCE_PATCH"] = ""
+        self.env["STRATA_INSTALL_DIR"] = str(root)
+        runtime_dir = self.base / "native-runtime"
+        runtime_dir.mkdir(mode=0o700)
+        self.env["STRATA_RUNTIME_DIR"] = str(runtime_dir)
+        (root / "strata-migration.json").write_text(json.dumps({"exe": "unused", "args": [], "tokenizer": "unused"}))
+        witness = self.base / "native-dispatch-free"
+        attempts = self.base / "native-migration-attempts"
+        migration = root / "strata_cli/ram_budget_move.py"
+        source = migration.read_text()
+        anchor = "            (folder / MARK).write_text("
+        self.assertEqual(source.count(anchor), 1)
+        guard = r"""
+
+def _refuse_native_mark():
+    import fcntl, os
+    with Path(ATTEMPTS).open("a") as log:
+        log.write("leased\n" if "STRATA_WORKSPACE_LOCK_FD" in os.environ else "unleased\n")
+    expected = Path(json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])["state"]) / ".source.lock"
+    descriptor = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+    held, wanted = os.fstat(descriptor), expected.stat()
+    assert (held.st_dev, held.st_ino) == (wanted.st_dev, wanted.st_ino)
+    with expected.open("a") as competing:
+        try:
+            fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise OSError("controlled native marker refusal")
+        raise AssertionError("migration ran without its mutation lease")
+""".replace("ATTEMPTS", repr(str(attempts)))
+        migration.write_text(source.replace(anchor, "            _refuse_native_mark()\n" + anchor) + guard)
+        cli = root / "strata_cli/cli.py"
+        source = cli.read_text()
+        anchor = "def _run(a: argparse.Namespace) -> int:\n"
+        self.assertEqual(source.count(anchor), 1)
+        dispatch = r"""    import fcntl, os
+    from pathlib import Path
+    assert "STRATA_WORKSPACE_LOCK_FD" not in os.environ
+    with Path(LOCK_PATH).open("a") as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    Path(WITNESS).write_text("native dispatch released acquisition")
+""".replace("LOCK_PATH", repr(str(self.state / ".source.lock"))).replace("WITNESS", repr(str(witness)))
+        cli.write_text(source.replace(anchor, anchor + dispatch))
+        # An absent local owner gives a native stop plan without contacting any API server.
+        result = subprocess.run(self.command(self.new) + ["run", "runtime", "stop", "--profile", "migration-probe",
+                                                        "--plan", "--output", "json"], env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout), {"schema_version": 1, "ok": False, "profile": "migration-probe",
+                                                   "state": "stopped", "error": "runtime_not_owned", "exit_code": 6})
+        self.assertTrue(witness.is_file(), result.stderr + result.stdout)
+        self.assertEqual(attempts.read_text().splitlines(), ["leased", "leased"])
+        self.assertFalse((root / "ram-budget-0217.done").exists())
+        self.assert_workspace_unlocked()
+
+    def test_native_drafter_part_keeps_shared_directory_and_disk_contract(self):
+        root = self.prepare(self.new)
+        script = "import sys\nsys.path.insert(0, " + repr(str(Path(UPSTREAM) / "tests/terminal")) + ")\n" + r'''
+from pathlib import Path
+from unittest.mock import patch
+from launch_support import Home, HW_12
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+from strata_control import drafting
+
+with Home() as isolated:
+    data = isolated.base / "drafter-data"
+    catalog = Catalog(root=Path.cwd(), hardware=HW_12)
+    runner = Runner(LaunchSettings(family="qwen", model="IQ3_XXS", data_dir=str(data),
+                                  vision="off", mtp="off", drafting="dflash2", context=32768), catalog=catalog)
+    directories = catalog.launch_directories("qwen", "IQ3_XXS", data_dir=str(data))
+    inputs = runner.drafting_inputs
+    selected = []
+    def observe(config, *, directories=None):
+        selected.append(directories)
+        return inputs(config, directories=directories)
+    with patch.object(runner, "installed_state", return_value=(None, None)), \
+         patch.object(runner, "drafting_inputs", side_effect=observe), \
+         patch.object(runner, "drafting_signals", return_value={"args": []}), \
+         patch.object(drafting, "hardware_for", return_value=("cuda", [])), \
+         patch.object(drafting, "needs_pack", return_value=True), \
+         patch.object(drafting, "tuned_applies", return_value=False), \
+         patch.object(drafting, "installed_engine_exe", return_value=None), \
+         patch.object(catalog, "launch_directories", side_effect=AssertionError("forecast reselected directories")):
+        part = runner.drafter_part(directories=directories)
+    assert selected == [directories], selected
+    assert part["data_dir"] == str(data.resolve()), part
+    assert part["gb"] == drafting.DOWNLOAD_GB and not part["tuned"], part
+    assert part["disk_gb"] == round((drafting.PACK_BYTES + drafting.CONVERTED_BYTES) / 1e9, 2), part
+'''
+        self.run_source_script(root, script)
+
+    def test_renamed_reader_forecast_is_silent_and_acquisition_owns_its_mark(self):
+        root = self.prepare(self.new)
+        self.run_source_script(root, r'''
+from contextlib import redirect_stdout
+import hashlib
+import io
+from pathlib import Path
+from unittest.mock import patch
+import setup
+
+own = Path.cwd() / "own-model-files"
+own.mkdir()
+renamed = own / "renamed-reader.gguf"
+content = b"small pinned picture reader"
+renamed.write_bytes(content)
+size, digest = len(content), hashlib.sha256(content).hexdigest()
+mark = setup._alt_reader_mark(renamed)
+assert mark is not None and not mark.exists()
+hashed = []
+native_hash = setup._hash_file
+def observe(path, size, *, progress=True):
+    hashed.append(progress)
+    return native_hash(path, size, progress=progress)
+quiet = io.StringIO()
+with patch.object(setup, "_hash_file", side_effect=observe), redirect_stdout(quiet):
+    selected = setup.own_reader_by_content(own, "pinned-reader.gguf", size, digest, start=False)
+assert selected == ("near", renamed), selected
+assert quiet.getvalue() == "" and hashed == [False], (quiet.getvalue(), hashed)
+assert not mark.exists() and list(own.iterdir()) == [renamed]
+with patch.object(setup, "_hash_file", side_effect=observe):
+    selected = setup.resolve_reader("pinned-reader.gguf", Path.cwd() / "missing-reader.gguf",
+                                    Path.cwd() / "models", [], own, size, digest)
+assert selected == ("renamed", renamed), selected
+assert hashed == [False, True] and mark.is_file(), hashed
+assert renamed.read_bytes() == content and list(own.iterdir()) == [renamed]
+''')
+
     def test_public_forecast_shares_hash_evidence_and_revalidates_changed_bytes(self):
         root = self.prepare(self.new)
         script = "import sys\nsys.path.insert(0, " + repr(str(Path(UPSTREAM) / "tests/terminal")) + ")\n" + r'''
@@ -4246,7 +4529,7 @@ _fixture_subprocess.Popen = _fixture_popen
             self.make_runtime_source(root)
             (root / "setup-fixture.py").write_text(
                 "import setup,sys\nsetup.pip_install = lambda *a, **kw: None\n"
-                "setup.update_installed_engine = lambda *a: None\nsys.exit(setup.main())\n")
+                "setup.update_installed_engine = lambda *a, **kw: None\nsys.exit(setup.main())\n")
 
     def test_terminal_preserves_relative_config_and_upstream_version_action(self):
         root = self.prepare(self.old)
@@ -5630,7 +5913,7 @@ def update(have, a):
     assert external_probe.VALUE == "external runtime"
     return result
 setup.update_install = update
-setup.update_installed_engine = lambda url: setup.install_unpacked(Path(url), setup.engine_dir())
+setup.update_installed_engine = lambda url, toolkit=None, rebuild=False: setup.install_unpacked(Path(url), setup.engine_dir())
 original_upgrade = setup.upgrade_config
 def upgrade(path, cfg):
     cfg = original_upgrade(path, cfg)
@@ -6406,15 +6689,16 @@ def update(have, a):
     attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
     return original_update(have, a)
 setup.update_install = update
-def install(url):
-    candidate = setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
+def install(url, toolkit=None, rebuild=False):
+    candidate = setup.ROOT / "engine/compiled" if rebuild else \
+        setup.ROOT / "engine/default" if url == setup.PREBUILT_URL else Path(url)
     if (candidate / "strata").exists():
         setup.install_unpacked(candidate, setup.engine_dir())
 setup.update_installed_engine = install
 sys.exit(setup.main())
 ''')
         self.make_runtime_model(root)
-        for name, version in ((".previous", "A"), ("default", "C"), ("custom", "D")):
+        for name, version in ((".previous", "A"), ("default", "C"), ("custom", "D"), ("compiled", "L")):
             folder = root / "engine" / name
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "strata").write_text(version)
@@ -6491,6 +6775,33 @@ sys.exit(setup.main())''',
                 self.assertFalse(data.exists())
                 self.assertFalse(models.exists())
 
+    def test_retained_engine_update_negotiates_real_parser_and_guard_before_mutation(self):
+        spec = importlib.util.spec_from_file_location("retained_engine_workspace", WORKSPACE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        root = self.prepare(self.new)
+        self.assertEqual(module.retained_engine_update_args(root), ["--keep-installed-engine"])
+        for source in (OLD_UPSTREAM_SOURCE, PREVIOUS_UPSTREAM_SOURCE):
+            native = source / "terminal" if (source / "terminal/setup.py").is_file() else source
+            self.assertEqual(module.retained_engine_update_args(native, ["--check"]), ["--check", "--build"])
+        with self.assertRaisesRegex(RuntimeError, "no proven installed-engine preservation"):
+            module.retained_engine_update_args(UPSTREAM_SOURCE / "terminal")
+        setup = root / "setup.py"
+        setup.write_text(setup.read_text().replace("if not a.keep_installed_engine:", "if a.keep_installed_engine:"))
+        markers = [root.parent / ".git" / name for name in
+                   ("strata-runtime-revision", "strata-source-refresh-revision", "strata-engine-rollback.json")]
+        for path in markers:
+            path.write_bytes(b"original receipt\n")
+        before = {path: path.read_bytes() for path in markers}
+        module.engine_rollbacks = lambda *args: {"engine": {}}
+        module.runtime_status = lambda *args, **kwargs: subprocess.CompletedProcess([], 1, "", "pending")
+        for repair in (lambda: module.refresh_runtime(root, self.new, -1, []),
+                       lambda: module.prepare_launch_runtime(root, self.new, -1)):
+            with self.assertRaisesRegex(RuntimeError, "no proven installed-engine preservation"):
+                repair()
+            self.assertEqual({path: path.read_bytes() for path in markers}, before)
+        self.assertEqual(module.retained_engine_update_args(PREVIOUS_UPSTREAM_SOURCE / "terminal"), ["--build"])
+
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_refresh_respects_engine_build_and_custom_source(self):
         state = self.state
@@ -6508,8 +6819,8 @@ sys.exit(setup.main())''',
                 result = subprocess.run(self.command(self.new) + ["run", "source", *args], env=self.env,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual((root / "engine/strata").read_text(), "B" if build else "D")
-                self.assertEqual((root / "engine/.previous/strata").read_text(), "A" if build else "B")
+                self.assertEqual((root / "engine/strata").read_text(), "L" if build else "D")
+                self.assertEqual((root / "engine/.previous/strata").read_text(), "B")
                 self.assertEqual((root / "engine/default/strata").read_text(), "C")
                 self.assertEqual((root.parent / ".git/strata-runtime-revision").read_text().strip(), self.new)
                 if not build:
@@ -6924,6 +7235,8 @@ PY
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI; Darwin dispatches to Metal")
     def test_runtime_validation_rejects_missing_components_and_false_existing_certificate(self):
         root = self.make_updater_workspace()
+        # This failure path models a native build that cannot repair the missing engine.
+        shutil.rmtree(root / "engine/compiled")
         marker = root.parent / ".git/strata-runtime-revision"
         refresh = [sys.executable, "-c", RUNNER, WORKSPACE, str(root), self.new, "", "refresh", "--build"]
         for missing in (root / "engine/strata", root / "tokenizer/vocab.json"):
@@ -7198,6 +7511,24 @@ def record(path, digest):
 ec._hash_settled = record
 ec.verify(component, executable="strata-split-2")
 assert hashed == ["strata", "strata-split-2"], hashed
+hashed.clear()
+ec.verify(component)
+assert hashed == [], "native quick listing lost its process-local hash cache"
+ec.verify(component, executable="strata-split-2")
+assert hashed == ["strata", "strata-split-2"], "explicit selection trusted the listing cache"
+main = root / "engine/strata"
+content, identity = main.read_bytes(), main.stat()
+try:
+    main.write_bytes(content[:-1] + b"X")
+    __import__("os").utime(main, ns=(identity.st_atime_ns, identity.st_mtime_ns))
+    try:
+        ec.verify(component, executable="strata-split-2")
+    except ec.IntegrityProblem:
+        pass
+    else:
+        raise AssertionError("selected validation accepted changed bytes with the cached size and mtime")
+finally:
+    main.write_bytes(content)
 hashed.clear()
 ec.verify(component, full=True)
 assert hashed == ["strata", "strata-split-2", "weights.bin"], hashed
@@ -8042,7 +8373,7 @@ raise SystemExit(cli.main())
 import json, sys
 from pathlib import Path
 import setup
-def engine(url):
+def engine(url, toolkit=None, rebuild=False):
     attempts = setup.ROOT / "update-attempts"
     attempts.write_text(str(int(attempts.read_text()) + 1) if attempts.exists() else "1")
     if (setup.ROOT / "allow-update").exists():

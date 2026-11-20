@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
+# base: Niko1221/Strata 3142b66b96e9c0e775e30f620b11b191a1427c2a
 # prerequisites: strata-setup-directory-roles.patch
 # intent: validate unmarked finals once; account remaining downloads and preparation by destination filesystem.
 # upstream: https://github.com/Niko1221/Strata/pull/4989 related destination accounting; open, unmerged; native chunk receipts and role destinations remain local consumers.
@@ -6,7 +6,7 @@
 diff --git a/terminal/setup.py b/terminal/setup.py
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
-@@ -2749,7 +2749,7 @@
+@@ -2780,7 +2780,7 @@
      return min(i * DL_CHUNK, total)
  
  
@@ -15,7 +15,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
      """The finished pieces of an earlier run.  <name>.part.chunks lists them; a .part without it comes from one stream
      (an older setup, or STRATA_DL_CONNECTIONS=1): its bytes are a run from the start, so those pieces are finished."""
      side = part.with_name(part.name + ".chunks")
-@@ -2766,13 +2766,15 @@
+@@ -2797,13 +2797,15 @@
                  return {i for i in done if min((i + 1) * DL_CHUNK, total) <= size}
 -        except (OSError, ValueError, TypeError, KeyError):
 +        except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -35,7 +35,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
          return set()
      return set(range(n)) if size >= total else set(range(size // DL_CHUNK))
  
-@@ -3695,6 +3697,87 @@
+@@ -3726,6 +3728,87 @@
          elif f[0] in ("dense", "ple", "embd"):
              out[f[0]] = p
      return out
@@ -123,7 +123,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -10866,11 +10949,16 @@
+@@ -11147,11 +11230,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)

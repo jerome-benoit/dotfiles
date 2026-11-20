@@ -21,7 +21,8 @@ import tempfile
 
 
 DIRECTORY = Path(__file__).resolve().parent
-LAYOUT_FILES = ("strata-*.json", "strata-*.log", "run-*.bat", "run-*.sh", "build-strata*.bat")
+LAYOUT_FILES = ("strata-*.json", "strata-*.log", "run-*.bat", "run-*.sh", "build-strata*.bat",
+                "ram-budget-0217.done")
 LAYOUT_DIRS = ("models", "packs", "mtp", "marks", ".strata-mcp", "engine-sycl", "engine-cuda12", ".rocm-win",
                ".venv", ".python", "python")
 TERMINAL_BUILDS = ("build", "build-cuda12", "build-hip", "build-vision-hip", "build-vision",

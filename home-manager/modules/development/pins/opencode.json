@@ -1,20 +1,21 @@
 {
   "hashes": {
-    "x86_64-linux": "sha256-T05vLavvt6Awt39N7rVWDB1J2eZfuR83Deeae3bLX+0=",
-    "aarch64-linux": "sha256-PK5fSWRgCuQIKzY/FfUUDw3j7zdNmAo+OBKHgOcADEY=",
-    "aarch64-darwin": "sha256-rfE2exy/kUEhYniH+7+GLIOnYW+UkTYsQI4NCfnR4Q0="
+    "x86_64-linux": "sha256-13jKbQ/VBul0gIchSqvUTuD5wcW3C9PH4ID+rEl/lwc=",
+    "aarch64-linux": "sha256-GlqH0oqLQKsNGSBh3zHqUiAZc4nTGBpyV0F8IbPMQC8=",
+    "aarch64-darwin": "sha256-AEmeOqgLkj9t1rAeD/mzauj/8rOhRs2pjYrN98w4ly8="
   },
   "provenance": {
-    "sourceRevision": "9bf497d3e866ba57de9af7c6e56715208d34cdb7",
-    "hashSourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
-    "reuse": {
-      "inputs": "All 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
+    "sourceRevision": "4122af020611976880692dfc1d203d9ab1ef7962",
+    "hashSourceRevision": "4122af020611976880692dfc1d203d9ab1ef7962",
+    "dependencyInputs": {
+      "inputs": "Dependency-resolution fingerprint: all 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
       "inputCount": 64,
-      "inputSha256": "9218b23dff649776ddac8b3594e9e79088cf9bc87701f3ed72c52ef5204a92a6",
+      "inputSha256": "606be335b9addadee914ccebc63bf17818f8e0d4864119abec23b0b58287c817",
       "inputHashMethod": "SHA-256 of sorted relative path bytes, NUL and the raw SHA-256 digest of each file."
     },
-    "nixpkgsRevision": "e21fec321d73511849707a7585e4ea155ee4bf40",
+    "nixpkgsRevision": "19cfded70b91ca0981373973c5b1efffdd4d6647",
     "bunVersion": "1.4.4",
+    "installCommand": "find . -type d -name node_modules -prune -exec cp -R --parents {} $out \\;",
     "buildSystems": {
       "x86_64-linux": "aarch64-linux",
       "aarch64-linux": "aarch64-linux",

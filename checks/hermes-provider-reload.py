@@ -398,19 +398,43 @@ def host_cleanup(fixture):
     return {"forced_host_cleanup": "complete"}
 
 
+def persistent_cleanup(fixture):
+    from hermes_constants import get_default_hermes_root
+
+    fixture.install(fixture.generation("one"))
+    profile = fixture.profile()
+    live = fixture.reloader._snapshot_root
+    assert live.parent == get_default_hermes_root() / "runtime" / "provider-plugins"
+    # Reclaim a crashed owner's immutable copy without touching a live owner.
+    dead = live.parent / (fixture.reloader._OWNED_PREFIX + "regression-dead")
+    dead.mkdir()
+    (dead / fixture.reloader._OWNER_LOCK).touch()
+    shutil.copytree(fixture.link.resolve(), dead / "review-provider")
+    another = fixture.reloader._new_root()
+    try:
+        assert not dead.exists(), "dead read-only snapshot was not reclaimed"
+        assert not any(path.name.startswith(fixture.reloader._REAPING_PREFIX) for path in live.parent.iterdir()), "reclaimed read-only claim remains"
+        assert live.is_dir(), "sweep reclaimed a live owner's root"
+        assert fixture.headers(profile) == "one"
+    finally:
+        fixture.reloader._release_root(another, None, os.getpid())
+    return {"persistent_readonly_reclaim": "complete"}
+
+
 def normal_exit(plugin):
-    with tempfile.TemporaryDirectory(prefix="provider-exit-home-") as temporary:
-        home = Path(temporary)
-        (home / "plugins").mkdir()
-        (home / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
-        (home / "config.yaml").write_text("model:\n  provider: nous\n")
-        os.environ.clear()
-        os.environ.update(HOME=str(home), HERMES_HOME=str(home), PATH=os.defpath,
-                          HERMES_DISABLE_LAZY_INSTALLS="1")
-        import providers
-        from providers import plugin_reload
-        assert providers.get_provider_profile("copilot") is not None
-        print(json.dumps({"snapshot_root": str(plugin_reload._snapshot_root)}))
+    # Persistent copies live below the account root; retain it until exit so
+    # fixture deletion cannot bypass the application's real cleanup hook.
+    home = Path(tempfile.mkdtemp(prefix="provider-exit-home-"))
+    (home / "plugins").mkdir()
+    (home / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
+    (home / "config.yaml").write_text("model:\n  provider: nous\n")
+    os.environ.clear()
+    os.environ.update(HOME=str(home), HERMES_HOME=str(home), PATH=os.defpath,
+                      HERMES_DISABLE_LAZY_INSTALLS="1")
+    import providers
+    from providers import plugin_reload
+    assert providers.get_provider_profile("copilot") is not None
+    print(json.dumps({"snapshot_root": str(plugin_reload._snapshot_root), "fixture_root": str(home)}))
     # No manual runtime cleanup: the outer process verifies the real atexit callback.
 
 
@@ -773,6 +797,8 @@ def run_case(case, plugin):
             result = hosted_overlap(fixture)
         elif case == "host-cleanup":
             result = host_cleanup(fixture)
+        elif case == "persistent-cleanup":
+            result = persistent_cleanup(fixture)
         elif case in {"activation-success", "activation-failure"}:
             result = activation_pending(fixture, fail=case == "activation-failure")
         elif case == "activation-home":
@@ -808,7 +834,10 @@ class ProviderLifecycle(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         result = json.loads(process.stdout.splitlines()[-1])
         if case == "normal-exit":
-            self.assertFalse(Path(result["snapshot_root"]).exists(), result)
+            try:
+                self.assertFalse(Path(result["snapshot_root"]).exists(), result)
+            finally:
+                remove_fixture(Path(result["fixture_root"]))
         print(case, result)
 
     def test_rollback(self):
@@ -852,6 +881,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_normal_exit_cleanup(self):
         self.run_case("normal-exit")
+
+    def test_persistent_readonly_reclamation_preserves_live_owner(self):
+        self.run_case("persistent-cleanup")
 
     def test_deferred_activation_then_success(self):
         self.run_case("activation-success")

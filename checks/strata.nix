@@ -14,6 +14,14 @@ let
     rev = "c77572806996349b49995e4f98d41b5294d36a21";
     narHash = "sha256-ehbQHpljUeclywp0ubGcrGG+xQ35SppRoosVWZLJiDY=";
   };
+  # Keep the committed split-layout updater contract as a separate capability fixture.
+  previousSource = builtins.fetchTree {
+    type = "github";
+    owner = "Niko1221";
+    repo = "Strata";
+    rev = "58ee3227720629ff2e41d640165ebe89c880dfef";
+    narHash = "sha256-Qp/3UHL7SorM6nYVhHdQfCqjK1EJHVnjlIvqyC+XxU4=";
+  };
   sourcePatch = import ../home-manager/modules/development/strata-source-patch.nix { inherit pkgs; };
   workspaceHelper = import ../home-manager/modules/development/strata-workspace-package.nix {
     inherit pkgs;
@@ -139,6 +147,6 @@ pkgs.runCommand "check-strata-workspace"
   ''
     export HOME=$TMPDIR/home
     mkdir -p "$HOME"
-    python3 ${./strata.py} ${workspaceHelper}/strata-workspace.py ${sourceRoot} ${launcherFixtures} ${sourcePatch} ${rollbackSource.outPath}
+    python3 ${./strata.py} ${workspaceHelper}/strata-workspace.py ${sourceRoot} ${launcherFixtures} ${sourcePatch} ${rollbackSource.outPath} ${previousSource.outPath}
     touch $out
   ''

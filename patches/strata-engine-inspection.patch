@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
+# base: Niko1221/Strata 3142b66b96e9c0e775e30f620b11b191a1427c2a
 # prerequisites: none
 # intent: inspect SYCL launcher and mapped host engine/argument paths without importing server.
 # upstream: https://github.com/Niko1221/Strata/issues/5395 open; https://github.com/Niko1221/Strata/issues/5193 open: related opposite-direction paths.
@@ -99,7 +99,7 @@ diff --git a/terminal/strata_control/doctor.py b/terminal/strata_control/doctor.
 diff --git a/terminal/serve/server_parts/engines.py b/terminal/serve/server_parts/engines.py
 --- a/terminal/serve/server_parts/engines.py
 +++ b/terminal/serve/server_parts/engines.py
-@@ -681,18 +681,7 @@
+@@ -720,18 +720,7 @@
      return out
  
  

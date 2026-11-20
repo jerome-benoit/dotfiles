@@ -259,6 +259,28 @@ def run(root, entry, args):
     original = subprocess.Popen
     state = os.environ.get("STRATA_NATIVE_SOURCE_STATE")
     helper = os.environ.get("STRATA_NATIVE_MODULE_HELPER")
+    mutation_lease = None
+    inherited = os.environ.get("STRATA_WORKSPACE_LOCK_FD")
+    if inherited is not None:
+        fd = int(inherited)
+        context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
+        held = os.fstat(fd)
+        expected = (Path(context["state"]) / ".source.lock").stat()
+        if fd < 3 or (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino):
+            raise RuntimeError("Native migration lease does not belong to this workspace")
+        os.set_inheritable(fd, False)
+        mutation_lease = os.fdopen(fd, "a")
+
+    def release_mutation():
+        if mutation_lease is None or mutation_lease.closed:
+            return
+        mutation_lease.close()
+        for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
+                    "STRATA_WORKSPACE_CONTEXT", "STRATA_ACQUISITION_BOOTSTRAP"):
+            os.environ.pop(key, None)
+        if args[:1] == ["monitor"]:
+            os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": state})
+            os.environ["STRATA_WORKSPACE_HELPER"] = helper
 
     class NativeHost(original):
         def __init__(self, args, *positional, **options):
@@ -279,6 +301,10 @@ def run(root, entry, args):
     def ready(frame, event, arg):
         if previous is not None:
             previous(frame, event, arg)
+        if (event == "call" and _native_call(frame, "strata_cli.cli", "_run",
+                                             str(root / "strata_cli/cli.py"))):
+            # Native migration and parsing are complete; UI/service imports still own their source reader.
+            release_mutation()
         if not lease.closed and _server_ready(root, frame, event, arg):
             _preload_server(root)
             lease.close()
@@ -316,6 +342,7 @@ def run(root, entry, args):
     finally:
         sys.setprofile(previous)
         lease.close()
+        release_mutation()
         mutation.close()
         subprocess.Popen = original
 

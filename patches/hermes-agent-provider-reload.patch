@@ -1,15 +1,15 @@
-# base: hermes-agent 31ce88f86e6cf4a66ef6aa315e4657a31bcf9915
+# base: hermes-agent 2a68a3a94e4e0806106907c451e0c4d4da10c6a9
 # prerequisites: none
 # intent: preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 and https://github.com/NousResearch/hermes-agent/pull/157087 are open partial fixes for concurrent scans and completed-registration replay, absent from this pin. They still wait on discovery and do not cover the contracts below.
-# issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. Snapshot pruning PR156209/#156493 remains adjacent and not corrected here.
+# issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. The pin supplies persistent owner-locked roots (#156493); retain that protocol and remove read-only owned copies before releasing their lock.
 # removal: remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py
-@@ -15,127 +15,244 @@
- 
+@@ -24,23 +24,32 @@
  import atexit
+ import contextlib
  import hashlib
 +import itertools
  import logging
@@ -19,6 +19,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  import sys
  import tempfile
  import threading
+ import uuid
 +from concurrent.futures import Future
 +from contextvars import ContextVar
 +from dataclasses import dataclass
@@ -28,23 +29,25 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +if TYPE_CHECKING:
 +    from providers import _HomeLayer
  
+ from hermes_cli.home_data_layout import PROVIDER_PLUGIN_SNAPSHOT_PARTS
+ from hermes_constants import get_default_hermes_root, mkdir_under_hermes_home
+ 
  logger = logging.getLogger(__name__)
  
 -# Directories inside a plugin tree that never hold code the provider imports.
 -_SKIP_DIRS = frozenset({"__pycache__", ".git", "node_modules", "tests", "evals", ".venv"})
 -_SNAPSHOT_IGNORE = shutil.ignore_patterns("__pycache__", ".git", "node_modules", ".venv")
--# One directory per process for the frozen copies; removed when the process exits.
 +# Copies and content identities exclude the same non-runtime artifacts.
 +_EXCLUDED = frozenset({"__pycache__", ".git", "node_modules", ".venv"})
 +_SNAPSHOT_IGNORE = shutil.ignore_patterns(*_EXCLUDED)
+ # The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
+ # the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
+ # under any other name are never touched.
+@@ -53,6 +62,46 @@
+ # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
--
--
--def _snapshot(plugin_dir: Path, module_name: str) -> Path:
--    """A frozen copy of *plugin_dir* for *module_name* (per home, plugin and tree), named like the original
--    (load errors key on it). Copied into a private directory and published by one rename, so a concurrent scan
--    never imports a half-written copy; a failed copy leaves nothing behind."""
++_snapshot_creator_pid: int | None = None
 +_versions_lock = threading.Lock()
 +_completed_versions: dict[str, _LoadResult] = {}
 +_loading_versions: dict[str, Future[_LoadResult]] = {}
@@ -83,16 +86,59 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +
 +def _cleanup_snapshots() -> None:
 +    if _snapshot_root is not None:
-+        _remove_owned_tree(_snapshot_root)
-+
-+
++        _release_root(_snapshot_root, None, _snapshot_creator_pid)
+ 
+ 
+ def _owner_gone(root: Path) -> bool:
+@@ -97,10 +146,12 @@
+     # neither delete the parent's live copy nor drop the parent's lock.
+     if os.getpid() != creator_pid:
+         return
+-    if owner_fd is not None:
+-        with contextlib.suppress(OSError):
+-            os.close(owner_fd)
+-    shutil.rmtree(root, ignore_errors=True)
++    try:
++        _remove_owned_tree(root)
++    finally:
++        if owner_fd is not None:
++            with contextlib.suppress(OSError):
++                os.close(owner_fd)
+ 
+ 
+ def _new_root() -> Path:
+@@ -128,121 +179,192 @@
+         try:
+             owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
+         except BaseException:
+-            shutil.rmtree(root, ignore_errors=True)
++            _remove_owned_tree(root)
+             raise
+         if owner_fd is None:
+-            shutil.rmtree(root, ignore_errors=True)
++            _remove_owned_tree(root)
+             raise OSError(f"{root / _OWNER_LOCK} is held by another process")
+     finally:
+         os.close(setup_fd)
+         for claim in claimed:
+-            shutil.rmtree(claim, ignore_errors=True)
++            _remove_owned_tree(claim)
+     atexit.register(_release_root, root, owner_fd, os.getpid())
+     return root
+ 
+ 
+-def _snapshot(plugin_dir: Path, module_name: str) -> Path:
+-    """A frozen copy of *plugin_dir* for *module_name* (per home, plugin and tree), named like the original
+-    (load errors key on it). Copied into a private directory and published by one rename, so a concurrent scan
+-    never imports a half-written copy; a failed copy leaves nothing behind."""
 +def _snapshot(plugin_dir: Path, module_prefix: str) -> tuple[Path, str]:
 +    """Copy first, identify those bytes, then publish their writable parent."""
-     global _snapshot_root
+-    global _snapshot_root
++    global _snapshot_root, _snapshot_creator_pid
      with _snapshot_lock:
          if _snapshot_root is None:
-             _snapshot_root = Path(tempfile.mkdtemp(prefix="hermes-provider-plugins-"))
--            atexit.register(shutil.rmtree, _snapshot_root, True)
+             _snapshot_root = _new_root()
++            _snapshot_creator_pid = os.getpid()
 -    target = _snapshot_root / module_name / plugin_dir.name
 -    if target.is_dir():
 -        return target
@@ -104,7 +150,9 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -    except OSError:
 -        if not target.is_dir():  # another scan publishing the same copy first is fine
 -            raise
-+            atexit.register(_cleanup_snapshots)
+-    finally:
+-        shutil.rmtree(private, ignore_errors=True)
+-    return target
 +    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=_snapshot_root))
 +    try:
 +        copied = private / plugin_dir.name
@@ -118,9 +166,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                if not target.is_dir():
 +                    raise
 +        return target, fingerprint
-     finally:
--        shutil.rmtree(private, ignore_errors=True)
--    return target
++    finally:
 +        _remove_owned_tree(private)
  
  

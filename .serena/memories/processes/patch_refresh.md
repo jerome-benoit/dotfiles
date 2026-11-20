@@ -32,7 +32,8 @@ Proposals are not fixes in the pin, and partial coverage stays explicit.
 Hermes provider causes are tracked by #156556 (identity), #156557 (hosted RPC),
 #156558 (activation), #156559 (namespaces) and #156560 (readonly POSIX cleanup)
 in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrency
-coverage; PR156209/#156493 pruning remains adjacent and is not corrected locally.
+coverage. The selected source supplies persistent root ownership/pruning
+(PR156209/#156493); local read-only cleanup composes with that protocol.
 OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
