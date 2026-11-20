@@ -178,7 +178,7 @@ def run_active(root, entry, args):
                 importlib.import_module(name)
             lease.close()
             for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
-                        "STRATA_WORKSPACE_CONTEXT"):
+                        "STRATA_WORKSPACE_CONTEXT", "STRATA_ACQUISITION_BOOTSTRAP"):
                 os.environ.pop(key, None)
             subprocess.Popen = original
 
@@ -225,7 +225,8 @@ def _module_spawn(state, helper, command, options, reader):
                           STRATA_SOURCE_LOCK_FD=str(reader.fileno()),
                           STRATA_NATIVE_SOURCE_STATE=str(state),
                           STRATA_NATIVE_MODULE_HELPER=helper)
-    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"):
+    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
+                "STRATA_ACQUISITION_BOOTSTRAP"):
         options["env"].pop(key, None)
     return [python, helper, "--native-module", str(root), command[2], *command[3:]], options
 

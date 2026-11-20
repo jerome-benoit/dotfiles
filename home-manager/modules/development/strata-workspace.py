@@ -626,7 +626,7 @@ def native_setup(root, args):
     managed_state.enable_source(root)
     os.chdir(root)
     if "STRATA_WORKSPACE_LOCK_FD" in os.environ:
-        os.set_inheritable(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), False)
+        managed_state.install_acquisition(native_setup=True)
     sys.path.insert(0, str(root))
     sys.argv = [str(root / "setup.py"), *args]
     # Use this pin's real script entry, including native parser/error handling and the source-pull guard.
@@ -806,7 +806,8 @@ def observer_probe(root, args):
 
 def exec_observer(root, python, args, lock, *, state, native=False):
     managed_state.enable_source(root)
-    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"):
+    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
+                "STRATA_ACQUISITION_BOOTSTRAP"):
         os.environ.pop(key, None)
     if args[:1] == ["monitor"]:
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})

@@ -4953,6 +4953,8 @@ for raw, expected in ((["install", "--api-key=--help"], ["--api-key=--help"]),
         self.make_terminal(root, '''
 import os
 os.environ["TEST_PARENT_LOCK_FD"] = os.environ["STRATA_WORKSPACE_LOCK_FD"]
+identity = os.fstat(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]))
+os.environ["STRATA_ACQUISITION_BOOTSTRAP"] = f"{identity.st_dev}:{identity.st_ino}"
 ''')
         external = self.base / "external install with spaces"
         shutil.copytree(root, external, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__"))
@@ -4983,7 +4985,7 @@ from pathlib import Path
 import setup
 assert Path(sys.prefix) == setup.ROOT / ".venv", sys.prefix
 for key in ("STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT", "STRATA_WORKSPACE_LOCK_FD",
-            "STRATA_BOOTSTRAP_ONLY", "STRATA_RUNTIME_READY"):
+            "STRATA_BOOTSTRAP_ONLY", "STRATA_RUNTIME_READY", "STRATA_ACQUISITION_BOOTSTRAP"):
     assert key not in os.environ, key
 lock_path = Path(os.environ["TEST_WORKSPACE_LOCK_PATH"])
 try:
@@ -8094,6 +8096,8 @@ raise SystemExit(cli.main())
         self.make_terminal(root, '''
 import os
 if sys.argv[1:2] != ["serve"]:
+    identity = os.fstat(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]))
+    os.environ["STRATA_ACQUISITION_BOOTSTRAP"] = f"{identity.st_dev}:{identity.st_ino}"
     from strata_cli import bench_standard
     bench_standard.Target.get = lambda *args, **kwargs: None
 ''')
@@ -8112,7 +8116,7 @@ def main(argv, **kwargs):
     from strata_control import acquisition
     acquisition.service_ready()
     protocol = ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
-                "STRATA_WORKSPACE_CONTEXT", "STRATA_SOURCE_LOCK_FD")
+                "STRATA_WORKSPACE_CONTEXT", "STRATA_SOURCE_LOCK_FD", "STRATA_ACQUISITION_BOOTSTRAP")
     with (Path(__file__).resolve().parents[3] / ".source.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -11586,6 +11590,232 @@ raise AssertionError('real native_setup returned')
                                 raise
                             time.sleep(.01)
                 process.communicate(timeout=10)
+
+    def test_acquisition_adapter_readonly_subprocess_and_exec_preserve_source_reader_only(self):
+        area = self.base / "readonly acquisition boundary"
+        area.mkdir()
+        child = """
+import fcntl, os, sys
+from pathlib import Path
+for key in ('STRATA_ACQUISITION_BOOTSTRAP', 'STRATA_WORKSPACE_LOCK_FD',
+            'STRATA_WORKSPACE_CONTEXT', 'STRATA_WORKSPACE_HELPER'):
+    assert key not in os.environ, key
+assert os.environ['STRATA_NO_ACQUIRE'] == '1'
+assert sys.argv[1:] == ['literal argument with spaces', 'é'], sys.argv
+reader = int(os.environ['STRATA_SOURCE_LOCK_FD'])
+actual = os.fstat(reader); expected = os.stat(os.environ['TEST_READER_LOCK'])
+assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+assert os.environ['STRATA_MANAGED_SOURCE'] == os.environ['TEST_SOURCE_ROOT']
+assert os.environ['PYTHONPATH'].split(os.pathsep)[0] == os.environ['TEST_BOOTSTRAP']
+try:
+    actual = os.fstat(int(os.environ['TEST_ACQUISITION_FD']))
+except OSError:
+    pass
+else:
+    expected = os.stat(os.environ['TEST_ACQUISITION_LOCK'])
+    assert (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)
+# An exec must close the last mutation descriptor; a subprocess leaves its parent holding it.
+with open(os.environ['TEST_ACQUISITION_LOCK'], 'a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        assert os.environ['TEST_BOUNDARY'] == 'subprocess'
+    else:
+        assert os.environ['TEST_BOUNDARY'] == 'execve'
+# The reader descriptor still prevents source publication in both boundaries.
+with open(os.environ['TEST_READER_LOCK'], 'a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        pass
+    else:
+        raise AssertionError('source-reader lease was lost')
+"""
+        driver = """
+import fcntl, json, os, subprocess, sys
+from pathlib import Path
+import strata_managed_state as managed
+area = Path(sys.argv[1]); boundary = sys.argv[2]
+mutation = os.open(area / '.source.lock', os.O_RDWR | os.O_CREAT, 0o600)
+reader = os.open(area / '.source-publication.lock', os.O_RDWR | os.O_CREAT, 0o600)
+fcntl.flock(mutation, fcntl.LOCK_EX)
+fcntl.flock(reader, fcntl.LOCK_SH)
+os.environ.update(STRATA_WORKSPACE_LOCK_FD=str(mutation), STRATA_SOURCE_LOCK_FD=str(reader),
+                  STRATA_WORKSPACE_CONTEXT=json.dumps({'state': str(area)}),
+                  STRATA_WORKSPACE_HELPER='managed helper', STRATA_MANAGED_SOURCE=str(area))
+managed.install_acquisition(native_setup=True)
+assert not os.get_inheritable(mutation)
+env = dict(os.environ, STRATA_NO_ACQUIRE='1', TEST_BOUNDARY=boundary,
+           TEST_ACQUISITION_FD=str(mutation), TEST_ACQUISITION_LOCK=str(area / '.source.lock'),
+           TEST_READER_LOCK=str(area / '.source-publication.lock'), TEST_SOURCE_ROOT=str(area),
+           TEST_BOOTSTRAP=str(managed.DIRECTORY))
+command = [sys.executable, '-c', sys.argv[3], 'literal argument with spaces', 'é']
+if boundary == 'subprocess':
+    # Even an explicitly requested acquisition FD must be removed; source FD must remain.
+    result = subprocess.run(command, env=env, pass_fds=(mutation, reader), capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert os.environ.get('STRATA_ACQUISITION_BOOTSTRAP'), 'child env clearing mutated parent'
+else:
+    os.set_inheritable(reader, True)
+    os.execve(sys.executable, command, env)
+    raise AssertionError('execve unexpectedly returned')
+"""
+        for boundary in ('subprocess', 'execve'):
+            with self.subTest(boundary=boundary):
+                result = subprocess.run([sys.executable, '-c', driver, str(area), boundary, child],
+                                        env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(sys.platform == "linux", "Real SYCL native dispatch; macOS dispatches Metal")
+    def test_flat_native_unpatched_setup_run_retains_lease_across_python_generations(self):
+        self.assert_native_unpatched_tool_generations(OLD_UPSTREAM_SOURCE)
+
+    @unittest.skipUnless(sys.platform == "linux", "Real SYCL native dispatch; macOS dispatches Metal")
+    def test_split_native_unpatched_setup_run_retains_lease_across_python_generations(self):
+        self.assert_native_unpatched_tool_generations(UPSTREAM_SOURCE)
+
+    def assert_native_unpatched_tool_generations(self, primary):
+        for fd in (3, 100):
+            with self.subTest(fd=fd):
+                area = self.base / ("native-unpatched-" + str(fd))
+                source = area / "source"
+                shutil.copytree(primary, source, copy_function=shutil.copyfile)
+                for directory, _, files in os.walk(source):
+                    Path(directory).chmod(0o700)
+                    for name in files:
+                        path = Path(directory) / name
+                        if not path.is_symlink():
+                            path.chmod(path.stat().st_mode | 0o600)
+                root = source / "terminal" if (source / "terminal/setup.py").is_file() else source
+                original = (primary / root.relative_to(source) / "setup.py").read_bytes()
+                self.assertEqual((root / "setup.py").read_bytes(), original)
+                # No SOURCE_PATCH: retain real native bytes, including flat CRLF and run's missing pass_fds.
+                self.assertNotIn(b"pass_fds", original[original.index(b"def run("):original.index(b"def fetch_mtp(")])
+                lock_path = area / ".source.lock"
+                lock_path.touch()
+                bootstrap = area / "bootstrap"
+                bootstrap.mkdir()
+                helper = bootstrap / "strata-workspace.py"
+                shutil.copyfile(WORKSPACE, helper)
+                library = bootstrap / "strata-managed"
+                shutil.copytree(WORKSPACE_LIB, library, copy_function=shutil.copyfile)
+                site = library / "sitecustomize.py"
+                site.chmod(site.stat().st_mode | 0o200)
+                address = area / "tools.sock"
+                completed = area / "tool-completed"
+                acquired = area / "contender-acquired"
+                tool = area / "inert-tool.py"
+                tool.write_text("""
+import json, os, socket, subprocess, sys
+from pathlib import Path
+fd = int(os.environ['STRATA_WORKSPACE_LOCK_FD'])
+a = os.fstat(fd); b = os.stat(os.environ['TEST_LOCK'])
+assert (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+assert not os.get_inheritable(fd), 'tool lease must not be globally inheritable'
+assert os.environ.get('STRATA_ACQUISITION_BOOTSTRAP')
+if len(sys.argv) == 1:
+    env = dict(os.environ)
+    env.pop('PYTHONPATH', None)
+    subprocess.run([sys.executable, __file__, str(os.getpid()), str(os.getppid())], env=env, check=True)
+else:
+    with socket.socket(socket.AF_UNIX) as peer:
+        peer.connect(os.environ['TEST_GATE'])
+        peer.sendall((json.dumps([os.getpid(), int(sys.argv[1]), int(sys.argv[2])]) + '\\n').encode())
+        assert peer.recv(1) == b'q'
+        Path(os.environ['TEST_COMPLETED']).write_text('completed')
+""")
+                # Audit real installer code entry before hardware/download/build. No parser or run replacement.
+                site.write_text(site.read_text() + """
+import os, sys
+from pathlib import Path
+def native_tool_boundary(event, args):
+    if event != 'exec':
+        return
+    root = Path(os.environ['TEST_ROOT'])
+    filename = Path(args[0].co_filename)
+    if filename == root / 'setup.py' and sys.argv[0] == str(filename):
+        fd = int(os.environ['STRATA_WORKSPACE_LOCK_FD'])
+        actual = os.fstat(fd); expected = os.stat(os.environ['TEST_LOCK'])
+        assert (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
+        assert not os.get_inheritable(fd), 'native_setup initial descriptor is inheritable'
+        assert os.environ.get('STRATA_ACQUISITION_BOOTSTRAP')
+    if filename != Path(os.environ['TEST_INSTALLER']):
+        return
+    sys.path.insert(0, str(root))
+    import setup
+    assert setup.run.__code__.co_filename == str(root / 'setup.py')
+    setup.run([sys.executable, os.environ['TEST_TOOL']])
+    raise SystemExit(0)
+sys.addaudithook(native_tool_boundary)
+""")
+                driver = """
+import fcntl, importlib.util, os, sys
+fd = int(sys.argv[3]); opened = os.open(sys.argv[4], os.O_RDWR)
+if opened != fd:
+    os.dup2(opened, fd); os.close(opened)
+fcntl.flock(fd, fcntl.LOCK_EX)
+os.environ['STRATA_WORKSPACE_LOCK_FD'] = str(fd)
+spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
+workspace = importlib.util.module_from_spec(spec); spec.loader.exec_module(workspace)
+workspace.native_setup(sys.argv[2], ['--backend', 'sycl', '--yes'])
+"""
+                installer = (source / "engine" if root != source else source) / "sycl/setup_intel.py"
+                self.assertTrue(installer.is_file())
+                env = dict(self.env, PYTHONPATH=str(library), TEST_ROOT=str(root),
+                           TEST_INSTALLER=str(installer), TEST_TOOL=str(tool), TEST_LOCK=str(lock_path),
+                           TEST_GATE=str(address), TEST_COMPLETED=str(completed))
+                with socket.socket(socket.AF_UNIX) as listener:
+                    listener.bind(str(address)); listener.listen(1); listener.settimeout(30)
+                    process = subprocess.Popen([sys.executable, '-c', driver, str(helper), str(root),
+                                                str(fd), str(lock_path)], env=env,
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    self.addCleanup(lambda p=process: p.kill() if p.poll() is None else None)
+                    self.addCleanup(process.stdout.close)
+                    self.addCleanup(process.stderr.close)
+                    with listener.accept()[0] as peer:
+                        peer.settimeout(10)
+                        payload = b''
+                        while not payload.endswith(b'\n'):
+                            chunk = peer.recv(1024)
+                            self.assertTrue(chunk, payload)
+                            payload += chunk
+                        grandchild, tool_parent, installer_pid = json.loads(payload)
+                        def kill_if_alive(pid):
+                            try:
+                                os.kill(pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                        for pid in (grandchild, tool_parent, installer_pid):
+                            self.addCleanup(kill_if_alive, pid)
+                        contender_code = """import fcntl, sys
+from pathlib import Path
+with open(sys.argv[1], 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    assert Path(sys.argv[2]).read_text() == 'completed'
+    Path(sys.argv[3]).write_text('acquired')
+"""
+                        contender = subprocess.Popen([sys.executable, '-c', contender_code,
+                            str(lock_path), str(completed), str(acquired)], env=self.env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        self.addCleanup(lambda p=contender: p.kill() if p.poll() is None else None)
+                        self.addCleanup(contender.stdout.close)
+                        self.addCleanup(contender.stderr.close)
+                        process.kill(); process.wait(timeout=10)
+                        kill_if_alive(installer_pid)
+                        kill_if_alive(tool_parent)
+                        os.kill(grandchild, 0)
+                        with lock_path.open('a') as competing:
+                            self.assertRaises(BlockingIOError, fcntl.flock,
+                                              competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        self.assertIsNone(contender.poll())
+                        self.assertFalse(acquired.exists())
+                        peer.sendall(b'q')
+                        self.assertEqual(peer.recv(1), b'')
+                        stdout, stderr = contender.communicate(timeout=10)
+                        self.assertEqual(contender.returncode, 0, stdout + stderr)
+                        self.assertEqual(acquired.read_text(), 'acquired')
+                    process.communicate(timeout=10)
+                self.assertEqual((root / "setup.py").read_bytes(), original)
 
     def test_real_host_consumer_reselects_endpoint_after_both_layout_moves(self):
         for kind in ('venv', 'bundled'):
