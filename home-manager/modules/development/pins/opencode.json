@@ -5,38 +5,20 @@
     "aarch64-darwin": "sha256-rfE2exy/kUEhYniH+7+GLIOnYW+UkTYsQI4NCfnR4Q0="
   },
   "provenance": {
-    "sourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
+    "sourceRevision": "9bf497d3e866ba57de9af7c6e56715208d34cdb7",
     "hashSourceRevision": "3aaac7731360a7be32cc69b65c95add4080f04a9",
+    "reuse": {
+      "inputs": "All 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
+      "inputCount": 64,
+      "inputSha256": "9218b23dff649776ddac8b3594e9e79088cf9bc87701f3ed72c52ef5204a92a6",
+      "inputHashMethod": "SHA-256 of sorted relative path bytes, NUL and the raw SHA-256 digest of each file."
+    },
     "nixpkgsRevision": "e21fec321d73511849707a7585e4ea155ee4bf40",
     "bunVersion": "1.4.4",
     "buildSystems": {
       "x86_64-linux": "aarch64-linux",
       "aarch64-linux": "aarch64-linux",
       "aarch64-darwin": "aarch64-linux"
-    },
-    "linuxEnvironment": "Docker linux/arm64, native Bun 1.4.4; sandbox and syscall filtering disabled only for container tool materialization.",
-    "calculation": "Selected upstream fileset, frozen root/CLI/Desktop/app filters, explicit target CPU/OS and both normalizers; original GNU cp --parents install phase and nix hash path.",
-    "calibration": {
-      "retrospective": false,
-      "referenceSourceRevision": "0ac0d7ee7260c3e711a481ceb4580bb60f4d9dd4",
-      "referenceNixpkgsRevision": "5d2b81a7a3be3e2f832879028e4d60abbf58e9a0",
-      "referenceBunVersion": "1.4.4",
-      "referenceHashes": {
-        "x86_64-linux": "sha256-WJSCoGtHb84aqRUvo2nEdDqSvlqJp3/kSss+VWii2e4=",
-        "aarch64-linux": "sha256-Tl4OdE6yUA5YtsnQ7ZxcXkau2BzqZfl5W8bJE4SlDdE=",
-        "aarch64-darwin": "sha256-TigMUvnZX6AAlbjrCaenxwtVj5zlXwoX+ETuTwNF258="
-      },
-      "result": "Each previous target pin reproduced exactly before its refreshed calculation; selected Bun outputs are unchanged between the two Nixpkgs revisions."
-    },
-    "validationPolicy": {
-      "maxJobs": 1,
-      "cores": 1,
-      "targets": "serial"
-    },
-    "verification": {
-      "x86_64-linux": "Calibrated x64/linux dependency replay on Linux arm64; no x64 CLI/Desktop execution or fixed-output registration.",
-      "aarch64-linux": "Calibrated arm64/linux dependency replay on Linux arm64; no CLI/Desktop execution or fixed-output registration.",
-      "aarch64-darwin": "Calibrated arm64/darwin dependency replay on Linux arm64; the hash then passed native fixed-output verification with equivalent pruned copies, followed by the configured CLI build, installCheck, --version and --help smoke. No Desktop execution."
     }
   }
 }

@@ -14,6 +14,7 @@ let
   # Share one atomic dependency-ordered source ledger with checks.
   # Preserve the helper publication and rollback protocol.
   sourcePatch = import ./strata-source-patch.nix { inherit pkgs; };
+  workspaceHelper = import ./strata-workspace-package.nix { inherit pkgs; };
   strataPackage = pkgs.writeShellApplication {
     name = "strata";
     runtimeInputs = [
@@ -24,7 +25,7 @@ let
       # Configured directory paths are literal arguments, not shell expansions.
       # shellcheck disable=SC2016
       exec nix develop --no-update-lock-file "path:${self}#strata" \
-        --command python3 ${./strata-workspace.py} \
+        --command python3 ${workspaceHelper}/strata-workspace.py \
         ${lib.escapeShellArg cfg.workspaceDirectory} ${inputs.strata.rev} \
         ${lib.escapeShellArg (if cfg.dataDirectory == null then "" else cfg.dataDirectory)} \
         ${lib.escapeShellArg (if cfg.modelsDirectory == null then "" else cfg.modelsDirectory)} \
@@ -42,6 +43,13 @@ in
       description = ''
         Absolute writable directory outside /nix/store for the source checkout,
         Python environment, engines, build caches and interpreter GC root.
+        Git refs and receipts stay at source/.git; runtime files live in source/terminal.
+        Runtime layout changes use reversible renames without replacing existing destinations.
+        Runtime links retain their targets; unrelated JSON and external engine transports remain user-owned.
+        Offline source rollback reuses the original hash-addressed published source delta when available.
+        Pins without a cached delta run natively; invalid cached receipts or payloads
+        are refused before runtime migration.
+        Repeated commands reuse the accepted overlay or native fallback for the same request.
         The launcher keeps its source patch visible and refuses conflicting edits.
 
         Managed setup, updates and model acquisition serialize workspace mutations.

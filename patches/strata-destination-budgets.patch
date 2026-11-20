@@ -1,15 +1,84 @@
-# base: Niko1221/Strata c77572806996349b49995e4f98d41b5294d36a21
+# base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
 # prerequisites: strata-setup-directory-roles.patch
-# intent: account remaining downloads and preparation by destination filesystem.
-# upstream: https://github.com/Niko1221/Strata/pull/4989 related destination accounting; sparse resume rules and role layout are not equivalent.
+# intent: validate unmarked finals once; account remaining downloads and preparation by destination filesystem.
+# upstream: https://github.com/Niko1221/Strata/pull/4989 related destination accounting; open, unmerged; native chunk receipts and role destinations remain local consumers.
 # removal: remove when selected-source destination and split preparation checks match all role destinations.
-diff --git a/setup.py b/setup.py
---- a/setup.py
-+++ b/setup.py
-@@ -3589,6 +3589,49 @@
+diff --git a/terminal/setup.py b/terminal/setup.py
+--- a/terminal/setup.py
++++ b/terminal/setup.py
+@@ -2749,7 +2749,7 @@
+     return min(i * DL_CHUNK, total)
+ 
+ 
+-def _load_pieces(part: Path, total: int) -> set:
++def _load_pieces(part: Path, total: int, *, clean: bool = True) -> set:
+     """The finished pieces of an earlier run.  <name>.part.chunks lists them; a .part without it comes from one stream
+     (an older setup, or STRATA_DL_CONNECTIONS=1): its bytes are a run from the start, so those pieces are finished."""
+     side = part.with_name(part.name + ".chunks")
+@@ -2766,13 +2766,15 @@
+                 return {i for i in done if min((i + 1) * DL_CHUNK, total) <= size}
+-        except (OSError, ValueError, TypeError, KeyError):
++        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+             pass
+-        side.unlink(missing_ok=True)                    # not this file's list: start the file over
+-        part.unlink(missing_ok=True)
++        if clean:
++            side.unlink(missing_ok=True)                # not this file's list: start the file over
++            part.unlink(missing_ok=True)
+         return set()
+     if size is None:
+         return set()
+     if size > total:
+-        part.unlink(missing_ok=True)
++        if clean:
++            part.unlink(missing_ok=True)
+         return set()
+     return set(range(n)) if size >= total else set(range(size // DL_CHUNK))
+ 
+@@ -3695,6 +3697,87 @@
+         elif f[0] in ("dense", "ple", "embd"):
+             out[f[0]] = p
      return out
- 
- 
++
++
++def resume_bytes(destination, total=None, *, url=None):
++    """Read native reusable download evidence without changing files or mistaking sparse length for chunks."""
++    part = Path(destination).with_name(Path(destination).name + ".part")
++    side = part.with_name(part.name + ".chunks")
++    if not part.is_file():
++        return 0
++    if not side.is_file():
++        stat = part.stat()
++        blocks = getattr(stat, "st_blocks", None)
++        if blocks is not None and blocks * 512 < stat.st_size:
++            return 0                                   # no chunk receipt proves which sparse ranges are reusable
++    if url is not None:
++        source = part.with_name(part.name + ".src")
++        if source.is_file():
++            try:
++                saved = json.loads(source.read_text())
++            except (OSError, ValueError):
++                return 0
++            if not isinstance(saved, dict) or saved.get("url") != url:
++                return 0
++    if total is None:
++        if not side.is_file():
++            return part.stat().st_size                 # native single-stream resume, no chunk list
++        try:
++            total = json.loads(side.read_text())["total"]
++        except (OSError, ValueError, TypeError, KeyError):
++            return 0
++        if not isinstance(total, int) or total <= 0:
++            return 0
++    if total >= DL_MIN_PARALLEL and dl_connections() > 1:
++        return sum(min(DL_CHUNK, total - i * DL_CHUNK)
++                   for i in _load_pieces(part, total, clean=False) if i >= 0)
++    size = part.stat().st_size
++    if side.is_file():
++        return min(_prefix_bytes(_load_pieces(part, total, clean=False), total), size)
++    return size if size <= total else 0
++
++
 +def destination_budgets(needs):
 +    """Group known remaining GB by the filesystem of each destination's nearest existing parent."""
 +    groups = {}
@@ -30,8 +99,8 @@ diff --git a/setup.py b/setup.py
 +    needs = []
 +    for f in ready_needed(model, models_dir, data_dir):
 +        dst = ready_where(models_dir, f, data_dir, checkpoint_dir)
-+        if not ready_verified(dst, f[5]):
-+            present = sum(p.stat().st_size for p in (dst, dst.with_name(dst.name + ".part")) if p.is_file())
++        if not ready_existing_verified(dst, f):
++            present = resume_bytes(dst, f[4], url=f"{hf_endpoint()}/{f[1]}/resolve/{f[2]}/{f[3]}")
 +            needs.append((dst, max(0, f[4] - present) / 1e9))
 +    if vision_file is not None and not vision_file.exists():
 +        needs.append((vision_file, 1.0))                 # same vision allowance as the ordinary setup path
@@ -51,12 +120,10 @@ diff --git a/setup.py b/setup.py
 +            return (f"not enough free disk space in {parent}: need ~{gb:.0f} GB, {free:.0f} GB free",
 +                    "use --data-dir or --models-dir on a bigger drive for the files stored there")
 +    return None
-+
-+
+ 
+ 
  def ready_verified(p: Path, sha: str) -> bool:
-     """Downloaded whole and checked: its finish mark holds the pinned SHA-256 (verify_sha256)."""
-     try:
-@@ -10331,11 +10374,16 @@
+@@ -10866,11 +10949,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -70,7 +137,7 @@ diff --git a/setup.py b/setup.py
 +        problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
 +                                    (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
      if problem:
-         fail(*problem)
+         fail(*problem, kind="no_space", path=str(models_dir), free_bytes=int(free_now * 1e9), needed_bytes=int(need * 1e9))
 -    if free_now < need:
 +    if not (ready and ready_data_dir is not None) and free_now < need:
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "

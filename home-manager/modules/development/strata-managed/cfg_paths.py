@@ -1,0 +1,205 @@
+"""Managed component-path repair and SYCL transport resolution.
+
+Component repair replaces paths in removed Control/engine version folders only
+when the corresponding file exists in the current version; missing replacements
+are reported rather than guessed (#4891). Existing version paths remain intact.
+
+Managed SYCL transports are normalized separately, even when their native wrapper
+still exists. Launch coordinates use config cwd, otherwise the supplied file base.
+Independent transports and relative launchers without a known origin remain intact.
+
+resolve_config is read-only. Profile readers supply the config directory so
+diagnostics, model lists, launch plans and runtime hosts see the same paths.
+repair persists the result for the selected and other saved profiles before start,
+reporting each changed file and any unresolved component paths.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+from pathlib import Path
+
+_SEP = r"[\\/]"
+_COMPONENT = re.compile(rf"^(?P<head>.*?{_SEP}components{_SEP})(?P<kind>control|engine){_SEP}(?P<ver>[^\\/]+)(?P<rest>(?:{_SEP}.*)?)$", re.S)
+_VERSION = re.compile(r"^\d+(?:\.\d+)+")
+SKIP_KEYS = ("log",)                      # paths the engine writes, not reads
+SKIP_FLAGS = ("--expert-profile-save",)
+
+
+def engine_binary(exe: str, cfg: dict | None = None) -> str:
+    """The host executable behind the stable Intel transport, without importing the server."""
+    if Path(exe).name != "strata-sycl.sh":
+        return exe
+    selected = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_BIN", os.environ.get("STRATA_SYCL_BIN")) or "build-sycl-aot/strata"
+    here = ((cfg or {}).get("env") or {}).get("STRATA_SYCL_HERE", os.environ.get("STRATA_SYCL_HERE"))
+    if here and Path(selected).is_absolute():
+        return str(Path(selected).expanduser())
+    return str(engine_argument_path(selected, exe, cfg or {}))
+
+
+def engine_argument_path(raw: str, exe: str, cfg: dict) -> Path:
+    """Use explicit managed transport coordinates, or the native selected wrapper's actual namespace."""
+    value = Path(raw).expanduser()
+    if Path(exe).name != "strata-sycl.sh":
+        return value
+    environment = cfg.get("env") or {}
+    selected_here = environment.get("STRATA_SYCL_HERE", os.environ.get("STRATA_SYCL_HERE"))
+    here = Path(selected_here) if selected_here else Path(exe).resolve().parents[2]
+    split = (here.parent / "terminal/setup.py").is_file() and (here / "CMakeLists.txt").is_file()
+    mount = Path(environment.get("STRATA_SYCL_ROOT", os.environ.get("STRATA_SYCL_ROOT"))
+                 or (here.parent.parent if split else here.parent)).expanduser()
+    if not mount.is_absolute():
+        mount = (Path(cfg.get("cwd") or os.getcwd()) / mount).resolve()
+    if value.is_relative_to("/work"):
+        return mount / value.relative_to("/work")
+    if not value.is_absolute():
+        cwd = environment.get("STRATA_SYCL_CWD", os.environ.get("STRATA_SYCL_CWD"))
+        if cwd and (selected_here or split):
+            container_cwd = Path(cwd)
+            if not container_cwd.is_relative_to("/work") or ".." in container_cwd.parts:
+                raise ValueError("STRATA_SYCL_CWD must be normalized within /work")
+            return mount / container_cwd.relative_to("/work") / value
+        return here / value if split else mount / here.name / value
+    return value
+
+
+def _key(name: str) -> tuple:
+    head = str(name).split("-")[0]
+    return tuple(int(x) for x in head.split(".") if x.isdigit()), str(name)
+
+
+def _kind_of(name: str) -> str:
+    return str(name).split("-", 1)[1] if "-" in str(name) else ""
+
+
+def _newest(folder: Path, kind: str | None = None) -> Path | None:
+    try:
+        found = [d for d in folder.iterdir() if d.is_dir() and _VERSION.match(d.name) and (kind is None or _kind_of(d.name) == kind)]
+    except OSError:
+        return None
+    return max(found, key=lambda d: _key(d.name), default=None)
+
+
+def _active_control(control: Path) -> Path | None:
+    try:
+        data = json.loads((control / "active.json").read_text(encoding="utf-8-sig"))
+        folder = control / str(data["folder"])
+        if folder.is_dir():
+            return folder
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return _newest(control)
+
+
+def _components() -> Path:
+    from strata_control import engine_component as ec
+    return ec.components_dir()
+
+
+def resolve_path(value: str) -> tuple[str, bool] | None:
+    """For a string that names a file in a version folder of Strata's own that is gone: (the same file in the current version, True) when it is there,
+    (value, False) when it is nowhere; None when the string is not such a path or its version folder still exists (nothing to do)."""
+    if not isinstance(value, str) or len(value) < 8 or "\n" in value:
+        return None
+    m = _COMPONENT.match(value)
+    if not m:
+        return None
+    old = Path(m["head"] + m["kind"] + os.sep + m["ver"])
+    if old.exists() or not _VERSION.match(m["ver"]):
+        return None
+    root = _components() / m["kind"]
+    current = _active_control(root) if m["kind"] == "control" else _newest(root, _kind_of(m["ver"]))
+    rest = m["rest"].lstrip("\\/")
+    if current is None:
+        return value, False
+    new = current / rest if rest else current
+    return (str(new), True) if new.exists() else (value, False)
+
+
+def _walk(obj, found: list, lost: list, key: str = ""):
+    if isinstance(obj, str):
+        if key in SKIP_KEYS:
+            return obj
+        res = resolve_path(obj)
+        if res is None:
+            return obj
+        (found if res[1] else lost).append((obj, res[0]))
+        return res[0]
+    if isinstance(obj, list):
+        out, skip = [], False
+        for item in obj:
+            out.append(item if skip else _walk(item, found, lost, key))
+            skip = isinstance(item, str) and item in SKIP_FLAGS
+        return out
+    if isinstance(obj, dict):
+        return {k: _walk(v, found, lost, str(k)) for k, v in obj.items()}
+    return obj
+
+
+def resolve_config(cfg: dict, *, base: Path | None = None) -> tuple[dict, list, list]:
+    """Resolve removed component paths and managed transports in their caller's coordinates.
+
+    An explicit config cwd takes precedence over base. Without either, a relative
+    launcher has no known owner and must not be assigned to the managed workspace.
+    Returns (config, [(old, new)], [(old, "") that exist nowhere]).
+    """
+    found: list = []
+    lost: list = []
+    resolved = _walk(cfg, found, lost)
+    repository = os.environ.get("STRATA_MANAGED_SOURCE")
+    if repository:
+        from strata_managed_state import normalize_sycl_config
+        normalized = normalize_sycl_config(resolved, repository, base=base)
+        if normalized != resolved:
+            found.append((resolved["exe"], normalized["exe"]))
+            resolved = normalized
+    return resolved, found, [(old, "") for old, _ in lost]
+
+
+def saved_configs() -> list[Path]:
+    """The run config of every saved profile (app-1, app-2, launch-...): the files a start reads."""
+    from strata_control import profiles
+    out = []
+    try:
+        for p in profiles.list_profiles():
+            if isinstance(p.get("source_config"), str):
+                out.append(Path(p["source_config"]))
+    except Exception:                                    # noqa: BLE001 - informational
+        pass
+    return out
+
+
+def repair(configs) -> tuple[list[str], list[str]]:
+    """For a START: every run config in `configs` is resolved and, when a path changed, written once (atomically, nothing else changed).
+    Returns (one plain line for each file changed, one plain line for each path that exists nowhere).  Never raises."""
+    notes: list[str] = []
+    problems: list[str] = []
+    seen = set()
+    for c in configs:
+        c = Path(c)
+        if c in seen:
+            continue
+        seen.add(c)
+        try:
+            cfg = json.loads(c.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(cfg, dict):
+            continue
+        from strata_control import retired
+        if retired.config_reason(cfg) or retired.config_file_reason(c):
+            continue                                     # a DeepSeek config is never written: this Strata does not run it (retired.py)
+        new, found, lost = resolve_config(cfg, base=c.parent)
+        for old, _ in lost:
+            problems.append(f"{c.name}: {old} was removed by an update and no file of that name is in the current version; run setup again for this model")
+        if not found:
+            continue
+        try:
+            from strata_control import profiles
+            profiles._atomic(c, json.dumps(new, indent=2).encode("utf-8"))
+        except (OSError, ValueError):
+            continue
+        notes.append(f"{c.name}: {len(found)} path{'s' if len(found) != 1 else ''} named folders of an earlier Strata version that an update removed ("
+                     + ", ".join(sorted({Path(o).name or o for o, _ in found})[:3]) + "); they now name the current version.")
+    return notes, problems

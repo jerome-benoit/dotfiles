@@ -1,6 +1,9 @@
 """Manage Strata's pinned, writable checkout and runtime in the configured workspace.
 
-Keep revision refs for offline rollback, serialize source/runtime changes, and root Nix Python.
+Keep revision refs and accepted source-delta hashes for offline rollback, serialize source/runtime changes, and root Nix Python.
+Git publication owns the repository; runtime APIs use the selected revision's actual Terminal layout.
+Source rollback reverses only successful payload renames; staged engine links provide separate reference coordinates.
+Native dispatch resumes in a fresh interpreter after publication, retaining acquisition or observer leases.
 The public Terminal grammar owns the root; `source` delegates raw arguments to setup's real parser.
 Only real actions bootstrap Python or reconcile an installed runtime after a pin change.
 A source-refresh receipt records updater success and Python readiness; only complete inventory earns a runtime revision.
@@ -8,15 +11,24 @@ Component references retain upstream compatibility and pins; raw paths use legac
 Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
 
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
+import ast
+import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
 import sys
+import tempfile
+
+# These files are packaged together; managed state never belongs to a rollbackable checkout.
+sys.path.insert(0, str(Path(__file__).resolve().with_name("strata-managed")))
+import strata_managed_state as managed_state
 
 
 REMOTE = "https://github.com/Niko1221/Strata.git"
@@ -25,6 +37,7 @@ SOURCE_REFRESH_REVISION = "strata-source-refresh-revision"
 ENGINE_ROLLBACK = "strata-engine-rollback.json"
 ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
 SOURCE_PATCH = "strata-source.patch"
+SOURCE_REQUEST = "strata-source-request.json"
 TERMINAL_CLI = "strata.py"
 
 
@@ -37,12 +50,47 @@ def git(root, *args, check=True):
     )
 
 
+def _reserve_standard_descriptors():
+    """Keep legacy lease duplicates out of closed stdio slots after lock promotion."""
+    repaired = 0
+    for descriptor in range(3):
+        try:
+            os.fstat(descriptor)
+        except OSError as error:
+            if error.errno != errno.EBADF:
+                raise
+            opened = os.open(os.devnull, os.O_RDWR)
+            if opened != descriptor:
+                try:
+                    os.dup2(opened, descriptor)
+                finally:
+                    os.close(opened)
+            else:
+                os.set_inheritable(descriptor, True)
+            repaired |= 1 << descriptor
+    # Python initializes these to None when its standard descriptors are closed.
+    # Reuse the reserved descriptors; never allocate another lease-sized slot.
+    for descriptor, name, mode in ((0, "stdin", "r"), (1, "stdout", "w"), (2, "stderr", "w")):
+        if repaired & (1 << descriptor) and getattr(sys, name) is None:
+            stream = open(descriptor, mode, closefd=False)
+            setattr(sys, name, stream)
+            if getattr(sys, "__" + name + "__") is None:
+                setattr(sys, "__" + name + "__", stream)
+
+
 @contextmanager
 def workspace_lock(state, *, inherited=False):
     state = Path(state).expanduser().resolve()
     state.mkdir(parents=True, exist_ok=True)
     lock = (os.fdopen(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), "a") if inherited
             else (state / ".source.lock").open("a"))
+    if lock.fileno() < 3:
+        # Child stdio redirections must not overwrite an acquisition descriptor.
+        descriptor = fcntl.fcntl(lock.fileno(), fcntl.F_DUPFD_CLOEXEC, 3)
+        lock.close()
+        lock = os.fdopen(descriptor, "a")
+        if inherited:
+            os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(descriptor)
     with lock:
         if not inherited:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -53,7 +101,16 @@ def workspace_lock(state, *, inherited=False):
 def source_publication_lock(state, *, shared=False):
     """Protect source readers without tying observations to runtime acquisition."""
     state.mkdir(parents=True, exist_ok=True)
-    with (state / ".source-publication.lock").open("a") as lock:
+    lock = (state / ".source-publication.lock").open("a")
+    if lock.fileno() < 3:
+        try:
+            descriptor = fcntl.fcntl(lock.fileno(), fcntl.F_DUPFD_CLOEXEC, 3)
+        except BaseException:
+            lock.close()
+            raise
+        lock.close()
+        lock = os.fdopen(descriptor, "a")
+    with lock:
         fcntl.flock(lock, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
         yield lock
 
@@ -78,7 +135,73 @@ def publish_source_patch(path, text):
     temporary.replace(path)
 
 
-def _prepare_workspace(state, revision, remote, source_patch=None):
+def source_patch_payload(cache, revision, text):
+    """Validate an existing hash-addressed payload without claiming the delta was applied."""
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    payload = cache / f"{revision}-{digest}.patch"
+    if payload.exists() and payload.read_bytes().decode("utf-8") != text:
+        raise RuntimeError(f"Cached source patch {payload} is corrupted; preserve it and repair the cache")
+    return payload, digest
+
+
+def cache_source_patch(cache, revision, text):
+    """Retain only a source delta actually published at this revision, addressed by its accepted bytes."""
+    payload, digest = source_patch_payload(cache, revision, text)
+    cache.mkdir(exist_ok=True)
+    if not payload.exists():
+        publish_source_patch(payload, text)
+    receipt = cache / f"{revision}.sha256"
+    if not receipt.exists() or receipt.read_text().strip() != digest:
+        publish_source_patch(receipt, digest + "\n")
+
+
+def cached_source_patch(cache, revision):
+    receipt = cache / f"{revision}.sha256"
+    if not receipt.is_file():
+        return None
+    digest = receipt.read_text().strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise RuntimeError(f"Invalid source patch receipt {receipt}; preserve it and repair the cache")
+    payload = cache / f"{revision}-{digest}.patch"
+    text = payload.read_bytes().decode("utf-8")
+    if hashlib.sha256(text.encode()).hexdigest() != digest:
+        raise RuntimeError(f"Cached source patch {payload} does not match its publication receipt")
+    return text
+
+
+def source_cache_paths(cache, publications):
+    """Include final cache metadata and interrupted atomic-write artifacts in the source checkpoint."""
+    paths = set()
+    for revision, text in publications:
+        payload, _ = source_patch_payload(cache, revision, text)
+        receipt = cache / f"{revision}.sha256"
+        paths.update((payload, receipt, payload.with_suffix(".tmp"), receipt.with_suffix(".tmp")))
+    return paths
+
+
+def patch_revision_check(root, revision, text):
+    """Check the actual target tree before moving runtime payloads, without touching the user's index."""
+    with tempfile.TemporaryDirectory(prefix="strata-index-", dir=root / ".git") as directory:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(directory) / "index"))
+        subprocess.run(["git", "-C", str(root), "read-tree", revision], check=True, env=env)
+        return subprocess.run(["git", "-C", str(root), "apply", "--cached", "--check", "-"],
+                              input=text, text=True, env=env, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+
+
+def source_request(revision, requested, accepted):
+    """Bind the negotiated overlay to its request, not the patch filename."""
+    def digest(text):
+        return hashlib.sha256(text.encode()).hexdigest() if text is not None else None
+    return {"revision": revision, "requested": digest(requested), "accepted": digest(accepted)}
+
+
+def accepted_source_request(root, revision, requested, accepted):
+    receipt = root / ".git" / SOURCE_REQUEST
+    return receipt.is_file() and json.loads(receipt.read_text()) == source_request(revision, requested, accepted)
+
+
+def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
     source = state / "source"
     with source_publication_lock(state):
         if not source.exists():
@@ -108,51 +231,150 @@ def _prepare_workspace(state, revision, remote, source_patch=None):
                     ) from None
     if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
-    with source_publication_lock(state):
+    with source_publication_lock(state) as publication_lock:
         current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         # Workaround: upstream pulls its configured branch, not a pinned revision.
         # Keep visited revisions reachable for GC-safe offline rollback.
         # Remove when upstream supports both revision pinning and GC-safe offline rollback.
         git(root, "update-ref", f"refs/strata/revisions/{current}", current)
         ledger = root / ".git" / SOURCE_PATCH
-        previous = ledger.read_text() if ledger.exists() else None
-        desired = Path(source_patch).read_text() if source_patch is not None else None
+        previous = ledger.read_bytes().decode("utf-8") if ledger.exists() else None
+        desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
+        requested = desired
+        request_receipt = root / ".git" / SOURCE_REQUEST
         applied = previous is not None and patch_check(root, previous, reverse=True)
         if previous is not None and not applied and not patch_check(root, previous):
             raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
-        if previous == desired and current == revision and applied:
+        cache = root / ".git" / "strata-source-patches"
+        publications = [(current, previous)] if applied else []
+        cache_paths = source_cache_paths(cache, publications)
+        if current == revision and (previous is None or applied) and (
+                previous == desired or accepted_source_request(root, revision, requested, previous)):
+            pairs = managed_state.runtime_pairs(root) if (root / "terminal/setup.py").is_file() else ()
+            moved = []
+            with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
+                                                 runtime_moves=pairs) as restore_metadata:
+                try:
+                    moved = migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+                    for cached_revision, text in publications:
+                        cache_source_patch(cache, cached_revision, text)
+                    publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
+                except BaseException:
+                    try:
+                        managed_state.restore_runtime_moves(moved)
+                    finally:
+                        restore_metadata()
+                    raise
             return root
-        if applied:
-            apply_source_patch(root, previous, reverse=True)
-        ledger.unlink(missing_ok=True)
-        try:
-            git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
-            git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
-        except subprocess.CalledProcessError:
-            try:
-                head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-                if previous is not None:
-                    if head != current or not patch_check(root, previous):
-                        print(f"Cannot restore source patch in {root}; original checkout failure is preserved", file=sys.stderr)
-                    else:
-                        publish_source_patch(ledger, previous)
-                        apply_source_patch(root, previous)
-            except (OSError, subprocess.CalledProcessError) as restore_error:
-                print(f"Cannot restore source patch in {root}: {restore_error}", file=sys.stderr)
-            raise
-        if current != revision:
-            (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
+        target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
+        cached = cached_source_patch(cache, revision)
+        if desired is not None and not patch_revision_check(root, revision, desired):
+            if current == revision:
+                raise RuntimeError(f"Requested source patch is incompatible with revision {revision}; existing source/runtime preserved")
+            if cached is None:
+                desired = None      # A pin published before the overlay runs native; the stable state owns its runtime.
+            elif not patch_revision_check(root, revision, cached):
+                raise RuntimeError(f"Published source patch for revision {revision} no longer applies; "
+                                   "the source and runtime were not migrated")
+            else:
+                desired = cached
         if desired is not None:
-            if not patch_check(root, desired):
-                raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
-            publish_source_patch(ledger, desired)
-            apply_source_patch(root, desired)
+            cache_paths.update(source_cache_paths(cache, [(revision, desired)]))
+            publications.append((revision, desired))
+        reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
+        forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
+        approval = snapshot_engine_approvals(terminal_root(root), current)
+        pairs = managed_state.runtime_pairs(root, reverse=reverse_layout) if target_terminal or reverse_layout else ()
+        # Layout, profiles, accepted cache bytes and the request receipt settle together.
+        with managed_state.engine_link_checkpoint(
+                root, reverse=reverse_layout, enabled=forward_layout or reverse_layout,
+                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link, managed_state.layout_checkpoint(
+                root, metadata_paths=cache_paths, metadata_directories=(cache,), runtime_moves=pairs,
+                reference_moves=engine_link.planned_reference_moves()) as restore_metadata, managed_state.cmake_metadata_checkpoint() as cmake_metadata:
+            moved = []
+            removed_patch = desired_applied = False
+            try:
+                engine_link.stage()
+                if reverse_layout:
+                    moved.extend(migrate_layout(state, root / "terminal", lock_fd,
+                                                publication_fd=publication_lock.fileno(), reverse=True,
+                                                reference_moves=engine_link.reference_moves()))
+                if applied:
+                    apply_source_patch(root, previous, reverse=True)
+                    removed_patch = True
+                ledger.unlink(missing_ok=True)
+                git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
+                git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
+                engine_link.publish()
+                if desired is not None:
+                    if not patch_check(root, desired):
+                        raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
+                    publish_source_patch(ledger, desired)
+                    apply_source_patch(root, desired)
+                    desired_applied = True
+                moved.extend(migrate_layout(state, terminal_root(root), lock_fd,
+                                            publication_fd=publication_lock.fileno(),
+                                            reference_moves=engine_link.reference_moves()))
+                if not target_terminal:
+                    cmake_metadata.invalidate(root)
+                for cached_revision, text in publications:
+                    cache_source_patch(cache, cached_revision, text)
+                (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
+                publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
+                cmake_metadata.accept()
+            except BaseException:
+                def restore(operation):
+                    try:
+                        operation()
+                    except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
+                        print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
+
+                # Uncover old source coordinates, then undo only this transaction's accepted renames.
+                restore(engine_link.withdraw)
+                restore(lambda: managed_state.restore_runtime_moves(moved))
+                if desired_applied:
+                    restore(lambda: apply_source_patch(root, desired, reverse=True))
+                restore(lambda: ledger.unlink(missing_ok=True))
+                restore(lambda: git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current))
+                restore(engine_link.restore)
+                if previous is not None:
+                    restore(lambda: publish_source_patch(ledger, previous))
+                    if removed_patch:
+                        restore(lambda: apply_source_patch(root, previous))
+                restore(cmake_metadata.restore)
+                restore(restore_metadata)
+                restore(lambda: restore_engine_approvals(terminal_root(root), approval))
+                raise
         return root
 
 
 def prepare_workspace(state, revision, remote=REMOTE, source_patch=None):
-    with workspace_lock(state) as (state, _):
-        return _prepare_workspace(state, revision, remote, source_patch)
+    with workspace_lock(state) as (state, lock):
+        return _prepare_workspace(state, revision, remote, source_patch, lock_fd=lock.fileno())
+
+
+def terminal_root(repository):
+    """Choose the actual checked-out runtime layout, including an offline source rollback."""
+    return repository / "terminal" if (repository / "terminal" / "setup.py").is_file() else repository
+
+
+def repository_root(root):
+    """Recover the managed repository from either of its two supported runtime layouts."""
+    return root.parent if root.name == "terminal" and (root.parent / ".git").is_dir() else root
+
+
+def managed_source_hooks(root):
+    """Use the accepted source APIs, not its flat/split layout, to select managed dispatch."""
+    if not (repository_root(root) / ".git" / SOURCE_PATCH).is_file():
+        return False
+    cli = ast.parse((root / "strata_cli/cli.py").read_text())
+    if not any(isinstance(node, ast.FunctionDef) and node.name == "parse_args"
+               for node in cli.body):
+        return False
+    setup = ast.parse((root / "setup.py").read_text())
+    return any(isinstance(node, ast.FunctionDef) and node.name == "main"
+               and any(arg.arg == "after_parse" for arg in (*node.args.args, *node.args.kwonlyargs))
+               for node in setup.body)
 
 
 def model_configs(root):
@@ -200,7 +422,7 @@ def engine_sources(root, vision=False):
 
 def engine_rollbacks(root, revision):
     try:
-        saved = json.loads((root / ".git" / ENGINE_ROLLBACK).read_text())
+        saved = json.loads((repository_root(root) / ".git" / ENGINE_ROLLBACK).read_text())
     except (FileNotFoundError, ValueError):
         return {}
     if not isinstance(saved, dict) or saved.get("revision") != revision:
@@ -225,6 +447,40 @@ def engine_rollbacks(root, revision):
     return approved
 
 
+def snapshot_engine_approvals(root, revision):
+    """Retain only approvals whose complete file identity was valid before the source transaction."""
+    try:
+        saved = json.loads((repository_root(root) / ".git" / ENGINE_ROLLBACK).read_text())
+    except (FileNotFoundError, ValueError):
+        return None
+    if not isinstance(saved, dict) or saved.get("revision") != revision or not isinstance(saved.get("engines"), dict):
+        return None
+    engines = {name: entry for name, entry in saved["engines"].items()
+               if name in ENGINE_DIRECTORIES and isinstance(entry, dict)
+               and entry.get("files") == engine_identity(root / name) and "strata" in entry.get("files", {})}
+    return dict(saved, engines=engines)
+
+
+def restore_engine_approvals(root, saved):
+    """Renames change ctime/paths, not approved payloads; attest the same inodes again after a refused checkout."""
+    if saved is None:
+        return
+    engines = {}
+    for name, entry in saved["engines"].items():
+        before = entry["files"]
+        after = engine_identity(root / name)
+        if before.keys() != after.keys() or any(before[key][1:5] + before[key][6:] != after[key][1:5] + after[key][6:]
+                                               for key in before):
+            continue
+        engines[name] = dict(entry, files=after)
+    path = repository_root(root) / ".git" / ENGINE_ROLLBACK
+    restored = dict(saved, engines=engines)
+    if path.exists() and json.loads(path.read_text()) == restored:
+        return
+    # The checkpoint retains this inode; only changed identity attestations need new bytes.
+    path.write_text(json.dumps(restored) + "\n")
+
+
 def record_engine_rollback(root, revision, before):
     approved = engine_rollbacks(root, revision)
     changed = False
@@ -247,7 +503,7 @@ def record_engine_rollback(root, revision, before):
         approved[name] = {"files": files, "sources": sources}
         changed = True
     if changed:
-        path = root / ".git" / ENGINE_ROLLBACK
+        path = repository_root(root) / ".git" / ENGINE_ROLLBACK
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps({"revision": revision, "engines": approved}) + "\n")
         temporary.replace(path)
@@ -259,6 +515,7 @@ class RuntimeIncomplete(RuntimeError):
 
 def check_runtime(root, selected=(), *, inventory=True):
     """Inspect Python and selected or complete local inventory without acquiring or executing engines."""
+    managed_state.enable_source(root)
     from importlib import metadata
     from pip._vendor.packaging.requirements import Requirement
 
@@ -269,7 +526,7 @@ def check_runtime(root, selected=(), *, inventory=True):
 
     problems = []
     rollbacks = {}
-    if (inventory or selected) and (root / ".git" / ENGINE_ROLLBACK).exists():
+    if (inventory or selected) and (repository_root(root) / ".git" / ENGINE_ROLLBACK).exists():
         revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         rollbacks = engine_rollbacks(root, revision)
     selected = {Path(path).resolve() for path in selected}
@@ -318,7 +575,9 @@ def check_runtime(root, selected=(), *, inventory=True):
             continue
         checked.add(exe)
         preserved = any(exe.resolve() == (root / name / "strata").resolve() for name in rollbacks)
-        if sys.platform == "darwin" and exe.resolve() == (root / "build-metal/strata").resolve():
+        engine_root = root if repository_root(root) == root else repository_root(root) / "engine"
+        if sys.platform == "darwin" and exe.resolve() == (engine_root / "build-metal/strata").resolve():
+            sys.path.insert(0, str(engine_root))
             from metal import setup_mac
             if not setup_mac.engine_current():
                 problems.append(f"{exe}: Metal engine was not built for this source")
@@ -368,6 +627,7 @@ def check_runtime(root, selected=(), *, inventory=True):
 
 def reconcile_configs(root, configs):
     """Apply upstream's argument migrations to selected configs without rebuilding their launch choices."""
+    managed_state.enable_source(root)
     sys.path.insert(0, str(root))
     import setup
     from strata_control.profiles import read_run_config
@@ -406,20 +666,47 @@ def publish_revision(marker, revision):
     temporary.replace(marker)
 
 
+def setup_command(root, args):
+    """Bundled setup.sh purges PYTHONPATH; enter its native parser through the stable bootstrap instead."""
+    python = root / "python/bin/python3"
+    env = None
+    if os.access(python, os.X_OK):
+        source = Path(__file__).resolve().with_name("strata-managed")
+        paths = os.environ.get("PYTHONPATH", "").split(os.pathsep)
+        env = dict(os.environ,
+                   STRATA_MANAGED_SOURCE=str(repository_root(Path(root).resolve())),
+                   PYTHONPATH=os.pathsep.join([str(source), *paths]))
+        return [str(python), str(Path(__file__).resolve()), "--native-setup", str(root), *args], env
+    return ["sh", str(repository_root(root) / "setup.sh"), *args], env
+
+
+def native_setup(root, args, *, acquisition=None):
+    root = Path(root).resolve()
+    os.environ["STRATA_MANAGED_SOURCE"] = str(repository_root(root))
+    managed_state.enable_source(root)
+    os.chdir(root)
+    if "STRATA_WORKSPACE_LOCK_FD" in os.environ:
+        managed_state.install_acquisition(native_setup=True, acquisition=acquisition)
+    _reserve_standard_descriptors()
+    sys.path.insert(0, str(root))
+    sys.argv = [str(root / "setup.py"), *args]
+    # Use this pin's real script entry, including native parser/error handling and the source-pull guard.
+    os.environ["STRATA_UPDATE_PULLED"] = "1"
+    runpy.run_path(str(root / "setup.py"), run_name="__main__")
+
+
 def prepare_launch_runtime(root, revision, lock_fd):
     """Refresh source/Python once per pin, leaving engine and model acquisition to native launch."""
-    receipt = root / ".git" / SOURCE_REFRESH_REVISION
+    receipt = repository_root(root) / ".git" / SOURCE_REFRESH_REVISION
     current = receipt.exists() and receipt.read_text().strip() == revision
     status = runtime_status(root, lock_fd, mode="--python-status")
     if current and status.returncode == 0:
         return
     receipt.unlink(missing_ok=True)
-    (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+    (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
     rollbacks = engine_rollbacks(root, revision)
-    subprocess.run(
-        ["sh", str(root / "setup.sh"), "--update", *(["--build"] if rollbacks else [])],
-        check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
-    )
+    command, env = setup_command(root, ["--update", *(["--build"] if rollbacks else [])])
+    subprocess.run(command, check=True, stdout=sys.stderr, pass_fds=(lock_fd,), env=env)
     status = runtime_status(root, lock_fd, mode="--python-status")
     if status.returncode:
         raise RuntimeError(status.stderr.strip() or status.stdout.strip() or "Strata Python validation failed")
@@ -428,8 +715,8 @@ def prepare_launch_runtime(root, revision, lock_fd):
 
 def validate_selected_runtime(root, revision, lock_fd, configs):
     """Validate the derived launch after native acquisition; certify only complete installed inventory."""
-    marker = root / ".git" / RUNTIME_REVISION
-    receipt = root / ".git" / SOURCE_REFRESH_REVISION
+    marker = repository_root(root) / ".git" / RUNTIME_REVISION
+    receipt = repository_root(root) / ".git" / SOURCE_REFRESH_REVISION
     status = runtime_status(root, lock_fd, configs, mode="--selected-runtime")
     if status.returncode:
         marker.unlink(missing_ok=True)
@@ -445,9 +732,9 @@ def validate_selected_runtime(root, revision, lock_fd, configs):
         raise RuntimeError(status.stderr.strip() or status.stdout.strip() or "Runtime inventory validation failed")
 
 def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
-    marker = root / ".git" / RUNTIME_REVISION
-    receipt = root / ".git" / SOURCE_REFRESH_REVISION
-    rollback_path = root / ".git" / ENGINE_ROLLBACK
+    marker = repository_root(root) / ".git" / RUNTIME_REVISION
+    receipt = repository_root(root) / ".git" / SOURCE_REFRESH_REVISION
+    rollback_path = repository_root(root) / ".git" / ENGINE_ROLLBACK
     if force:
         rollback_path.unlink(missing_ok=True)
         receipt.unlink(missing_ok=True)
@@ -465,10 +752,8 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
     if force or not current or status is None or status.returncode:
         # Upstream --build preserves approved rolled-back engines while repairing Python and configs.
         repair_args = [*args, "--build"] if rollbacks else args
-        subprocess.run(
-            ["sh", str(root / "setup.sh"), "--update", *repair_args],
-            check=True, stdout=sys.stderr, pass_fds=(lock_fd,),
-        )
+        command, env = setup_command(root, ["--update", *repair_args])
+        subprocess.run(command, check=True, stdout=sys.stderr, pass_fds=(lock_fd,), env=env)
         status = runtime_status(root, lock_fd, configs, reconcile=True)
         if status.returncode:
             raise RuntimeError(status.stderr.strip() or status.stdout.strip() or
@@ -502,40 +787,66 @@ def runtime_python(root):
     return bundled if os.access(bundled, os.X_OK) else root / ".venv/bin/python"
 
 
+def migrate_layout(state, root, lock_fd, *, publication_fd=None, reverse=False, reference_moves=()):
+    """Migrate under publication/acquisition leases and return only successful payload renames."""
+    if publication_fd is None:
+        with source_publication_lock(state) as publication_lock:
+            return migrate_layout(state, root, lock_fd, publication_fd=publication_lock.fileno(),
+                                  reverse=reverse, reference_moves=reference_moves)
+    previous = root / ".venv" if reverse else repository_root(root) / ".venv"
+    if previous.is_dir():
+        retain_interpreter(state, previous)
+    # A previous phase may already have moved this process's interpreter to the current runtime root.
+    python = Path(sys.executable)
+    if not os.access(python, os.X_OK):
+        python = runtime_python(root)
+    result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(root),
+                             json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
+                             *(["--reverse"] if reverse else [])],
+                            check=True, stdout=subprocess.PIPE, text=True,
+                            pass_fds=(lock_fd, publication_fd, *managed_state.namespace_fds()),
+                            env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
+                                     STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)})))
+    return [(Path(source), Path(destination)) for source, destination in json.loads(result.stdout)]
+
+
 def bootstrap_runtime(state, root, lock_fd):
     """Let upstream create its environment and install its own runtime requirements, without a model."""
     retain_interpreter(state, root / ".venv")
     venv = root / ".venv"
     python = runtime_python(root)
+    if python == root / "python/bin/python3":
+        return python                          # The bundled interpreter already exists; no ambient venv/bootstrap is needed.
     if venv.is_dir() and python == venv / "bin/python" and subprocess.run(
         [str(python), "-m", "pip", "--version"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     ).returncode:
         shutil.rmtree(venv)
-        (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
+        (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        (repository_root(root) / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         retain_interpreter(state, venv)
     try:
         subprocess.run(
-            ["sh", str(root / "setup.sh")], check=True, stdout=sys.stderr,
+            ["sh", str(repository_root(root) / "setup.sh")], check=True, stdout=sys.stderr,
             env=dict(os.environ, STRATA_BOOTSTRAP_ONLY="1"), pass_fds=(lock_fd,),
         )
     except BaseException:
-        (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
+        (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        (repository_root(root) / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         raise
     finally:
         retain_interpreter(state, root / ".venv")
     python = runtime_python(root)
     if not os.access(python, os.X_OK):
-        (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-        (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
+        (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+        (repository_root(root) / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         raise RuntimeError(f"Strata bootstrap did not provide a runtime interpreter at {python}")
     return python
 
 
 def observer_probe(root, args):
     """Use the real parser and UI constructor in an isolated interpreter, never a stale import cache."""
+    managed_state.enable_source(root)
     sys.path.insert(0, str(root))
     from strata_control import acquisition
     with acquisition.source_observation():
@@ -554,17 +865,29 @@ def observer_probe(root, args):
     return 73
 
 
-def exec_observer(root, python, args, lock, *, state):
-    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT"):
+def exec_observer(root, python, args, lock, *, state, native=False):
+    managed_state.enable_source(root)
+    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
+                "STRATA_ACQUISITION_BOOTSTRAP"):
         os.environ.pop(key, None)
     if args[:1] == ["monitor"]:
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
+        if native:
+            os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
+    if native:
+        # Native runtime start hands its reader to a background Host before the
+        # producer can return; this is source state, never an acquisition lease.
+        os.environ["STRATA_NATIVE_SOURCE_STATE"] = str(state)
+        os.environ["STRATA_NATIVE_MODULE_HELPER"] = str(Path(__file__).resolve())
     os.set_inheritable(lock.fileno(), True)
     os.environ["STRATA_SOURCE_LOCK_FD"] = str(lock.fileno())
-    os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
+    command = ([str(Path(__file__).resolve()), "--native-observer", str(root), TERMINAL_CLI]
+               if native else [str(root / TERMINAL_CLI)])
+    os.execv(str(python), [str(python), *command, *args])
 
 
 def terminal_args(root, args):
+    managed_state.enable_source(root)
     sys.path.insert(0, str(root))
     from strata_cli.cli import parse_args
     return parse_args(args)
@@ -606,9 +929,12 @@ def managed_runtime_configs(root, a):
             cfg = profiles.read_run_config(config)
         except profiles.ProfileError:
             return None  # Native dispatch reports the original typed profile error.
+        if managed_state._managed_sycl_config(cfg, repository_root(root), config.parent):
+            return [config]
         if not engine_component.is_reference(cfg["exe"]):
             effective = dict(cfg, cwd=cfg.get("cwd") or os.getcwd())
-            if doctor._location(cfg["exe"], effective, config).resolve().is_relative_to(root):
+            executable = doctor._location(cfg["exe"], effective, config).resolve()
+            if executable.is_relative_to(root) or executable.is_relative_to(repository_root(root) / "engine"):
                 return [config]
     return None
 
@@ -617,24 +943,27 @@ def launch_exec(installation, args):
     """Resume a native-validated launch under its prepared private interpreter."""
     context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
     state = Path(context["state"]).resolve()
-    root = (state / "source").resolve()
+    root = terminal_root((state / "source").resolve())
     lock_fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
     installation = Path(installation).resolve()
     python = bootstrap_runtime(state, root, lock_fd)
     if installation == root:
         prepare_launch_runtime(root, context["revision"], lock_fd)
     os.environ["STRATA_LAUNCH_RUNTIME_READY"] = json.dumps({
-        "source": str(root), "revision": context["revision"], "installation": str(installation),
+        "source": str(repository_root(root)), "revision": context["revision"], "installation": str(installation),
         "python": str(python.absolute()),
     })
     entry = context.get("terminal_cli", TERMINAL_CLI)
     os.execv(str(python), [str(python), str(root / entry), *args])
 
 
-def source_exec(context, args):
+def source_exec(context, args, *, acquisition=None):
     """Apply managed policy after setup's real parser, before its filesystem or acquisition work."""
     state = Path(context["state"])
-    root = (state / "source").resolve()
+    root = terminal_root((state / "source").resolve())
+    if not managed_source_hooks(root):
+        return native_setup(root, args, acquisition=acquisition)
+    managed_state.enable_source(root)
     revision = context["revision"]
     lock_fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
     os.chdir(root)
@@ -661,13 +990,13 @@ def source_exec(context, args):
             if context.get("models_directory") is not None and not a.separate_model_artifacts:
                 a.separate_model_artifacts = True
                 argv.append("--separate-model-artifacts")
-        rollback = root / ".git" / ENGINE_ROLLBACK
+        rollback = repository_root(root) / ".git" / ENGINE_ROLLBACK
         if rollback.exists() and not engine_rollbacks(root, revision):
             rollback.unlink()
         if not standalone and (a.update or installing):
             rollback.unlink(missing_ok=True)
-            (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-            (root / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
+            (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+            (repository_root(root) / ".git" / SOURCE_REFRESH_REVISION).unlink(missing_ok=True)
         if not standalone and not runtime_ready:
             python = bootstrap_runtime(state, root, lock_fd)
             os.environ["STRATA_RUNTIME_READY"] = str(root)
@@ -679,8 +1008,8 @@ def source_exec(context, args):
                 for name in ENGINE_DIRECTORIES
             }
             try:
-                subprocess.run(["sh", str(root / "setup.sh"), *argv],
-                               check=True, pass_fds=(lock_fd,))
+                command, env = setup_command(root, argv)
+                subprocess.run(command, check=True, pass_fds=(lock_fd,), env=env)
             finally:
                 retain_interpreter(state, root / ".venv")
             record_engine_rollback(root, revision, before)
@@ -689,7 +1018,7 @@ def source_exec(context, args):
             if a.update or (not installing and have):
                 refresh_runtime(root, revision, lock_fd, argv, force=a.update)
             else:
-                (root / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
+                (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
         if a.update and not standalone:
             return 0
         os.environ["STRATA_EXECV"] = "1"
@@ -713,32 +1042,41 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
     source = state / "source"
     ledger = source / ".git" / SOURCE_PATCH
     # Hold a short source read lease through the guard, native parser, UI readiness and exec.
-    if (not managed_setup and args and args[0] in {"status", "monitor", "logs", "connection", "runtime", "launch"}
-            and (source / ".git").exists() and source_patch is not None):
+    if not managed_setup and args and (source / ".git").exists():
         with source_publication_lock(state, shared=True) as source_lock:
             head = subprocess.run(
                 ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", "HEAD"],
                 capture_output=True, text=True,
             )
-            if (ledger.is_file() and ledger.read_text() == Path(source_patch).read_text()
-                    and head.returncode == 0
-                    and head.stdout.strip() == revision
-                    and patch_check(source, ledger.read_text(), reverse=True)):
-                python = Path(sys.executable) if args[0] == "launch" else runtime_python(source)
+            previous = ledger.read_bytes().decode("utf-8") if ledger.is_file() else None
+            desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
+            if (head.returncode == 0 and head.stdout.strip() == revision
+                    and (previous is None or patch_check(source, previous, reverse=True))):
+                prepared = (previous == desired or accepted_source_request(source, revision, desired, previous))
+            else:
+                prepared = False
+            if prepared:
+                python = Path(sys.executable) if args[0] == "launch" else runtime_python(terminal_root(source))
                 if not os.access(python, os.X_OK):
                     python = Path(sys.executable)
+                native = not managed_source_hooks(terminal_root(source))
                 probe = subprocess.run(
-                    [str(python), str(Path(__file__).resolve()), "--observer-probe", str(source), *args],
+                    [str(python), str(Path(__file__).resolve()),
+                     "--native-observer-probe" if native else "--observer-probe", str(terminal_root(source)),
+                     *([TERMINAL_CLI] if native else []), *args],
                     env={**os.environ, "STRATA_SOURCE_LOCK_FD": str(source_lock.fileno())},
                     pass_fds=(source_lock.fileno(),),
                 )
                 if probe.returncode == 73:
-                    exec_observer(source, python, args, source_lock, state=state)
+                    exec_observer(terminal_root(source), python, args, source_lock, state=state, native=native)
                 elif probe.returncode != 72:
                     probe.check_returncode()
                     return 0  # Native help finished in the probe.
     with workspace_lock(state, inherited=managed_setup) as (state, lock):
-        root = _prepare_workspace(state, revision, REMOTE, source_patch)
+        _prepare_workspace(state, revision, REMOTE, source_patch, lock_fd=lock.fileno())
+        python = Path(sys.executable)
+        if not os.access(python, os.X_OK):
+            python = runtime_python(terminal_root((state / "source").resolve()))
         context = {
             "state": str(state), "revision": revision, "data_directory": data_directory,
             "models_directory": models_directory, "source_patch": source_patch, "remote": REMOTE,
@@ -748,11 +1086,43 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
         os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps(context)
         os.set_inheritable(lock.fileno(), True)
+        # Checkpoints import the previous pin. Keep the lease, never its module cache.
+        mode = "--prepared-setup" if managed_setup else "--prepared-workspace"
+        os.execv(str(python), [str(python), str(Path(__file__).resolve()), mode, *args])
+
+
+def run_prepared_workspace(context, args, *, managed_setup=False):
+    """Continue the published pin under its inherited lease, without preparing or bootstrapping again."""
+    with workspace_lock(context["state"], inherited=True) as (state, lock):
+        _reserve_standard_descriptors()
+        repository = (state / "source").resolve()
+        root = terminal_root(repository)
+        revision = context["revision"]
+        managed_state.enable_source(root)
+        if not managed_source_hooks(root):
+            # Execute this pin's native CLI when its accepted source lacks managed APIs.
+            if managed_setup:
+                return native_setup(root, args, acquisition=lock)
+            python = runtime_python(root)
+            if not os.access(python, os.X_OK):
+                python = Path(sys.executable)
+            from strata_native_observer import probe
+            a = probe(root, TERMINAL_CLI, args)
+            # Native launch also acquires through Runner setup children; early returns
+            # need only the source-reader readiness contract.
+            from strata_native_observer import acquisition_action
+            if not acquisition_action(a):
+                with source_publication_lock(state, shared=True) as source_lock:
+                    lock.close()
+                    exec_observer(root, python, args, source_lock, state=state, native=True)
+            os.set_inheritable(lock.fileno(), True)
+            os.execv(str(python), [str(python), str(Path(__file__).resolve()),
+                                  "--native-active", str(root), TERMINAL_CLI, *args])
         if managed_setup:
-            return source_exec(context, args)
+            return source_exec(context, args, acquisition=lock)
         a = terminal_args(root, args)
         if a.command == "source":
-            return source_exec(context, a.setup_args)
+            return source_exec(context, a.setup_args, acquisition=lock)
         python = runtime_python(root)
         if a.command == "launch":
             python = Path(sys.executable)
@@ -773,21 +1143,55 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1] in {"--managed-setup", "--source-exec"}:
+        if sys.argv[1] in {"--managed-setup", "--source-exec", "--prepared-workspace", "--prepared-setup"}:
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
             REMOTE = context["remote"]
+            TERMINAL_CLI = context.get("terminal_cli", TERMINAL_CLI)
             if sys.argv[1] == "--source-exec":
                 sys.exit(source_exec(context, sys.argv[2:]))
+            if sys.argv[1] in {"--prepared-workspace", "--prepared-setup"}:
+                sys.exit(run_prepared_workspace(context, sys.argv[2:], managed_setup=sys.argv[1] == "--prepared-setup"))
             context.pop("remote")
-            TERMINAL_CLI = context.pop("terminal_cli", TERMINAL_CLI)
+            context.pop("terminal_cli", None)
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
+        elif sys.argv[1] == "--migrate-layout":
+            # Keep consumer diagnostics separate from the actual successful rename journal.
+            with redirect_stdout(sys.stderr):
+                moved = managed_state.migrate_layout(repository_root(Path(sys.argv[2]).resolve()),
+                                                     reverse="--reverse" in sys.argv[4:],
+                                                     reference_moves=[(Path(source), Path(destination))
+                                                         for source, destination in json.loads(sys.argv[3])])
+            print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
+        elif sys.argv[1] == "--native-setup":
+            sys.exit(native_setup(sys.argv[2], sys.argv[3:]))
+        elif sys.argv[1] == "--native-intel-setup":
+            root = Path(sys.argv[2]).resolve()
+            managed_state.enable_source(root)
+            managed_state.install_acquisition(native_setup=True)
+            sys.path.insert(0, str(root))
+            sys.argv = [str(root / "sycl/setup_intel.py"), *sys.argv[3:]]
+            runpy.run_path(sys.argv[0], run_name="__main__")
         elif sys.argv[1] == "--launch-exec":
             launch_exec(sys.argv[2], sys.argv[3:])
         elif sys.argv[1] == "--observer-probe":
             sys.exit(observer_probe(Path(sys.argv[2]).resolve(), sys.argv[3:]))
+        elif sys.argv[1] == "--native-observer-probe":
+            from strata_native_observer import probe
+            root = Path(sys.argv[2]).resolve()
+            managed_state.enable_source(root)
+            sys.exit(73 if passive_action(probe(root, sys.argv[3], sys.argv[4:])) else 72)
+        elif sys.argv[1] == "--native-observer":
+            from strata_native_observer import run
+            run(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
+        elif sys.argv[1] == "--native-active":
+            from strata_native_observer import run_active
+            run_active(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
+        elif sys.argv[1] == "--native-module":
+            from strata_native_observer import run_module
+            run_module(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])
         elif sys.argv[1] == "--validate-selected":
             context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
-            root = (Path(context["state"]) / "source").resolve()
+            root = terminal_root((Path(context["state"]) / "source").resolve())
             validate_selected_runtime(root, context["revision"], int(os.environ["STRATA_WORKSPACE_LOCK_FD"]),
                                       sys.argv[2:])
         elif sys.argv[1] in {"--runtime-status", "--reconcile-runtime", "--python-status", "--selected-runtime"}:
