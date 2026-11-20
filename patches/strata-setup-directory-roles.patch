@@ -880,7 +880,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
          helpers = s.family in modelstate.HELPER_FAMILIES
-@@ -2715,9 +2713,7 @@
+@@ -2715,17 +2713,15 @@
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -890,15 +890,22 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 +                homes = directories.data_roots
                  if modelstate.mtp_choice(s.mtp, self.resolved_drafting(s.family)) != "off" and "mtp" not in have and discovery.mtp_layer_in(*homes) is None:
                      parts.append({"kind": "mtp", "label": "the draft layer", "gb": MTP_FETCH_GB})
-                 own = None
-@@ -2725,7 +2721,7 @@
-                     own = Path(s.model_path)
-                     own = own if own.is_dir() else own.parent
-                 # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
+-                own = None
+-                if s.model_path:                             # setup uses a reader that sits with the person's own files (setup.py --gguf-dir)
+-                    own = Path(s.model_path)
+-                    own = own if own.is_dir() else own.parent
+-                # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
 -                has_reader = modelstate.reader_present(self.catalog, s.family, homes, own=own)
-+                has_reader = modelstate.reader_present(self.catalog, directories.family, homes, own=own, models_dir=directories.models_dir)
-                 if wants_pictures and "mmproj" not in have and not has_reader:
-                     parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
+-                if wants_pictures and "mmproj" not in have and not has_reader:
+-                    parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
++                if wants_pictures and "mmproj" not in have:
++                    # setup uses a reader that sits with the person's own files (setup.py --gguf-dir)
++                    own = Path(s.model_path) if s.model_path else None
++                    if own is not None and not own.is_dir():
++                        own = own.parent
++                    # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
++                    if not modelstate.reader_present(self.catalog, directories.family, homes, own=own, models_dir=directories.models_dir):
++                        parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
 @@ -2733,8 +2729,8 @@
          try:

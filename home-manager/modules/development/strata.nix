@@ -56,9 +56,9 @@ in
         source --update --build retains upstream's rebuild semantics.
 
         Managed setup, updates and model acquisition serialize workspace mutations.
-        Pending one-time native config migrations also require this lock before help or
-        observation. Native install discovery, target folders and hardware decisions are
-        unchanged; the migration can write known external installations before dispatch.
+        Pending one-time config migrations run under this lock before dispatch, including
+        help. They retain native discovery and RAM policy, preserve config modes and aliases,
+        and write only within discovered installations. Probes and observers do not run migrations.
         Serving and observation release the mutation lock after preparation.
         Monitor updates refuse a busy workspace without blocking observation.
         Once native migrations settle, same-pin observers and stop commands remain

@@ -43,7 +43,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  # The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
  # the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
  # under any other name are never touched.
-@@ -53,6 +62,46 @@
+@@ -53,6 +62,54 @@
  # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
@@ -84,13 +84,21 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        pass
 +
 +
++def _reap_claim(claim: Path) -> None:
++    """Leave a failed claim for the next sweep."""
++    try:
++        _remove_owned_tree(claim)
++    except OSError as exc:
++        logger.warning("Could not remove provider snapshot claim %s: %s", claim, exc)
++
++
 +def _cleanup_snapshots() -> None:
 +    if _snapshot_root is not None:
 +        _release_root(_snapshot_root, None, _snapshot_creator_pid)
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -97,10 +146,12 @@
+@@ -97,10 +154,22 @@
      # neither delete the parent's live copy nor drop the parent's lock.
      if os.getpid() != creator_pid:
          return
@@ -99,7 +107,17 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -            os.close(owner_fd)
 -    shutil.rmtree(root, ignore_errors=True)
 +    try:
-+        _remove_owned_tree(root)
++        # Publish the claim before deletion can remove owner.lock. The atomic rename
++        # does not need the setup lock: sweepers may take the claim as soon as it exists.
++        claim = root.with_name(f"{_REAPING_PREFIX}{uuid.uuid4().hex}")
++        try:
++            os.rename(root, claim)
++        except FileNotFoundError:
++            return
++        except OSError as exc:
++            logger.warning("Could not claim provider snapshot root %s for removal: %s", root, exc)
++            return
++        _reap_claim(claim)
 +    finally:
 +        if owner_fd is not None:
 +            with contextlib.suppress(OSError):
@@ -107,7 +125,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _new_root() -> Path:
-@@ -128,121 +179,192 @@
+@@ -128,121 +197,192 @@
          try:
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
          except BaseException:
@@ -118,12 +136,13 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -            shutil.rmtree(root, ignore_errors=True)
 +            _remove_owned_tree(root)
              raise OSError(f"{root / _OWNER_LOCK} is held by another process")
++        atexit.register(_release_root, root, owner_fd, os.getpid())
      finally:
          os.close(setup_fd)
          for claim in claimed:
 -            shutil.rmtree(claim, ignore_errors=True)
-+            _remove_owned_tree(claim)
-     atexit.register(_release_root, root, owner_fd, os.getpid())
++            _reap_claim(claim)
+-    atexit.register(_release_root, root, owner_fd, os.getpid())
      return root
  
  

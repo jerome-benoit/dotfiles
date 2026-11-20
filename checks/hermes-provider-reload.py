@@ -13,6 +13,7 @@ import tempfile
 import threading
 import types
 import unittest
+from unittest.mock import patch
 
 
 DECLARATION = '''from pathlib import Path
@@ -410,15 +411,54 @@ def persistent_cleanup(fixture):
     dead.mkdir()
     (dead / fixture.reloader._OWNER_LOCK).touch()
     shutil.copytree(fixture.link.resolve(), dead / "review-provider")
-    another = fixture.reloader._new_root()
+    reloader = fixture.reloader
+    interrupted = []
+
+    def interrupted_delete(path):
+        (path / reloader._OWNER_LOCK).unlink()
+        interrupted.append(path)
+        raise PermissionError("injected partial snapshot deletion")
+
+    with unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs:
+        with (
+            patch.object(reloader.shutil, "rmtree", side_effect=interrupted_delete),
+            patch.object(reloader.atexit, "register", wraps=reloader.atexit.register) as register,
+        ):
+            another = reloader._new_root()
+        owner_fd = register.call_args.args[2]
+        register.assert_called_once_with(reloader._release_root, another, owner_fd, os.getpid())
     try:
-        assert not dead.exists(), "dead read-only snapshot was not reclaimed"
-        assert not any(path.name.startswith(fixture.reloader._REAPING_PREFIX) for path in live.parent.iterdir()), "reclaimed read-only claim remains"
+        assert not dead.exists(), "sweep did not claim the dead root"
+        assert os.fstat(owner_fd).st_ino == (another / reloader._OWNER_LOCK).stat().st_ino
+        assert not reloader._owner_gone(another), "new root lost its owner lock"
+        assert len(interrupted) == 1
+        stale_claim = interrupted[0]
+        assert stale_claim.name.startswith(reloader._REAPING_PREFIX) and stale_claim.is_dir()
+        assert str(stale_claim) in logs.output[0] and "injected partial snapshot deletion" in logs.output[0]
         assert live.is_dir(), "sweep reclaimed a live owner's root"
         assert fixture.headers(profile) == "one"
+
+        # Explicit host cleanup must leave a sweepable claim even after owner.lock is gone.
+        with unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs:
+            with patch.object(reloader.shutil, "rmtree", side_effect=interrupted_delete):
+                reloader._cleanup_snapshots()
+        assert len(interrupted) == 2
+        exit_claim = interrupted[1]
+        assert not live.exists(), "cleanup did not publish a claim"
+        assert exit_claim.name.startswith(reloader._REAPING_PREFIX) and exit_claim.is_dir()
+        assert str(exit_claim) in logs.output[0] and "injected partial snapshot deletion" in logs.output[0]
+
+        recovered = reloader._new_root()
+        try:
+            assert not any(path.name.startswith(reloader._REAPING_PREFIX) for path in live.parent.iterdir()), (
+                "next sweep did not finish the partially removed read-only claims"
+            )
+            assert another.is_dir(), "recovery sweep reclaimed a live owner's root"
+        finally:
+            reloader._release_root(recovered, None, os.getpid())
     finally:
-        fixture.reloader._release_root(another, None, os.getpid())
-    return {"persistent_readonly_reclaim": "complete"}
+        reloader._release_root(another, None, os.getpid())
+    return {"persistent_readonly_reclaim": "complete", "partial_removal_recovery": "complete"}
 
 
 def normal_exit(plugin):

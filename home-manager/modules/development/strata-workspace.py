@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 import runpy
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -725,6 +726,8 @@ def retained_engine_update_args(root, args=()):
                 for node in update.body
             )
             if accepted and guarded:
+                # A repair preserves approved engines; only the original command owns --build.
+                args = [arg for arg in args if not (arg.startswith("--b") and "--build".startswith(arg))]
                 return [*args, flag]
     raise RuntimeError("Pinned setup has no proven installed-engine preservation capability; "
                        "source and approved engines remain available, but automatic runtime repair was refused")
@@ -891,9 +894,62 @@ def native_settings_migration(root):
     spec.loader.exec_module(migration)
     if (not isinstance(getattr(migration, "MARK", None), str)
             or not callable(getattr(migration, "_folders", None))
-            or not callable(getattr(migration, "run", None))):
+            or not callable(getattr(migration, "run", None))
+            or not callable(getattr(migration, "_load_setup", None))):
         raise RuntimeError("Pinned native settings migration has no read-only pending contract")
     return migration
+
+
+def migrate_native_settings(root):
+    """Run native discovery and RAM policy with a mode- and alias-preserving writer."""
+    migration = native_settings_migration(root)
+    if migration is None:
+        return
+    folders = [Path(folder).resolve() for folder in migration._folders()]
+    seen = set()
+
+    def publish(path, payload, mode):
+        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fchmod(stream.fileno(), mode)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    class MigrationWriter:
+        setup = None
+
+        def migrate_run_configs(self, folder):
+            if self.setup is None:
+                self.setup = migration._load_setup()
+            moved = []
+            for candidate in sorted(self.setup.model_config_files(folder)):
+                try:
+                    path = candidate.resolve(strict=True)
+                    if (path in seen or not path.is_file()
+                            or not any(path.is_relative_to(install) for install in folders)):
+                        continue
+                    seen.add(path)
+                    with path.open("rb") as source:
+                        info = os.fstat(source.fileno())
+                        if not stat.S_ISREG(info.st_mode):
+                            continue
+                        original = source.read()
+                    old = json.loads(original.decode("utf-8-sig"))
+                    new = self.setup.migrate_ram_budget(old) if isinstance(old, dict) else None
+                    if new is None:
+                        continue
+                    publish(path.with_name(path.name + ".bak"), original, 0o600)
+                    publish(path, json.dumps(new, indent=1).encode(), stat.S_IMODE(info.st_mode))
+                    moved.append(candidate.name)
+                except (OSError, ValueError, RuntimeError):
+                    continue
+            return moved
+
+    migration.run(folders=folders, setup_module=MigrationWriter())
 
 
 def native_settings_migration_pending(root):
@@ -932,15 +988,12 @@ def observer_probe(root, args):
     return 73
 
 
-def exec_observer(root, python, args, lock, *, state, native=False, keep_acquisition=False):
+def exec_observer(root, python, args, lock, *, state, native=False):
     managed_state.enable_source(root)
-    if keep_acquisition:
-        os.set_inheritable(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), True)
-    else:
-        for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
-                    "STRATA_ACQUISITION_BOOTSTRAP"):
-            os.environ.pop(key, None)
-    if args[:1] == ["monitor"] and not keep_acquisition:
+    for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER", "STRATA_WORKSPACE_CONTEXT",
+                "STRATA_ACQUISITION_BOOTSTRAP"):
+        os.environ.pop(key, None)
+    if args[:1] == ["monitor"]:
         os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(state)})
         if native:
             os.environ["STRATA_WORKSPACE_HELPER"] = str(Path(__file__).resolve())
@@ -1171,15 +1224,11 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         managed_state.enable_source(root)
         # Native migration discovers installs through this pin's lazily imported packages.
         sys.path.insert(0, str(root))
-        managed = managed_source_hooks(root)
-        if managed or managed_setup:
-            migration = native_settings_migration(root)
-            if migration is not None:
-                try:
-                    migration.run()
-                except Exception:
-                    pass  # Match the native entry's best-effort migration policy.
-        if not managed:
+        try:
+            migrate_native_settings(root)
+        except Exception:
+            pass  # Match the native entry's best-effort migration policy.
+        if not managed_source_hooks(root):
             # Execute this pin's native CLI when its accepted source lacks managed APIs.
             if managed_setup:
                 return native_setup(root, args, acquisition=lock)
@@ -1193,11 +1242,8 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
             from strata_native_observer import acquisition_action
             if not acquisition_action(a):
                 with source_publication_lock(state, shared=True) as source_lock:
-                    pending = native_settings_migration_pending(root)
-                    if not pending:
-                        lock.close()
-                    exec_observer(root, python, args, source_lock, state=state, native=True,
-                                  keep_acquisition=pending)
+                    lock.close()
+                    exec_observer(root, python, args, source_lock, state=state, native=True)
             os.set_inheritable(lock.fileno(), True)
             os.execv(str(python), [str(python), str(Path(__file__).resolve()),
                                   "--native-active", str(root), TERMINAL_CLI, *args])
@@ -1219,10 +1265,8 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         if passive_action(a):
             with source_publication_lock(state, shared=True) as source_lock:
                 # Close the owning object, not its raw descriptor; context cleanup stays idempotent.
-                pending = native_settings_migration_pending(root)
-                if not pending:
-                    lock.close()
-                exec_observer(root, python, args, source_lock, state=state, keep_acquisition=pending)
+                lock.close()
+                exec_observer(root, python, args, source_lock, state=state)
         os.execv(str(python), [str(python), str(root / TERMINAL_CLI), *args])
 
 

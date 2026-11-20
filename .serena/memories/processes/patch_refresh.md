@@ -180,7 +180,9 @@ backend status. Keep provider deferrals out of next-chat tools/prompt notices.
 Extraction and RPC must use the same frozen code; the host shares the complete
 version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
-exits without atexit. Apply the wheel patch with or without mise.
+exits without atexit. Rename an exiting root to a reclaimable claim before
+deleting its owner marker. Failed claim deletion must not block a new owner
+or lose its exit hook. Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
 names do not expand internal storage components or collide after normalization.

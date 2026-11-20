@@ -9,6 +9,7 @@ Only configs, launch scripts and interpreter metadata are edited, with exact-byt
 from contextlib import ExitStack, contextmanager
 import importlib.abc
 import importlib.util
+from importlib.machinery import SourceFileLoader
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -39,14 +40,32 @@ SYCL_PATH_FLAGS = {"--pack", "--native", "--native-dense-gguf", "--embd-gguf",
                    "--ple-gguf", "--expert-profile", "--mtp", "--control-vector-scaled"}
 
 
+class LauncherOwnedMigration(SourceFileLoader):
+    def exec_module(self, module):
+        super().exec_module(module)
+        run = module.run
+        # Only the launcher can migrate; native entry points must remain read-only.
+        module.run = lambda: run(folders=())
+
+
 class ManagedConsumers(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname not in {"strata_control.profiles", "strata_control.cfg_paths", "strata_control.doctor"} or path is None:
+        if fullname not in {"strata_control.profiles", "strata_control.cfg_paths", "strata_control.doctor",
+                           "strata_cli.ram_budget_move"} or path is None:
             return None
         repository = os.environ.get("STRATA_MANAGED_SOURCE")
         if not repository:
             return None
         repository = Path(repository).resolve()
+        if fullname == "strata_cli.ram_budget_move":
+            for root in (repository, repository / "terminal"):
+                package = root / "strata_cli"
+                if any(Path(item).resolve() == package for item in path):
+                    source = package / "ram_budget_move.py"
+                    if source.is_file():
+                        loader = LauncherOwnedMigration(fullname, str(source))
+                        return importlib.util.spec_from_file_location(fullname, source, loader=loader)
+            return None
         packages = {repository / "strata_control", repository / "terminal" / "strata_control"}
         if not any(Path(item).resolve() in packages for item in path):
             return None
