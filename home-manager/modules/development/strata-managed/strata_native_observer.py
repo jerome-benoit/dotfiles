@@ -286,9 +286,9 @@ def run_active(root, entry, args):
 
     Adapt only managed setup and runtime-module spawns at their explicit boundaries.
     The stable entries restore native argv; no checkout function or parser is replaced.
-    pass_fds transfers the open file description even though it is non-inheritable
-    elsewhere. The child keeps it until exit, including after its CLI parent dies.
-    Independent installers keep their native command and unmanaged environment.
+    pass_fds transfers the open file description without global inheritability.
+    A true CLI install transfers ownership after spawn; Runner keeps its lease
+    through its remaining preparation. Independent installers stay unmanaged.
     """
     import strata_managed_state as managed_state
 
@@ -303,22 +303,36 @@ def run_active(root, entry, args):
         raise RuntimeError("Native acquisition descriptor does not belong to this workspace")
     installer = (root / "setup.py").resolve()
     helper = os.environ["STRATA_WORKSPACE_HELPER"]
+    cli_file = str(root / "strata_cli/cli.py")
+
+    def release_acquisition():
+        lease.close()
+        for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
+                    "STRATA_WORKSPACE_CONTEXT", "STRATA_ACQUISITION_BOOTSTRAP"):
+            os.environ.pop(key, None)
 
     class ScopedNativeInstaller(original):
         def __init__(self, args, *positional, **options):
             command = args
+            install_handoff = False
             if (isinstance(command, (list, tuple)) and len(command) >= 2
                     and Path(command[1]).name == "setup.py"):
                 cwd = Path(options.get("cwd") or os.getcwd())
                 target = Path(command[1])
                 target = (cwd / target).resolve() if not target.is_absolute() else target.resolve()
                 if target == installer:
+                    caller = sys._getframe(1)
+                    while caller is not None and caller.f_globals.get("__name__") == "subprocess":
+                        caller = caller.f_back
+                    install_handoff = _native_call(caller, "strata_cli.cli", "_install", cli_file)
                     options["pass_fds"] = tuple(dict.fromkeys((*options.get("pass_fds", ()), descriptor)))
-                    options["env"] = dict(options.get("env") or os.environ,
+                    options["env"] = dict(os.environ if options.get("env") is None else options["env"],
                                           STRATA_WORKSPACE_LOCK_FD=str(descriptor))
                     command = [command[0], helper, "--native-setup", str(root), *command[2:]]
                 else:
-                    options["env"] = managed_state.external_environment(options.get("env") or os.environ)
+                    options["env"] = managed_state.external_environment(
+                        os.environ if options.get("env") is None else options["env"])
+                    options["pass_fds"] = tuple(fd for fd in options.get("pass_fds", ()) if fd != descriptor)
             if (isinstance(command, (list, tuple)) and list(command[1:3]) == ["-m", "strata_control.runtime"]
                     and "--host" in command[3:]
                     and Path(options.get("cwd") or os.getcwd()).resolve() == root):
@@ -327,6 +341,10 @@ def run_active(root, entry, args):
                     super().__init__(command, *positional, **options)
             else:
                 super().__init__(command, *positional, **options)
+            if install_handoff:
+                # Popen returned only after the managed child inherited the lease.
+                # Closing this copy cannot unlock a surviving mutating descendant.
+                release_acquisition()
 
     import threading
     previous = sys.getprofile()
@@ -356,10 +374,7 @@ def run_active(root, entry, args):
                              "strata_control.signing", "strata_control.engine_component",
                              "strata_control.retired"):
                     importlib.import_module(name)
-            lease.close()
-            for key in ("STRATA_WORKSPACE_LOCK_FD", "STRATA_WORKSPACE_HELPER",
-                        "STRATA_WORKSPACE_CONTEXT", "STRATA_ACQUISITION_BOOTSTRAP"):
-                os.environ.pop(key, None)
+            release_acquisition()
             subprocess.Popen = original
             mutation.install()
 
@@ -400,6 +415,15 @@ def _module_spawn(state, helper, command, options, reader):
         if not os.access(python, os.X_OK):
             raise RuntimeError("Published native runtime interpreter is unavailable")
         python = str(python)
+    # Native setup starts a script; Host starts a module. Route both through the
+    # same protected server entry without changing the native server arguments.
+    if len(command) >= 2 and command[1] != "-m":
+        target = Path(command[1])
+        cwd = Path(options.get("cwd") or os.getcwd())
+        target = (cwd / target).resolve() if not target.is_absolute() else target.resolve()
+        if target != root / "serve/server.py":
+            raise RuntimeError("Unsupported native managed script")
+        command = [command[0], "-m", "serve.server", *command[2:]]
     options = dict(options)
     options["cwd"] = str(root)
     env = dict(options.get("env") if options.get("env") is not None else os.environ)

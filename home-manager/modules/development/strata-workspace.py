@@ -12,6 +12,7 @@ Validation does not prove GPU compatibility, model integrity, or successful infe
 """
 
 from contextlib import contextmanager, redirect_stdout
+import ast
 import fcntl
 import hashlib
 import json
@@ -54,6 +55,13 @@ def workspace_lock(state, *, inherited=False):
     state.mkdir(parents=True, exist_ok=True)
     lock = (os.fdopen(int(os.environ["STRATA_WORKSPACE_LOCK_FD"]), "a") if inherited
             else (state / ".source.lock").open("a"))
+    if lock.fileno() < 3:
+        # Child stdio redirections must not overwrite an acquisition descriptor.
+        descriptor = fcntl.fcntl(lock.fileno(), fcntl.F_DUPFD_CLOEXEC, 3)
+        lock.close()
+        lock = os.fdopen(descriptor, "a")
+        if inherited:
+            os.environ["STRATA_WORKSPACE_LOCK_FD"] = str(descriptor)
     with lock:
         if not inherited:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -315,6 +323,20 @@ def terminal_root(repository):
 def repository_root(root):
     """Recover the managed repository from either of its two supported runtime layouts."""
     return root.parent if root.name == "terminal" and (root.parent / ".git").is_dir() else root
+
+
+def managed_source_hooks(root):
+    """Use the accepted source APIs, not its flat/split layout, to select managed dispatch."""
+    if not (repository_root(root) / ".git" / SOURCE_PATCH).is_file():
+        return False
+    cli = ast.parse((root / "strata_cli/cli.py").read_text())
+    if not any(isinstance(node, ast.FunctionDef) and node.name == "parse_args"
+               for node in cli.body):
+        return False
+    setup = ast.parse((root / "setup.py").read_text())
+    return any(isinstance(node, ast.FunctionDef) and node.name == "main"
+               and any(arg.arg == "after_parse" for arg in (*node.args.args, *node.args.kwonlyargs))
+               for node in setup.body)
 
 
 def model_configs(root):
@@ -620,13 +642,13 @@ def setup_command(root, args):
     return ["sh", str(repository_root(root) / "setup.sh"), *args], env
 
 
-def native_setup(root, args):
+def native_setup(root, args, *, acquisition=None):
     root = Path(root).resolve()
     os.environ["STRATA_MANAGED_SOURCE"] = str(repository_root(root))
     managed_state.enable_source(root)
     os.chdir(root)
     if "STRATA_WORKSPACE_LOCK_FD" in os.environ:
-        managed_state.install_acquisition(native_setup=True)
+        managed_state.install_acquisition(native_setup=True, acquisition=acquisition)
     sys.path.insert(0, str(root))
     sys.argv = [str(root / "setup.py"), *args]
     # Use this pin's real script entry, including native parser/error handling and the source-pull guard.
@@ -896,12 +918,12 @@ def launch_exec(installation, args):
     os.execv(str(python), [str(python), str(root / entry), *args])
 
 
-def source_exec(context, args):
+def source_exec(context, args, *, acquisition=None):
     """Apply managed policy after setup's real parser, before its filesystem or acquisition work."""
     state = Path(context["state"])
     root = terminal_root((state / "source").resolve())
-    if not (repository_root(root) / ".git" / SOURCE_PATCH).is_file():
-        return native_setup(root, args)
+    if not managed_source_hooks(root):
+        return native_setup(root, args, acquisition=acquisition)
     managed_state.enable_source(root)
     revision = context["revision"]
     lock_fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
@@ -998,7 +1020,7 @@ def run_workspace(state, revision, args, *, data_directory=None, models_director
                 python = Path(sys.executable) if args[0] == "launch" else runtime_python(terminal_root(source))
                 if not os.access(python, os.X_OK):
                     python = Path(sys.executable)
-                native = terminal_root(source) == source or previous is None
+                native = not managed_source_hooks(terminal_root(source))
                 probe = subprocess.run(
                     [str(python), str(Path(__file__).resolve()),
                      "--native-observer-probe" if native else "--observer-probe", str(terminal_root(source)),
@@ -1037,10 +1059,10 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         root = terminal_root(repository)
         revision = context["revision"]
         managed_state.enable_source(root)
-        if root == repository or not (repository / ".git" / SOURCE_PATCH).is_file():
-            # Execute this pin's native CLI, not newer parser/setup hooks that may not exist.
+        if not managed_source_hooks(root):
+            # Execute this pin's native CLI when its accepted source lacks managed APIs.
             if managed_setup:
-                return native_setup(root, args)
+                return native_setup(root, args, acquisition=lock)
             python = runtime_python(root)
             if not os.access(python, os.X_OK):
                 python = Path(sys.executable)
@@ -1057,10 +1079,10 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
             os.execv(str(python), [str(python), str(Path(__file__).resolve()),
                                   "--native-active", str(root), TERMINAL_CLI, *args])
         if managed_setup:
-            return source_exec(context, args)
+            return source_exec(context, args, acquisition=lock)
         a = terminal_args(root, args)
         if a.command == "source":
-            return source_exec(context, a.setup_args)
+            return source_exec(context, a.setup_args, acquisition=lock)
         python = runtime_python(root)
         if a.command == "launch":
             python = Path(sys.executable)

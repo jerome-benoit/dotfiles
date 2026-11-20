@@ -66,12 +66,15 @@ def enable_source(root):
     install_consumer()
 
 
-def install_acquisition(*, native_setup=False):
+def install_acquisition(*, native_setup=False, acquisition=None):
     """Propagate one validated acquisition lease through native setup subprocesses.
 
     Python descendants re-install this adapter through the stable bootstrap.
     Other executables retain the descriptor until exit, but their own spawns
     are outside Python's subprocess boundary.
+    Native setup transfers its read-only server to a publication reader, then
+    closes its acquisition copy before waiting. An optional file owner avoids
+    closing a raw descriptor still owned by the caller's workspace context.
     """
     import subprocess
 
@@ -86,6 +89,8 @@ def install_acquisition(*, native_setup=False):
     identity = f"{held.st_dev}:{held.st_ino}"
     if descriptor < 3 or not stat.S_ISREG(held.st_mode) or (marker is not None and marker != identity):
         raise RuntimeError("Native acquisition descriptor identity is invalid")
+    if acquisition is not None and acquisition.fileno() != descriptor:
+        raise RuntimeError("Native acquisition owner does not match its descriptor")
     context = os.environ.get("STRATA_WORKSPACE_CONTEXT")
     if context is not None:
         expected = (Path(json.loads(context)["state"]) / ".source.lock").stat()
@@ -94,7 +99,12 @@ def install_acquisition(*, native_setup=False):
     os.set_inheritable(descriptor, False)
     os.environ["STRATA_ACQUISITION_BOOTSTRAP"] = identity
     original = subprocess.Popen
-    if getattr(original, "_strata_acquisition_identity", None) == (descriptor, identity):
+    adapter = getattr(original, "_strata_acquisition_adapter", original)
+    if getattr(adapter, "_strata_acquisition_identity", None) == (descriptor, identity):
+        if native_setup:
+            adapter._strata_native_setup = True
+        if acquisition is not None:
+            adapter._strata_acquisition_owner = acquisition
         return
     repository = Path(os.environ["STRATA_MANAGED_SOURCE"]).resolve()
 
@@ -105,8 +115,37 @@ def install_acquisition(*, native_setup=False):
             env.pop(key, None)
         return env
 
+    def native_server(args, env, cwd=None):
+        if (not AcquisitionProcess._strata_native_setup or not AcquisitionProcess._strata_acquisition_active
+                or env.get("STRATA_NO_ACQUIRE") != "1"
+                or not isinstance(args, (list, tuple)) or len(args) < 2):
+            return False
+        root = repository / "terminal" if (repository / "terminal/strata.py").is_file() else repository
+        if list(args[1:3]) == ["-m", "serve.server"]:
+            return Path(cwd or os.getcwd()).resolve() == root
+        target = Path(args[1])
+        target = (Path(cwd or os.getcwd()) / target).resolve() if not target.is_absolute() else target.resolve()
+        return target == root / "serve/server.py"
+
+    def release_setup():
+        current = os.fstat(descriptor)
+        if (current.st_dev, current.st_ino) != (held.st_dev, held.st_ino):
+            raise RuntimeError("Native acquisition descriptor changed before handoff")
+        owner = AcquisitionProcess._strata_acquisition_owner
+        if owner is None:
+            os.close(descriptor)
+        else:
+            owner.close()
+        AcquisitionProcess._strata_acquisition_active = False
+        for key in ("STRATA_ACQUISITION_BOOTSTRAP", "STRATA_WORKSPACE_LOCK_FD",
+                    "STRATA_WORKSPACE_CONTEXT", "STRATA_WORKSPACE_HELPER"):
+            os.environ.pop(key, None)
+
     class AcquisitionProcess(original):
         _strata_acquisition_identity = (descriptor, identity)
+        _strata_native_setup = native_setup
+        _strata_acquisition_owner = acquisition
+        _strata_acquisition_active = True
 
         def __init__(self, args, *positional, **options):
             env = dict(os.environ if options.get("env") is None else options["env"])
@@ -117,12 +156,22 @@ def install_acquisition(*, native_setup=False):
             if independent:
                 options["env"] = external_environment(env)
                 options["pass_fds"] = tuple(fd for fd in options.get("pass_fds", ()) if fd != descriptor)
+            elif native_server(args, env, options.get("cwd")):
+                from strata_native_observer import _module_spawn, _source_reader
+
+                state = Path(json.loads(env["STRATA_WORKSPACE_CONTEXT"])["state"])
+                with _source_reader(state) as reader:
+                    command, options = _module_spawn(state, env["STRATA_WORKSPACE_HELPER"], args,
+                                                     dict(options, env=env), reader)
+                    super().__init__(command, *positional, **options)
+                    release_setup()
+                return
             elif env.get("STRATA_NO_ACQUIRE") == "1":
-                # Native setup.start marks the server read-only before spawning it.
-                # Retain source-reader/consumer bootstrap, not the mutation lease.
+                # Unrelated read-only children retain the parent's acquisition;
+                # only the managed native server above transfers setup ownership.
                 options["env"] = without_acquisition(env)
                 options["pass_fds"] = tuple(fd for fd in options.get("pass_fds", ()) if fd != descriptor)
-            elif env.get("STRATA_ACQUISITION_BOOTSTRAP") == identity:
+            elif AcquisitionProcess._strata_acquisition_active and env.get("STRATA_ACQUISITION_BOOTSTRAP") == identity:
                 current = os.fstat(descriptor)
                 if (current.st_dev, current.st_ino) != (held.st_dev, held.st_ino):
                     raise RuntimeError("Native acquisition descriptor changed before spawn")
@@ -130,12 +179,28 @@ def install_acquisition(*, native_setup=False):
                 options["env"] = source_environment(env, repository)
             super().__init__(args, *positional, **options)
 
+    AcquisitionProcess._strata_acquisition_adapter = AcquisitionProcess
+
     subprocess.Popen = AcquisitionProcess
     original_execve = os.execve
 
     def acquisition_execve(path, args, env):
-        # Preserve native intentional exec and argv while removing stale protocol
-        # for read-only services; the non-inheritable descriptor closes at exec.
+        if native_server(args, env):
+            from strata_native_observer import _module_spawn, _source_reader
+
+            state = Path(json.loads(env["STRATA_WORKSPACE_CONTEXT"])["state"])
+            with _source_reader(state) as reader:
+                command, options = _module_spawn(state, env["STRATA_WORKSPACE_HELPER"],
+                                                 [path, *args[1:]], {"env": env}, reader)
+                # Intentional exec needs only this reader made inheritable. The
+                # acquisition remains CLOEXEC; failures leave setup owning it.
+                os.set_inheritable(reader.fileno(), True)
+                try:
+                    return original_execve(command[0], command, options["env"])
+                finally:
+                    os.set_inheritable(reader.fileno(), False)
+        # Independent read-only exec keeps native argv and the existing readers.
+        # The non-inheritable acquisition descriptor closes only on success.
         if env.get("STRATA_NO_ACQUIRE") == "1":
             env = without_acquisition(env)
         return original_execve(path, args, env)

@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 import fcntl
 import importlib.util
 import json
@@ -1176,7 +1177,7 @@ with part.open("wb") as stream:
 side = part.with_name(part.name + ".chunks")
 side.write_text(json.dumps({"v": 1, "total": total, "chunk": setup.DL_CHUNK, "done": [[1, 2]]}))
 before = (part.stat().st_mtime_ns, side.read_bytes())
-assert setup.resume_bytes(model, total) == setup.DL_CHUNK
+assert setup.resume_bytes(model, total) == 0  # mono below the native parallel threshold retains no prefix
 assert (part.stat().st_mtime_ns, side.read_bytes()) == before
 side.write_text(json.dumps({"v": 1, "total": total, "chunk": setup.DL_CHUNK, "done": []}))
 assert setup.resume_bytes(model, total) == 0
@@ -12767,6 +12768,485 @@ asyncio.run(exercise())
         result = subprocess.run([sys.executable, str(script)], env=env, cwd=root,
                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+    def test_resume_dispatch_drives_checkpoint_budget_and_progress_without_mutation(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json
+from pathlib import Path
+from unittest.mock import patch
+import setup
+from tools.strata_mcp import files_progress
+
+models, data = [Path(p).resolve() for p in ("resume-models", "resume-data")]
+models.mkdir(); data.mkdir()
+model, repo = "NVFP4-QAD", "owner/resume-checkpoint"
+chunk = setup.DL_CHUNK
+# A native parallel-sized file can really leave these receipts before a mono restart.
+total = max(10 * chunk, setup.DL_MIN_PARALLEL + chunk)
+setup.MODELS[model]["repo"] = repo
+setup.NVFP4_REPOS[repo] = {"revision": "fixed-revision", "files": {
+    "tensors/checkpoint.safetensors": ("src", total, "a" * 64)}}
+f = setup.ready_files(model)[0]
+a = data / "models" / repo.replace("/", "--")
+b = models / repo.replace("/", "--")
+url = f"{setup.hf_endpoint()}/{f[1]}/resolve/{f[2]}/{f[3]}"
+def seed(where, ranges):
+    dst = where / f[3]
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    part = dst.with_name(dst.name + ".part")
+    with part.open("wb") as stream:
+        stream.truncate(total)
+    part.with_name(part.name + ".chunks").write_text(json.dumps({
+        "v": 1, "total": total, "chunk": chunk, "done": ranges}))
+    part.with_name(part.name + ".src").write_text(json.dumps({"url": url}))
+    return dst
+hole = seed(a, [[0, 1], [2, 4]])
+contiguous = seed(b, [[0, 2]])
+def snapshot():
+    return {p: (p.stat().st_ino, p.stat().st_size, p.stat().st_mtime_ns,
+                p.read_bytes() if not p.name.endswith(".part") else None)
+            for directory in (models, data) for p in directory.rglob("*") if p.is_file()}
+before = snapshot()
+with patch.object(setup, "mark", side_effect=AssertionError("observer published a mark")):
+    for connections, credit, selected in ((4, 3 * chunk, a), (1, chunk, b)):
+        with patch.object(setup, "dl_connections", return_value=connections):
+            assert setup.resume_bytes(hole, total, url=url) == credit
+            assert setup.resume_bytes(hole, url=url) == credit
+            layout = setup.model_download_layout("nvfp4", model, models, data_dir=data, read_only=True)
+            assert layout[2] == selected, layout
+            progress = files_progress({}, {}, [{"path": str(hole), "bytes": total,
+                "sha256": f[5]}], setup_module=setup)
+            assert progress["parts"][0]["done_gb"] == round(credit / 1e9, 3), progress
+            assert progress["parts"][0]["files_done"] == 0
+            # Capacity lies strictly between parallel and mono remaining bytes.
+            with patch.object(setup, "ready_needed", return_value=[f]), \
+                 patch.object(setup, "prepared_done", return_value=True), \
+                 patch.object(setup, "free_gb", return_value=(total - 2 * chunk) / 1e9):
+                problem = setup.ready_disk_problem(model, models, data, checkpoint_dir=a)
+                assert (problem is None) == (connections > 1), problem
+            assert snapshot() == before
+    # The threshold alone forces mono even when multiple connections are configured.
+    with patch.object(setup, "dl_connections", return_value=4), \
+         patch.object(setup, "DL_MIN_PARALLEL", total + 1):
+        assert setup.resume_bytes(hole, total, url=url) == chunk
+        assert setup.model_download_layout("nvfp4", model, models, data_dir=data,
+                                           read_only=True)[2] == b
+        assert snapshot() == before
+# Native mutating consumer on a separate copy confirms the retained prefix; observer files stay intact.
+copy = Path("native-single.part")
+with copy.open("wb") as stream:
+    stream.truncate(total)
+copy.with_name(copy.name + ".chunks").write_bytes(hole.with_name(hole.name + ".part.chunks").read_bytes())
+setup._single_ready(copy)
+assert copy.stat().st_size == chunk
+assert snapshot() == before
+''')
+
+
+    def test_acquisition_stdio_closed_slots_keep_real_child_mutex_and_descriptor(self):
+        script = r'''
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+spec = importlib.util.spec_from_file_location('workspace', sys.argv[1])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+state, result = Path(sys.argv[2]), Path(sys.argv[3])
+for descriptor in json.loads(sys.argv[4]):
+    os.close(descriptor)
+with workspace.workspace_lock(state) as (_, lock):
+    (state / 'source').mkdir()
+    os.environ.update(STRATA_MANAGED_SOURCE=str(state / 'source'),
+                      STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                      STRATA_WORKSPACE_CONTEXT=json.dumps({'state': str(state)}))
+    workspace.managed_state.install_acquisition(native_setup=True, acquisition=lock)
+    child = r"""
+import fcntl, json, os
+from pathlib import Path
+fd = int(os.environ['STRATA_WORKSPACE_LOCK_FD'])
+state = Path(json.loads(os.environ['STRATA_WORKSPACE_CONTEXT'])['state'])
+held, expected = os.fstat(fd), (state / '.source.lock').stat()
+with (state / '.source.lock').open('a') as contender:
+    try:
+        fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        blocked = True
+    else:
+        blocked = False
+print(json.dumps({'promoted': fd >= 3, 'valid': (held.st_dev, held.st_ino) ==
+                  (expected.st_dev, expected.st_ino), 'blocked': blocked}))
+"""
+    process = subprocess.run([sys.executable, '-B', '-c', child], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if process.returncode:
+        raise RuntimeError(process.stderr)
+    result.write_text(process.stdout)
+'''
+        for closed in ([0], [1], [2], [0, 1, 2]):
+            with self.subTest(closed=closed):
+                state = self.base / ('low-fd-' + ''.join(map(str, closed)))
+                result = self.base / ('low-fd-result-' + ''.join(map(str, closed)))
+                process = subprocess.run([sys.executable, '-B', '-c', script, WORKSPACE,
+                                          str(state), str(result), json.dumps(closed)],
+                                         env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                self.assertEqual(json.loads(result.read_text()),
+                                 {'promoted': True, 'valid': True, 'blocked': True})
+
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux setup destination contract")
+    def test_flat_accepted_managed_apis_preserve_install_and_source_acquisition(self):
+        original = self.make_acquisition_workspace()
+        self.state = self.base / 'flat-managed-workspace'
+        root = self.state / 'source'
+        shutil.copytree(original, root, symlinks=True, copy_function=shutil.copyfile)
+        script = root / 'setup-fixture.py'
+        shutil.copyfile(setup_wrapper(original), root / "setup.sh")
+        (root / "setup.sh").chmod(0o700)
+        if not (root / "engine").exists():
+            shutil.copytree(original.parent / "engine", root / "engine", copy_function=shutil.copyfile)
+        script.write_text(script.read_text().replace('    a = state["a"]', '''    a = state["a"]
+    import fcntl, os
+    fd = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
+    expected = Path(os.environ["FLAT_WORKSPACE"]) / ".source.lock"
+    held, identity = os.fstat(fd), expected.stat()
+    assert (held.st_dev, held.st_ino) == (identity.st_dev, identity.st_ino)
+    with expected.open("a") as contender:
+        try:
+            fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            raise AssertionError("historical source mutator lost its acquisition")'''))
+        script.write_text(script.read_text().replace("import inspect, json, sys", """import inspect, json, sys
+def forbid_network(event, args):
+    if event == "socket.connect":
+        raise AssertionError("inert acquisition fixture attempted network access")
+sys.addaudithook(forbid_network)"""))
+        # The real parser/exec APIs are published at a flat root. The backend is
+        # the existing inert acquisition fixture, not a parser or dispatcher mock.
+        def git(*args):
+            return subprocess.run(['git', '-C', str(root), *args], env=self.env,
+                                  check=True, capture_output=True, text=True)
+        git('init', '--quiet')
+        git('add', '--force', '--all')
+        git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+            'commit', '--quiet', '-m', 'flat source with managed APIs')
+        revision = git('rev-parse', 'HEAD').stdout.strip()
+        overlay = self.base / 'flat-managed.patch'
+        overlay.write_text('diff --git a/code.py b/code.py\n--- a/code.py\n+++ b/code.py\n'
+                           '@@ -1 +1,2 @@\n old source\n+# accepted source APIs\n')
+        git('apply', str(overlay))
+        (root / '.git/strata-source.patch').write_bytes(overlay.read_bytes())
+        data, models = self.base / 'flat-data', self.base / 'flat-models'
+        context = dict(state=str(self.state), revision=revision, remote=str(root),
+                       source_patch=str(overlay), data_directory=str(data),
+                       models_directory=str(models), terminal_cli='strata.py')
+        flags = ['--yes', '--no-browser', '--context', '8192', '--vision', 'no',
+                 "--drafter", "mtp", '--experimental-speed-projection', 'off']
+        for args in (['install', *flags], ['source', '--setup', *flags]):
+            with self.subTest(args=args):
+                (root / 'destinations.json').unlink(missing_ok=True)
+                module = self.workspace_module()
+                with module.workspace_lock(self.state) as (_, lock):
+                    result = subprocess.run([sys.executable, WORKSPACE, '--prepared-workspace', *args],
+                        env=dict(self.env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()),
+                                 STRATA_WORKSPACE_HELPER=WORKSPACE,
+                                 STRATA_WORKSPACE_CONTEXT=json.dumps(context),
+                                 FLAT_WORKSPACE=str(self.state), STRATA_CONTROL_INSTALL='1'),
+                        pass_fds=(lock.fileno(),), capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                selected = json.loads((root / 'destinations.json').read_text())
+                self.assertEqual(Path(selected['data']), data)
+                self.assertEqual(Path(selected['models']).parent, models)
+                self.assertTrue(all(Path(p).is_relative_to(models) for p in selected['shards']))
+                self.assertFalse(any(models.rglob('*.gguf')))
+
+
+    def test_native_install_autostart_transfers_acquisition_both_pins(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        bootstrap_source = r'''
+import importlib.abc, json, os, socket, subprocess, sys, time
+from pathlib import Path
+from unittest.mock import patch
+from strata_managed_state import install_acquisition, install_consumer
+install_consumer()
+if os.environ.get('STRATA_ACQUISITION_BOOTSTRAP'):
+    install_acquisition()
+root = Path(os.environ['F2_ROOT'])
+role = ('server' if '--native-module' in sys.argv and 'serve.server' in sys.argv
+        else 'setup' if '--native-setup' in sys.argv else 'cli')
+if role == 'setup' and not os.environ.get('STRATA_ACQUISITION_BOOTSTRAP'):
+    os.environ['STRATA_MANAGED_SOURCE'] = str(root.parent if root.name == 'terminal' else root)
+    install_acquisition(native_setup=True)
+def gate(phase, **values):
+    with socket.socket(socket.AF_UNIX) as peer:
+        peer.settimeout(45)
+        peer.connect(os.environ['F2_GATE'])
+        peer.sendall(json.dumps(dict(phase=phase, role=role, pid=os.getpid(), **values)).encode() + b'\n')
+        assert peer.recv(1) == b'g'
+class NativeSetupBoundary(BaseException):
+    pass
+skip_setup = role == 'setup'
+recovery_seen = False
+def audit(event, values):
+    global skip_setup, recovery_seen
+    if (skip_setup and event == 'exec' and values[0].co_name == '<module>'
+            and values[0].co_filename == str(root / 'setup.py')
+            and sys.argv[0] == str(root / 'setup.py')):
+        skip_setup = False
+        raise NativeSetupBoundary()
+    if (role == 'server' and not recovery_seen and event == 'open'
+            and isinstance(values[0], (str, bytes))
+            and os.fsdecode(values[0]).endswith('.shared-settings.json')):
+        recovery_seen = True
+        gate('recovery')
+sys.addaudithook(audit)
+extra = None
+if role == 'setup':
+    extra = (Path(os.environ['F2_AREA']) / 'extra-fd').open('a')
+    os.environ['F2_EXTRA_FD'] = str(extra.fileno())
+    os.environ['F2_EXTRA_IDENTITY'] = json.dumps([os.fstat(extra.fileno()).st_dev,
+                                               os.fstat(extra.fileno()).st_ino])
+    # This is the fixture's unrelated intentional exec FD, not the acquisition.
+    if os.environ['F2_EXEC'] == '1':
+        os.set_inheritable(extra.fileno(), True)
+    process = subprocess.Popen
+    class Extras(process):
+        def __init__(self, args, *positional, **options):
+            if (isinstance(args, (list, tuple)) and len(args) >= 2
+                    and Path(args[1]).name == 'server.py'):
+                options['pass_fds'] = tuple(dict.fromkeys((*options.get('pass_fds', ()), extra.fileno(),
+                    int(os.environ['STRATA_WORKSPACE_LOCK_FD']))))
+            super().__init__(args, *positional, **options)
+    # Deliberately subclass the bootstrap adapter before native_setup upgrades it.
+    subprocess.Popen = Extras
+class Imports(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if role == 'server' and fullname == 'serve.server':
+            actual = os.fstat(int(os.environ['F2_EXTRA_FD']))
+            assert [actual.st_dev, actual.st_ino] == json.loads(os.environ['F2_EXTRA_IDENTITY'])
+            assert not any(k in os.environ for k in ('STRATA_WORKSPACE_LOCK_FD',
+                'STRATA_WORKSPACE_CONTEXT', 'STRATA_ACQUISITION_BOOTSTRAP', 'STRATA_WORKSPACE_HELPER'))
+            gate('imports')
+        if role == 'server' and fullname == 'serve.session_save_retry':
+            gate('helpers')
+        return None
+sys.meta_path.insert(0, Imports())
+ready_seen = False
+previous = sys.getprofile()
+def profile(frame, event, result):
+    global ready_seen
+    if previous is not None:
+        previous(frame, event, result)
+    if role != 'server':
+        return
+    service = frame.f_globals.get('Service')
+    if (event == 'call' and service is not None
+            and frame.f_code is service.__init__.__code__
+            and frame.f_code.co_filename == str(root / 'serve/server.py')):
+        gate('service')
+    if (not ready_seen and event == 'c_return' and result is time.sleep
+            and frame.f_code.co_filename == str(root / 'serve/server.py')
+            and frame.f_code is frame.f_globals['_main'].__code__):
+        ready_seen = True
+        from strata_native_observer import _SERVER_DEFERRED_MODULES
+        assert all(name in sys.modules for name in _SERVER_DEFERRED_MODULES)
+        gate('ready', server=frame.f_locals['bound_port'])
+sys.setprofile(profile)
+def inert_setup_start():
+    import setup as S
+    assert S._start.__code__.co_filename == str(root / 'setup.py')
+    fd = int(os.environ['STRATA_WORKSPACE_LOCK_FD'])
+    assert not os.get_inheritable(fd)
+    if os.environ['F2_CHILD'] == 'mutator':
+        # A real Python subprocess remains a mutator even after setup/CLI close
+        # their copies and after the server reaches readiness.
+        child = r"""import json, os, socket
+fd = int(os.environ['STRATA_WORKSPACE_LOCK_FD'])
+a = os.fstat(fd); b = os.stat(os.environ['F2_LOCK'])
+assert (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+with socket.socket(socket.AF_UNIX) as peer:
+    peer.settimeout(45); peer.connect(os.environ['F2_GATE'])
+    peer.sendall(json.dumps(dict(phase='mutator', pid=os.getpid())).encode()+b'\n')
+    assert peer.recv(1) == b'g'
+"""
+        subprocess.Popen([sys.executable, '-c', child])
+    # Only hardware/config preflight is inert. The native cmd/exec/call and
+    # acquisition.forbidden() branches run unchanged for both primary pins.
+    def start_line(frame, event, arg):
+        if frame.f_code is S._start.__code__ and event == 'line':
+            command = frame.f_locals.get('cmd')
+            if command is not None and '--engine' in command:
+                command[command.index('--engine') + 1] = 'mock'
+        return start_line
+    sys.settrace(start_line)
+    with patch.object(S, 'upgrade_config', side_effect=lambda path, cfg: cfg), \
+         patch.object(S, 'gpus', return_value=[]), \
+         patch.object(S, 'old_gpus_opt_in', return_value=False), \
+         patch.object(S, 'offer_together', side_effect=lambda path, cfg, yes: cfg):
+        return S.start(Path(os.environ['F2_CONFIG']), None, open_browser=False, yes=True)
+'''
+        shim_source = ("#!" + sys.executable + "\n"
+            "import os, runpy, sys\n"
+            "sys.executable = os.path.abspath(__file__)\n"
+            "entry, args = sys.argv[1], sys.argv[2:]\n"
+            "sys.argv = [entry, *args]\n"
+            "boot = runpy.run_path(os.environ['F2_BOOT'])\n"
+            "try:\n"
+            "    if entry == '-c': exec(args[0], {'__name__': '__main__', 'boot': boot})\n"
+            "    else: runpy.run_path(entry, run_name='__main__')\n"
+            "except boot['NativeSetupBoundary']:\n"
+            "    sys.exit(boot['inert_setup_start']())\n")
+        contender_source = r'''
+import importlib.util, json, socket, sys
+spec = importlib.util.spec_from_file_location('writer', sys.argv[1])
+w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
+with w.workspace_lock(sys.argv[2]) as (state, acquisition):
+    with w.source_publication_lock(state):
+        with socket.socket(socket.AF_UNIX) as peer:
+            peer.settimeout(45); peer.connect(sys.argv[3])
+            peer.sendall(json.dumps(dict(phase='publisher', pid=__import__('os').getpid())).encode()+b'\n')
+            assert peer.recv(1) == b'g'
+'''
+        for label, revision in (('flat', self.old), ('split', self.new)):
+            for boundary, descendant in (('spawn', 'none'), ('exec', 'none'),
+                                          ('spawn', 'mutator'), ('exec', 'mutator'),
+                                          ('runner', 'none'), ('owned', 'none')):
+                with self.subTest(pin=label, boundary=boundary, descendant=descendant), \
+                     tempfile.TemporaryDirectory(prefix='s339-f2-', dir='/tmp') as temporary, ExitStack() as owned:
+                    self.state = state / (label + '-' + boundary + '-' + descendant)
+                    root = self.prepare_cross_pin(revision, overlay=False)
+                    fixture = Path(temporary)
+                    boot = fixture / 'bootstrap.py'; boot.write_text(bootstrap_source)
+                    python = root / '.venv/bin/python'
+                    python.parent.mkdir(parents=True, exist_ok=True)
+                    python.write_text(shim_source); python.chmod(0o700)
+                    config = root / 'strata-f2.json'
+                    config.write_text(json.dumps(dict(exe=sys.executable, args=[], backend='cpu', port=0,
+                        tokenizer=str(root / 'absent-tokenizer'), api_key='none', open_browser=False)))
+                    config.with_suffix('').with_name(config.stem + '.shared-settings.json').write_text('{}')
+                    primary = OLD_UPSTREAM_SOURCE if label == 'flat' else UPSTREAM_SOURCE / 'terminal'
+                    gate_path = str(fixture / 'gate')
+                    listener = owned.enter_context(socket.socket(socket.AF_UNIX))
+                    listener.bind(gate_path); listener.listen(8); listener.settimeout(45)
+                    env = dict(self.env, PYTHONPATH=os.pathsep.join((str(WORKSPACE_LIB), str(root))),
+                        F2_BOOT=str(boot), F2_ROOT=str(root), F2_AREA=str(fixture), F2_GATE=gate_path,
+                        F2_CONFIG=str(config), F2_EXEC='1' if boundary == 'exec' else '0', F2_CHILD=descendant,
+                        F2_LOCK=str(self.state / '.source.lock'), STRATA_UPDATE_CHECK='0',
+                        STRATA_RUNTIME_DIR=str(fixture / 'runtime'), STRATA_PROFILE_DIR=str(fixture / 'profiles'),
+                        XDG_CONFIG_HOME=str(fixture / 'config'), XDG_STATE_HOME=str(fixture / 'state'))
+                    env.pop('STRATA_NO_ACQUIRE', None)
+                    if boundary == 'exec': env['STRATA_EXECV'] = '1'
+                    else: env.pop('STRATA_EXECV', None)
+                    context = dict(state=str(self.state), revision=revision, remote=str(self.repository),
+                                   terminal_cli='strata.py')
+                    entry = 'strata.py'
+                    args = ['install', '--yes']
+                    if boundary == 'runner':
+                        entry = 'f2-runner.py'
+                        (root / entry).write_text("import os, sys\nfrom pathlib import Path\n"
+                            "from strata_cli.launch.runner import Runner\n"
+                            "r = object.__new__(Runner); r.children = []\n"
+                            "p = r._spawn([sys.executable, str(Path(__file__).parent / 'setup.py'), '--setup'], env=dict(os.environ))\n"
+                            "sys.exit(p.wait())\n")
+                        args = []
+                    def cleanup(process):
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        process.communicate(timeout=10)
+                    module = self.workspace_module()
+                    launch = [str(python), WORKSPACE, "--native-active", str(root), entry, *args]
+                    if boundary == "owned":
+                        env["STRATA_MANAGED_SOURCE"] = str(root.parent if root.name == "terminal" else root)
+                        code = ("import importlib.util, json, os\n"
+                            f"s=importlib.util.spec_from_file_location('workspace', {WORKSPACE!r})\n"
+                            "w=importlib.util.module_from_spec(s); s.loader.exec_module(w)\n"
+                            "with w.workspace_lock(json.loads(os.environ['STRATA_WORKSPACE_CONTEXT'])['state'], inherited=True) as (_, owner):\n"
+                            "    from strata_managed_state import install_acquisition\n"
+                            "    install_acquisition(native_setup=True, acquisition=owner)\n"
+                            "    boot['inert_setup_start']()\n")
+                        launch = [str(python), "-c", code, "--native-setup"]
+                    with module.workspace_lock(self.state) as (_, lock):
+                        process = subprocess.Popen(launch,
+                            env=dict(env, STRATA_WORKSPACE_LOCK_FD=str(lock.fileno()), STRATA_WORKSPACE_HELPER=WORKSPACE,
+                                     STRATA_WORKSPACE_CONTEXT=json.dumps(context)),
+                            pass_fds=(lock.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, start_new_session=True)
+                    owned.callback(cleanup, process)
+                    held_mutator = None
+                    ready = None
+                    phases = set()
+                    while ready is None or (descendant == 'mutator' and held_mutator is None):
+                        try:
+                            peer = owned.enter_context(listener.accept()[0])
+                        except TimeoutError:
+                            detail = f"native producer pid={process.pid} rc={process.poll()} phases={phases}"
+                            if process.poll() is not None:
+                                output, errors = process.communicate(timeout=10)
+                                detail += "\n" + output + errors
+                            self.fail(detail)
+                        peer.settimeout(45)
+                        payload = b''
+                        while not payload.endswith(b'\n'):
+                            chunk = peer.recv(4096)
+                            self.assertTrue(chunk, payload)
+                            payload += chunk
+                        event = json.loads(payload)
+                        phases.add(event['phase'])
+                        if event['phase'] == 'mutator':
+                            held_mutator = peer
+                            continue
+                        if event['phase'] == 'ready':
+                            ready = peer
+                            continue
+                        self.assertIn(event['phase'], {'imports', 'service', 'recovery', 'helpers'})
+                        with (self.state / '.source-publication.lock').open('a') as publication:
+                            self.assertRaises(BlockingIOError, fcntl.flock, publication, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        if event['phase'] == 'imports':
+                            with (self.state / '.source.lock').open('a') as acquisition:
+                                if descendant == 'mutator' or boundary == 'runner':
+                                    self.assertRaises(BlockingIOError, fcntl.flock, acquisition, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        peer.sendall(b'g')
+                    self.assertTrue({'imports', 'service', 'recovery', 'helpers', 'ready'} <= phases, phases)
+                    self.assertIsNone(process.poll(), 'foreground CLI/setup ended while server lives')
+                    if held_mutator is not None:
+                        with (self.state / '.source.lock').open('a') as acquisition:
+                            self.assertRaises(BlockingIOError, fcntl.flock, acquisition, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        held_mutator.sendall(b'g')
+                    if boundary == 'runner':
+                        # A still-acquiring Runner must retain its CLI copy. Its
+                        # death drops that copy, without terminating the server.
+                        with (self.state / '.source.lock').open('a') as acquisition:
+                            self.assertRaises(BlockingIOError, fcntl.flock, acquisition, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        process.kill(); process.wait(timeout=10)
+                    publisher = subprocess.Popen([sys.executable, '-c', contender_source, WORKSPACE,
+                        str(self.state), gate_path], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, start_new_session=True)
+                    owned.callback(cleanup, publisher)
+                    pub_peer = owned.enter_context(listener.accept()[0]); pub_peer.settimeout(45)
+                    payload = b''
+                    while not payload.endswith(b'\n'):
+                        chunk = pub_peer.recv(4096)
+                        self.assertTrue(chunk, payload)
+                        payload += chunk
+                    publication_event = json.loads(payload)
+                    self.assertEqual(publication_event['phase'], 'publisher')
+                    self.assertIsNone(process.poll() if boundary != 'runner' else None)
+                    pub_peer.sendall(b'g')
+                    output, errors = publisher.communicate(timeout=10)
+                    self.assertEqual(publisher.returncode, 0, output + errors)
+                    ready.sendall(b'g')
+
 
 
 unittest.main()

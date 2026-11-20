@@ -35,7 +35,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
          return set()
      return set(range(n)) if size >= total else set(range(size // DL_CHUNK))
  
-@@ -3695,6 +3697,85 @@
+@@ -3695,6 +3697,87 @@
          elif f[0] in ("dense", "ple", "embd"):
              out[f[0]] = p
      return out
@@ -70,10 +70,12 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +            return 0
 +        if not isinstance(total, int) or total <= 0:
 +            return 0
-+    if side.is_file() or total >= DL_MIN_PARALLEL and dl_connections() > 1:
++    if total >= DL_MIN_PARALLEL and dl_connections() > 1:
 +        return sum(min(DL_CHUNK, total - i * DL_CHUNK)
 +                   for i in _load_pieces(part, total, clean=False) if i >= 0)
 +    size = part.stat().st_size
++    if side.is_file():
++        return min(_prefix_bytes(_load_pieces(part, total, clean=False), total), size)
 +    return size if size <= total else 0
 +
 +
@@ -121,7 +123,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -10862,11 +10943,16 @@
+@@ -10862,11 +10945,16 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
