@@ -33,7 +33,9 @@ journalctl --user -u ollama.service -f
 systemctl --user restart ollama.service
 ```
 
-The service listens on `127.0.0.1:11434` by default. Its 131072-token context,
+The service listens on `127.0.0.1:11434` unless
+`modules.development.ollama.host` sets another address; `faust` serves
+`0.0.0.0:11434` and Ollama has no authentication. Its 131072-token context,
 Flash Attention and KV-cache defaults can be changed through
 `services.ollama.environmentVariables`; these variables are not exported to OMP
 or other client processes. Keep each client's context budget consistent with the

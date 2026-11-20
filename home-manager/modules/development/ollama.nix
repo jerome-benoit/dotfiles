@@ -26,6 +26,16 @@ in
   options.modules.development.ollama = {
     enable = lib.mkEnableOption "Ollama configuration";
     enableService = lib.mkEnableOption "Ollama Linux user service";
+    host = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "0.0.0.0";
+      description = ''
+        Address the Linux daemon listens on; null keeps Home Manager's loopback
+        default. Ollama serves without authentication, so an exposed value
+        publishes an open inference endpoint to the network.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable (
@@ -49,6 +59,9 @@ in
               OLLAMA_IGPU_ENABLE = lib.mkDefault "1";
             }
           );
+        }
+        // lib.optionalAttrs (cfg.host != null) {
+          host = cfg.host;
         };
 
         home.packages = lib.optional (!config.services.ollama.enable) config.services.ollama.package;
