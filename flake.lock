@@ -11,11 +11,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1795032550,
-        "narHash": "sha256-ODc/1F4r1LKYS6VmY5FY6dFwlQ4b0RqbQiQ1EpOd18Q=",
+        "lastModified": 1795179106,
+        "narHash": "sha256-lvsYW124AjCfR3ybqvoB0SOSL+a1gMn7RhP6e5qg6c4=",
         "owner": "agent-of-empires",
         "repo": "agent-of-empires",
-        "rev": "dd7827cbc7800d96bd9db973fbf040d784307ea3",
+        "rev": "cfca1cac89a30b32a822342b4a07ce949a73f623",
         "type": "github"
       },
       "original": {
@@ -137,11 +137,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1795042399,
-        "narHash": "sha256-zJqzUpsoPddR/O6PJvn7EzuTWvpa/oK/LsrSjA86kgM=",
+        "lastModified": 1795203053,
+        "narHash": "sha256-VxRPTseX3vPIqY8ufE2XZcUrbXTX69pGvThNazDqgGQ=",
         "owner": "NousResearch",
         "repo": "hermes-agent",
-        "rev": "31ce88f86e6cf4a66ef6aa315e4657a31bcf9915",
+        "rev": "2a68a3a94e4e0806106907c451e0c4d4da10c6a9",
         "type": "github"
       },
       "original": {
@@ -153,11 +153,11 @@
     "hermes-labs-plugins": {
       "flake": false,
       "locked": {
-        "lastModified": 1794700113,
-        "narHash": "sha256-UO4Qy8vjXM2C2lNmRP56IKylrx5SWKHLGLSk6Dti1mE=",
+        "lastModified": 1795134871,
+        "narHash": "sha256-AsNdjB9RjqNTUaUtagZUrLKoS5VKgj7PFja8D7NHgJM=",
         "owner": "NousResearch",
         "repo": "hermes-labs-plugins",
-        "rev": "46f6da9af0c4e9ad5a3c9444dfecfa5bf7debf76",
+        "rev": "af1cb0173494e4f3e975f475f7647aae77bfc5bf",
         "type": "github"
       },
       "original": {
@@ -208,11 +208,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1794840529,
-        "narHash": "sha256-ySrWnmZB5UsZTYGHHnBjllT05O5iFjElCRS+mabtfP0=",
+        "lastModified": 1795095985,
+        "narHash": "sha256-DOTZsOOoEtOY0ysY9L6JzyDHZm4lGBr6P1bt1mFXcRw=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "e21fec321d73511849707a7585e4ea155ee4bf40",
+        "rev": "19cfded70b91ca0981373973c5b1efffdd4d6647",
         "type": "github"
       },
       "original": {
@@ -260,11 +260,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1795043189,
-        "narHash": "sha256-PNv5RXntjUYIqRF/D84QaT+zq76xmDTaJIXgSyZPXks=",
+        "lastModified": 1795201890,
+        "narHash": "sha256-KJGZf4Kzy3tGNP5oOhk08iFa3FCa2jzHG8/3yZq/Pu0=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "9bf497d3e866ba57de9af7c6e56715208d34cdb7",
+        "rev": "4122af020611976880692dfc1d203d9ab1ef7962",
         "type": "github"
       },
       "original": {
@@ -296,11 +296,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1795041658,
-        "narHash": "sha256-u0PTyjY7VS5vkEEDlcdOmm3SxbJr9F13gYjHvifflTM=",
+        "lastModified": 1795126520,
+        "narHash": "sha256-Gs6SxZgN0JjbwUwVU8hNEezxMjiyTO0p+yloARNtAdU=",
         "owner": "Fission-AI",
         "repo": "OpenSpec",
-        "rev": "e6539de023915e36848b351ea737ca8e192e8538",
+        "rev": "0c737dc1b543249b38b0f4716816fcf493d894dd",
         "type": "github"
       },
       "original": {
@@ -317,11 +317,11 @@
         "nixpkgs-darwin-x64": "nixpkgs-darwin-x64"
       },
       "locked": {
-        "lastModified": 1795043793,
-        "narHash": "sha256-T800BenprCzewTi7bSi3En5bwJCdV+UjmzXy1Dl7dnM=",
+        "lastModified": 1795205322,
+        "narHash": "sha256-DH6VbKqyzByJgIDhCiz18OBHFA6qU7BCwV8HpLaRn9g=",
         "owner": "earendil-works",
         "repo": "pi",
-        "rev": "f94add25e898620aef47a67a9660f904aac4ee3e",
+        "rev": "0f9b6bae89c09d7f4c47148ac8ca81e970ba9621",
         "type": "github"
       },
       "original": {
@@ -452,11 +452,11 @@
       },
       "locked": {
         "dir": "tools/nix",
-        "lastModified": 1795041641,
-        "narHash": "sha256-Qp/3UHL7SorM6nYVhHdQfCqjK1EJHVnjlIvqyC+XxU4=",
+        "lastModified": 1795155116,
+        "narHash": "sha256-s/wQB75lkVaR3cUad8oAHId1fWQW8k2YJI+7iyzFDFU=",
         "owner": "Niko1221",
         "repo": "Strata",
-        "rev": "58ee3227720629ff2e41d640165ebe89c880dfef",
+        "rev": "3142b66b96e9c0e775e30f620b11b191a1427c2a",
         "type": "github"
       },
       "original": {
