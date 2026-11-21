@@ -509,6 +509,9 @@ setup.gpu_compute_mode = lambda *args: None
 setup.gpu_drives_display = lambda *args: False
 setup.rotational_disk = lambda *args: None
 setup.free_gb = lambda *args: 1000.0
+if os.environ.get("FULL_READER_VOLUME"):
+    full_volume = Path(os.environ["TEST_MODELS_DIRECTORY"])
+    setup.free_gb = lambda path: 0.0 if Path(path).is_relative_to(full_volume) else 1000.0
 setup.cpu_sockets = lambda: []
 setup.setup_calibration = lambda *args: None
 setup.ensure_nvfp4_local_packages = lambda: None
@@ -832,6 +835,20 @@ sys.exit(result)
         self.state = state
 
     @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
+    def test_retained_nvfp4_weights_still_budget_requested_reader_volume(self):
+        self.make_ready_workspace()
+        data, models = self.base / "data", self.base / "full GGUF volume"
+        models.mkdir()
+        env = dict(self.env, TEST_DATA_DIRECTORY=str(data), TEST_MODELS_DIRECTORY=str(models),
+                   LEGACY_READY="NVFP4", LEGACY_MODELS=str(data / "models"),
+                   FULL_READER_VOLUME="1", FORBID_ACQUISITION="1")
+        command = self.ready_command("NVFP4") + ["--mtp", "off"]
+        command[command.index("--images") + 1] = "no"
+        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(f"not enough free disk space in {models}", result.stdout + result.stderr)
+
+    @unittest.skipUnless(sys.platform == "linux", "Upstream Linux CLI")
     def test_qad_existing_checkpoint_resumes_with_split_outputs(self):
         state = self.state
         for phase in ("checkpoint", "partial-download", "partial-preparation",
@@ -1096,6 +1113,10 @@ source = retained.with_name(retained.name + ".src")
 source.write_text(json.dumps({"url": "https://other.invalid/old-source"}))
 orphan = retained.with_name("no-payload.part.chunks")
 orphan.write_text(side.read_text())
+source_modes = {p.relative_to(first): mode for p, mode in (
+    (first / "models", 0o750), (payload.parent.parent, 0o700), (payload.parent, 0o710))}
+for path, mode in source_modes.items():
+    (first / path).chmod(mode)
 runner = Runner(LaunchSettings(family="nvfp4", model=model, data_dir=str(data), vision="off", mtp="off",
                                drafting="off"), catalog=cat, move_data=True)
 def roots(*args, include_moving=False, **kwargs):
@@ -1115,6 +1136,7 @@ with patch.object(setup, "retained_data_sources", side_effect=roots), \
     assert not part.exists() and payload.is_file() and side.is_file() and source.is_file()
     setup.move_into(first / "models", data / "models", model_downloads=True)
     setup.move_into(second / "models", data / "models", model_downloads=True)
+    assert {path: (data / path).stat().st_mode & 0o777 for path in source_modes} == source_modes
     assert retained.is_file() and source.is_file() and orphan.is_file() and not projected_source.exists()
     assert not part.with_name(orphan.name).exists() and not side.exists()
     f = setup.ready_files(model)[0]
@@ -2447,7 +2469,7 @@ with patch.object(state, "_nfs_mounts", return_value={1: []}), \
 assert sorted(path.name for path in parent.iterdir()) == ["nested", "old-child"]
 ''')
 
-    def test_native_layout_rollback_reverses_retired_moved_ram_marker_and_payloads(self):
+    def test_native_layout_rollback_preserves_conflicting_receipt_and_restores_payloads(self):
         self.make_cross_pin_sources()
         state = self.state
         marker_name = "ram-budget-0217.done"
@@ -2480,6 +2502,7 @@ def fail_request(path, text):
     if path.name == workspace.SOURCE_REQUEST:
         assert (after / "models/inert.gguf").read_bytes() == b"payload outside metadata checkpoint"
         assert all(not (folder / "ram-budget-0217.done").exists() for folder in (before, after))
+        (after / "ram-budget-0217.done").symlink_to("outside-receipt")
         raise OSError("controlled publication refusal after marker retirement")
     return publish(path, text)
 
@@ -2502,7 +2525,11 @@ with patch.object(workspace, "publish_source_patch", side_effect=fail_request):
                 for name, data in payloads.items():
                     self.assertEqual(((before / name).read_bytes(), (before / name).stat().st_ino),
                                      (data, original[name]))
-                    self.assertFalse((after / name).exists(), str(after / name))
+                    if name == marker_name:
+                        self.assertEqual(os.readlink(after / name), "outside-receipt")
+                        (after / name).unlink()
+                    else:
+                        self.assertFalse((after / name).exists(), str(after / name))
                 self.assertFalse(list(repository.rglob(".strata-layout-*")))
                 self.assertEqual(self.prepare_cross_pin(requested, overlay=False), after)
                 for name, data in payloads.items():
@@ -2511,6 +2538,73 @@ with patch.object(workspace, "publish_source_patch", side_effect=fail_request):
                         self.assertEqual(((after / name).read_bytes(), (after / name).stat().st_ino),
                                          (data, original[name]))
                 self.assertFalse((after / marker_name).exists())
+
+    def test_same_layout_historical_overlay_retires_native_ram_receipt(self):
+        historical = self.base / "historical.patch"
+        historical.write_text(
+            "diff --git a/terminal/historical.txt b/terminal/historical.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/terminal/historical.txt\n"
+            "@@ -0,0 +1 @@\n"
+            "+historical source\n"
+        )
+        self.env["TEST_SOURCE_PATCH"] = str(historical)
+        root = self.prepare(self.old)
+        self.assertEqual((root / "historical.txt").read_text(), "historical source\n")
+        marker = root / "ram-budget-0217.done"
+        marker.write_text("native receipt\n")
+        del self.env["TEST_SOURCE_PATCH"]
+        self.assertEqual(self.prepare(self.new), root)
+        self.assertFalse((root / "historical.txt").exists())
+        self.assertFalse(marker.exists())
+        marker.write_text("managed receipt\n")
+        self.env["TEST_SOURCE_PATCH"] = str(historical)
+        self.assertEqual(self.prepare(self.old), root)
+        self.assertEqual((root / "historical.txt").read_text(), "historical source\n")
+        self.assertFalse(marker.exists())
+
+    def test_native_flat_pin_can_track_terminal_as_file(self):
+        self.make_cross_pin_sources()
+        self.git("checkout", "--detach", self.old)
+        self.repo.write_text("first\n")
+        old = self.commit()
+        self.repo.write_text("second\n")
+        new = self.commit()
+        self.env["TEST_SOURCE_PATCH"] = ""
+        terminal = self.prepare(old)
+        self.assertEqual(terminal.read_text(), "first\n")
+        self.assertEqual(self.prepare(new), terminal)
+        self.assertEqual(terminal.read_text(), "second\n")
+
+    def test_config_migration_locks_resolved_local_target_parent(self):
+        self.run_source_script(self.base, r'''
+import fcntl
+import os
+from pathlib import Path
+import strata_managed_state as state
+
+root = Path.cwd()
+parent = root / "nested"
+parent.mkdir()
+config = parent / "config.json"
+config.touch()
+alias = root / "strata-alias.json"
+alias.symlink_to(config)
+with state.config_locks(root, mount_targets=lambda: (alias.resolve(),)) as (fds, roots):
+    assert parent in roots, roots
+    assert any(os.path.samestat(os.fstat(fd), parent.stat()) for fd in fds)
+    peer = os.open(parent, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(peer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            raise AssertionError("target parent is writable by another holder")
+    finally:
+        os.close(peer)
+''')
 
     @unittest.skipUnless(sys.platform == "linux", "Linux NFS flock protocol")
     def test_config_locks_observe_nfs_mounts_pruned_under_local_roots(self):
@@ -11332,21 +11426,21 @@ for shard in layout.layout[3]:
 state = runner.model_state()
 parts = [part for part in state.parts if part.gb > 0]
 assert {part.kind for part in parts} == {"mtp"}, state
-assert layout.download_directory(part.kind for part in parts) == data
+assert layout.download_folders({"kind": part.kind, "gb": part.gb} for part in parts) == (data / "mtp",)
 plan = runner.download_plan()
 assert {part["kind"] for part in plan["parts"]} == {"mtp"}, plan
-assert layout.download_directory(part["kind"] for part in plan["parts"] if part["gb"] > 0) == data
+assert layout.download_folders(plan["parts"]) == (data / "mtp",)
 (data / "mtp/rt/experts.bin").write_bytes(b"mtp")
 (models / mod.FAMILIES["qwen"]["mmproj"]).unlink()
 state = runner.model_state()
 parts = [part for part in state.parts if part.gb > 0]
 assert {part.kind for part in parts} == {"mmproj"}, state
-assert layout.download_directory(part.kind for part in parts) == models
+assert layout.download_folders({"kind": part.kind, "gb": part.gb} for part in parts) == (models,)
 with patch.object(runner, "model_state", return_value=state), patch.object(modelstate, "reader_present") as reader:
     plan = runner.download_plan()
     assert {part["kind"] for part in plan["parts"]} == {"mmproj"}, plan
     reader.assert_not_called()
-assert layout.download_directory(part["kind"] for part in plan["parts"] if part["gb"] > 0) == models
+assert layout.download_folders(plan["parts"]) == (models,)
 runner.s.vision = "off"
 state = runner.model_state()
 with patch.object(runner, "model_state", return_value=state), patch.object(modelstate, "reader_present") as reader:
@@ -11537,6 +11631,16 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
             assert all((new / shard.relative_to(old)).is_file() and mod.done(new / shard.relative_to(old)) for shard in shards)
             assert stock.is_file() and not drafting.pack_ready(new)
             assert plan()["download"]["gb"] == 0
+        elif scenario == "split":
+            assert plan()["download"]["gb"] == 0
+            layout = cat.launch_directories(family, model, data_dir=new, move=True)
+            assert layout.layout[3] == [new / shard.relative_to(old) for shard in shards]
+            with contextlib.redirect_stdout(io.StringIO()):
+                data, retained = mod.data_folder_for(type("Args", (), dict(data_dir=str(new), move_data=True,
+                    yes=True, set_default_data_dir=True, separate_model_artifacts=True))())
+            assert data == new and new in retained
+            _, _, _, selected = mod.model_download_layout(family, model, models, data_dir=data, elsewhere=retained)
+            assert selected == layout.layout[3] and all(mod.download_complete(path) for path in selected)
         else:
             assert plan()["download"]["gb"] > 0, scenario
             if scenario == "unfinished-destination":
@@ -15006,7 +15110,7 @@ for mode in cases:
 ''')
 
 
-    def test_folder_real_textual_repaint_reuses_only_current_sha_evidence(self):
+    def test_folder_real_textual_repaint_verifies_files_off_thread(self):
         root = self.make_ready_workspace()
         script = root / "folder-repaint-regression.py"
         script.write_text(r'''
@@ -15018,6 +15122,7 @@ import io
 import json
 import os
 from pathlib import Path
+from threading import get_ident
 from types import SimpleNamespace
 from unittest.mock import patch
 from textual.app import App
@@ -15060,15 +15165,18 @@ class FixtureApp(App):
         super().__init__()
         self.ctx = ctx
     def on_mount(self):
-        self.push_screen(FolderScreen())
+        screen = FolderScreen()
+        # Start verification explicitly after installing the hash probe.
+        screen.check_folder = lambda: None
+        self.push_screen(screen)
 
 async def exercise():
     app = FixtureApp()
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
         screen = app.screen
         field = screen.query_one('#folderpath', Input)
         hashes = Counter()
+        hash_threads = set()
         selections = []
         original_directories = cat.launch_directories
         def selected(*args, **kwargs):
@@ -15079,6 +15187,7 @@ async def exercise():
         def counted(path, size, *, progress=True):
             assert progress is False, 'reader emitted acquisition hash progress'
             hashes[Path(path)] += 1
+            hash_threads.add(get_ident())
             return original_hash(path, size, progress=progress)
         def snapshot():
             from dataclasses import asdict
@@ -15089,23 +15198,40 @@ async def exercise():
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 screen.paint()
-            assert hashes == Counter({p: 1 for p in expected}), hashes
+            assert not hashes, hashes
+            assert selections and all(d.receipt_only for d in selections)
+            assert not any(selections[0].verified_files.values())
             assert output.getvalue() == '', output.getvalue()
             assert snapshot() == before, 'reader changed data, marks or settings'
             hashes.clear()
             selections.clear()
             screen.on_input_changed(Input.Changed(field, field.value))
+            assert not hashes, hashes
+            assert snapshot() == before
+            FolderScreen.check_folder(screen)
+            for _ in range(100):
+                if screen._folder_forecast is not None:
+                    break
+                await pilot.pause(0.05)
+            forecast = screen._folder_forecast
+            assert forecast is not None and not forecast.receipt_only
+            assert hashes == Counter({p: 1 for p in expected}), hashes
+            assert hash_threads and get_ident() not in hash_threads
+            assert all(forecast.verified_files[p] for p in expected)
+            screen.paint()
             assert hashes == Counter({p: 1 for p in expected}), hashes
             assert snapshot() == before
-            # Same path and size, different bytes: a fresh repaint must reject old proof.
             victim = expected[-1]
             victim.write_bytes(b'!' * victim.stat().st_size)
             changed = snapshot()
             hashes.clear()
             selections.clear()
             screen.paint()
+            assert not hashes, hashes
+            # Explicit forecasts revalidate, rather than reusing the screen's snapshot.
+            forecast = cat.launch_directories(family, model, data_dir=data)
             assert hashes == Counter({p: 1 for p in expected}), hashes
-            assert selections and not selections[0].verified_files[victim], 'same-size changed shard retained completion proof'
+            assert not forecast.verified_files[victim], 'same-size changed shard retained completion proof'
             assert snapshot() == changed
             assert not any(p.name.endswith('.done') for p in data.rglob('*'))
             assert not any(p.name.endswith('.done') for p in models.rglob('*'))

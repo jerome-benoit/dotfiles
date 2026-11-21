@@ -620,22 +620,38 @@ def config_locks(*folders, mount_targets=None, mount_subtrees=()):
         for parent in folder.parents:
             modes.setdefault(parent, fcntl.LOCK_SH)
 
-    def needs_gate(mounts):
+    def targets():
+        return set(mount_targets()) if mount_targets is not None else set()
+
+    # A bind mount can expose the same writable parent under an unrelated
+    # ancestry. Include its inode in the original ordered lock acquisition.
+    def needs_gate(mounts, paths):
         return bool(mounts) and (
-            _nested_nfs(mounts, mount_subtrees)
-            or (mount_targets is not None and _paths_on_nfs(mount_targets(), mounts)))
+            _nested_nfs(mounts, mount_subtrees) or _paths_on_nfs(paths, mounts))
 
     while True:
-        with _config_lock_snapshot(modes, needs_gate) as (descriptors, locked_roots, identities):
+        paths = targets()
+        parents = {path.parent for path in paths}
+        snapshot_modes = modes.copy() if parents else modes
+        for folder in parents:
+            snapshot_modes[folder] = fcntl.LOCK_EX
+            for ancestor in folder.parents:
+                if snapshot_modes.get(ancestor) is None:
+                    snapshot_modes[ancestor] = fcntl.LOCK_SH
+        with _config_lock_snapshot(snapshot_modes, lambda mounts: needs_gate(mounts, paths)) as (
+                descriptors, locked_roots, identities):
             # A publisher may move directories or retarget a config while we wait.
-            # Release local locks before taking a newly required gate.
+            # Release local locks before retrying with a different lock set.
+            paths = targets()
+            if {path.parent for path in paths} != parents:
+                continue
             if not all(_config_directory_identity(folder) == identity for folder, identity in identities.items()):
                 continue
             gate_fd = config_gate_fd(descriptors)
             mounts = _nfs_mounts()
             if gate_fd is not None:
                 _validate_nfs_gate(gate_fd, mounts)
-            elif needs_gate(mounts):
+            elif needs_gate(mounts, paths):
                 continue
             yield descriptors, locked_roots
             return
@@ -948,14 +964,19 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                     except FileNotFoundError:
                         current = None
                     if current is None or (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
-                        replacement = backup_name + ".restore"
-                        try:
-                            os.unlink(replacement, dir_fd=backup_fd)
-                        except FileNotFoundError:
-                            pass
-                        os.link(backup_name, replacement, src_dir_fd=backup_fd, dst_dir_fd=backup_fd,
-                                follow_symlinks=False)
-                        os.replace(replacement, path, src_dir_fd=backup_fd)
+                        if current is not None and path.name == RAM_BUDGET_MARK:
+                            raise OSError(f"Cannot restore migration marker without replacing {path}")
+                        if path.name == RAM_BUDGET_MARK:
+                            os.link(backup_name, path, src_dir_fd=backup_fd, follow_symlinks=False)
+                        else:
+                            replacement = backup_name + ".restore"
+                            try:
+                                os.unlink(replacement, dir_fd=backup_fd)
+                            except FileNotFoundError:
+                                pass
+                            os.link(backup_name, replacement, src_dir_fd=backup_fd, dst_dir_fd=backup_fd,
+                                    follow_symlinks=False)
+                            os.replace(replacement, path, src_dir_fd=backup_fd)
                     if payload is not None:
                         if path.read_bytes() != payload:
                             path.write_bytes(payload)
@@ -991,7 +1012,7 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
 def _regular_file(path):
     try:
         return stat.S_ISREG(path.lstat().st_mode)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return False
 
 
@@ -1075,12 +1096,26 @@ def _runtime_layout_plan(repository, *, reverse):
 
 
 def restore_runtime_moves(moves):
-    """Undo only accepted renames, before source checkout and metadata restoration."""
+    """Undo accepted renames without overwriting outside files or stopping at a conflict."""
+    errors = []
+    blocked = set()
     for source, destination in reversed(moves):
-        if source.exists() or source.is_symlink():
-            raise RuntimeError(f"Cannot restore moved runtime without replacing {source}")
-        source.parent.mkdir(parents=True, exist_ok=True)
-        os.rename(destination, source)
+        try:
+            if source.exists() or source.is_symlink() or destination in blocked:
+                raise OSError(f"Cannot restore moved runtime from {destination} to {source}")
+            source.parent.mkdir(parents=True, exist_ok=True)
+            if source.name == RAM_BUDGET_MARK:
+                os.link(destination, source, follow_symlinks=False)
+                destination.unlink()
+            else:
+                os.rename(destination, source)
+        except OSError as error:
+            # An earlier refusal can leave a replacement at an intermediate
+            # coordinate; do not pick it up as part of a chained rename.
+            blocked.add(source)
+            errors.append(error)
+    if errors:
+        raise RuntimeError("; ".join(map(str, errors))) from errors[0]
 
 
 def relocated_path(path, pairs):
@@ -1451,8 +1486,7 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
                 except BaseException as failure:
                     rollback_errors.append(failure)
 
-            for marker, backup in reversed(retired):
-                restore(os.rename, backup, marker)
+            restore(restore_runtime_moves, retired)
             for entry, before, mode, backup, info in reversed(edited):
                 if mode is None:
                     restore(write_runtime, entry, before, None)
@@ -1461,8 +1495,7 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
                     restore(os.replace, backup, entry)
             # Backups inside a moved filesystem must disappear before their parents move back.
             restore(snapshots.close)
-            for src, dst in reversed(moved):
-                restore(os.rename, dst, src)
+            restore(restore_runtime_moves, moved)
             detail = f"Managed runtime path migration failed: {error}"
             if rollback_errors:
                 detail += "; runtime rollback errors: " + "; ".join(map(str, rollback_errors))

@@ -6,7 +6,7 @@
 diff --git a/terminal/setup.py b/terminal/setup.py
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
-@@ -2800,9 +2800,9 @@
+@@ -2802,9 +2802,9 @@
      return min(i * DL_CHUNK, total)
  
  
@@ -18,7 +18,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +    side = part.with_name(part.name + ".chunks") if side is None else side
      n = -(-total // DL_CHUNK)
      try:
-@@ -2817,13 +2817,15 @@
+@@ -2819,13 +2819,15 @@
                  return {i for i in done if min((i + 1) * DL_CHUNK, total) <= size}
 -        except (OSError, ValueError, TypeError, KeyError):
 +        except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -38,7 +38,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
          return set()
      return set(range(n)) if size >= total else set(range(size // DL_CHUNK))
  
-@@ -3746,6 +3748,103 @@
+@@ -3748,6 +3750,103 @@
          elif f[0] in ("dense", "ple", "embd"):
              out[f[0]] = p
      return out
@@ -142,7 +142,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -7955,20 +8054,20 @@
+@@ -7967,20 +8066,20 @@
  
  
 -def resolve_reader(pinned: str, mmproj: Path, models_dir, roots, gguf_dir, size, sha=None):
@@ -167,13 +167,13 @@ diff --git a/terminal/setup.py b/terminal/setup.py
      if renamed is not None:
          return ("renamed", renamed[1]) if renamed[0] == "near" else renamed
      return "fetch", mmproj
-@@ -11231,11 +11330,22 @@
+@@ -11243,11 +11342,22 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
 -    problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
 -                                (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
-+    if ready and ready_data_dir is not None:
++    if ready and artifacts_dir is not None:
 +        vision_file = None
 +        if vision != "none":
 +            kind, reader = _setup_reader(fam, a.models_dir, roots, a.gguf_dir, start=False)
@@ -191,11 +191,11 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +        if problem:
 +            fail(*problem, kind="no_space", path=str(models_dir), free_bytes=int(free_now * 1e9), needed_bytes=int(need * 1e9))
 -    if free_now < need:
-+    if not (ready and ready_data_dir is not None) and free_now < need:
++    if not (ready and artifacts_dir is not None) and free_now < need:
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11309,12 +11419,7 @@
+@@ -11321,12 +11431,7 @@
      ok("model files present")
      mmproj = Path(a.models_dir) / fam.get("mmproj", MMPROJ)
 -    if not mmproj.exists():                            # an earlier install's copy (the same file for every family)

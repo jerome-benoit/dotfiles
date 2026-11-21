@@ -1,13 +1,13 @@
 # base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
 # prerequisites: none
-# intent: preserve frozen provider generations, coherent publication, context-local home discovery and owned-copy cleanup. Keep the pinned owner-lock protocol (#156493); retry destination space or quota failures in a private temporary root.
+# intent: preserve frozen provider generations, coherent publication, context-local home discovery and owned-copy cleanup. Keep the pinned owner-lock protocol (#156493); fall back to private temporary storage on persistent allocation errors and destination capacity failures.
 # upstream: https://github.com/NousResearch/hermes-agent/pull/156224 and https://github.com/NousResearch/hermes-agent/pull/157087 partially cover concurrent scans and completed-registration replay. Neither is in the pin; both still wait on discovery.
 # issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 read-only POSIX cleanup.
 # removal: remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py
-@@ -24,23 +24,32 @@
+@@ -24,26 +24,35 @@
  import atexit
  import contextlib
 +import errno
@@ -40,13 +40,20 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -_SNAPSHOT_IGNORE = shutil.ignore_patterns("__pycache__", ".git", "node_modules", ".venv")
 +# Copies and content identities exclude the same non-runtime artifacts.
 +_EXCLUDED = frozenset({"__pycache__", ".git", "node_modules", ".venv"})
- # The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
- # the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
- # under any other name are never touched.
-@@ -53,6 +62,59 @@
+-# The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
+-# the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
+-# under any other name are never touched.
++# The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots
++# once nobody holds their owner.lock and finishes interrupted allocations and reaping claims.
++# Entries under any other name are never touched.
+ _OWNED_PREFIX = "owned-"
+ _UNSWEPT_PREFIX = "unswept-"
+ _REAPING_PREFIX = f".reaping-{_OWNED_PREFIX}"
+@@ -53,6 +62,60 @@
  # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
++_ALLOCATING_PREFIX = ".allocating-owned-"
 +_TEMP_ROOT_PREFIX = "hermes-provider-plugins-"
 +_snapshot_creator_pid: int | None = None
 +_snapshot_fallback_root: Path | None = None
@@ -103,7 +110,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +135,468 @@
+@@ -73,176 +136,474 @@
          os.close(fd)
  
  
@@ -112,7 +119,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -    names; the caller deletes them after releasing the setup lock, so a large dead root never holds up other
 -    processes starting. A claim another sweeper is still deleting can be taken again and deleted twice: both deletes
 -    ignore errors, so the cost is the duplicated work."""
-+    """Claim dead roots and interrupted claims belonging to this user."""
++    """Under the setup lock, claim abandoned allocations, dead roots and interrupted claims."""
      claimed = []
 +    uid = os.geteuid() if hasattr(os, "geteuid") else None
      with contextlib.suppress(OSError):
@@ -125,7 +132,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -                    claim = parent / f"{_REAPING_PREFIX}{uuid.uuid4().hex}"
 -                    os.rename(entry, claim)
 -                    claimed.append(claim)
-+            leftover = entry.name.startswith(_REAPING_PREFIX)
++            leftover = entry.name.startswith((_ALLOCATING_PREFIX, _REAPING_PREFIX))
 +            if not leftover and not entry.name.startswith(_OWNED_PREFIX):
 +                continue
 +            with contextlib.suppress(OSError):
@@ -226,13 +233,15 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        claimed.extend(_claim_dead_roots(parent))
 -        root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
 +        try:
-+            root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
++            root = Path(tempfile.mkdtemp(prefix=_ALLOCATING_PREFIX, dir=parent))
 +        except OSError as exc:
 +            return _new_temporary_root(exc)
++        owner_fd = None
          try:
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
 +            if owner_fd is None:
 +                raise OSError(f"{root / _OWNER_LOCK} is held by another process")
++            root = root.rename(root.with_name(f"{_OWNED_PREFIX}{root.name.removeprefix(_ALLOCATING_PREFIX)}"))
 -        except BaseException:
 -            shutil.rmtree(root, ignore_errors=True)
 +        except BaseException as exc:
@@ -240,10 +249,14 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            if claim is not None:
 +                claimed.append(claim)
 +            else:
-+                # No sweep can identify an ownerless root. Remove it only if still empty.
++                # Keep a nonempty allocation for the next sweep if claim publication failed.
 +                with contextlib.suppress(OSError):
 +                    root.rmdir()
-+            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, *_CAPACITY_ERRORS):
++            if owner_fd is not None:
++                with contextlib.suppress(OSError):
++                    os.close(owner_fd)
++
++            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, errno.EIO, *_CAPACITY_ERRORS):
 +                return _new_temporary_root(exc)
              raise
 -        if owner_fd is None:
@@ -403,7 +416,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    whole = (stores.keys() - overlapping) | {file_id(primary.stat())}
 +    if root != primary:
 +        whole.add(file_id(root.stat()))
-+    root_prefixes = (_OWNED_PREFIX, _UNSWEPT_PREFIX, _REAPING_PREFIX)
++    root_prefixes = (_OWNED_PREFIX, _UNSWEPT_PREFIX, _ALLOCATING_PREFIX, _REAPING_PREFIX)
 +    reserved = {}
 +    for key in overlapping:
 +        members = reserved[key] = set()

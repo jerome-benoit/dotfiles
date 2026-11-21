@@ -315,7 +315,9 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
             publications.append((revision, desired))
         reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
         forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
-        approval = snapshot_engine_approvals(terminal_root(root), current)
+        previous_runtime = terminal_root(root)
+        previous_managed = managed_source_hooks(previous_runtime)
+        approval = snapshot_engine_approvals(previous_runtime, current)
         pairs = managed_state.runtime_pairs(root, reverse=reverse_layout) if target_terminal or reverse_layout else ()
         # Layout, profiles, accepted cache bytes and the request receipt settle together.
         tracked_engine = reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0
@@ -348,21 +350,27 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     publish_source_patch(ledger, desired)
                     apply_source_patch(root, desired)
                     desired_applied = True
-                moved.extend(migrate_layout(state, terminal_root(root), lock_fd,
-                                            publication_fd=publication_lock.fileno(), config_fds=config_fds,
+                runtime = terminal_root(root)
+                moved.extend(migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
+                                            config_fds=config_fds,
                                             reference_moves=engine_link.reference_moves()))
                 managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
-                if not applied or desired is None:
+                if not (previous_managed and managed_source_hooks(runtime)):
                     # Native writers do not maintain the managed inspection receipt.
-                    # Journal same-mount retirement after relocation, so rollback
-                    # puts the marker back before undoing its earlier layout move.
+                    # Retire a relocated receipt directly from its original
+                    # coordinate so rollback need not reuse the new path.
                     for folder in (root, root / "terminal"):
                         marker = folder / managed_state.RAM_BUDGET_MARK
                         if migration_complete(marker):
                             staged = Path(marker_snapshots.enter_context(tempfile.TemporaryDirectory(
                                 dir=folder, prefix=".strata-layout-"))) / marker.name
                             os.rename(marker, staged)
-                            moved.append((marker, staged))
+                            for index, (original, destination) in enumerate(moved):
+                                if destination == marker:
+                                    moved[index] = (original, staged)
+                                    break
+                            else:
+                                moved.append((marker, staged))
                 if not target_terminal:
                     cmake_metadata.invalidate(root)
                 for cached_revision, text in publications:
@@ -415,11 +423,14 @@ def managed_source_hooks(root):
     """Use the accepted source APIs, not its flat/split layout, to select managed dispatch."""
     if not (repository_root(root) / ".git" / SOURCE_PATCH).is_file():
         return False
-    cli = ast.parse((root / "strata_cli/cli.py").read_text())
-    if not any(isinstance(node, ast.FunctionDef) and node.name == "parse_args"
-               for node in cli.body):
+    try:
+        cli = ast.parse((root / "strata_cli/cli.py").read_text())
+        if not any(isinstance(node, ast.FunctionDef) and node.name == "parse_args"
+                   for node in cli.body):
+            return False
+        setup = ast.parse((root / "setup.py").read_text())
+    except (FileNotFoundError, NotADirectoryError):
         return False
-    setup = ast.parse((root / "setup.py").read_text())
     return any(isinstance(node, ast.FunctionDef) and node.name == "main"
                and any(arg.arg == "after_parse" for arg in (*node.args.args, *node.args.kwonlyargs))
                for node in setup.body)
@@ -1057,7 +1068,7 @@ def publish_migrated_config(candidate, path, info, original, payload, *, gate_fd
 def migration_complete(marker):
     try:
         return stat.S_ISREG(marker.lstat().st_mode)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return False
 
 
@@ -1123,7 +1134,6 @@ def _migration_mount_targets(folders, mark):
                 continue  # The locked inspection reports the invalid alias.
             if path is not None:
                 yield path
-                yield path.parent
 
 
 def migrate_native_settings(root):
@@ -1164,8 +1174,8 @@ def _migrate_native_settings(migration, folders, locked_roots, *, gate_fd=None):
                     external = path.parent != folder
                     if previous_marker is not None and (not external or known_targets.get(candidate.name) == str(path)):
                         continue
-                    if not covered(path):
-                        raise OSError(f"Config target appeared outside the locked folders: {path}")
+                    if path.parent not in locked_roots:
+                        raise OSError(f"Config target parent was not locked: {path.parent}")
                     if path not in seen:
                         info, original = read_migration_config(candidate, path)
                         try:

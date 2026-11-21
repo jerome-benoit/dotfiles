@@ -731,6 +731,36 @@ def persistent_cleanup(fixture):
     return {"persistent_readonly_reclaim": "complete", "partial_removal_recovery": "complete"}
 
 
+def interrupted_snapshot_allocation(fixture):
+    from pm.filesystem import lock_path
+
+    reloader = fixture.reloader
+    live = reloader._process_snapshot_root()
+    parent = live.parent
+    legacy = parent / f"{reloader._OWNED_PREFIX}missing-owner-lock"
+    legacy.mkdir()
+
+    # Leave the filesystem as a process exit during allocation would.
+    setup_fd = lock_path(parent / reloader._SETUP_LOCK, timeout=0)
+    assert setup_fd is not None
+    try:
+        abandoned = Path(tempfile.mkdtemp(prefix=reloader._ALLOCATING_PREFIX, dir=parent))
+        assert not (abandoned / reloader._OWNER_LOCK).exists()
+    finally:
+        os.close(setup_fd)
+
+    recovered = another_snapshot_root(reloader)
+    try:
+        assert not abandoned.exists(), "sweep left an interrupted allocation"
+        assert not list(parent.glob(f"{reloader._REAPING_PREFIX}*"))
+        assert legacy.is_dir(), "sweep removed an unverified owned root"
+        assert live.is_dir() and not reloader._owner_gone(live)
+        assert recovered.name.startswith(reloader._OWNED_PREFIX) and not reloader._owner_gone(recovered)
+    finally:
+        reloader._release_root(recovered, None, os.getpid())
+    return {"interrupted_allocation_reclaimed": True}
+
+
 def foreign_snapshot_owners(fixture):
     reloader = fixture.reloader
     live = reloader._process_snapshot_root()
@@ -838,6 +868,7 @@ def owner_lock_storage_fallback(fixture, storage_errno):
         if flags & os.O_CREAT and Path(path).name == reloader._OWNER_LOCK:
             lock = Path(path)
             assert lock.parent.parent == parent
+            assert lock.parent.name.startswith(reloader._ALLOCATING_PREFIX)
             attempted.append(lock.parent)
             raise OSError(storage_errno, "injected owner.lock storage failure", str(lock))
         return real_open(path, flags, *args, **kwargs)
@@ -914,7 +945,13 @@ def owner_lock_and_claim_failure(fixture):
     for root in roots:
         assert root.parent == temp and root.name.startswith(reloader._TEMP_ROOT_PREFIX)
         reloader._release_root(root, None, os.getpid())
-    return {"empty_ownerless_root": "removed", "nonempty_ownerless_root": "untouched"}
+    recovered = another_snapshot_root(reloader)
+    try:
+        assert not nonempty.exists(), "sweep left an allocation after failed claim publication"
+        assert not list(live.parent.glob(f"{reloader._REAPING_PREFIX}*"))
+    finally:
+        reloader._release_root(recovered, None, os.getpid())
+    return {"empty_allocation": "removed", "nonempty_allocation": "reclaimed"}
 
 
 def copy_storage_fallback(fixture, fault):
@@ -1494,6 +1531,8 @@ def run_case(case, plugin):
             result = host_cleanup_during_sweep(fixture)
         elif case == "persistent-cleanup":
             result = persistent_cleanup(fixture)
+        elif case == "interrupted-snapshot-allocation":
+            result = interrupted_snapshot_allocation(fixture)
         elif case == "foreign-snapshot-owners":
             result = foreign_snapshot_owners(fixture)
         elif case in {"temporary-cleanup", "symlink-loop-storage-fallback"}:
@@ -1634,13 +1673,16 @@ class ProviderLifecycle(unittest.TestCase):
     def test_persistent_readonly_reclamation_preserves_live_owner(self):
         self.run_case("persistent-cleanup")
 
+    def test_persistent_sweep_reclaims_interrupted_allocation(self):
+        self.run_case("interrupted-snapshot-allocation")
+
     def test_persistent_sweep_does_not_claim_foreign_uid_roots(self):
         self.run_case("foreign-snapshot-owners")
 
     def test_owner_lock_failure_recovers_after_purge_failure(self):
         self.run_case("owner-lock-failure")
 
-    def test_owner_lock_and_claim_failure_removes_only_empty_root(self):
+    def test_failed_owner_lock_and_claim_leave_nonempty_allocation_reclaimable(self):
         self.run_case("owner-lock-and-claim-failure")
 
     def test_copy_capacity_error_retries_in_temporary_root(self):
@@ -1662,6 +1704,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_owner_lock_quota_error_uses_temporary_root(self):
         self.run_case("owner-lock-edquot")
+
+    def test_owner_lock_io_error_uses_temporary_root(self):
+        self.run_case("owner-lock-eio")
 
     def test_deferred_activation_then_success(self):
         self.run_case("activation-success")
