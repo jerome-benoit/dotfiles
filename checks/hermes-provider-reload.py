@@ -160,9 +160,10 @@ def resource_identity(fixture):
 def linked_snapshot_storage(fixture):
     runtime = fixture.home / "runtime"
     fixture.generation("one", mutable=True).rename(runtime)
-    storage = runtime / "snapshot-store"
+    storage = fixture.root / "snapshot-store"
     storage.mkdir()
-    (runtime / "provider-plugins").symlink_to(storage.name, target_is_directory=True)
+    (runtime / "provider-plugins").symlink_to(storage, target_is_directory=True)
+    (runtime / storage.name).symlink_to(storage, target_is_directory=True)
     assets = runtime / "assets" / "provider-plugins"
     assets.mkdir(parents=True)
     (assets / "asset.txt").write_text("plugin data, not snapshots")
@@ -187,24 +188,40 @@ def linked_snapshot_storage(fixture):
     assert list(root.glob("*/review-provider")) == [copied]
 
     # Retargeting the configured alias must not move live code or redirect cleanup.
-    replacement = runtime / "next-snapshot-store"
+    replacement = fixture.root / "next-snapshot-store"
     decoy = replacement / root.name
     decoy.mkdir(parents=True)
     (decoy / "marker").write_text("another store")
     alias = runtime / "provider-plugins"
     alias.unlink()
-    alias.symlink_to(replacement.name, target_is_directory=True)
+    alias.symlink_to(replacement, target_is_directory=True)
+    (runtime / replacement.name).symlink_to(replacement, target_is_directory=True)
     fixture.refresh()
-    assert fixture.profile() is old and fixture.headers(old) == "one"
-    assert list(root.glob("*/review-provider")) == [copied]
+    current = fixture.profile()
+    assert current is not old and fixture.headers(old) == fixture.headers(current) == "one"
+    [empty_copy] = set(root.glob("*/review-provider")) - {copied}
+    for name in (replacement.name, alias.name):
+        assert list((empty_copy / name).iterdir()) == []
 
-    # A retarget to real plugin data must change the generation without copying
+    # Removing the last reserved artifact and adding another must leave both
+    # ordinary directory containers, and therefore the generation, unchanged.
+    remove_fixture(decoy)
+    fixture.refresh()
+    assert fixture.profile() is current
+    decoy.mkdir()
+    (decoy / "marker").write_text("another store")
+    (replacement / reloader._SETUP_LOCK).touch()
+    fixture.refresh()
+    assert fixture.profile() is current
+    assert set(root.glob("*/review-provider")) == {copied, empty_copy}
+
+    # Adding real plugin data must change the generation without copying
     # the old store or reserved artifacts in the new target.
     (replacement / "asset.txt").write_text("new plugin asset")
     fixture.refresh()
-    current = fixture.profile()
-    assert current is not old and fixture.headers(current) == "one"
-    [retargeted] = set(root.glob("*/review-provider")) - {copied}
+    with_asset = fixture.profile()
+    assert with_asset is not current and fixture.headers(with_asset) == "one"
+    [retargeted] = set(root.glob("*/review-provider")) - {copied, empty_copy}
     for name in (replacement.name, alias.name):
         assert list((retargeted / name).iterdir()) == [retargeted / name / "asset.txt"]
         assert (retargeted / name / "asset.txt").read_text() == "new plugin asset"
@@ -214,7 +231,7 @@ def linked_snapshot_storage(fixture):
     fixture.refresh()
     assert fixture.headers(fixture.profile()) == "second"
     assert fixture.headers(old) == "one"
-    assert len(list(root.glob("*/review-provider"))) == 3
+    assert len(list(root.glob("*/review-provider"))) == 4
     assert not list(root.glob(".copy-*"))
     reloader._cleanup_snapshots()
     assert not root.exists()
@@ -624,14 +641,17 @@ def host_cleanup(fixture, *, copy_fallback=False, unswept=False):
     return {"forced_host_cleanup": "complete"}
 
 
-def host_cleanup_during_sweep(fixture):
+def host_cleanup_during_sweep(fixture, *, during_allocation=False):
     from hermes_cli.plugin_host_wire import PluginHostUnavailable
 
     (fixture.home / "plugins" / "github-copilot").symlink_to(fixture.plugin, target_is_directory=True)
     temp = fixture.root / "child-temp"
     temp.mkdir()
-    entered = fixture.home / "reap-entered"
+    entered = fixture.home / "snapshot-entered"
+    release = fixture.home / "allocation-release"
     os.mkfifo(entered)
+    if during_allocation:
+        os.mkfifo(release)
     headers = '''
     def request_headers(self, *, base_url, model="", user_initiated=False):
         import errno, os, threading
@@ -642,6 +662,7 @@ def host_cleanup_during_sweep(fixture):
         home = Path(os.environ["HERMES_HOME"])
         os.environ["TMPDIR"] = str(home.parent / "child-temp")
         real_lock_path, reap = filesystem.lock_path, plugin_reload._reap_claim
+        allocate = plugin_reload._new_temporary_root
 
         def lock_path(path, *, timeout):
             if path.name == plugin_reload._OWNER_LOCK:
@@ -650,49 +671,66 @@ def host_cleanup_during_sweep(fixture):
 
         def slow_reap(claim):
             if (claim / "slow-reap-marker").exists():
-                with (home / "reap-entered").open("wb", buffering=0) as signal:
+                with (home / "snapshot-entered").open("wb", buffering=0) as signal:
                     signal.write(b"x")
                 threading.Event().wait(30)
             reap(claim)
 
+        def slow_allocate(error):
+            root = allocate(error)
+            with (home / "snapshot-entered").open("wb", buffering=0) as signal:
+                signal.write(b"x")
+            with (home / "allocation-release").open("rb", buffering=0) as barrier:
+                barrier.read(1)
+            return root
+
         filesystem.lock_path = lock_path
-        plugin_reload._reap_claim = slow_reap
+        if DURING_ALLOCATION:
+            plugin_reload._new_temporary_root = slow_allocate
+        else:
+            plugin_reload._reap_claim = slow_reap
         providers.get_provider_profile("copilot")
         return {"X-Version": "unexpectedly completed"}
-'''
+'''.replace("DURING_ALLOCATION", repr(during_allocation))
     fixture.install(fixture.generation("one", headers=headers))
     profile = fixture.profile()
     reloader = fixture.reloader
     parent = reloader._snapshot_root
-    dead = parent.parent / f"{reloader._OWNED_PREFIX}slow-regression"
-    dead.mkdir()
-    (dead / reloader._OWNER_LOCK).touch()
-    (dead / "slow-reap-marker").touch()
+    if not during_allocation:
+        dead = parent.parent / f"{reloader._OWNED_PREFIX}slow-regression"
+        dead.mkdir()
+        (dead / reloader._OWNER_LOCK).touch()
+        (dead / "slow-reap-marker").touch()
 
     fd = os.open(entered, os.O_RDWR | os.O_NONBLOCK)
+    release_fd = os.open(release, os.O_RDWR | os.O_NONBLOCK) if during_allocation else None
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             pending = pool.submit(fixture.headers, profile)
             try:
-                assert select.select([fd], [], [], 15)[0], "host did not enter its slow snapshot sweep"
+                assert select.select([fd], [], [], 15)[0], "host did not reach the snapshot barrier"
                 assert os.read(fd, 1) == b"x"
                 proc = fixture.host()._proc
                 [child_root] = temp.glob(f"{reloader._TEMP_ROOT_PREFIX}*")
             finally:
                 fixture.stop_host()
-            assert proc.returncode == 0, f"host exited with status {proc.returncode} during the snapshot sweep"
-            assert not child_root.exists(), "host exit leaked the temporary root allocated before the sweep"
+            assert proc.returncode == 0, f"host exited with status {proc.returncode}"
+            assert not child_root.exists(), "host exit leaked the temporary root allocated before the barrier"
             with unittest.TestCase().assertRaises(PluginHostUnavailable):
                 pending.result(timeout=15)
     finally:
+        if release_fd is not None:
+            # Keep the allocation suspended until shutdown has completed.
+            os.write(release_fd, b"x")
+            os.close(release_fd)
         os.close(fd)
     assert parent.is_dir(), "host exit removed parent-owned versions"
-    return {"host_shutdown_during_sweep": "complete", "temporary_root": "removed"}
+    return {"host_shutdown_during": "allocation" if during_allocation else "sweep", "temporary_root": "removed"}
 
 
 def another_snapshot_root(reloader):
     """Exercise allocation as a new process would, without replacing this fixture's live root."""
-    with patch.multiple(reloader, _snapshot_root=None, _snapshot_creator_pid=None, _snapshot_store=None):
+    with patch.multiple(reloader, _snapshot_root=None, _snapshot_store=None):
         return reloader._process_snapshot_root()
 
 
@@ -894,9 +932,10 @@ def owner_lock_storage_fallback(fixture, storage_errno):
     reloader = fixture.reloader
     runtime = fixture.home / "runtime"
     fixture.generation("one", mutable=True).rename(runtime)
-    parent = runtime / "snapshot-store"
+    parent = fixture.root / "snapshot-store"
     parent.mkdir()
-    (runtime / "provider-plugins").symlink_to(parent.name, target_is_directory=True)
+    (runtime / "provider-plugins").symlink_to(parent, target_is_directory=True)
+    (runtime / parent.name).symlink_to(parent, target_is_directory=True)
     parent = parent.resolve()
     live = another_snapshot_root(reloader)
     assert live.parent == parent
@@ -1164,13 +1203,14 @@ def directory_alias_storage_fallback(fixture):
     reloader = fixture.reloader
     runtime = reloader._persistent_store().parent
     fixture.generation("one", mutable=True).rename(runtime)
-    resource = runtime / "provider-data"
+    resource = fixture.root / "provider-data"
     resource.mkdir()
+    (runtime / resource.name).symlink_to(resource, target_is_directory=True)
     payload = resource / "asset.bin"
     payload.write_bytes(b"provider\0resource")
     payload.chmod(0o444)
     alias = reloader._persistent_store()
-    alias.symlink_to(resource.name, target_is_directory=True)
+    alias.symlink_to(resource, target_is_directory=True)
     artifacts = [resource / f"{prefix}old" for prefix in (
         reloader._OWNED_PREFIX, reloader._UNSWEPT_PREFIX,
         reloader._ALLOCATING_PREFIX, reloader._REAPING_PREFIX,
@@ -1242,6 +1282,63 @@ def profile_snapshot_storage_fallback(fixture, *, profiles_root=False, other_hom
     remove_fixture(storage)  # Simulate removal without running the cleanup command.
     assert fixture.headers(old) == "one"
     return {"profile_storage": "rejected", "provider_after_profile_cleanup": "one"}
+
+
+def purgeable_snapshot_storage(fixture):
+    from hermes_cli.data_cleanup import plan_data_removal, remove_data
+
+    reloader = fixture.reloader
+    storage = fixture.home / "logs" / "snapshots"
+    storage.mkdir(parents=True)
+    alias = reloader._persistent_store()
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(storage, target_is_directory=True)
+    temp = fixture.root / "system-tmp"
+    temp.mkdir()
+    project = fixture.root / "project"
+    project.mkdir()
+    fixture.install(fixture.generation("one"))
+
+    with patch.dict(os.environ, TMPDIR=str(temp)):
+        old = fixture.profile()
+    root = reloader._snapshot_root
+    assert root.parent.samefile(temp)
+    assert not list(storage.iterdir()), "allocated persistent artifacts in purgeable data"
+    plan = plan_data_removal(fixture.home, project)
+    assert alias in plan.keep
+    assert any(storage.is_relative_to(path) for path in plan.remove)
+    assert not any(root.is_relative_to(path) for path in plan.remove)
+    _, failed = remove_data(plan)
+    assert not failed
+    assert not storage.exists() and fixture.headers(old) == "one"
+    return {"purgeable_storage": "rejected", "provider_after_data_removal": "one"}
+
+
+def scratch_snapshot_storage(fixture, *, other_home):
+    reloader = fixture.reloader
+    home = fixture.home
+    if other_home:
+        home = fixture.root / "other-hermes-home"
+        home.mkdir()
+        (home / "config.yaml").write_text("{}\n")
+    scratch = home / "cache" / "scratch"
+    scratch.mkdir(parents=True)
+    alias = reloader._persistent_store()
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(scratch, target_is_directory=True)
+    temp = fixture.root / "system-tmp"
+    temp.mkdir()
+    fixture.install(fixture.generation("one"))
+
+    # No scratch marker: both modes must recognize the owning home on disk.
+    with patch.dict(os.environ, TMPDIR=str(scratch), TMP=str(temp)):
+        old = fixture.profile()
+    root = reloader._snapshot_root
+    assert root.parent.samefile(temp)
+    assert not list(scratch.iterdir()), "allocated snapshots inside Hermes scratch"
+    remove_fixture(scratch)
+    assert fixture.headers(old) == "one"
+    return {"scratch_storage": "rejected", "provider_after_scratch_cleanup": "one"}
 
 
 def unsafe_temporary_parent(fixture, *, scratch_export, other_home=False):
@@ -1679,6 +1776,7 @@ def run_case(case, plugin):
     root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-")).resolve()
     hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup",
                       "host-cleanup-copy-fallback", "host-cleanup-sweep", "host-cleanup-unswept",
+                      "host-cleanup-allocation",
                       "interrupt-host", "long-host"}
     fixture = Fixture(root, plugin, "host" if hosted else "in_process")
     try:
@@ -1700,6 +1798,10 @@ def run_case(case, plugin):
                       "other-profiles-root-storage-fallback"}:
             result = profile_snapshot_storage_fallback(fixture, profiles_root="profiles-root-" in case,
                                                        other_home=case.startswith("other-"))
+        elif case == "purgeable-snapshot-storage-fallback":
+            result = purgeable_snapshot_storage(fixture)
+        elif case in {"scratch-storage-fallback", "other-scratch-storage-fallback"}:
+            result = scratch_snapshot_storage(fixture, other_home=case.startswith("other-"))
         elif case in {"scratch-tmp-fallback", "profile-tmp-fallback", "other-profiles-root-tmp-fallback"}:
             result = unsafe_temporary_parent(fixture, scratch_export=case.startswith("scratch-"),
                                              other_home=case.startswith("other-"))
@@ -1718,8 +1820,8 @@ def run_case(case, plugin):
         elif case in {"host-cleanup", "host-cleanup-copy-fallback", "host-cleanup-unswept"}:
             result = host_cleanup(fixture, copy_fallback=case == "host-cleanup-copy-fallback",
                                   unswept=case == "host-cleanup-unswept")
-        elif case == "host-cleanup-sweep":
-            result = host_cleanup_during_sweep(fixture)
+        elif case in {"host-cleanup-sweep", "host-cleanup-allocation"}:
+            result = host_cleanup_during_sweep(fixture, during_allocation=case == "host-cleanup-allocation")
         elif case == "persistent-cleanup":
             result = persistent_cleanup(fixture)
         elif case == "unswept-snapshot-cleanup":
@@ -1822,6 +1924,14 @@ class ProviderLifecycle(unittest.TestCase):
     def test_profiles_root_snapshot_storage_is_rejected(self):
         self.run_case("profiles-root-storage-fallback")
 
+    def test_data_only_removal_cannot_remove_live_snapshots(self):
+        self.run_case("purgeable-snapshot-storage-fallback")
+
+    def test_scratch_is_rejected_for_persistent_and_temporary_storage(self):
+        for case in ("scratch-storage-fallback", "other-scratch-storage-fallback"):
+            with self.subTest(case=case):
+                self.run_case(case)
+
     def test_fallback_ignores_hermes_scratch_tmpdir(self):
         self.run_case("scratch-tmp-fallback")
 
@@ -1871,6 +1981,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_forced_host_cleanup_during_slow_fallback_sweep(self):
         self.run_case("host-cleanup-sweep")
+
+    def test_forced_host_cleanup_before_allocation_returns(self):
+        self.run_case("host-cleanup-allocation")
 
     def test_normal_exit_cleanup(self):
         self.run_case("normal-exit")

@@ -130,14 +130,17 @@ backend status. Keep provider deferrals out of next-chat tools/prompt notices.
 Extraction and RPC must use the same frozen code; the host shares the complete
 version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
-exits without atexit. Publish the canonical snapshot root before sweeping old
-copies. Delete unswept roots directly. Rename owned persistent roots to
-reclaimable claims before deleting their owner markers. Only reclaim roots
-owned by the current UID. Keep unpublished allocations reclaimable until
-they have an owner lock. Distinguish lock contention from storage errors.
-Retry destination capacity failures in private temporary storage outside
-Hermes scratch and removable profiles. Anchor copies to the opened store;
-retargeting its configured alias must not hide provider resources.
+exits without atexit. Coordinate root allocation and publication with host
+shutdown without waiting for the sweep. Delete unswept roots directly.
+Rename owned persistent roots to reclaimable claims before deleting their
+owner markers. Only reclaim roots owned by the current UID. Keep unpublished
+allocations reclaimable until they have an owner lock. Distinguish lock
+contention from storage errors.
+Retry destination capacity failures in private temporary storage. Reject
+snapshot roots in Hermes scratch and profile trees. Reject persistent aliases
+into Hermes homes, where a data purge can remove the resolved target. Anchor
+copies to the opened store and filter reserved artifacts without changing the
+identity of the surrounding provider resources.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted

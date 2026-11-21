@@ -49,15 +49,18 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  _OWNED_PREFIX = "owned-"
  _UNSWEPT_PREFIX = "unswept-"
  _REAPING_PREFIX = f".reaping-{_OWNED_PREFIX}"
-@@ -53,6 +62,61 @@
+@@ -53,6 +62,80 @@
  # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
++# Setup lock acquisition and stale-root sweeps must not delay forced host exit.
++_snapshot_init_lock = threading.Lock()
 +_ALLOCATING_PREFIX = ".allocating-owned-"
 +_TEMP_ROOT_PREFIX = "hermes-provider-plugins-"
-+_snapshot_creator_pid: int | None = None
++_allocated_snapshot_roots: dict[Path, int] = {}
 +_snapshot_store: Path | None = None
 +_snapshot_fallback_root: Path | None = None
++_snapshot_allocation_closed = False
 +_CAPACITY_ERRORS = (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC))
 +_versions_lock = threading.Lock()
 +_completed_versions: dict[str, _LoadResult] = {}
@@ -103,15 +106,31 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        logger.warning("Could not remove provider snapshot claim %s: %s", claim, exc)
 +
 +
-+def _cleanup_snapshots() -> None:
-+    if _snapshot_fallback_root is not None:
-+        _release_root(_snapshot_fallback_root, None, _snapshot_creator_pid)
-+    if _snapshot_root is not None:
-+        _release_root(_snapshot_root, None, _snapshot_creator_pid)
++def _check_snapshot_allocation() -> None:
++    if _snapshot_allocation_closed:
++        raise OSError(errno.ECANCELED, "Provider snapshot storage is shutting down")
++
++
++def _register_snapshot_root(root: Path, owner_fd: int | None) -> None:
++    """Record an allocation before releasing the lifecycle lock."""
++    creator_pid = os.getpid()
++    atexit.register(_release_root, root, owner_fd, creator_pid)
++    _allocated_snapshot_roots[root] = creator_pid
++
++
++def _cleanup_snapshots(*, closing: bool = False) -> None:
++    global _snapshot_allocation_closed
++    with _snapshot_lock:
++        if closing:
++            _snapshot_allocation_closed = True
++        roots = tuple(_allocated_snapshot_roots.items())
++        _allocated_snapshot_roots.clear()
++    for root, creator_pid in roots:
++        _release_root(root, None, creator_pid)
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +137,547 @@
+@@ -73,176 +156,572 @@
          os.close(fd)
  
  
@@ -198,7 +217,12 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +
 +def _within(path: Path, root: Path) -> bool:
 +    """Compare directory identities, including case variants and the root itself."""
-+    return root.is_dir() and any(p.samefile(root) for p in itertools.chain((path,), path.parents))
++    if root.is_dir():
++        for parent in itertools.chain((path,), path.parents):
++            with contextlib.suppress(FileNotFoundError, NotADirectoryError):
++                if parent.samefile(root):
++                    return True
++    return False
 +
 +
 +def _in_profile_storage(path: Path) -> bool:
@@ -210,33 +234,54 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    )
 +
 +
-+def _new_temporary_root(error: OSError) -> Path:
-+    logger.warning("Persistent provider snapshot storage unavailable; using system temp: %s", error)
-+    from hermes_constants import (
-+        SCRATCH_DIR_MARKER_ENV, SCRATCH_TMP_ENV_VARS, get_hermes_home,
-+        get_process_hermes_home,
++def _known_hermes_homes() -> tuple[Path, ...]:
++    from hermes_constants import get_hermes_home, get_process_hermes_home, get_routing_process_hermes_home
++
++    return (get_default_hermes_root(), get_process_hermes_home(),
++            get_routing_process_hermes_home(), get_hermes_home())
++
++
++def _in_hermes_home(path: Path, homes: tuple[Path, ...]) -> bool:
++    from hermes_constants import _is_hermes_profiles_root
++
++    return any(_within(path, home) for home in homes) or any(
++        _is_hermes_profiles_root(parent / "profiles")
++        for parent in itertools.chain((path,), path.parents)
 +    )
 +
-+    default = get_default_hermes_root()
-+    protected = (default, default / "profiles", get_process_hermes_home(), get_hermes_home())
-+    scratch = os.environ.get(SCRATCH_DIR_MARKER_ENV)
-+    if scratch:
-+        protected += (Path(scratch),)
++
++def _in_scratch(path: Path, homes: tuple[Path, ...]) -> bool:
++    from hermes_constants import SCRATCH_DIR_MARKER_ENV
++
++    scratch = (home / "cache" / "scratch" for home in homes)
++    marker = os.environ.get(SCRATCH_DIR_MARKER_ENV)
++    return any(_within(path, root) for root in itertools.chain(scratch, (Path(marker),) if marker else ()))
++
++
++def _new_temporary_root(error: OSError | RuntimeError) -> Path:
++    logger.warning("Persistent provider snapshot storage unavailable; using system temp: %s", error)
++    from hermes_constants import SCRATCH_TMP_ENV_VARS
++
++    homes = _known_hermes_homes()
 +    explicit = (Path(value) for key in SCRATCH_TMP_ENV_VARS if (value := os.environ.get(key)))
 +    for candidate in itertools.chain(explicit, _system_temp_parents()):
 +        if not candidate.is_absolute():
 +            continue
 +        try:
 +            parent = candidate.resolve(strict=True)
-+            if _in_profile_storage(parent) or any(
-+                candidate.is_relative_to(base) or _within(parent, base) for base in protected
-+            ):
++            if (_in_profile_storage(parent) or _in_hermes_home(parent, homes) or _in_scratch(parent, homes)
++                    or _in_hermes_home(candidate, homes)):
 +                continue
-+            root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX, dir=parent))
 +        except (OSError, RuntimeError):
 +            continue
-+        atexit.register(_release_root, root, None, os.getpid())
-+        return root
++        with _snapshot_lock:
++            _check_snapshot_allocation()
++            try:
++                root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX, dir=parent))
++            except OSError:
++                continue
++            _register_snapshot_root(root, None)
++            return root
 +    raise OSError(errno.EIO, "No safe temporary directory for provider snapshots") from error
 +
 +
@@ -253,11 +298,17 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
 -    parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
 +    try:
-+        parent = mkdir_under_hermes_home(_persistent_store()).resolve(strict=True)
-+        # Profile deletion removes the entire profile, regardless of data-only exclusions.
-+        if _in_profile_storage(parent):
-+            raise OSError(errno.EINVAL, "Snapshot storage is inside a deletable profile", parent)
-+    except OSError as exc:
++        store = _persistent_store()
++        canonical = get_default_hermes_root().resolve().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
++        parent = store.resolve()
++        homes = _known_hermes_homes()
++        # Data-only cleanup keeps the canonical entry, not another tree it points to.
++        # Profile deletion and scratch pruning do not honor data-only exclusions.
++        if (_in_profile_storage(parent) or _in_scratch(parent, homes)
++                or (parent != canonical and _in_hermes_home(parent, homes))):
++            raise OSError(errno.EINVAL, "Unsafe provider snapshot storage", parent)
++        mkdir_under_hermes_home(parent)
++    except (OSError, RuntimeError) as exc:
 +        return _new_temporary_root(exc), None
      try:
          setup_fd = lock_path(parent / _SETUP_LOCK, timeout=_SETUP_WAIT_SECONDS)
@@ -272,69 +323,78 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
                         "crashes, and it reclaims no others", parent / _SETUP_LOCK)
 -        root = Path(tempfile.mkdtemp(prefix=_UNSWEPT_PREFIX, dir=parent))
 +        try:
-+            root = Path(tempfile.mkdtemp(prefix=_UNSWEPT_PREFIX, dir=parent))
++            with _snapshot_lock:
++                _check_snapshot_allocation()
++                root = Path(tempfile.mkdtemp(prefix=_UNSWEPT_PREFIX, dir=parent))
+-        atexit.register(_release_root, root, None, os.getpid())
++                _register_snapshot_root(root, None)
++                return root, parent
 +        except OSError as exc:
 +            return _new_temporary_root(exc), None
-         atexit.register(_release_root, root, None, os.getpid())
 -        return root
-+        return root, parent
 -    claimed: list[Path] = []
      try:
 -        claimed = _claim_dead_roots(parent)
 +        claimed.extend(_claim_dead_roots(parent))
 -        root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
-+        try:
-+            root = Path(tempfile.mkdtemp(prefix=_ALLOCATING_PREFIX, dir=parent))
-+        except OSError as exc:
-+            return _new_temporary_root(exc), parent
-+        owner_fd = None
-         try:
-             owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
-+            if owner_fd is None:
-+                raise OSError(f"{root / _OWNER_LOCK} is held by another process")
-+            root = root.rename(root.with_name(f"{_OWNED_PREFIX}{root.name.removeprefix(_ALLOCATING_PREFIX)}"))
++        with _snapshot_lock:
++            _check_snapshot_allocation()
++            try:
++                root = Path(tempfile.mkdtemp(prefix=_ALLOCATING_PREFIX, dir=parent))
++            except OSError as exc:
++                error = exc
++            else:
++                owner_fd = None
+-        try:
+-            owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
 -        except BaseException:
 -            shutil.rmtree(root, ignore_errors=True)
-+        except BaseException as exc:
-+            claim = _claim_root(root)
-+            if claim is not None:
-+                claimed.append(claim)
-+            else:
-+                # Keep a nonempty allocation for the next sweep if claim publication failed.
-+                with contextlib.suppress(OSError):
-+                    root.rmdir()
-+            if owner_fd is not None:
-+                with contextlib.suppress(OSError):
-+                    os.close(owner_fd)
-+
-+            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, errno.EIO, *_CAPACITY_ERRORS):
-+                return _new_temporary_root(exc), parent
-             raise
+-            raise
 -        if owner_fd is None:
 -            shutil.rmtree(root, ignore_errors=True)
 -            raise OSError(f"{root / _OWNER_LOCK} is held by another process")
-+        atexit.register(_release_root, root, owner_fd, os.getpid())
++                try:
++                    owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
++                    if owner_fd is None:
++                        raise OSError(f"{root / _OWNER_LOCK} is held by another process")
++                    root = root.rename(root.with_name(f"{_OWNED_PREFIX}{root.name.removeprefix(_ALLOCATING_PREFIX)}"))
++                except BaseException as exc:
++                    claim = _claim_root(root)
++                    if claim is not None:
++                        claimed.append(claim)
++                    else:
++                        # Keep a nonempty allocation for the next sweep if claim publication failed.
++                        with contextlib.suppress(OSError):
++                            root.rmdir()
++                    if owner_fd is not None:
++                        with contextlib.suppress(OSError):
++                            os.close(owner_fd)
++                    if not isinstance(exc, OSError) or exc.errno not in (errno.EACCES, errno.EIO, *_CAPACITY_ERRORS):
++                        raise
++                    error = exc
++                else:
++                    _register_snapshot_root(root, owner_fd)
++                    return root, parent
      finally:
          os.close(setup_fd)
 -        for claim in claimed:
 -            shutil.rmtree(claim, ignore_errors=True)
 -    atexit.register(_release_root, root, owner_fd, os.getpid())
 -    return root
-+    return root, parent
++    return _new_temporary_root(error), parent
  
  
 +def _process_snapshot_root() -> Path:
-+    global _snapshot_root, _snapshot_creator_pid, _snapshot_store
++    global _snapshot_root, _snapshot_store
 +    root = _snapshot_root
 +    if root is not None:
 +        return root
 +    claimed: list[Path] = []
 +    try:
-+        with _snapshot_lock:
++        with _snapshot_init_lock:
 +            root = _snapshot_root
 +            if root is None:
 +                root, _snapshot_store = _new_root(claimed)
-+                _snapshot_creator_pid = os.getpid()
 +                _snapshot_root = root
 +            return root
 +    finally:
@@ -426,7 +486,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    except _DestinationFull as failure:
 +        if root.name.startswith(_TEMP_ROOT_PREFIX):
 +            raise failure.error from None
-+        with _snapshot_lock:
++        with _snapshot_init_lock:
 +            if _snapshot_fallback_root is None:
 +                _snapshot_fallback_root = _new_temporary_root(failure.error)
 +            root = _snapshot_fallback_root
@@ -511,18 +571,6 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            child = entry.name, info
 +        return False
 +
-+    def is_artifact_only_alias(path: Path) -> bool:
-+        if other_alias is None or other_alias in overlapping:
-+            return False
-+        if not path.is_dir() or file_id(path.stat()) != other_alias:
-+            return False
-+        # Keep genuinely empty asset directories. Omit the container only when
-+        # it would otherwise contribute nothing but filtered store artifacts.
-+        with contextlib.suppress(PermissionError):
-+            members = list(path.iterdir())
-+            return bool(members) and all(is_storage(member.resolve()) for member in members)
-+        return False
-+
 +    temporary = root if root.name.startswith(_TEMP_ROOT_PREFIX) else None
 +
 +    def ignore(directory: str, names: list[str]) -> set[str]:
@@ -530,7 +578,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        if temporary is None:
 +            # A concurrent retry can create a temporary root inside this source.
 +            # Synchronize after listing entries so its identity is published before use.
-+            with _snapshot_lock:
++            with _snapshot_init_lock:
 +                temporary = _snapshot_fallback_root
 +            if temporary is not None:
 +                whole.add(file_id(temporary.stat()))
@@ -539,7 +587,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        for name in names:
 +            if name not in excluded:
 +                path = (source / name).resolve()
-+                if is_storage(path) or (path.is_dir() and is_artifact_only_alias(path)):
++                if is_storage(path):
 +                    excluded.add(name)
 +        return excluded
 +
@@ -1275,7 +1323,7 @@ diff --git a/hermes_cli/plugin_host_child.py b/hermes_cli/plugin_host_child.py
 +    try:
 +        reloader = sys.modules.get("providers.plugin_reload")
 +        if reloader is not None:
-+            reloader._cleanup_snapshots()
++            reloader._cleanup_snapshots(closing=True)
 +    except OSError:
 +        logger.exception("Could not clean owned provider snapshots")
 +    finally:
