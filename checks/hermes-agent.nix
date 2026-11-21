@@ -236,6 +236,19 @@ assert lib.all (condition: condition) [
     startsBefore "writeBoundary" "hermesAgentMigratePluginLinks"
     && startsBefore "hermesAgentMigratePluginLinks" "linkGeneration"
   ))
+  (check "absolute plugin source strings enter the store before projection" (
+    let
+      localSource = toString ../checks;
+      withLocalPlugin = evaluate {
+        modules.development.hermesAgent.plugins.local-fixture = localSource;
+      };
+      dir = "${configuration.config.services.hermes-agent.hermesHome}/plugins";
+      imported = withLocalPlugin.config.home.file."${dir}/local-fixture".source.pluginSource;
+    in
+    lib.hasPrefix "${builtins.storeDir}/" (toString imported)
+    && builtins.hasContext (toString imported)
+    && builtins.readFile (imported + "/hermes-provider.py") == builtins.readFile ./hermes-provider.py
+  ))
 ];
 pkgs.runCommand "check-hermes-agent"
   {

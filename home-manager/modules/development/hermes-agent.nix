@@ -392,10 +392,23 @@ in
         lib.nameValuePair "${configDir}/plugins/${name}" {
           # Give Hermes real directories to copy, including directory symlink targets.
           # Keep file contents in the original source.
-          source = pkgs.runCommandLocal "hermes-plugin-${name}" { pluginSource = source; } ''
-            mkdir "$out"
-            cp -RLs -- "$pluginSource/." "$out"
-          '';
+          source =
+            pkgs.runCommandLocal "hermes-plugin-${name}"
+              {
+                # Import plain paths so the projection sees them in the build sandbox.
+                pluginSource =
+                  if builtins.hasContext (toString source) then
+                    source
+                  else
+                    builtins.path {
+                      path = source;
+                      name = "hermes-plugin-${name}-source";
+                    };
+              }
+              ''
+                mkdir "$out"
+                cp -RLs -- "$pluginSource/." "$out"
+              '';
           recursive = true;
         }
       ) cfg.plugins;
