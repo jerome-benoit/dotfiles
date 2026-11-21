@@ -1028,6 +1028,174 @@ assert set(downloads) == {paths["dense"], dst}, downloads
 assert all(setup.ready_verified(setup.ready_where(models, f, data), f[5]) for f in setup.ready_files("fixture"))
 ''')
 
+    def test_ready_disk_budget_uses_selected_reader_and_failing_volume(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+from pathlib import Path
+from unittest.mock import patch
+import setup
+
+base = Path.cwd() / "reader-budget"
+requested, data, retained = (base / name for name in ("requested", "data", "retained"))
+for folder in (requested, data, retained / "models"):
+    folder.mkdir(parents=True)
+name = "fixture-reader.gguf"
+family = {"mmproj": name}
+reader = retained / "models" / name
+with patch.dict(setup.MODELS, {"fixture": {}}), \
+     patch.object(setup, "ready_needed", return_value=[]), \
+     patch.object(setup, "free_gb", return_value=0.5):
+    reader.write_bytes(b"reader")
+    kind, path = setup._setup_reader(family, requested, [data, retained], None, start=False)
+    assert (kind, path) == ("fetch", reader)
+    assert setup.ready_disk_problem("fixture", requested, data, vision_file=path) is None
+    assert not reader.with_name(reader.name + ".done").exists()
+    reader.unlink()
+    kind, path = setup._setup_reader(family, requested, [data, retained], None, start=False)
+    assert (kind, path) == ("fetch", requested / name)
+    _, _, details = setup.ready_disk_problem("fixture", requested, data, vision_file=path)
+    assert details == {"path": str(requested), "free_bytes": 500_000_000, "needed_bytes": 1_000_000_000}, details
+    assert not path.exists(), path
+''')
+
+    def test_projected_launch_checkpoint_reuses_native_partial_receipts(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import json, os
+from pathlib import Path
+from unittest.mock import patch
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+
+root = Path.cwd()
+base = root.parent.parent / "projected-checkpoint"
+data, models, first, second = (base / name for name in ("data", "gguf", "first", "second"))
+data.mkdir(parents=True)
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(root.parent.parent),
+    "data_directory": str(data), "models_directory": str(models)})
+cat = Catalog(src=root, root=root, hardware={})
+setup = cat.strata.setup_module()
+model, repo = "NVFP4-QAD", "owner/projected-checkpoint"
+setup.MODELS[model]["repo"] = repo
+chunk = setup.DL_CHUNK
+total = max(10 * chunk, setup.DL_MIN_PARALLEL + chunk)
+relative = "tensors/checkpoint.safetensors"
+setup.NVFP4_REPOS[repo] = {"revision": "fixed-revision", "files": {relative: ("src", total, "a" * 64)}}
+dst = data / "models" / repo.replace("/", "--") / relative
+part = dst.with_name(dst.name + ".part")
+payload, retained = (root / part.relative_to(data) for root in (first, second))
+for p in (payload, retained):
+    p.parent.mkdir(parents=True)
+with payload.open("wb") as stream:
+    stream.truncate(total)
+side = payload.with_name(payload.name + ".chunks")
+side.write_text(json.dumps({"v": 1, "total": total, "chunk": chunk, "done": [[0, 2], [3, 5]]}))
+retained.write_bytes(b"different partial payload")
+source = retained.with_name(retained.name + ".src")
+source.write_text(json.dumps({"url": "https://other.invalid/old-source"}))
+orphan = retained.with_name("no-payload.part.chunks")
+orphan.write_text(side.read_text())
+runner = Runner(LaunchSettings(family="nvfp4", model=model, data_dir=str(data), vision="off", mtp="off",
+                               drafting="off"), catalog=cat, move_data=True)
+def roots(*args, include_moving=False, **kwargs):
+    return (first, second) if include_moving else ()
+with patch.object(setup, "retained_data_sources", side_effect=roots), \
+     patch.object(setup, "dl_connections", return_value=4), \
+     patch.object(setup, "mark", side_effect=AssertionError("forecast wrote a finish mark")):
+    dirs = cat.launch_directories("nvfp4", model, data_dir=data, move=True)
+    assert dirs.layout[3] == [dst] and not dirs.verified_files[dst], dirs
+    assert dirs.model_file(part) == payload and dirs.model_file(part.with_name(part.name + ".chunks")) == side
+    assert dirs.ready_bytes == {dst: total - 4 * chunk}, dirs.ready_bytes
+    assert runner.model_state(directories=dirs).remaining_gb == (total - 4 * chunk) / 1e9
+    assert runner.ready_pack_gap(directories=dirs) == {
+        "gb": round((total - 4 * chunk) / 1e9, 1), "folder": str(dst.parent), "folders": [str(dst.parent)]}
+    projected_source = part.with_name(part.name + ".src")
+    assert dirs.model_file(projected_source) == projected_source
+    assert not part.exists() and payload.is_file() and side.is_file() and source.is_file()
+    setup.move_into(first / "models", data / "models", model_downloads=True)
+    setup.move_into(second / "models", data / "models", model_downloads=True)
+    assert retained.is_file() and source.is_file() and orphan.is_file() and not projected_source.exists()
+    assert not part.with_name(orphan.name).exists() and not side.exists()
+    f = setup.ready_files(model)[0]
+    assert setup.ready_resume_bytes(dst, f) == 4 * chunk
+''')
+
+    def test_launch_weight_forecast_uses_native_finals_retained_merges_and_own_path_capacity(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import hashlib, json, os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from strata_cli.launch import modelstate
+from strata_cli.launch.catalog import Catalog
+
+root = Path.cwd()
+base = root.parent.parent / "forecast-weights"
+data, first, second = (base / name for name in ("data", "first", "second"))
+data.mkdir(parents=True)
+os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(root.parent.parent),
+    "data_directory": str(data)})
+cat = Catalog(src=root, root=root, hardware={})
+setup = cat.strata.setup_module()
+family, model = "qwen", "IQ3_XXS"
+fam = setup.FAMILIES[family]
+tag = fam.get("tag", "") + model
+names = [setup.model_file(fam, model, i) for i in range(1, setup.model_shards(fam, model) + 1)]
+payload = b"complete pinned shard"
+size = len(payload)
+pin = size, hashlib.sha256(payload).hexdigest()
+row = SimpleNamespace(family=family, model=model, download_gb=size * len(names) / 1e9, images=False)
+folder = data / "models" / tag
+folder.mkdir(parents=True)
+def assess(dirs):
+    return modelstate.assess(cat, family, model, directories=dirs, rows=[row], mtp="off", use_installed=False)
+with patch.object(setup, "file_pin", return_value=pin), \
+     patch.object(setup, "_hash_file", wraps=setup._hash_file) as hashed:
+    for i, name in enumerate(names):
+        (folder / name).write_bytes((b"!" * size) if i == 0 else payload)
+    dirs = cat.launch_directories(family, model, data_dir=data)
+    assert abs(assess(dirs).remaining_gb - size / 1e9) < 1e-15
+    assert hashed.call_count == len(names) and all(c.kwargs == {"progress": False} for c in hashed.call_args_list)
+    assert not list(folder.glob("*.done"))
+    (folder / names[0]).write_bytes(payload)
+    dirs = cat.launch_directories(family, model, data_dir=data)
+    assert assess(dirs).remaining_gb == 0 and hashed.call_count == 2 * len(names)
+    for path in folder.iterdir():
+        path.unlink()
+    folder.rmdir()
+blocker = first / "models" / tag
+blocker.parent.mkdir(parents=True)
+blocker.write_text("higher-priority file at the model folder")
+retained = second / "models" / tag
+retained.mkdir(parents=True)
+for name in names:
+    (retained / name).write_bytes(payload)
+    setup.mark(retained / name)
+def roots(*args, include_moving=False, **kwargs):
+    return (first, second) if include_moving else ()
+with patch.object(setup, "retained_data_sources", side_effect=roots):
+    dirs = cat.launch_directories(family, model, data_dir=data, move=True)
+    assert dirs.model_file(folder) == blocker
+    assert dirs.model_file(folder / names[0]) == folder / names[0]
+    assert dirs.layout[0] == retained and assess(dirs).remaining_gb == 0
+    assert not folder.exists() and blocker.is_file()
+setup.move_into(first / "models", data / "models")
+setup.move_into(second / "models", data / "models")
+assert folder.is_file() and all((retained / name).is_file() for name in names)
+
+own_family = "qwen36"
+own = setup.OWN_PATH_FAMILIES[own_family]
+model = next(iter(own["models"]))
+dirs = cat.launch_directories(own_family, model, data_dir=data)
+selected = setup.own_path_download_layout(own_family, model, data / "models")
+assert selected["folder"] != dirs.models_dir
+with patch.object(cat, "disk_free", return_value=50.0) as free:
+    assert cat.download_space(dirs, [{"kind": "weights", "gb": 20}]) == [(selected["folder"], 50.0)]
+    free.assert_called_once_with(selected["folder"])
+''')
+
     def test_unmarked_final_budget_verifies_once_without_download_or_payload_write(self):
         root = self.prepare(self.old)
         self.run_source_script(root, r"""
@@ -2537,6 +2705,199 @@ for nfs_at in (remote, leaf):
                     help_result(timeout=5)
                 self.assertEqual((marker.read_bytes(), marker.stat().st_ino), updated)
                 self.assertFalse(backup.with_name(backup.name + ".1").exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux NFS flock protocol")
+    def test_native_nested_alias_locks_actual_mount_before_local_locks(self):
+        self.run_source_script(self.base, "workspace_path = " + repr(WORKSPACE) + r'''
+import fcntl
+import importlib.util
+import json
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("workspace", workspace_path)
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+state = workspace.managed_state
+base = Path.cwd()
+root = base / "install"
+remote = root / "nested" / "configs"
+remote.mkdir(parents=True)
+target = remote / "model.json"
+alias = root / "strata-aliased.json"
+alias.symlink_to(target)
+marker = root / state.RAM_BUDGET_MARK
+marker.touch()  # An old marker did not cover this nested target.
+original = b'{"args":["--resident-budget-gib","40"]}'
+target.write_bytes(original)
+gate = base / "shared-lock"
+gate.touch()
+remote_now = False
+flock = fcntl.flock
+calls = []
+
+
+def mount(fd, mounts):
+    path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+    return [] if path == gate or (remote_now and path.is_relative_to(remote)) else None
+
+
+def observe(fd, mode):
+    calls.append(Path(os.readlink(f"/proc/self/fd/{fd}")))
+    if calls[-1] == gate:
+        assert mode == fcntl.LOCK_EX
+    return flock(fd, mode)
+
+
+def migrate(config):
+    global remote_now
+    remote_now = True  # First invocation discovers the new mount only after acquisition.
+    return dict(config, ui_budget_work_gib=40)
+
+
+migration = SimpleNamespace(MARK=marker.name, BUDGET="--resident-budget-gib", WORK_KEY="ui_budget_work_gib",
+                            _folders=lambda: [root],
+                            _load_setup=lambda: SimpleNamespace(migrate_ram_budget=migrate))
+with patch.object(workspace, "native_settings_migration", return_value=migration), \
+     patch.object(state, "_nfs_mounts", return_value={1: ([], gate)}), \
+     patch.object(state, "_nfs_mount", side_effect=mount), \
+     patch.object(fcntl, "flock", side_effect=observe), \
+     patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=str(gate)):
+    workspace.migrate_native_settings(root)
+    assert target.read_bytes() == original and marker.read_bytes() == b""
+    assert not list(remote.glob("*.bak*")) and gate not in calls
+    calls.clear()
+    workspace.migrate_native_settings(root)
+    assert calls[0] == gate and calls.count(gate) == 1 and root in calls, calls
+    assert remote not in calls, calls
+    assert json.loads(target.read_bytes())["ui_budget_work_gib"] == 40
+    assert (remote / (target.name + state.RAM_BUDGET_BACKUP)).read_bytes() == original
+    assert str(target).encode() in marker.read_bytes()
+    assert not workspace.native_settings_migration_pending(root)
+''')
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux NFS flock protocol")
+    def test_layout_nested_config_mount_and_gate_transfer(self):
+        self.run_source_script(self.repo, "workspace_path = " + repr(WORKSPACE) + r'''
+import fcntl
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("workspace", workspace_path)
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+state = workspace.managed_state
+terminal = Path.cwd()
+root = terminal.parent
+remote = root / "nested" / "configs"
+remote.mkdir(parents=True)
+target = remote / "model.json"
+original = json.dumps({"exe": "echo", "args": [], "cwd": str(root)}).encode()
+target.write_bytes(original)
+alias = root / "strata-aliased.json"
+alias.symlink_to(target)
+gate = root.parent / "shared-lock"
+gate.touch()
+flock = fcntl.flock
+calls = []
+
+
+def mount(fd, mounts):
+    path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+    return [] if path == gate or path.is_relative_to(remote) else None
+
+
+def observe(fd, mode):
+    path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+    calls.append(path)
+    if path == gate:
+        assert fd >= 3 and mode == fcntl.LOCK_EX
+    return flock(fd, mode)
+
+
+run = subprocess.run
+
+
+def check_transfer(command, **kwargs):
+    assert command[2] == "--migrate-layout", command
+    gate_fd = int(kwargs["env"]["STRATA_LAYOUT_NFS_GATE_FD"])
+    assert gate_fd >= 3 and gate_fd in kwargs["pass_fds"]
+    code = """
+import fcntl, os
+fd = int(os.environ['STRATA_LAYOUT_NFS_GATE_FD'])
+path = os.environ['STRATA_NFS_CONFIG_LOCK']
+assert fd >= 3 and os.path.samestat(os.fstat(fd), os.stat(path))
+with open(path, 'r+b') as peer:
+    try:
+        fcntl.flock(peer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        pass
+    else:
+        raise AssertionError('NFS gate not held across exec')
+print('[]')
+"""
+    return run([sys.executable, "-c", code], **kwargs)
+
+
+with patch.object(state, "_nfs_mounts", return_value={1: ([], gate), 2: ([], remote)}), \
+     patch.object(state, "_nfs_mount", side_effect=mount), \
+     patch.object(fcntl, "flock", side_effect=observe), \
+     patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=""):
+    try:
+        state.migrate_layout(root)
+    except RuntimeError as error:
+        assert "STRATA_NFS_CONFIG_LOCK" in str(error), error
+    else:
+        raise AssertionError("layout acquired only local root")
+    assert alias.is_symlink() and target.read_bytes() == original and not calls
+    with patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=str(gate)), \
+         open(os.devnull, 'rb') as workspace_lock, open(os.devnull, 'rb') as publication_lock:
+        saved_stdin = os.dup(0)
+        try:
+            os.close(0)
+            with state.layout_locks(root) as fds:
+                with patch.object(workspace.subprocess, "run", side_effect=check_transfer):
+                    assert workspace.migrate_layout(root.parent, terminal, workspace_lock.fileno(),
+                           publication_fd=publication_lock.fileno(), config_fds=fds) == []
+                # Exercise the real layout writer using the inherited-lease contract.
+                state._migrate_layout(root, reverse=False, reference_moves=(), gate_fd=state.config_gate_fd(fds))
+        finally:
+            os.dup2(saved_stdin, 0)
+            os.close(saved_stdin)
+    assert calls[0] == gate and calls.count(gate) == 1 and root in calls, calls
+    assert not alias.exists() and (terminal / alias.name).resolve() == target
+    assert json.loads(target.read_bytes())["cwd"] == str(terminal)
+
+# Standalone normalization must lease the same canonical target.
+target.write_text(json.dumps({"exe": str(root / "engine/sycl/serve/strata-sycl.sh"),
+                             "args": [], "cwd": str(terminal)}))
+sycl_before = target.read_bytes()
+try:
+    with patch.object(state, "_nfs_mounts", return_value={1: ([], gate), 2: ([], remote)}), \
+         patch.object(state, "_nfs_mount", side_effect=mount), \
+         patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=""):
+        state.normalize_sycl_configs(root)
+except RuntimeError as error:
+    assert "STRATA_NFS_CONFIG_LOCK" in str(error), error
+else:
+    raise AssertionError("normalization acquired only local root")
+assert target.read_bytes() == sycl_before
+calls.clear()
+with patch.object(state, "_nfs_mounts", return_value={1: ([], gate), 2: ([], remote)}), \
+     patch.object(state, "_nfs_mount", side_effect=mount), \
+     patch.object(fcntl, "flock", side_effect=observe), \
+     patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=str(gate)):
+    state.normalize_sycl_configs(root)
+assert calls[0] == gate and calls.count(gate) == 1 and root in calls, calls
+assert json.loads(target.read_bytes())["exe"] == str(state.DIRECTORY / "strata-sycl.sh")
+''')
 
     def test_managed_migration_finder_masks_canonical_package_alias(self):
         self.run_source_script(self.base, r'''
@@ -11178,6 +11539,14 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
             assert plan()["download"]["gb"] == 0
         else:
             assert plan()["download"]["gb"] > 0, scenario
+            if scenario == "unfinished-destination":
+                with contextlib.redirect_stdout(io.StringIO()):
+                    _, retained = mod.data_folder(str(new), move=True, yes=True, set_default=True)
+                assert old in retained and shards[-1].is_file() and mod.done(shards[-1])
+                assert destination.read_bytes() == b"unfinished conflict" and not mod.done(destination)
+                assert not shards[0].exists()
+                _, _, _, selected = mod.model_download_layout(family, model, new / "models", elsewhere=retained)
+                assert destination in selected and not all(mod.download_complete(path) for path in selected)
     config.unlink()
 ''')
 

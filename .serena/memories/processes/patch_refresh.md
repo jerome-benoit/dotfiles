@@ -105,8 +105,10 @@ handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 With the requested source prepared, runtime stop bypasses RAM-budget migration
 and the workspace mutation lease. Keep migration and layout changes under the
 same locks through publication or rollback. Deduplicate local locks by inode
-and acquire them in a stable order. Detect nested NFS mounts before pruning
-lock roots: a local ancestor lock cannot replace the shared NFS lock.
+and acquire them in a stable order. Check the mounts containing migration
+targets. Layout publication also checks nested NFS mounts under its managed
+roots because a pin change can reveal new config targets. Hand the NFS gate to
+the layout subprocess on a descriptor outside stdin, stdout and stderr.
 Invalidate RAM migration receipts when either side of a source transition uses
 native dispatch, even if the layout stays the same. A retired receipt must not
 interrupt the rollback of payload moves. Keep migration backups separate from
@@ -122,10 +124,11 @@ and keep missing readers and preparation outputs at their requested destinations
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Use the acquisition feed, retry policy and explicit
 URL override in DFlash2 forecasts. Select the same pack as setup, including
-retained Metal packs, and verify it without writing receipts. Credit model
-files setup will move, but leave `dflash2/` at its original root. Report the
-selected NVFP4 paths in `models explain`. Share SHA proofs within one forecast
-or confirmation, and do not infer split-volume capacity from one volume.
+retained Metal packs, and verify it without writing receipts. Project native
+move order for model files and resume receipts; `dflash2/` stays at its original
+root. Report the selected NVFP4 paths in `models explain`. Share SHA proofs within
+one forecast or confirmation. Check split capacity against selected destinations,
+exclude reused readers, and report the path and byte counts of the failing volume.
 Progress keeps completed parts through steps 6/7 and reaches 100 only when
 all are complete.
 Managed ordinary shards need native finish evidence when the helper is available,
@@ -199,10 +202,10 @@ Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Publish the canonical snapshot root before sweeping old
 copies. Rename an exiting persistent root to a reclaimable claim before deleting
 its owner marker, and reclaim only roots owned by the current UID. Distinguish
-lock contention from storage failure, including quota exhaustion. An unusable
-configured store must not prevent a provider from loading from a temporary
-root. Exclude snapshot artifacts without dropping provider files when a store
-overlaps its source.
+lock contention from storage failure, including quota exhaustion. Retry
+destination capacity failures in private temporary storage without moving
+published generations. Exclude snapshot artifacts without dropping provider
+files when a store overlaps its source.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted

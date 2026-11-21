@@ -1,6 +1,6 @@
 # base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
 # prerequisites: none
-# intent: preserve frozen provider generations, coherent publication, context-local home discovery and owned-copy cleanup. Keep the pinned owner-lock protocol (#156493); use a private temporary root if persistent allocation fails, including access, space or quota errors creating the owner lock.
+# intent: preserve frozen provider generations, coherent publication, context-local home discovery and owned-copy cleanup. Keep the pinned owner-lock protocol (#156493); retry destination space or quota failures in a private temporary root.
 # upstream: https://github.com/NousResearch/hermes-agent/pull/156224 and https://github.com/NousResearch/hermes-agent/pull/157087 partially cover concurrent scans and completed-registration replay. Neither is in the pin; both still wait on discovery.
 # issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 read-only POSIX cleanup.
 # removal: remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
@@ -43,12 +43,14 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  # The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
  # the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
  # under any other name are never touched.
-@@ -53,6 +62,55 @@
+@@ -53,6 +62,59 @@
  # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
 +_TEMP_ROOT_PREFIX = "hermes-provider-plugins-"
 +_snapshot_creator_pid: int | None = None
++_snapshot_fallback_root: Path | None = None
++_CAPACITY_ERRORS = (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC))
 +_versions_lock = threading.Lock()
 +_completed_versions: dict[str, _LoadResult] = {}
 +_loading_versions: dict[str, Future[_LoadResult]] = {}
@@ -94,12 +96,14 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +
 +
 +def _cleanup_snapshots() -> None:
++    if _snapshot_fallback_root is not None:
++        _release_root(_snapshot_fallback_root, None, _snapshot_creator_pid)
 +    if _snapshot_root is not None:
 +        _release_root(_snapshot_root, None, _snapshot_creator_pid)
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +131,381 @@
+@@ -73,176 +135,468 @@
          os.close(fd)
  
  
@@ -235,9 +239,11 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            claim = _claim_root(root)
 +            if claim is not None:
 +                claimed.append(claim)
-+            if isinstance(exc, OSError) and exc.errno in (
-+                errno.EACCES, errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC),
-+            ):
++            else:
++                # No sweep can identify an ownerless root. Remove it only if still empty.
++                with contextlib.suppress(OSError):
++                    root.rmdir()
++            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, *_CAPACITY_ERRORS):
 +                return _new_temporary_root(exc)
              raise
 -        if owner_fd is None:
@@ -272,6 +278,56 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            _reap_claim(claim)
 +
 +
++class _DestinationFull(Exception):
++    def __init__(self, error: OSError):
++        self.error = error
++
++
++def _destination_call(operation, *args, **kwargs):
++    try:
++        return operation(*args, **kwargs)
++    except OSError as error:
++        if error.errno in _CAPACITY_ERRORS:
++            raise _DestinationFull(error) from error
++        raise
++
++
++def _copy_snapshot_tree(source: Path, target: Path, ignore) -> None:
++    # copytree flattens child errors to strings, and copyfile can conflate source
++    # reads and destination writes. Keep those operations separate.
++    buffer = memoryview(bytearray(shutil.COPY_BUFSIZE))
++
++    def copy_entry(src: Path, dst: Path, info: os.stat_result) -> None:
++        if stat.S_ISDIR(info.st_mode):
++            with os.scandir(src) as entries:
++                children = list(entries)
++            excluded = ignore(os.fspath(src), [entry.name for entry in children])
++            _destination_call(dst.mkdir)
++            for entry in children:
++                if entry.name not in excluded:
++                    copy_entry(Path(entry.path), dst / entry.name, entry.stat())
++        elif stat.S_ISREG(info.st_mode):
++            with src.open("rb", buffering=0) as reader:
++                writer = _destination_call(dst.open, "wb")
++                try:
++                    while count := reader.readinto(buffer):
++                        _destination_call(writer.write, buffer[:count])
++                    _destination_call(writer.close)
++                except BaseException:
++                    with contextlib.suppress(OSError):
++                        writer.close()
++                    raise
++        else:
++            raise OSError(f"Provider snapshot source contains a non-regular file: {src}")
++        try:
++            shutil.copystat(src, dst)
++        except OSError as error:
++            if error.errno in _CAPACITY_ERRORS and error.filename == os.fspath(dst):
++                raise _DestinationFull(error) from error
++            raise
++
++    copy_entry(source, target, source.stat())
++
 -def _snapshot(plugin_dir: Path, module_name: str) -> Path:
 -    """A frozen copy of *plugin_dir* for *module_name* (per home, plugin and tree), named like the original
 -    (load errors key on it). Copied into a private directory and published by one rename, so a concurrent scan
@@ -296,8 +352,28 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -    finally:
 -        shutil.rmtree(private, ignore_errors=True)
 -    return target
++    global _snapshot_fallback_root
 +    source_root = plugin_dir.resolve()
-+    root = _process_snapshot_root()
++    primary = _process_snapshot_root()
++    root = _snapshot_fallback_root or primary
++    try:
++        return _stage_snapshot(source_root, plugin_dir.name, module_prefix, primary, root)
++    except _DestinationFull as failure:
++        if root.name.startswith(_TEMP_ROOT_PREFIX):
++            raise failure.error from None
++        with _snapshot_lock:
++            if _snapshot_fallback_root is None:
++                _snapshot_fallback_root = _new_temporary_root(failure.error)
++            root = _snapshot_fallback_root
++    try:
++        return _stage_snapshot(source_root, plugin_dir.name, module_prefix, primary, root)
++    except _DestinationFull as failure:
++        raise failure.error from None
++
++
++def _stage_snapshot(
++    source_root: Path, plugin_name: str, module_prefix: str, primary: Path, root: Path,
++) -> tuple[Path, str]:
 +    # Path.resolve removes symlinks but need not normalize case on POSIX.
 +    # Compare actual directory identities, including every ancestor of an alias target.
 +    def file_id(info: os.stat_result) -> tuple[int, int]:
@@ -320,11 +396,13 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        # Fallback can leave the configured name pointing at an ordinary plugin asset.
 +        if stat.S_ISDIR(info.st_mode):
 +            stores[file_id(info)] = configured
-+    if not root.name.startswith(_TEMP_ROOT_PREFIX):
-+        stores[file_id(root.parent.stat())] = root.parent
++    if not primary.name.startswith(_TEMP_ROOT_PREFIX):
++        stores[file_id(primary.parent.stat())] = primary.parent
 +
 +    overlapping = {file_id(info) for _, info in ancestry(source_root)} & stores.keys()
-+    whole = (stores.keys() - overlapping) | {file_id(root.stat())}
++    whole = (stores.keys() - overlapping) | {file_id(primary.stat())}
++    if root != primary:
++        whole.add(file_id(root.stat()))
 +    root_prefixes = (_OWNED_PREFIX, _UNSWEPT_PREFIX, _REAPING_PREFIX)
 +    reserved = {}
 +    for key in overlapping:
@@ -356,7 +434,17 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            child = entry.name, info
 +        return False
 +
++    temporary = root if root.name.startswith(_TEMP_ROOT_PREFIX) else None
++
 +    def ignore(directory: str, names: list[str]) -> set[str]:
++        nonlocal temporary
++        if temporary is None:
++            # A concurrent retry can create a temporary root inside this source.
++            # Synchronize after listing entries so its identity is published before use.
++            with _snapshot_lock:
++                temporary = _snapshot_fallback_root
++            if temporary is not None:
++                whole.add(file_id(temporary.stat()))
 +        source = Path(directory)
 +        excluded = set(_EXCLUDED.intersection(names))
 +        for name in names:
@@ -366,21 +454,24 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                    excluded.add(name)
 +        return excluded
 +
-+    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=root))
++    private = Path(_destination_call(tempfile.mkdtemp, prefix=".copy-", dir=root))
 +    try:
-+        copied = private / plugin_dir.name
-+        shutil.copytree(source_root, copied, ignore=ignore)
++        copied = private / plugin_name
++        _copy_snapshot_tree(source_root, copied, ignore)
 +        fingerprint = tree_fingerprint(copied)
-+        target = root / f"{module_prefix}_{fingerprint}" / plugin_dir.name
++        target = root / f"{module_prefix}_{fingerprint}" / plugin_name
 +        if not target.is_dir():
 +            try:
-+                os.rename(private, target.parent)
-+            except OSError:
++                _destination_call(os.rename, private, target.parent)
++            except (OSError, _DestinationFull):
 +                if not target.is_dir():
 +                    raise
 +        return target, fingerprint
 +    finally:
-+        _remove_owned_tree(private)
++        try:
++            _remove_owned_tree(private)
++        except OSError as error:
++            logger.warning("Could not remove provider snapshot staging directory %s: %s", private, error)
  
  
  def tree_fingerprint(plugin_dir: Path) -> str:

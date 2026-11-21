@@ -73,6 +73,8 @@ in
         must not end in a symbolic link. All clients sharing the managed
         directories must use the same file. Keep it outside the movable layout;
         do not replace or unlink it.
+        This also applies to config targets and layout paths on NFS mounts
+        nested inside a local installation.
 
         Other workspace contents remain user-owned. Changing this path does not
         migrate the workspace.

@@ -244,6 +244,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
     with (source_publication_lock(state) as publication_lock,
           managed_state.layout_locks(root) as config_fds):
+        gate_fd = managed_state.config_gate_fd(config_fds)
         current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         # Workaround: upstream pulls its configured branch, not a pinned revision.
         # Keep visited revisions reachable for GC-safe offline rollback.
@@ -279,7 +280,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                        if os.path.lexists(receipt) else None)
             moved = []
             with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
-                                                 runtime_moves=pairs) as restore_metadata:
+                                                 runtime_moves=pairs, gate_fd=gate_fd) as restore_metadata:
                 try:
                     moved = migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
                                            config_fds=config_fds)
@@ -321,12 +322,14 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         with (managed_state.engine_link_checkpoint(root, reverse=reverse_layout,
                   enabled=forward_layout or reverse_layout, tracked_engine=tracked_engine) as engine_link,
               managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
-                  runtime_moves=pairs, reference_moves=engine_link.planned_reference_moves()) as restore_metadata,
+                  runtime_moves=pairs, reference_moves=engine_link.planned_reference_moves(),
+                  gate_fd=gate_fd) as restore_metadata,
               managed_state.cmake_metadata_checkpoint() as cmake_metadata,
               ExitStack() as marker_snapshots):
             moved = []
             removed_patch = desired_applied = False
             try:
+                managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
                 engine_link.stage()
                 if reverse_layout:
                     moved.extend(migrate_layout(state, root / "terminal", lock_fd,
@@ -348,6 +351,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 moved.extend(migrate_layout(state, terminal_root(root), lock_fd,
                                             publication_fd=publication_lock.fileno(), config_fds=config_fds,
                                             reference_moves=engine_link.reference_moves()))
+                managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
                 if not applied or desired is None:
                     # Native writers do not maintain the managed inspection receipt.
                     # Journal same-mount retirement after relocation, so rollback
@@ -879,14 +883,19 @@ def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=
     python = Path(sys.executable)
     if not os.access(python, os.X_OK):
         python = runtime_python(root)
+    env = dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
+               STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)}))
+    env.pop("STRATA_LAYOUT_NFS_GATE_FD", None)
+    gate_fd = managed_state.config_gate_fd(config_fds)
+    if gate_fd is not None:
+        env["STRATA_LAYOUT_NFS_GATE_FD"] = str(gate_fd)
     result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(repository_root(root)),
                              json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
                              *(["--reverse"] if reverse else []),
                              *(["--stationary"] if stationary else [])],
                             check=True, stdout=subprocess.PIPE, text=True,
                             pass_fds=(lock_fd, publication_fd, *config_fds, *managed_state.namespace_fds()),
-                            env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
-                                     STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)})))
+                            env=env)
     return [(Path(source), Path(destination)) for source, destination in json.loads(result.stdout)]
 
 
@@ -991,7 +1000,8 @@ def read_migration_config(candidate, path):
     return info, original
 
 
-def publish_migrated_config(candidate, path, info, original, payload):
+def publish_migrated_config(candidate, path, info, original, payload, *, gate_fd=None):
+    managed_state.require_config_mounts(gate_fd, (path, path.parent))
     with tempfile.TemporaryDirectory(dir=path.parent, prefix=".strata-migration-") as staging:
         updated = Path(staging) / "config"
         with updated.open("x+b") as stream:
@@ -1022,6 +1032,7 @@ def publish_migrated_config(candidate, path, info, original, payload):
             # Publish without replacing another backup, even if it is a dangling link.
             suffix = managed_state.RAM_BUDGET_BACKUP
             number = 0
+            managed_state.require_config_mounts(gate_fd, (path, path.parent))
             while True:
                 destination = path.with_name(path.name + suffix)
                 try:
@@ -1036,6 +1047,7 @@ def publish_migrated_config(candidate, path, info, original, payload):
                 current, contents = read_migration_config(candidate, path)
                 if migration_config_identity(info) != migration_config_identity(current) or contents != original:
                     raise OSError(f"Config changed during migration: {path}")
+                managed_state.require_config_mounts(gate_fd, (path, path.parent))
                 os.replace(updated, path)
             except BaseException:
                 destination.unlink(missing_ok=True)
@@ -1054,13 +1066,13 @@ def _migration_work(folder, marker, folders):
     if not migration_complete(marker):
         return candidates, None, {}
 
-    # Native and older receipts prove folder inspection, not cross-install
-    # alias coverage. Recheck only eligible aliases without a matching target.
+    # Native and older receipts prove folder inspection, not coverage of
+    # aliases into another directory (which may be on a different mount).
     external = {}
     for candidate in candidates:
         if candidate.is_symlink():
             path = _eligible_migration_path(candidate.resolve(strict=False), folders)
-            if path is not None and not path.is_relative_to(folder):
+            if path is not None and path.parent != folder:
                 external[candidate] = str(path)
     if not external:
         return [], None, {}
@@ -1077,19 +1089,41 @@ def _migration_work(folder, marker, folders):
     return [path for path, target in external.items() if known.get(path.name) != target], (info, original), known
 
 
-def _publish_migration_marker(marker, previous, targets):
+def _publish_migration_marker(marker, previous, targets, *, gate_fd=None):
+    managed_state.require_config_mounts(gate_fd, (marker, marker.parent))
     payload = RAM_BUDGET_RECEIPT_HEADER + json.dumps(targets, sort_keys=True).encode() if targets else b""
     with tempfile.TemporaryDirectory(dir=marker.parent, prefix=".strata-migration-") as staging:
         updated = Path(staging) / "receipt"
         updated.write_bytes(payload)
         if previous is None:
+            managed_state.require_config_mounts(gate_fd, (marker, marker.parent))
             os.link(updated, marker)  # Refuse a marker inserted outside the locking protocol.
         else:
             info, original = previous
             current, contents = read_migration_config(marker, marker)
             if migration_config_identity(info) != migration_config_identity(current) or contents != original:
                 raise OSError(f"Migration marker changed during inspection: {marker}")
+            managed_state.require_config_mounts(gate_fd, (marker, marker.parent))
             os.replace(updated, marker)
+
+
+def _migration_mount_targets(folders, mark):
+    for folder in folders:
+        marker = folder / mark
+        try:
+            candidates, _, _ = _migration_work(folder, marker, folders)
+        except (OSError, RuntimeError):
+            continue  # This folder cannot publish until inspection succeeds under the locks.
+        if candidates:
+            yield marker
+        for candidate in candidates:
+            try:
+                path = _eligible_migration_path(candidate.resolve(strict=False), folders)
+            except (OSError, RuntimeError):
+                continue  # The locked inspection reports the invalid alias.
+            if path is not None:
+                yield path
+                yield path.parent
 
 
 def migrate_native_settings(root):
@@ -1098,11 +1132,13 @@ def migrate_native_settings(root):
     if migration is None:
         return
     folders = migration_folders(migration)
-    with managed_state.config_locks(*folders) as (_, locked_roots):
-        _migrate_native_settings(migration, folders, locked_roots)
+    with managed_state.config_locks(
+        *folders, mount_targets=lambda: _migration_mount_targets(folders, migration.MARK)
+    ) as (descriptors, locked_roots):
+        _migrate_native_settings(migration, folders, locked_roots, gate_fd=managed_state.config_gate_fd(descriptors))
 
 
-def _migrate_native_settings(migration, folders, locked_roots):
+def _migrate_native_settings(migration, folders, locked_roots, *, gate_fd=None):
     def covered(path):
         return any(path.is_relative_to(folder) for folder in locked_roots)
 
@@ -1125,7 +1161,7 @@ def _migrate_native_settings(migration, folders, locked_roots):
                     path = migration_target(candidate, folders)
                     if path is None:
                         continue
-                    external = not path.is_relative_to(folder)
+                    external = path.parent != folder
                     if previous_marker is not None and (not external or known_targets.get(candidate.name) == str(path)):
                         continue
                     if not covered(path):
@@ -1144,7 +1180,8 @@ def _migrate_native_settings(migration, folders, locked_roots):
                             if new is not None:
                                 if info.st_nlink != 1:
                                     raise OSError(f"Config has multiple hard links: {path}")
-                                publish_migrated_config(candidate, path, info, original, json.dumps(new, indent=1).encode())
+                                publish_migrated_config(candidate, path, info, original,
+                                                        json.dumps(new, indent=1).encode(), gate_fd=gate_fd)
                                 print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
                         seen.add(path)
                     inspected = True
@@ -1154,7 +1191,7 @@ def _migrate_native_settings(migration, folders, locked_roots):
                     complete = False
                     print(f"strata: RAM budget migration incomplete for {candidate}: {error}", file=sys.stderr)
             if complete and inspected:
-                _publish_migration_marker(marker, previous_marker, known_targets | inspected_targets)
+                _publish_migration_marker(marker, previous_marker, known_targets | inspected_targets, gate_fd=gate_fd)
         except (OSError, RuntimeError) as error:
             print(f"strata: RAM budget migration incomplete in {folder}: {error}", file=sys.stderr)
 
@@ -1532,9 +1569,11 @@ if __name__ == "__main__":
             # Keep consumer diagnostics separate from the successful rename journal.
             with redirect_stdout(sys.stderr):
                 references = [(Path(source), Path(destination)) for source, destination in json.loads(sys.argv[3])]
+                gate = os.environ.pop("STRATA_LAYOUT_NFS_GATE_FD", None)
+                gate_fd = int(gate) if gate is not None else None
                 moved = managed_state._migrate_layout(Path(sys.argv[2]).resolve(),
                                                       reverse="--reverse" in sys.argv[4:], reference_moves=references,
-                                                      stationary="--stationary" in sys.argv[4:])
+                                                      stationary="--stationary" in sys.argv[4:], gate_fd=gate_fd)
             print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))

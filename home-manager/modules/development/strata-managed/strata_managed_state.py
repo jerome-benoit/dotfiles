@@ -516,12 +516,17 @@ def canonical_config_paths(repository, paths=()):
 
 def normalize_sycl_configs(repository, *, stationary=False):
     repository = Path(repository).resolve()
+    with layout_locks(repository) as descriptors:
+        _normalize_layout(repository, stationary=stationary, gate_fd=config_gate_fd(descriptors))
+
+
+def _normalize_layout(repository, *, stationary, gate_fd):
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     enable_source(runtime)
     sys.path.insert(0, str(runtime))
     from strata_control import profiles
     with profiles._source_references_lock():
-        _normalize_sycl_configs(repository, runtime, stationary=stationary)
+        _normalize_sycl_configs(repository, runtime, stationary=stationary, gate_fd=gate_fd)
 
 
 def _read_layout_config(path, *, stationary):
@@ -534,7 +539,7 @@ def _read_layout_config(path, *, stationary):
         return None
 
 
-def _normalize_sycl_configs(repository, runtime, *, stationary):
+def _normalize_sycl_configs(repository, runtime, *, stationary, gate_fd):
     changes = []
     for path in canonical_config_paths(repository, runtime.glob("strata-*.json")):
         before = _read_layout_config(path, stationary=stationary)
@@ -549,6 +554,9 @@ def _normalize_sycl_configs(repository, runtime, *, stationary):
     edited = []
     try:
         for path, before, after in changes:
+            if path.resolve() != path:
+                raise RuntimeError(f"Strata config changed before normalization: {path}")
+            require_config_mounts(gate_fd, (path, path.parent))
             edited.append((path, before, path.stat()))
             path.write_bytes(after)
     except BaseException:
@@ -596,7 +604,7 @@ def namespace_fds():
 
 
 @contextmanager
-def config_locks(*folders):
+def config_locks(*folders, mount_targets=None, mount_subtrees=()):
     """Lock canonical subtrees, using a shared regular-file gate on Linux NFS."""
     roots = set()
     modes = {}
@@ -612,13 +620,25 @@ def config_locks(*folders):
         for parent in folder.parents:
             modes.setdefault(parent, fcntl.LOCK_SH)
 
+    def needs_gate(mounts):
+        return bool(mounts) and (
+            _nested_nfs(mounts, mount_subtrees)
+            or (mount_targets is not None and _paths_on_nfs(mount_targets(), mounts)))
+
     while True:
-        with _config_lock_snapshot(modes) as (descriptors, locked_roots, identities):
-            # A publisher may move directories while we wait for its lock.
-            # Reorder and reacquire the whole set if the snapshot changed.
-            if all(_config_directory_identity(folder) == identity for folder, identity in identities.items()):
-                yield descriptors, locked_roots
-                return
+        with _config_lock_snapshot(modes, needs_gate) as (descriptors, locked_roots, identities):
+            # A publisher may move directories or retarget a config while we wait.
+            # Release local locks before taking a newly required gate.
+            if not all(_config_directory_identity(folder) == identity for folder, identity in identities.items()):
+                continue
+            gate_fd = config_gate_fd(descriptors)
+            mounts = _nfs_mounts()
+            if gate_fd is not None:
+                _validate_nfs_gate(gate_fd, mounts)
+            elif needs_gate(mounts):
+                continue
+            yield descriptors, locked_roots
+            return
 
 
 def _config_directory_identity(folder):
@@ -633,12 +653,14 @@ def _nfs_mounts():
     if sys.platform != "linux":
         return {}
     mounts = {}
-    with open("/proc/self/mountinfo", encoding="ascii", errors="surrogateescape") as stream:
+    with open("/proc/self/mountinfo", "rb") as stream:
         for line in stream:
-            fields, filesystem = line.split(" - ", 1)
+            fields, filesystem = line.split(b" - ", 1)
             kind, _, options = filesystem.split()
-            if kind in ("nfs", "nfs4"):
-                mounts[int(fields.split(" ", 1)[0])] = options.split(",")
+            if kind in (b"nfs", b"nfs4"):
+                mount_id, _, _, _, mountpoint, *_ = fields.split()
+                mountpoint = re.sub(rb"\\([0-7]{3})", lambda match: bytes([int(match[1], 8)]), mountpoint)
+                mounts[int(mount_id)] = (options.decode("ascii").split(","), Path(os.fsdecode(mountpoint)))
     return mounts
 
 
@@ -647,9 +669,54 @@ def _nfs_mount(fd, mounts):
         with open(f"/proc/self/fdinfo/{fd}", encoding="ascii") as stream:
             for line in stream:
                 if line.startswith("mnt_id:"):
-                    return mounts.get(int(line.split()[1]))
+                    mount = mounts.get(int(line.split()[1]))
+                    return mount[0] if mount is not None else None
         raise RuntimeError(f"Cannot identify Strata config lock mount for descriptor {fd}")
     return None
+
+
+def _nested_nfs(mounts, roots):
+    return bool(roots) and any(
+        mountpoint.is_relative_to(root) for _, mountpoint in mounts.values() for root in roots)
+
+
+def _paths_on_nfs(paths, mounts):
+    for path in set(paths):
+        while True:
+            try:
+                fd = os.open(path, os.O_PATH | os.O_NOFOLLOW)
+            except (FileNotFoundError, NotADirectoryError):
+                path = path.parent
+            else:
+                try:
+                    if _nfs_mount(fd, mounts) is not None:
+                        return True
+                finally:
+                    os.close(fd)
+                break
+    return False
+
+
+def config_gate_fd(descriptors):
+    # The gate, if needed, is the first descriptor and the only regular file.
+    return descriptors[0] if descriptors and stat.S_ISREG(os.fstat(descriptors[0]).st_mode) else None
+
+
+def require_config_mounts(gate_fd, paths=(), *, subtrees=()):
+    mounts = _nfs_mounts()
+    if gate_fd is not None:
+        _validate_nfs_gate(gate_fd, mounts)
+    elif mounts and (_nested_nfs(mounts, subtrees) or _paths_on_nfs(paths, mounts)):
+        raise RuntimeError("Strata config target now requires STRATA_NFS_CONFIG_LOCK; retry")
+
+
+def _promote_lock_fd(fd):
+    if fd >= 3:
+        return fd
+    try:
+        return fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
+    finally:
+        os.close(fd)
 
 
 def _nfs_config_lock(stack, mounts):
@@ -658,8 +725,18 @@ def _nfs_config_lock(stack, mounts):
     path = Path(os.environ.get("STRATA_NFS_CONFIG_LOCK", ""))
     if not path.is_absolute():
         raise RuntimeError("Set STRATA_NFS_CONFIG_LOCK to an absolute path to a shared writable lock file for NFS")
-    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = _promote_lock_fd(os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK))
     stack.callback(os.close, fd)
+    _validate_nfs_gate(fd, mounts)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    _validate_nfs_gate(fd, _nfs_mounts())
+    return fd
+
+
+def _validate_nfs_gate(fd, mounts):
+    path = Path(os.environ.get("STRATA_NFS_CONFIG_LOCK", ""))
+    if fd < 3 or not path.is_absolute() or fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDWR:
+        raise RuntimeError("Invalid Strata NFS config lock descriptor")
     info = os.fstat(fd)
     if not stat.S_ISREG(info.st_mode):
         raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK is not a regular file: {path}")
@@ -668,21 +745,19 @@ def _nfs_config_lock(stack, mounts):
         raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK must reside on shared NFS storage: {path}")
     if {"nolock", "local_lock=all", "local_lock=flock"}.intersection(options):
         raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK requires server-side flock: {path}")
-    fcntl.flock(fd, fcntl.LOCK_EX)
     if not os.path.samestat(info, path.lstat()):
         raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK was replaced: {path}")
-    return fd
 
 
 @contextmanager
-def _config_lock_snapshot(modes):
+def _config_lock_snapshot(modes, needs_gate):
     with ExitStack() as stack:
         locks = {}
         identities = {}
         locked_roots = set()
         guards = set()
         mounts = _nfs_mounts()
-        nfs = False
+        nfs = needs_gate(mounts)
         # Open from descendants to ancestors so an unreadable shared ancestor
         # can promote its nearest lockable ancestor to an exclusive guard.
         for folder, mode in sorted(modes.items(), reverse=True):
@@ -716,12 +791,7 @@ def _config_lock_snapshot(modes):
                         os.close(probe)
                 guards.add(folder.parent)
                 continue
-            if fd < 3:
-                try:
-                    reserved = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
-                finally:
-                    os.close(fd)
-                fd = reserved
+            fd = _promote_lock_fd(fd)
             stack.callback(os.close, fd)
             info = os.fstat(fd)
             identity = (info.st_dev, info.st_ino)
@@ -750,7 +820,10 @@ def layout_locks(repository):
     # Also cover the canonical destination if Terminal is a directory alias.
     destination = repository / "terminal"
     terminal = destination.resolve()
-    with config_locks(repository, terminal) as (descriptors, _):
+    # Saved selections can name any owned path, even after source publication.
+    # Inspect the mount namespace rather than walking the checkout.
+    subtrees = (repository, terminal)
+    with config_locks(repository, terminal, mount_subtrees=subtrees) as (descriptors, _):
         if destination.resolve() != terminal:
             raise RuntimeError(f"Terminal destination changed before layout: {destination}")
         yield descriptors
@@ -758,7 +831,7 @@ def layout_locks(repository):
 
 @contextmanager
 def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None,
-                      reference_moves=()):
+                      reference_moves=(), gate_fd=None):
     """Keep small original bytes/inodes and the profile namespace while the caller holds layout locks."""
     if not enabled:
         yield lambda: None
@@ -820,6 +893,9 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                     target = path.resolve()
                     if target.is_relative_to(repository) and _model_config(path.read_bytes()) is not None:
                         paths.add(target)
+            require_config_mounts(gate_fd, (path for entry in paths if entry.is_relative_to(repository)
+                                           for path in (entry, entry.parent)),
+                                  subtrees=(repository, (repository / "terminal").resolve()))
             originals = []
             temporary_roots = {}
             payloads = {}
@@ -1152,15 +1228,18 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
 
 def migrate_layout(repository, *, reverse=False, reference_moves=()):
     repository = Path(repository).resolve()
-    with layout_locks(repository):
-        return _migrate_layout(repository, reverse=reverse, reference_moves=reference_moves)
+    with layout_locks(repository) as descriptors:
+        return _migrate_layout(repository, reverse=reverse, reference_moves=reference_moves,
+                               gate_fd=config_gate_fd(descriptors))
 
 
-def _migrate_layout(repository, *, reverse, reference_moves, stationary=False):
+def _migrate_layout(repository, *, reverse, reference_moves, stationary=False, gate_fd=None):
     """Migrate with the layout locks held here or by the publishing parent."""
     terminal = repository / "terminal"
+    subtrees = repository, terminal.resolve()
+    require_config_mounts(gate_fd, subtrees, subtrees=subtrees)
     if not (terminal / "setup.py").is_file():
-        normalize_sycl_configs(repository, stationary=stationary)
+        _normalize_layout(repository, stationary=stationary, gate_fd=gate_fd)
         return []
     source, destination = (terminal, repository) if reverse else (repository, terminal)
     enable_source(terminal)
@@ -1176,11 +1255,12 @@ def _migrate_layout(repository, *, reverse, reference_moves, stationary=False):
                            + ", ".join(map(str, conflicts)))
     with profiles.relocate_sources([], runtime_moves=pairs) as publish_profiles:
         return _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles,
-                                 reverse=reverse, reference_moves=reference_moves, stationary=stationary)
+                                 reverse=reverse, reference_moves=reference_moves, stationary=stationary,
+                                 gate_fd=gate_fd)
 
 
 def _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles, *,
-                      reverse, reference_moves, stationary=False):
+                      reverse, reference_moves, stationary=False, gate_fd=None):
     engine = source / "engine"
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
@@ -1338,11 +1418,17 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
             return temporary_roots[anchor]
 
         try:
+            require_config_mounts(gate_fd, (path for pair in pairs for entry in pair
+                                           for path in (entry, entry.parent)),
+                                  subtrees=(repository, (repository / "terminal").resolve()))
             for src, dst in pairs:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 os.rename(src, dst)
                 moved.append((src, dst))
             for entry, before, after, mode in runtime_edits:
+                if mode is None and entry.is_symlink():
+                    raise RuntimeError(f"Strata runtime changed before relocation write: {entry}")
+                require_config_mounts(gate_fd, (entry, entry.parent))
                 backup = None
                 if mode is not None:
                     backup = staging_root(entry.parent) / str(len(edited))
@@ -1351,6 +1437,7 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
             for marker in retired_markers:
                 if not _regular_file(marker):
                     raise OSError(f"Migration marker changed during layout relocation: {marker}")
+                require_config_mounts(gate_fd, (marker, marker.parent))
                 backup = staging_root(marker.parent) / f"marker-{len(retired)}"
                 os.rename(marker, backup)
                 retired.append((marker, backup))

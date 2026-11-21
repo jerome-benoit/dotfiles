@@ -6,16 +6,19 @@
 diff --git a/terminal/setup.py b/terminal/setup.py
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
-@@ -2780,7 +2780,7 @@
+@@ -2800,9 +2800,9 @@
      return min(i * DL_CHUNK, total)
  
  
 -def _load_pieces(part: Path, total: int) -> set:
-+def _load_pieces(part: Path, total: int, *, clean: bool = True) -> set:
++def _load_pieces(part: Path, total: int, *, clean: bool = True, side: Path | None = None) -> set:
      """The finished pieces of an earlier run.  <name>.part.chunks lists them; a .part without it comes from one stream
      (an older setup, or STRATA_DL_CONNECTIONS=1): its bytes are a run from the start, so those pieces are finished."""
-     side = part.with_name(part.name + ".chunks")
-@@ -2797,13 +2797,15 @@
+-    side = part.with_name(part.name + ".chunks")
++    side = part.with_name(part.name + ".chunks") if side is None else side
+     n = -(-total // DL_CHUNK)
+     try:
+@@ -2817,13 +2817,15 @@
                  return {i for i in done if min((i + 1) * DL_CHUNK, total) <= size}
 -        except (OSError, ValueError, TypeError, KeyError):
 +        except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -35,35 +38,37 @@ diff --git a/terminal/setup.py b/terminal/setup.py
          return set()
      return set(range(n)) if size >= total else set(range(size // DL_CHUNK))
  
-@@ -3726,6 +3728,87 @@
+@@ -3746,6 +3748,103 @@
          elif f[0] in ("dense", "ple", "embd"):
              out[f[0]] = p
      return out
 +
 +
-+def resume_bytes(destination, total=None, *, url=None):
-+    """Read native reusable download evidence without changing files or mistaking sparse length for chunks."""
-+    part = Path(destination).with_name(Path(destination).name + ".part")
++def resume_bytes(destination, total=None, *, url=None, available=None):
++    """Read reusable download evidence without changing files or crediting sparse length."""
++    destination = Path(destination)
++    part = destination.with_name(destination.name + ".part")
 +    side = part.with_name(part.name + ".chunks")
-+    if not part.is_file():
++    source = part.with_name(part.name + ".src")
++    if available is not None:
++        part, side, source = map(available, (part, side, source))
++    if part is None or not part.is_file():
 +        return 0
-+    if not side.is_file():
-+        stat = part.stat()
-+        blocks = getattr(stat, "st_blocks", None)
-+        if blocks is not None and blocks * 512 < stat.st_size:
-+            return 0                                   # no chunk receipt proves which sparse ranges are reusable
-+    if url is not None:
-+        source = part.with_name(part.name + ".src")
-+        if source.is_file():
-+            try:
-+                saved = json.loads(source.read_text())
-+            except (OSError, ValueError):
-+                return 0
-+            if not isinstance(saved, dict) or saved.get("url") != url:
-+                return 0
++    has_chunks = side is not None and side.is_file()
++    part_info = part.stat()
++    size = part_info.st_size
++    if not has_chunks and getattr(part_info, "st_blocks", None) is not None and part_info.st_blocks * 512 < size:
++        return 0  # No chunk receipt proves which sparse ranges are reusable.
++    if url is not None and source is not None and source.is_file():
++        try:
++            saved = json.loads(source.read_text())
++        except (OSError, ValueError):
++            return 0
++        if not isinstance(saved, dict) or saved.get("url") != url:
++            return 0
 +    if total is None:
-+        if not side.is_file():
-+            return part.stat().st_size                 # native single-stream resume, no chunk list
++        if not has_chunks:
++            return size
 +        try:
 +            total = json.loads(side.read_text())["total"]
 +        except (OSError, ValueError, TypeError, KeyError):
@@ -71,11 +76,14 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +        if not isinstance(total, int) or total <= 0:
 +            return 0
 +    if total >= DL_MIN_PARALLEL and dl_connections() > 1:
++        if not has_chunks:
++            if size > total:
++                return 0
++            return total if size == total else (size // DL_CHUNK) * DL_CHUNK
 +        return sum(min(DL_CHUNK, total - i * DL_CHUNK)
-+                   for i in _load_pieces(part, total, clean=False) if i >= 0)
-+    size = part.stat().st_size
-+    if side.is_file():
-+        return min(_prefix_bytes(_load_pieces(part, total, clean=False), total), size)
++                   for i in _load_pieces(part, total, clean=False, side=side) if i >= 0)
++    if has_chunks:
++        return min(_prefix_bytes(_load_pieces(part, total, clean=False, side=side), total), size)
 +    return size if size <= total else 0
 +
 +
@@ -92,6 +100,16 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +        previous = groups.get(device, (parent, 0.0))
 +        groups[device] = (previous[0], previous[1] + gb)
 +    return list(groups.values())
++
++
++def _setup_reader(fam, models_dir, roots, gguf_dir, *, start=True):
++    """Select the existing reader or its download destination."""
++    name = fam["mmproj"]
++    path = Path(models_dir) / name
++    if not path.exists():
++        path = find_in(roots, f"models/{name}") or path
++    size, sha = fam.get("mmproj_sha256") or ISTA_FILES.get(name) or (None, None)
++    return resolve_reader(name, path, models_dir, roots, gguf_dir, size, sha, start=start)
 +
 +
 +def ready_disk_problem(model, models_dir, data_dir=None, vision_file=None, checkpoint_dir=None):
@@ -118,28 +136,76 @@ diff --git a/terminal/setup.py b/terminal/setup.py
 +        free = free_gb(parent)
 +        if free < gb:
 +            return (f"not enough free disk space in {parent}: need ~{gb:.0f} GB, {free:.0f} GB free",
-+                    "use --data-dir or --models-dir on a bigger drive for the files stored there")
++                    "use --data-dir or --models-dir on a bigger drive for the files stored there",
++                    {"path": str(parent), "free_bytes": int(free * 1e9), "needed_bytes": int(gb * 1e9)})
 +    return None
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -11166,11 +11249,16 @@
+@@ -7955,20 +8054,20 @@
+ 
+ 
+-def resolve_reader(pinned: str, mmproj: Path, models_dir, roots, gguf_dir, size, sha=None):
++def resolve_reader(pinned: str, mmproj: Path, models_dir, roots, gguf_dir, size, sha=None, *, start=True):
+     """Which picture reader this run uses: (kind, path). `mmproj` is where the pinned file would be (the data folder's models/, or an earlier
+     install's copy when there is one). kind "fetch": the pinned file at `mmproj` (it exists, or it is downloaded); "near": the pinned file in the
+     person's own folder (mmproj_beside); "renamed": the same bytes under another name there (own_reader_by_content, needs the pinned `sha`; already
+     verified by content, so the caller does not hash it again); "alt": a verified Unsloth mmproj-F16.gguf the person already has (only when no pinned
+-    file is anywhere), also under another name in their folder."""
++    file is anywhere), also under another name in their folder. Pass start=False to verify without publishing receipts."""
+     if mmproj.exists():
+         return "fetch", mmproj
+     near = mmproj_beside(gguf_dir, pinned, size)
+     if near is not None:
+         return "near", near
+-    alt = accepted_alt_reader(pinned, alt_reader_places(pinned, models_dir, roots, gguf_dir), start=True)
++    alt = accepted_alt_reader(pinned, alt_reader_places(pinned, models_dir, roots, gguf_dir), start=start)
+     if alt is not None:
+         return "alt", alt
+-    renamed = own_reader_by_content(gguf_dir, pinned, size, sha, start=True)
++    renamed = own_reader_by_content(gguf_dir, pinned, size, sha, start=start)
+     if renamed is not None:
+         return ("renamed", renamed[1]) if renamed[0] == "near" else renamed
+     return "fetch", mmproj
+@@ -11231,11 +11330,22 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
 -    problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
 -                                (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
 +    if ready and ready_data_dir is not None:
-+        problem = ready_disk_problem(model, models_dir, ready_data_dir,
-+                                     Path(a.models_dir) / fam.get("mmproj", MMPROJ) if vision != "none" else None,
-+                                     checkpoint_dir=checkpoint_dir)
++        vision_file = None
++        if vision != "none":
++            kind, reader = _setup_reader(fam, a.models_dir, roots, a.gguf_dir, start=False)
++            if kind == "fetch":
++                vision_file = reader
++        problem = ready_disk_problem(model, models_dir, ready_data_dir, vision_file, checkpoint_dir)
++        if problem:
++            message, hint, space = problem
++            fail(message, hint, kind="no_space", **space)
 +    else:
 +        problem = disk_room_problem(models_dir, pack_now, real - copy_gb, copy_gb,
 +                                    (f" ({on_disk:.0f} GB of the model is already there)" if on_disk >= 1 and not have_model else ""))
-     if problem:
-         fail(*problem, kind="no_space", path=str(models_dir), free_bytes=int(free_now * 1e9), needed_bytes=int(need * 1e9))
+-    if problem:
+-        fail(*problem, kind="no_space", path=str(models_dir), free_bytes=int(free_now * 1e9), needed_bytes=int(need * 1e9))
++        if problem:
++            fail(*problem, kind="no_space", path=str(models_dir), free_bytes=int(free_now * 1e9), needed_bytes=int(need * 1e9))
 -    if free_now < need:
 +    if not (ready and ready_data_dir is not None) and free_now < need:
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
+@@ -11309,12 +11419,7 @@
+     ok("model files present")
+     mmproj = Path(a.models_dir) / fam.get("mmproj", MMPROJ)
+-    if not mmproj.exists():                            # an earlier install's copy (the same file for every family)
+-        mmproj = find_in(roots, f"models/{fam.get('mmproj', MMPROJ)}") or mmproj      # a feed model without a picture reader has no fam["mmproj"]
+     if vision != "none":
+-        # the person's own folder (or the one above it) has the pinned picture file: used where it is ('near'); a verified Unsloth mmproj-F16.gguf they
+-        # already have is used when no pinned file is anywhere ('alt'); else the pinned file is downloaded
+-        pin = fam.get("mmproj_sha256") or ISTA_FILES.get(fam["mmproj"]) or (None, None)
+-        kind, mmproj = resolve_reader(fam["mmproj"], mmproj, a.models_dir, roots, a.gguf_dir, pin[0], pin[1])
++        kind, mmproj = _setup_reader(fam, a.models_dir, roots, a.gguf_dir)
+         if kind == "fetch":
+             download(fam["mmproj_hf"] + fam["mmproj"], mmproj, "vision encoder")
+         if fam.get("mmproj_sha256") and kind not in ("alt", "renamed"):   # the NVFP4 family pins it by size and SHA-256 too
