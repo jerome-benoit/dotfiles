@@ -1741,3 +1741,41 @@ index 0000000..3d4a891
 +    printf '%s\n' --fresh
 +  fi
 +)
+diff --git a/terminal/tests/terminal/test_fixapp_0217_update_build.py b/terminal/tests/terminal/test_fixapp_0217_update_build.py
+--- a/terminal/tests/terminal/test_fixapp_0217_update_build.py
++++ b/terminal/tests/terminal/test_fixapp_0217_update_build.py
+@@ -60,7 +60,9 @@
+                 mock.patch.object(setup, "runtime_packages", return_value=[]), \
+                 mock.patch.object(setup, "update_installed_engine", side_effect=lambda *a, **k: seen.append((a, k))):
+             for build in (False, True):
+-                setup.update_install([cfg], argparse.Namespace(build=build, prebuilt="u"))
++                setup.update_install([cfg], argparse.Namespace(build=build, prebuilt="u", keep_installed_engine=False))
++            setup.update_install([cfg], argparse.Namespace(build=False, prebuilt="u", keep_installed_engine=True))
++        # Repair must not call the engine updater at all.
+         self.assertEqual([k.get("rebuild") for _, k in seen], [False, True])
+ 
+ 
+diff --git a/terminal/tools/test_setup_update.py b/terminal/tools/test_setup_update.py
+--- a/terminal/tools/test_setup_update.py
++++ b/terminal/tools/test_setup_update.py
+@@ -30,7 +30,7 @@
+         return p
+ 
+     def run_update(self, have, argv=()):
+-        a = mock.Mock(**{"build": False, "prebuilt": "URL", **dict(argv)})
++        a = mock.Mock(**{"build": False, "prebuilt": "URL", "keep_installed_engine": False, **dict(argv)})
+         out = io.StringIO()
+         with mock.patch.object(setup, "pip_install") as pip, \
+                 mock.patch.object(setup, "update_installed_engine") as eng, \
+diff --git a/terminal/tools/test_setup_update_sycl_version.py b/terminal/tools/test_setup_update_sycl_version.py
+--- a/terminal/tools/test_setup_update_sycl_version.py
++++ b/terminal/tools/test_setup_update_sycl_version.py
+@@ -74,7 +74,7 @@
+             cfg = self.tree(d, stamp="0.1.60")
+             p = d / "strata-iq4_xs.json"
+             p.write_text(json.dumps(cfg), encoding="utf-8")
+-            a = mock.Mock(**{"build": False, "prebuilt": "URL"})
++            a = mock.Mock(build=False, prebuilt="URL", keep_installed_engine=False)
+             out = io.StringIO()
+             with mock.patch.object(setup, "ROOT", d), mock.patch.object(setup, "pip_install"), \
+                     mock.patch.object(setup, "update_installed_engine"), mock.patch.object(setup, "refresh_draft_vocab"), \

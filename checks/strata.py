@@ -115,7 +115,7 @@ class WorkspaceTests(unittest.TestCase):
         terminal_tests = self.repo / "tests/terminal"
         terminal_tests.mkdir(parents=True)
         for name in ("test_discovery.py", "test_net_own_folder.py", "test_model_folder_case.py",
-                     "test_fix3_0212.py", "test_flow2_022.py"):
+                     "test_fix3_0212.py", "test_flow2_022.py", "test_fixapp_0217_update_build.py"):
             shutil.copyfile(Path(UPSTREAM) / "tests/terminal" / name, terminal_tests / name)
         shutil.copyfile(Path(UPSTREAM) / "strata.py", self.repo / "strata.py")
         shutil.copyfile(UPSTREAM_SOURCE / "setup.sh", self.repository / "setup.sh")
@@ -126,7 +126,8 @@ class WorkspaceTests(unittest.TestCase):
         shutil.copyfile(Path(UPSTREAM) / "tools/iq_pack.py", self.repo / "tools/iq_pack.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/strata_mcp.py", self.repo / "tools/strata_mcp.py")
         shutil.copyfile(Path(UPSTREAM) / "tools/gguf_reader.py", self.repo / "tools/gguf_reader.py")
-        for name in ("test_setup_qwen36.py", "test_setup_feed_models.py"):
+        for name in ("test_setup_qwen36.py", "test_setup_feed_models.py", "test_setup_update.py",
+                     "test_setup_update_sycl_version.py"):
             shutil.copyfile(Path(UPSTREAM) / "tools" / name, self.repo / "tools" / name)
         (self.repository / "engine/sycl").mkdir(parents=True)
         shutil.copyfile(UPSTREAM_SOURCE / "engine/CMakeLists.txt", self.repository / "engine/CMakeLists.txt")
@@ -2003,7 +2004,9 @@ for reverse in (False, True):
         paths = {"engine/strata": b"current payload", "engine/.previous/strata": b"previous payload",
                  "models/model.gguf": b"model", "build/user-cache": b"cache",
                  "packs/helpers/reader.py": b"runtime helper", "packs/tokenizer/vocab.json": b"{}\n",
-                 "ram-budget-0217.done": b"native migration completed\n"}
+                 "ram-budget-0217.done": b"native migration completed\n",
+                 "strata-layout.json.bak": config.read_bytes(),
+                 "strata-layout.json.bak.3": b"older budget backup\n"}
         identity = {}
         for name, data in paths.items():
             path = repository / name
@@ -2029,13 +2032,14 @@ for reverse in (False, True):
         self.assertEqual(moved["unowned_helper"], original["unowned_helper"])
         self.assertEqual(source_helper.read_bytes(), source_bytes)
         self.assertEqual((source_helper.stat().st_dev, source_helper.stat().st_ino), source_identity)
-        self.run_source_script(root, """
+        reverse = """
 import json, os
 import setup
 import strata_managed_state
 os.environ["STRATA_WORKSPACE_CONTEXT"] = json.dumps({"state": str(setup.ROOT.parent.parent)})
 strata_managed_state.migrate_layout(setup.ROOT.parent, reverse=True)
-""")
+"""
+        self.run_source_script(root, reverse)
         self.assertEqual(json.loads(config.read_text()), original)
         self.assert_local_runtime(repository, retained)
         self.assertEqual(source_helper.read_bytes(), source_bytes)
@@ -2044,6 +2048,12 @@ strata_managed_state.migrate_layout(setup.ROOT.parent, reverse=True)
             path = repository / name
             self.assertEqual(path.read_bytes(), data)
             self.assertEqual((path.stat().st_dev, path.stat().st_ino), identity[name])
+        self.assertEqual(self.prepare(self.old), root)
+        for name, data in paths.items():
+            path = root / name
+            self.assertEqual(path.read_bytes(), data)
+            self.assertEqual((path.stat().st_dev, path.stat().st_ino), identity[name])
+        self.run_source_script(root, reverse)
         # Existing destinations are never replaced, including during a same-pin resume.
         (root / config.name).write_text("user-owned destination")
         result = subprocess.run(self.command(self.old), env=self.env, capture_output=True, text=True)
@@ -3349,11 +3359,11 @@ for reverse in (False, True):
         writer_log = self.base / "native-migration-writers"
         migration = root / "strata_cli/ram_budget_move.py"
         source = migration.read_text()
-        anchor = "def _needs_setup(folder: Path) -> bool:\n"
+        anchor = "def _load_setup():"
         self.assertEqual(source.count(anchor), 1)
         guard = r"""
 
-def _assert_managed_writer(folder):
+def _assert_managed_writer():
     import fcntl, os
     context = json.loads(os.environ["STRATA_WORKSPACE_CONTEXT"])
     descriptor = int(os.environ["STRATA_WORKSPACE_LOCK_FD"])
@@ -3368,15 +3378,10 @@ def _assert_managed_writer(folder):
         else:
             raise AssertionError("native migration writer has no acquisition lease")
     with Path(WRITER_LOG).open("a") as log:
-        log.write(str(folder) + "\n")
-
-_native_needs_setup = _needs_setup
-
-def _needs_setup(folder):
-    _assert_managed_writer(folder)
-    return _native_needs_setup(folder)
+        log.write("leased\n")
 
 def _fixture_load_setup():
+    _assert_managed_writer()
     setup = _real_load_setup()
     setup.migrate_ram_budget = lambda cfg: (
         dict(cfg, args=["--resident-budget-gib", "47"], ui_budget_work_gib=40)
@@ -3434,7 +3439,7 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
                 output, errors = process.communicate(timeout=30)
             self.assertEqual(process.returncode, 0, errors + output)
             self.assertTrue(writer_log.is_file(), f"{args}: native writer was not reached; {errors}{output}")
-            self.assertEqual(set(writer_log.read_text().splitlines()), {str(root), str(external)})
+            self.assertEqual(writer_log.read_text().splitlines(), ["leased"])
             self.assertTrue(all(marker.is_file() for marker in markers))
             self.assertEqual(alias.readlink(), Path("models/private.json"))
             self.assertEqual(json.loads(config.read_bytes())["args"][-1], "47")
@@ -3475,14 +3480,16 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
         runtime_dir = self.base / "native-runtime"
         runtime_dir.mkdir(mode=0o700)
         self.env["STRATA_RUNTIME_DIR"] = str(runtime_dir)
-        (root / "strata-migration.json").write_text(json.dumps({"exe": "unused", "args": [], "tokenizer": "unused"}))
+        (root / "strata-migration.json").write_text(json.dumps({
+            "exe": "unused", "args": ["--resident-budget-gib", "40"], "tokenizer": "unused",
+        }))
         witness = self.base / "native-dispatch-free"
         attempts = self.base / "native-migration-attempts"
         migration = root / "strata_cli/ram_budget_move.py"
         source = migration.read_text()
         guard = r"""
 
-def _needs_setup(folder):
+def _load_setup():
     import fcntl, os
     with Path(ATTEMPTS).open("a") as log:
         log.write("leased\n" if "STRATA_WORKSPACE_LOCK_FD" in os.environ else "unleased\n")
@@ -3505,33 +3512,78 @@ def _needs_setup(folder):
         dispatch = r"""    import fcntl, os
     from pathlib import Path
     assert "STRATA_WORKSPACE_LOCK_FD" not in os.environ
-    if Path(os.environ["STRATA_INSTALL_DIR"]).is_dir():
+    if a.command == "connection":
         with Path(LOCK_PATH).open("a") as lease:
             fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         Path(WITNESS).write_text("native dispatch released acquisition")
+        return 23
 """.replace("LOCK_PATH", repr(str(self.state / ".source.lock"))).replace("WITNESS", repr(str(witness)))
         cli.write_text(source.replace(anchor, anchor + dispatch))
-        # An absent local owner gives a native stop plan without contacting any API server.
-        result = subprocess.run(self.command(self.new) + ["run", "runtime", "stop", "--profile", "migration-probe",
-                                                        "--plan", "--output", "json"], env=self.env,
+        result = subprocess.run(self.command(self.new) + ["run", "connection", "list"], env=self.env,
                                 capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
-        self.assertEqual(json.loads(result.stdout), {"schema_version": 1, "ok": False, "profile": "migration-probe",
-                                                   "state": "stopped", "error": "runtime_not_owned", "exit_code": 6})
+        self.assertEqual(result.returncode, 23, result.stderr + result.stdout)
         self.assertTrue(witness.is_file(), result.stderr + result.stdout)
         self.assertEqual(attempts.read_text().splitlines(), ["leased"])
         self.assertFalse((root / "ram-budget-0217.done").exists())
         self.assert_workspace_unlocked()
 
-        self.env["STRATA_INSTALL_DIR"] = str(self.base / "removed-install")
+        stop = ["run", "runtime", "stop", "--profile", "migration-probe", "--plan", "--output", "json"]
+        for explicit in (str(root), str(self.base / "removed-install"), ""):
+            with self.subTest(explicit=explicit), (self.state / ".source.lock").open("a") as lease:
+                fcntl.flock(lease, fcntl.LOCK_EX)
+                result = subprocess.run(self.command(self.new) + stop,
+                                        env=dict(self.env, STRATA_INSTALL_DIR=explicit),
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
+                self.assertEqual(json.loads(result.stdout)["error"], "runtime_not_owned")
+        self.assertEqual(attempts.read_text().splitlines(), ["leased"])
         with (self.state / ".source.lock").open("a") as lease:
             fcntl.flock(lease, fcntl.LOCK_EX)
-            result = subprocess.run(self.command(self.new) + ["run", "runtime", "stop", "--profile", "migration-probe",
-                                                            "--plan", "--output", "json"], env=self.env,
+            result = subprocess.run(self.command(self.new) + ["run", "--help"],
+                                    env=dict(self.env, STRATA_INSTALL_DIR=""),
                                     capture_output=True, text=True, timeout=5)
-        self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
-        self.assertEqual(json.loads(result.stdout)["error"], "runtime_not_owned")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(attempts.read_text().splitlines(), ["leased"])
+
+    def test_stop_bypasses_migration_loader_and_help_reports_failure(self):
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        stop = ["run", "runtime", "stop", "--profile", "migration-probe", "--plan", "--output", "json"]
+        runtime_dir = self.base / "native-runtime"
+        runtime_dir.mkdir(mode=0o700)
+        self.env["STRATA_RUNTIME_DIR"] = str(runtime_dir)
+        for overlay in (SOURCE_PATCH, ""):
+            with self.subTest(overlay=bool(overlay)):
+                self.state = self.base / ("managed" if overlay else "native")
+                self.env["TEST_SOURCE_PATCH"] = overlay
+                root = self.prepare(self.new)
+                self.env["STRATA_INSTALL_DIR"] = str(root)
+                migration = root / "strata_cli/ram_budget_move.py"
+                witness = self.state / "migration-loaded"
+                migration.write_text(
+                    f"from pathlib import Path\nPath({str(witness)!r}).touch()\n"
+                    "raise ImportError('controlled migration loader failure')\n"
+                )
+                with (self.state / ".source.lock").open("a") as lease:
+                    fcntl.flock(lease, fcntl.LOCK_EX)
+                    result = subprocess.run(self.command(self.new) + stop, env=self.env,
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
+                    self.assertEqual(json.loads(result.stdout)["error"], "runtime_not_owned")
+                    probe = [sys.executable, WORKSPACE]
+                    if overlay:
+                        probe += ["--observer-probe", str(root)]
+                    else:
+                        probe += ["--native-observer-probe", str(root), "strata.py"]
+                    result = subprocess.run([*probe, "launch", "--sto", "--plan"], env=self.env,
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 73, result.stderr + result.stdout)
+                    self.assertFalse(witness.exists())
+                result = subprocess.run(self.command(self.new) + ["run", "--help"], env=self.env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertIn("controlled migration loader failure", result.stderr)
+                self.assertIn("usage:", result.stdout.lower())
+                self.assertFalse((root / "ram-budget-0217.done").exists())
 
     def test_native_migration_retries_failed_publication_without_replacing_user_files(self):
         self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
@@ -3571,6 +3623,19 @@ def migrate():
 migrate()
 assert marker.is_symlink() and not outside.exists() and config.read_bytes() == original
 marker.unlink()
+marker.mkdir()
+with patch.object(workspace, "native_settings_migration", return_value=migration):
+    assert workspace.native_settings_migration_pending(root)
+migrate()
+assert marker.is_dir() and config.read_bytes() == original
+marker.rmdir()
+outside.touch()
+marker.symlink_to(outside)
+with patch.object(workspace, "native_settings_migration", return_value=migration):
+    assert workspace.native_settings_migration_pending(root)
+migrate()
+assert marker.is_symlink() and outside.read_bytes() == b""
+marker.unlink()
 os.link(config, alias)
 migrate()
 assert config.samefile(alias) and config.read_bytes() == original and not marker.exists()
@@ -3589,6 +3654,27 @@ migrate()
 assert json.loads(config.read_bytes())["args"][-1] == "47" and marker.is_file()
 assert backup.read_bytes() == b"older backup"
 assert backup.with_name(backup.name + ".1").read_bytes() == original
+
+# A failed read must not finish the folder or prevent a later config from migrating.
+marker.unlink()
+unreadable = root / "strata-a-unreadable.json"
+unreadable.write_bytes(original)
+config.write_bytes(original)
+open_file = Path.open
+
+def inaccessible(path, *args, **kwargs):
+    if path == unreadable:
+        raise PermissionError("controlled config read refusal")
+    return open_file(path, *args, **kwargs)
+
+with patch.object(Path, "open", inaccessible):
+    migrate()
+assert not marker.exists() and unreadable.read_bytes() == original
+assert json.loads(config.read_bytes())["args"][-1] == "47"
+assert not unreadable.with_name(unreadable.name + ".bak").exists()
+migrate()
+assert marker.is_file() and json.loads(unreadable.read_bytes())["args"][-1] == "47"
+assert unreadable.with_name(unreadable.name + ".bak").read_bytes() == original
 """.replace("WORKSPACE_PATH", repr(WORKSPACE)))
 
     def test_native_drafter_part_keeps_shared_directory_and_disk_contract(self):
@@ -3601,7 +3687,7 @@ from launch_support import Home, HW_12
 from strata_cli.launch.catalog import Catalog
 from strata_cli.launch.runner import Runner
 from strata_cli.launch.settings import LaunchSettings
-from strata_control import drafting
+from strata_control import drafting, drafting_fetch
 
 with Home() as isolated:
     data = isolated.base / "drafter-data"
@@ -3645,6 +3731,31 @@ with Home() as isolated:
          patch.object(drafting, "installed_engine_exe", return_value=None):
         part = runner.drafter_part(directories=directories)
     assert part["gb"] == drafting.DOWNLOAD_GB and part["data_dir"] == str(directories.data_dir), part
+
+    # An explicit feed that offers a tuned pack must also drive acquisition.
+    runner.s.model_path = None
+    runner.feed = str(isolated.base / "signed-feed")
+    directories = catalog.launch_directories("qwen", "IQ3_XXS", data_dir=str(data))
+    def offered(*, feed, **_):
+        return feed == runner.feed
+    def acquire(_directory, *, feed=None, **_):
+        if not offered(feed=feed):
+            raise drafting_fetch.OfflineError("the tuned drafter was not offered")
+        return old / "tuned.gguf"
+    with patch.object(runner, "installed_state", return_value=(config, {})), \
+         patch.object(runner, "other_copy", return_value=None), \
+         patch.object(runner, "drafting_signals", return_value={"args": []}), \
+         patch.object(drafting, "hardware_for", return_value=("cuda", ["sm_120"])), \
+         patch.object(drafting, "needs_pack", return_value=True), \
+         patch.object(drafting, "needs_conversion", return_value=False), \
+         patch.object(drafting, "tuned_applies", return_value=True), \
+         patch.object(drafting, "installed_engine_exe", return_value=None), \
+         patch.object(drafting_fetch, "tuned_offered", side_effect=offered), \
+         patch.object(drafting_fetch, "ensure_for", side_effect=acquire):
+        part = runner.drafter_part(directories=directories)
+        runner.ensure_drafter(config)
+    assert part["tuned"] and part["gb"] < drafting.DOWNLOAD_GB, part
+    assert not runner.notices, runner.notices
 '''
         self.run_source_script(root, script)
 
@@ -3709,6 +3820,26 @@ with patch.object(setup, "_hash_file", side_effect=observe):
 assert selected == ("renamed", renamed), selected
 assert hashed == [False, True] and mark.is_file(), hashed
 assert renamed.read_bytes() == content and set(own.iterdir()) == {renamed, model}
+
+# The selected models directory and the personal directory can name one file.
+renamed.unlink()
+data = Path.cwd() / "forecast-data"
+alternate = data / "models" / "mmproj-F16.gguf"
+alternate.parent.mkdir(parents=True)
+invalid = b"wrong alternate reader"
+alternate.write_bytes(invalid)
+(own / alternate.name).symlink_to(alternate)
+runner.s.data_dir = str(data)
+alternate_digest = hashlib.sha256(b"X" + invalid[1:]).hexdigest()
+hashed.clear()
+with patch.dict(native.FAMILIES, {"qwen": family}), \
+     patch.dict(native.ALT_READERS, {family["mmproj"]: (alternate.name, len(invalid), alternate_digest)}), \
+     patch.object(native, "_hash_file", side_effect=observe), \
+     patch.object(discovery, "prepared_beside", return_value={"pack": own}), \
+     patch.object(runner, "ready_pack_gap", return_value=None):
+    assert "mmproj" in {part["kind"] for part in runner.download_plan()["parts"]}
+assert hashed == [False], hashed
+assert alternate.read_bytes() == invalid
 ''')
 
     def test_public_forecast_shares_hash_evidence_and_revalidates_changed_bytes(self):
@@ -10362,27 +10493,35 @@ update_cmd._emit_factory = observed_factory
         (root / "strata-fixture.json").write_text(json.dumps(config))
         boot = self.base / "stop-owner"
         boot.mkdir()
-        (boot / "sitecustomize.py").write_text('''
-import sys
+        helper = boot / "strata-workspace.py"
+        shutil.copyfile(WORKSPACE, helper)
+        library = boot / "strata-managed"
+        shutil.copytree(WORKSPACE_LIB, library, copy_function=shutil.copyfile)
+        bootstrap = library / "sitecustomize.py"
+        bootstrap.write_text(bootstrap.read_text() + '''
+import sys, threading
 if "strata_control.runtime" in sys.orig_argv:
-    from strata_cli import cli
-    original = cli._launch_plan
-    def plan(*args, **kwargs):
-        result, argv = original(*args, **kwargs)
-        argv[argv.index("--engine") + 1] = "mock"
-        return result, argv
-    cli._launch_plan = plan
+    def mock_launch(frame, event, result):
+        host = frame.f_globals.get("Host")
+        if event == "call" and frame.f_code is getattr(getattr(host, "_launch", None), "__code__", None):
+            # Set the supported mock backend before Host attests the launch arguments.
+            args = frame.f_locals["args"]
+            args[args.index("--engine") + 1] = "mock"
+    sys.setprofile(mock_launch)
+    threading.setprofile(mock_launch)
 ''')
         components = self.base / "components"
         (components / ".updates").mkdir(parents=True)
         (components / ".updates/state.json").write_text(json.dumps({"engine": {"previous": "missing-previous"}}))
         waiting = self.base / "updater-waiting"
-        env = dict(self.env, PYTHONPATH=os.pathsep.join((str(boot), str(root), UPSTREAM)),
+        env = dict(self.env, PYTHONPATH=os.pathsep.join((str(library), str(root), UPSTREAM)),
                    UPDATE_WAITING=str(waiting))
         created = subprocess.run([sys.executable, "-c",
             "from strata_control import profiles; profiles.create('launch-stop-fixture', 'strata-fixture.json')"],
             cwd=root, env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(created.returncode, 0, created.stderr)
+        command = self.command(self.old)
+        command[3] = str(helper)
         for stop in (["runtime", "stop", "--profile", "launch-stop-fixture", "--wait", "8", "--output", "json"],
                      ["launch", "--preset", "stop-fixture", "--sto", "--restart"],
                      ["launch", "--preset", "stop-fixture", "--stop", "--plan"]):
@@ -10390,15 +10529,19 @@ if "strata_control.runtime" in sys.orig_argv:
                 waiting.unlink(missing_ok=True)
                 owned, updater = [], None
                 try:
-                    started = subprocess.run(self.command(self.old) + ["run", "runtime", "start",
+                    started = subprocess.run(command + ["run", "runtime", "start",
                         "--profile", "launch-stop-fixture", "--wait", "20", "--shutdown-timeout", "2", "--output", "json"],
                         cwd=root, env=env, capture_output=True, text=True, timeout=35)
+                    self.assertTrue(started.stdout.strip(), started.stderr)
                     snapshot = json.loads(started.stdout)
                     for key in ("host_pid", "child_pid"):
                         if snapshot.get(key):
-                            owned.append(os.pidfd_open(snapshot[key]))
+                            try:
+                                owned.append(os.pidfd_open(snapshot[key]))
+                            except ProcessLookupError:
+                                self.fail(started.stderr + started.stdout)
                     self.assertEqual(started.returncode, 0, started.stderr + started.stdout)
-                    updater = subprocess.Popen(self.command(self.old) + ["run", "components", "rollback",
+                    updater = subprocess.Popen(command + ["run", "components", "rollback",
                         "--components-dir", str(components), "--wait", "12", "--output", "jsonl"],
                         cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                     deadline = time.monotonic() + 30
@@ -10410,7 +10553,7 @@ if "strata_control.runtime" in sys.orig_argv:
                         stdout, stderr = updater.communicate(timeout=10)
                         self.fail(f"updater never reached native serving wait; exit={updater.returncode}\n{stdout}\n{stderr}")
                     self.assert_workspace_locked()
-                    stopped = subprocess.run(self.command(self.old) + ["run", *stop], cwd=root, env=env,
+                    stopped = subprocess.run(command + ["run", *stop], cwd=root, env=env,
                                              capture_output=True, text=True, timeout=10)
                     self.assertEqual(stopped.returncode, 0, stopped.stderr + stopped.stdout)
                     stdout, stderr = updater.communicate(timeout=10)

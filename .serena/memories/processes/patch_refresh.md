@@ -102,6 +102,10 @@ can remove the file. Exercise the real monitor worker and `cfg_paths.repair`
 after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
+Runtime stop must not wait for the RAM-budget migration or the workspace mutation
+lease. A migration failure leaves its folder pending without blocking other
+configs; layout changes relocate backups with their configs.
+
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts
 through the Darwin filter. Complete requested sets precede retained sets; partial
@@ -109,7 +113,9 @@ sets are never combined across roots. Preserve explicit personal-file selection
 and keep missing readers and preparation outputs at their requested destinations.
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
-when rebasing role changes. Progress keeps completed parts through steps 6/7 and
+when rebasing role changes. Forecast and acquire DFlash with the same feed and
+complete run config. Deduplicate picture reader candidates before hashing.
+Progress keeps completed parts through steps 6/7 and
 reaches 100 only when every part is complete; incomplete parts remain below 100.
 Managed ordinary shards need native finish evidence when the helper is available,
 not merely a final filename. Preserve explicit personal acceptance and legacy
@@ -182,7 +188,9 @@ version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Rename an exiting root to a reclaimable claim before
 deleting its owner marker. Failed claim deletion must not block a new owner
-or lose its exit hook. Apply the wheel patch with or without mise.
+or lose its exit hook. Use a private temporary root if persistent storage is
+inaccessible; clean it at exit without involving the persistent sweeper.
+Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
 names do not expand internal storage components or collide after normalization.
@@ -234,8 +242,10 @@ verification claims from an older source. Keep hash-only checks serial with
 
 Use a disk-backed `TMPDIR` for standalone calculations when `/tmp` is tmpfs;
 large dependency trees otherwise count against the memory limit. Replay the
-upstream filters, frozen lock and both normalizers. Calibrate the procedure
-against the previous known native pin at its exact source and Bun version before
+selected dependency derivation's filters, frozen lock, normalizers and
+`installPhase`. The default package prunes nested `node_modules` in that phase;
+the upstream `node_modules_updater` does not. Calibrate the procedure against
+the previous known native pin at its exact source and Bun version before
 trusting new outputs. If calibration is performed afterwards, record it as
 retrospective without rewriting the initial execution history. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose

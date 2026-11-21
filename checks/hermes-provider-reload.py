@@ -503,7 +503,41 @@ def owner_lock_failure(fixture):
     return {"owner_lock_failure_recovery": "complete"}
 
 
-def normal_exit(plugin):
+def block_persistent_snapshots(home, root):
+    # A file blocks runtime creation regardless of the test user's privileges.
+    (home / "runtime").write_text("not a directory")
+    temp = root / "system-tmp"
+    temp.mkdir()
+    os.environ["TMPDIR"] = str(temp)
+    tempfile.tempdir = None  # Recompute after creating the outer test fixture.
+    return temp
+
+
+def temporary_cleanup(fixture):
+    from hermes_constants import get_default_hermes_root
+
+    home = get_default_hermes_root()
+    temp = block_persistent_snapshots(home, fixture.root)
+    fixture.install(fixture.generation("one"))
+    old = fixture.profile()
+    fixture.install(fixture.generation("second"))
+    fixture.refresh()
+    assert fixture.headers(fixture.profile()) == "second"
+    assert fixture.headers(old) == "one"
+    assert fixture.providers.plugin_load_error("review-provider") == ""
+    reloader = fixture.reloader
+    root = reloader._snapshot_root
+    assert root.parent == temp.resolve() and root.stat().st_mode & 0o077 == 0
+    assert not (root / reloader._OWNER_LOCK).exists()
+    with patch.object(reloader.os, "rename", wraps=reloader.os.rename) as rename:
+        reloader._cleanup_snapshots()
+    rename.assert_not_called()
+    assert not list(temp.iterdir()), "explicit cleanup leaked temporary snapshots"
+    assert (home / "runtime").read_text() == "not a directory"
+    return {"fallback_provider": "second", "retained_provider": "one", "explicit_cleanup": "complete"}
+
+
+def normal_exit(plugin, *, fallback=False):
     # Persistent copies live below the account root; retain it until exit so
     # fixture deletion cannot bypass the application's real cleanup hook.
     home = Path(tempfile.mkdtemp(prefix="provider-exit-home-"))
@@ -513,11 +547,17 @@ def normal_exit(plugin):
     os.environ.clear()
     os.environ.update(HOME=str(home), HERMES_HOME=str(home), PATH=os.defpath,
                       HERMES_DISABLE_LAZY_INSTALLS="1")
+    if fallback:
+        temp = block_persistent_snapshots(home, home)
     import providers
     from providers import plugin_reload
     assert providers.get_provider_profile("copilot") is not None
+    root = plugin_reload._snapshot_root
+    if fallback:
+        assert root.parent == temp.resolve() and root.stat().st_mode & 0o077 == 0
+        assert not (root / plugin_reload._OWNER_LOCK).exists()
     print(json.dumps({
-        "snapshot_root": str(plugin_reload._snapshot_root),
+        "snapshot_root": str(root),
         "fixture_root": str(home),
         "reaping_prefix": plugin_reload._REAPING_PREFIX,
     }))
@@ -858,8 +898,8 @@ def discovery_global_guard(fixture):
 
 
 def run_case(case, plugin):
-    if case == "normal-exit":
-        normal_exit(plugin)
+    if case in {"normal-exit", "temporary-exit"}:
+        normal_exit(plugin, fallback=case == "temporary-exit")
         return
     root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-"))
     hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup", "interrupt-host", "long-host"}
@@ -885,6 +925,8 @@ def run_case(case, plugin):
             result = host_cleanup(fixture)
         elif case == "persistent-cleanup":
             result = persistent_cleanup(fixture)
+        elif case == "temporary-cleanup":
+            result = temporary_cleanup(fixture)
         elif case == "owner-lock-failure":
             result = owner_lock_failure(fixture)
         elif case in {"activation-success", "activation-failure"}:
@@ -921,11 +963,14 @@ class ProviderLifecycle(unittest.TestCase):
         )
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         result = json.loads(process.stdout.splitlines()[-1])
-        if case == "normal-exit":
+        if case in {"normal-exit", "temporary-exit"}:
             try:
                 root = Path(result["snapshot_root"])
                 self.assertFalse(root.exists(), result)
                 self.assertEqual(list(root.parent.glob(f"{result['reaping_prefix']}*")), [])
+                if case == "temporary-exit":
+                    self.assertEqual(list(root.parent.iterdir()), [])
+                    self.assertEqual((Path(result["fixture_root"]) / "runtime").read_text(), "not a directory")
             finally:
                 remove_fixture(Path(result["fixture_root"]))
         print(case, result)
@@ -971,6 +1016,12 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_normal_exit_cleanup(self):
         self.run_case("normal-exit")
+
+    def test_temporary_exit_cleanup(self):
+        self.run_case("temporary-exit")
+
+    def test_temporary_provider_and_explicit_cleanup(self):
+        self.run_case("temporary-cleanup")
 
     def test_persistent_readonly_reclamation_preserves_live_owner(self):
         self.run_case("persistent-cleanup")

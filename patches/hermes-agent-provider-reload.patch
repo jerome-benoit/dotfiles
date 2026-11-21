@@ -2,7 +2,7 @@
 # prerequisites: none
 # intent: preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
 # upstream: #153300/#153318 are historical origin, not whole-patch coverage; https://github.com/NousResearch/hermes-agent/pull/156224 and https://github.com/NousResearch/hermes-agent/pull/157087 are open partial fixes for concurrent scans and completed-registration replay, absent from this pin. They still wait on discovery and do not cover the contracts below.
-# issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. The pin supplies persistent owner-locked roots (#156493); retain that protocol and remove read-only owned copies before releasing their lock.
+# issues: https://github.com/NousResearch/hermes-agent/issues/156556 content identity; https://github.com/NousResearch/hermes-agent/issues/156557 hosted RPC; https://github.com/NousResearch/hermes-agent/issues/156558 publication status; https://github.com/NousResearch/hermes-agent/issues/156559 namespace bounds/collisions; https://github.com/NousResearch/hermes-agent/issues/156560 readonly POSIX cleanup. Retain the pin's persistent owner-lock protocol (#156493), with process-owned temporary storage when the persistent directory is unavailable.
 # removal: remove only when discovery and hosted RPC preserve frozen generations, coherent readers, context-local home scans, the process-wide initialization guard, nonblocking lookup, per-home publication status and owned-copy cleanup.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
@@ -43,10 +43,11 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  # The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
  # the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
  # under any other name are never touched.
-@@ -53,6 +62,54 @@
+@@ -53,6 +62,55 @@
  # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
++_TEMP_ROOT_PREFIX = "hermes-provider-plugins-"
 +_snapshot_creator_pid: int | None = None
 +_versions_lock = threading.Lock()
 +_completed_versions: dict[str, _LoadResult] = {}
@@ -98,7 +99,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -97,10 +154,22 @@
+@@ -97,152 +155,258 @@
      # neither delete the parent's live copy nor drop the parent's lock.
      if os.getpid() != creator_pid:
          return
@@ -106,6 +107,12 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -        with contextlib.suppress(OSError):
 -            os.close(owner_fd)
 -    shutil.rmtree(root, ignore_errors=True)
++    if root.name.startswith(_TEMP_ROOT_PREFIX):
++        try:
++            _remove_owned_tree(root)
++        except OSError as exc:
++            logger.warning("Could not remove temporary provider snapshot root %s: %s", root, exc)
++        return
 +    try:
 +        # Publish the claim before deletion can remove owner.lock. The atomic rename
 +        # does not need the setup lock: sweepers may take the claim as soon as it exists.
@@ -124,8 +131,50 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                os.close(owner_fd)
  
  
++def _new_temporary_root(error: OSError) -> Path:
++    logger.warning("Persistent provider snapshot storage unavailable; using system temp: %s", error)
++    root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX))
++    atexit.register(_release_root, root, None, os.getpid())
++    return root
++
++
  def _new_root() -> Path:
-@@ -128,121 +197,192 @@
+-    """This process's root: ``owned-`` with its owner lock held until the process exits, or ``unswept-`` without one
+-    when the setup lock is unavailable."""
++    """Allocate a persistent root if possible, or a process-owned system temporary root."""
+     from pm.filesystem import lock_path
+ 
+-    parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
++    try:
++        parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
++    except OSError as exc:
++        return _new_temporary_root(exc)
+     try:
+         setup_fd = lock_path(parent / _SETUP_LOCK, timeout=_SETUP_WAIT_SECONDS)
+     except PermissionError:  # another user's lock file: a home shared across UIDs
+         setup_fd = None
++    except OSError as exc:
++        return _new_temporary_root(exc)
+     if setup_fd is None:
+         # Without the setup lock a sweep could see this root before its owner lock is taken, so make it under a
+         # name no sweep matches. It is still removed on a normal exit; after a crash it stays.
+         logger.warning("Could not take %s; this process's provider plugin snapshots will not be reclaimed if it "
+                        "crashes, and it reclaims no others", parent / _SETUP_LOCK)
+-        root = Path(tempfile.mkdtemp(prefix=_UNSWEPT_PREFIX, dir=parent))
++        try:
++            root = Path(tempfile.mkdtemp(prefix=_UNSWEPT_PREFIX, dir=parent))
++        except OSError as exc:
++            return _new_temporary_root(exc)
+         atexit.register(_release_root, root, None, os.getpid())
+         return root
+     claimed: list[Path] = []
+     try:
+         claimed = _claim_dead_roots(parent)
+-        root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
++        try:
++            root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
++        except OSError as exc:
++            return _new_temporary_root(exc)
          try:
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
          except BaseException:

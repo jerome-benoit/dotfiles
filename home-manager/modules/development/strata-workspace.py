@@ -894,8 +894,8 @@ def native_settings_migration(root):
     spec.loader.exec_module(migration)
     mark = getattr(migration, "MARK", None)
     if (not isinstance(mark, str) or not mark or Path(mark).name != mark or mark in (".", "..")
-            or not all(callable(getattr(migration, name, None))
-                       for name in ("_folders", "_needs_setup", "_load_setup"))):
+            or not all(isinstance(getattr(migration, name, None), str) for name in ("BUDGET", "WORK_KEY"))
+            or not all(callable(getattr(migration, name, None)) for name in ("_folders", "_load_setup"))):
         raise RuntimeError("Pinned settings migration has no supported discovery contract")
     return migration
 
@@ -903,7 +903,7 @@ def native_settings_migration(root):
 def migration_folders(migration):
     # Native discovery rejects invalid explicit targets; none can need migration.
     explicit = os.environ.get("STRATA_INSTALL_DIR")
-    if explicit:
+    if explicit is not None:
         path = Path(explicit).expanduser()
         if not path.is_absolute() or not path.is_dir():
             return []
@@ -952,6 +952,13 @@ def publish_migrated_config(path, info, original, payload):
         os.replace(updated, path)
 
 
+def migration_complete(marker):
+    try:
+        return stat.S_ISREG(marker.lstat().st_mode)
+    except FileNotFoundError:
+        return False
+
+
 def migrate_native_settings(root):
     """Use native discovery and RAM policy; own publication and retry semantics."""
     migration = native_settings_migration(root)
@@ -963,62 +970,88 @@ def migrate_native_settings(root):
     for folder in folders:
         marker = folder / migration.MARK
         try:
-            if not folder.is_dir() or os.path.lexists(marker):
+            if not folder.is_dir() or migration_complete(marker):
                 continue
-            if migration._needs_setup(folder):
-                if setup is None:
-                    setup = migration._load_setup()
-                for candidate in sorted(setup.model_config_files(folder)):
-                    path = candidate.resolve()
-                    if (path in seen or not path.is_file()
-                            or not any(path.is_relative_to(install) for install in folders)):
+            if os.path.lexists(marker):
+                raise OSError(f"Migration marker is not a regular file: {marker}")
+            complete = True
+            # Match native model-config discovery, but do not hide directory or read errors.
+            for candidate in sorted(folder.iterdir()):
+                if not (candidate.match("strata-*.json")
+                        and not candidate.name.endswith(".shared-settings.json")):
+                    continue
+                try:
+                    path = candidate.resolve(strict=True)
+                    if path in seen or not any(path.is_relative_to(install) for install in folders):
                         continue
+                    if not stat.S_ISREG(path.stat().st_mode):
+                        raise OSError(f"Config is not a regular file: {path}")
                     with path.open("rb") as source:
                         info = os.fstat(source.fileno())
                         if not stat.S_ISREG(info.st_mode):
-                            continue
+                            raise OSError(f"Config is not a regular file: {path}")
                         original = source.read()
-                    try:
-                        old = json.loads(original.decode("utf-8-sig"))
-                    except ValueError:
-                        continue
-                    new = setup.migrate_ram_budget(old) if isinstance(old, dict) else None
-                    if new is not None:
-                        if info.st_nlink != 1:
-                            raise OSError(f"Config has multiple hard links: {path}")
-                        publish_migrated_config(path, info, original, json.dumps(new, indent=1).encode())
-                        print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
+                    old = json.loads(original.decode("utf-8-sig"))
+                    if (isinstance(old, dict) and isinstance(old.get("args"), list)
+                            and migration.BUDGET in old["args"] and migration.WORK_KEY not in old):
+                        if setup is None:
+                            setup = migration._load_setup()
+                        new = setup.migrate_ram_budget(old)
+                        if new is not None:
+                            if info.st_nlink != 1:
+                                raise OSError(f"Config has multiple hard links: {path}")
+                            publish_migrated_config(path, info, original, json.dumps(new, indent=1).encode())
+                            print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
                     seen.add(path)
-            # A failed update leaves the marker absent. Exclusive creation never follows links.
-            with marker.open("x", encoding="utf-8"):
-                pass
-        except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+                except Exception as error:
+                    complete = False
+                    print(f"strata: RAM budget migration incomplete for {candidate}: {error}", file=sys.stderr)
+            if complete:
+                # Exclusive creation never follows links and refuses any late collision.
+                with marker.open("x", encoding="utf-8"):
+                    pass
+        except (OSError, RuntimeError) as error:
             print(f"strata: RAM budget migration incomplete in {folder}: {error}", file=sys.stderr)
 
 
 def native_settings_migration_pending(root):
     """Use native install discovery and its real marker; observers never import setup to decide readiness."""
-    migration = native_settings_migration(root)
-    if migration is None:
-        return False
     try:
-        return any(folder.is_dir() and not os.path.lexists(folder / migration.MARK)
-                   for folder in migration_folders(migration))
+        migration = native_settings_migration(root)
+        return migration is not None and any(
+            folder.is_dir() and not migration_complete(folder / migration.MARK)
+            for folder in migration_folders(migration))
     except Exception:
-        # Native entry treats discovery failures as best-effort; make that attempt under acquisition.
+        # Retry loading or discovery under acquisition, without failing the command.
         return True
+
+
+def stop_candidate(args):
+    # Let the real parser resolve flags and precedence. Other commands must
+    # check migration before the parser can exit early (such as help).
+    return args[:1] in (["launch"], ["runtime"]) and not {"-h", "--help"}.intersection(args)
+
+
+def stop_action(a):
+    return ((a.command == "runtime" and a.runtime_command == "stop")
+            or (a.command == "launch" and a.stop and not a.list_presets and not a.delete_preset))
+
+
+def observation_args(root, args, parse):
+    a = parse() if stop_candidate(args) else None
+    if (a is None or not stop_action(a)) and native_settings_migration_pending(root):
+        return None
+    return a if a is not None else parse()
 
 
 def observer_probe(root, args):
     """Use the real parser and UI constructor in an isolated interpreter, never a stale import cache."""
     managed_state.enable_source(root)
     sys.path.insert(0, str(root))
-    if native_settings_migration_pending(root):
-        return 72
     from strata_control import acquisition
     with acquisition.source_observation():
-        a = terminal_args(root, args)
-        if not passive_action(a):
+        a = observation_args(root, args, lambda: terminal_args(root, args))
+        if a is None or not passive_action(a):
             return 72
         if a.command == "monitor" and runtime_action(a):
             try:
@@ -1062,9 +1095,7 @@ def terminal_args(root, args):
 
 def passive_action(a):
     """Follow native dispatch precedence for commands that never acquire."""
-    return (a.command in {"status", "monitor", "logs", "connection"}
-            or (a.command == "runtime" and a.runtime_command == "stop")
-            or (a.command == "launch" and a.stop and not a.list_presets and not a.delete_preset))
+    return a.command in {"status", "monitor", "logs", "connection"} or stop_action(a)
 
 
 def runtime_action(a):
@@ -1268,19 +1299,29 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         managed_state.enable_source(root)
         # Native migration discovers installs through this pin's lazily imported packages.
         sys.path.insert(0, str(root))
-        try:
-            migrate_native_settings(root)
-        except Exception:
-            pass  # Match the native entry's best-effort migration policy.
-        if not managed_source_hooks(root):
+        native = not managed_source_hooks(root)
+
+        def parse():
+            if native:
+                from strata_native_observer import probe
+                return probe(root, TERMINAL_CLI, args)
+            return terminal_args(root, args)
+
+        a = parse() if not managed_setup and stop_candidate(args) else None
+        if a is None or not stop_action(a):
+            try:
+                migrate_native_settings(root)
+            except Exception as error:
+                print(f"strata: RAM budget migration unavailable: {error}", file=sys.stderr)
+        if native:
             # Execute this pin's native CLI when its accepted source lacks managed APIs.
             if managed_setup:
                 return native_setup(root, args, acquisition=lock)
             python = runtime_python(root)
             if not os.access(python, os.X_OK):
                 python = Path(sys.executable)
-            from strata_native_observer import probe
-            a = probe(root, TERMINAL_CLI, args)
+            if a is None:
+                a = parse()
             # Native launch also acquires through Runner setup children; early returns
             # need only the source-reader readiness contract.
             from strata_native_observer import acquisition_action
@@ -1293,7 +1334,8 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
                                   "--native-active", str(root), TERMINAL_CLI, *args])
         if managed_setup:
             return source_exec(context, args, acquisition=lock)
-        a = terminal_args(root, args)
+        if a is None:
+            a = parse()
         if a.command == "source":
             return source_exec(context, a.setup_args, acquisition=lock)
         python = runtime_python(root)
@@ -1353,9 +1395,9 @@ if __name__ == "__main__":
             root = Path(sys.argv[2]).resolve()
             managed_state.enable_source(root)
             sys.path.insert(0, str(root))
-            if native_settings_migration_pending(root):
-                sys.exit(72)
-            sys.exit(73 if passive_action(probe(root, sys.argv[3], sys.argv[4:])) else 72)
+            args = sys.argv[4:]
+            a = observation_args(root, args, lambda: probe(root, sys.argv[3], args))
+            sys.exit(73 if a is not None and passive_action(a) else 72)
         elif sys.argv[1] == "--native-observer":
             from strata_native_observer import run
             run(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])

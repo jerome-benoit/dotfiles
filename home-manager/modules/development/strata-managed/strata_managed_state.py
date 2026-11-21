@@ -42,10 +42,9 @@ SYCL_PATH_FLAGS = {"--pack", "--native", "--native-dense-gguf", "--embd-gguf",
 
 class LauncherOwnedMigration(SourceFileLoader):
     def exec_module(self, module):
-        super().exec_module(module)
-        run = module.run
-        # Only the launcher can migrate; native entry points must remain read-only.
-        module.run = lambda: run(folders=())
+        # The launcher loads the real migration under acquisition. Native entry
+        # points must not even execute its module code.
+        module.run = lambda: None
 
 
 class ManagedConsumers(importlib.abc.MetaPathFinder):
@@ -742,6 +741,11 @@ def runtime_pairs(repository, *, reverse=False):
                            else (repository, repository / "terminal"))
     pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
              for path in sorted(source.glob(pattern)) if path.is_file() or path.is_symlink()]
+    # Rollback copies are opaque payloads, not config or link-edit consumers.
+    pairs += [(path, destination / path.name)
+              for path in sorted(source.glob("strata-*.json.bak*"))
+              if re.fullmatch(r"strata-.*\.json\.bak(?:\.[0-9]+)?", path.name)
+              and not path.is_symlink() and path.is_file()]
     pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
               if (source / name).is_dir() or (source / name).is_symlink()]
     engine = source / "engine"
