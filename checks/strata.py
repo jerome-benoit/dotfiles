@@ -1985,6 +1985,62 @@ for reverse in (False, True):
         assert (engine_argument_path(changed["args"][3], changed["exe"], changed) / "index.txt").read_bytes() == b"managed pack"
 ''')
 
+    def test_layout_backup_collisions_preserve_copies_and_roll_back(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, r'''
+import os
+from pathlib import Path
+from unittest.mock import patch
+import strata_managed_state as state
+
+root = Path.cwd()
+repository = root.parent
+stem = "strata-collision.json.bak"
+rename = os.rename
+for reverse in (False, True):
+    source, destination = (root, repository) if reverse else (repository, root)
+    base, numbered, occupied = (source / (stem + suffix) for suffix in ("", ".1", ".2"))
+    originals = {base: b"opaque \xff", numbered: b"unmodified numbered copy",
+                 occupied: b"colliding numbered copy", destination / stem: b"existing base",
+                 destination / (stem + ".2"): b"existing numbered copy"}
+    for path, payload in originals.items():
+        path.write_bytes(payload)
+    dangling = destination / (stem + ".3")
+    dangling.symlink_to("absent")
+    identities = {path: path.stat().st_ino for path in originals}
+    expected = {base: destination / (stem + ".4"), numbered: destination / numbered.name,
+                occupied: destination / (stem + ".5")}
+    assert dict(state.runtime_pairs(repository, reverse=reverse)) == expected
+
+    def interrupt(src, dst):
+        if src == numbered:
+            raise OSError("backup relocation interrupted")
+        return rename(src, dst)
+
+    with patch.object(os, "rename", side_effect=interrupt):
+        try:
+            state.migrate_layout(repository, reverse=reverse)
+        except RuntimeError as error:
+            assert "backup relocation interrupted" in str(error)
+        else:
+            raise AssertionError("backup relocation unexpectedly succeeded")
+    assert all(not path.exists() for path in expected.values())
+    assert all(path.read_bytes() == data and path.stat().st_ino == identities[path]
+               for path, data in originals.items())
+    moves = state.migrate_layout(repository, reverse=reverse)
+    assert dict(moves) == expected
+    for path, data in originals.items():
+        moved = expected.get(path, path)
+        assert moved.read_bytes() == data and moved.stat().st_ino == identities[path]
+    assert dangling.readlink() == Path("absent")
+    state.restore_runtime_moves(moves)
+    assert all(not path.exists() for path in expected.values())
+    for path, data in originals.items():
+        assert path.read_bytes() == data and path.stat().st_ino == identities[path]
+        path.unlink()
+    dangling.unlink()
+''')
+
     def test_native_managed_runtime_layout_renames_and_inverse_preserve_payload_identity(self):
         self.state = self.base / "native runtime's workspace with spaces"
         root = self.prepare(self.old)
@@ -3578,11 +3634,15 @@ def _load_setup():
                                             capture_output=True, text=True, timeout=5)
                     self.assertEqual(result.returncode, 73, result.stderr + result.stdout)
                     self.assertFalse(witness.exists())
-                result = subprocess.run(self.command(self.new) + ["run", "--help"], env=self.env,
-                                        capture_output=True, text=True, timeout=30)
-                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                self.assertIn("controlled migration loader failure", result.stderr)
-                self.assertIn("usage:", result.stdout.lower())
+                for args in (["--help"], ["runtime", "stop", "--help"],
+                             ["runtime", "stop", "--hel"], ["runtime", "stop", "--h"]):
+                    witness.unlink(missing_ok=True)
+                    result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
+                                            capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertIn("controlled migration loader failure", result.stderr)
+                    self.assertIn("usage:", result.stdout.lower())
+                    self.assertTrue(witness.is_file(), args)
                 self.assertFalse((root / "ram-budget-0217.done").exists())
 
     def test_native_migration_retries_failed_publication_without_replacing_user_files(self):
@@ -3598,6 +3658,8 @@ spec = importlib.util.spec_from_file_location("workspace", WORKSPACE_PATH)
 workspace = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workspace)
 root = Path.cwd()
+assert workspace.stop_candidate(["runtime", "stop", "--profile=--help"])
+assert workspace.stop_candidate(["launch", "--sto", "--", "--hel"])
 os.environ["STRATA_INSTALL_DIR"] = str(root)
 migration = workspace.native_settings_migration(root)
 setup = migration._load_setup()
@@ -3650,10 +3712,13 @@ def interrupt(src, dst):
 with patch.object(os, "replace", side_effect=interrupt):
     migrate()
 assert config.read_bytes() == original and not marker.exists()
+assert backup.read_bytes() == b"older backup"
+assert not backup.with_name(backup.name + ".1").exists()
 migrate()
 assert json.loads(config.read_bytes())["args"][-1] == "47" and marker.is_file()
 assert backup.read_bytes() == b"older backup"
 assert backup.with_name(backup.name + ".1").read_bytes() == original
+assert not backup.with_name(backup.name + ".2").exists()
 
 # A failed read must not finish the folder or prevent a later config from migrating.
 marker.unlink()
@@ -3821,7 +3886,7 @@ assert selected == ("renamed", renamed), selected
 assert hashed == [False, True] and mark.is_file(), hashed
 assert renamed.read_bytes() == content and set(own.iterdir()) == {renamed, model}
 
-# The selected models directory and the personal directory can name one file.
+# The canonical and renamed searches can reach the same invalid file.
 renamed.unlink()
 data = Path.cwd() / "forecast-data"
 alternate = data / "models" / "mmproj-F16.gguf"
@@ -3829,6 +3894,7 @@ alternate.parent.mkdir(parents=True)
 invalid = b"wrong alternate reader"
 alternate.write_bytes(invalid)
 (own / alternate.name).symlink_to(alternate)
+renamed.symlink_to(alternate)
 runner.s.data_dir = str(data)
 alternate_digest = hashlib.sha256(b"X" + invalid[1:]).hexdigest()
 hashed.clear()
@@ -10188,16 +10254,16 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         destination.write_bytes(b"unfinished conflict")
     def forbidden(*args, **kwargs):
         raise AssertionError("plan attempted acquisition or data mutation")
-    def plan():
+    def plan(drafter="off"):
         output = io.StringIO()
         before = (settings.read_bytes(), config.read_bytes())
         with patch.object(mod, "data_folder", side_effect=forbidden), patch.object(mod, "data_folder_for", side_effect=forbidden), \
                 patch.object(mod, "save_settings", side_effect=forbidden), contextlib.redirect_stdout(output):
             assert cmd.run_launch(cli.parse_args(["launch", "--family", family, "--model", model, "--context", "8192",
-                "--data-dir", str(new), "--move-data", "--vision", "off", "--mtp", "off", "--drafting", "off",
+                "--data-dir", str(new), "--move-data", "--vision", "off", "--mtp", "off", "--drafting", drafter,
                 "--no-api-key", "--plan", "--output", "json"])) == 0
         assert before == (settings.read_bytes(), config.read_bytes())
-        return json.loads(output.getvalue())["plan"]["download"]["gb"]
+        return json.loads(output.getvalue())["plan"]["download"]
     with contextlib.ExitStack() as guards:
         guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
         guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
@@ -10209,14 +10275,26 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         guards.enter_context(patch.object(C, "Catalog", return_value=cat))
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
         if scenario == "move":
-            assert plan() == 0
+            assert plan()["gb"] == 0
+            stock = drafting.target_path(old)
+            stock.parent.mkdir()
+            with stock.open("wb") as stream:
+                stream.truncate((1 << 20) + 1)
+            assert drafting.pack_ready(old) and not drafting.pack_ready(new)
+            with patch.object(drafting, "hardware_for", return_value=("cuda", ["sm_120"])), \
+                    patch.object(drafting, "tuned_applies", return_value=False), \
+                    patch.object(Runner, "drafting_signals", return_value={"args": [], "vram_mib": None}):
+                parts = plan("dflash2")["parts"]
+            assert {p["kind"] for p in parts} == {"dflash2"}, parts
+            assert parts[0]["data_dir"] == str(new), parts
             assert all(shard.exists() for shard in shards)
             with contextlib.redirect_stdout(io.StringIO()):
                 mod.data_folder(str(new), move=True, yes=True, set_default=True)
             assert all((new / shard.relative_to(old)).is_file() and mod.done(new / shard.relative_to(old)) for shard in shards)
-            assert plan() == 0
+            assert stock.is_file() and not drafting.pack_ready(new)
+            assert plan()["gb"] == 0
         else:
-            assert plan() > 0, scenario
+            assert plan()["gb"] > 0, scenario
     config.unlink()
 ''')
 

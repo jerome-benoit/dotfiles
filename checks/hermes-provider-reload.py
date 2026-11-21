@@ -507,7 +507,9 @@ def block_persistent_snapshots(home, root):
     # A file blocks runtime creation regardless of the test user's privileges.
     (home / "runtime").write_text("not a directory")
     temp = root / "system-tmp"
-    temp.mkdir()
+    target = root / "system-tmp-real"
+    target.mkdir()
+    temp.symlink_to(target.name, target_is_directory=True)
     os.environ["TMPDIR"] = str(temp)
     tempfile.tempdir = None  # Recompute after creating the outer test fixture.
     return temp
@@ -527,7 +529,7 @@ def temporary_cleanup(fixture):
     assert fixture.providers.plugin_load_error("review-provider") == ""
     reloader = fixture.reloader
     root = reloader._snapshot_root
-    assert root.parent == temp.resolve() and root.stat().st_mode & 0o077 == 0
+    assert root.parent.samefile(temp) and root.stat().st_mode & 0o077 == 0
     assert not (root / reloader._OWNER_LOCK).exists()
     with patch.object(reloader.os, "rename", wraps=reloader.os.rename) as rename:
         reloader._cleanup_snapshots()
@@ -554,7 +556,7 @@ def normal_exit(plugin, *, fallback=False):
     assert providers.get_provider_profile("copilot") is not None
     root = plugin_reload._snapshot_root
     if fallback:
-        assert root.parent == temp.resolve() and root.stat().st_mode & 0o077 == 0
+        assert root.parent.samefile(temp) and root.stat().st_mode & 0o077 == 0
         assert not (root / plugin_reload._OWNER_LOCK).exists()
     print(json.dumps({
         "snapshot_root": str(root),

@@ -949,7 +949,11 @@ def publish_migrated_config(path, info, original, payload):
                 except FileExistsError:
                     number += 1
                     suffix = f".bak.{number}"
-        os.replace(updated, path)
+            try:
+                os.replace(updated, path)
+            except OSError:
+                destination.unlink(missing_ok=True)
+                raise
 
 
 def migration_complete(marker):
@@ -1029,7 +1033,14 @@ def native_settings_migration_pending(root):
 def stop_candidate(args):
     # Let the real parser resolve flags and precedence. Other commands must
     # check migration before the parser can exit early (such as help).
-    return args[:1] in (["launch"], ["runtime"]) and not {"-h", "--help"}.intersection(args)
+    if args[:1] not in (["launch"], ["runtime"]):
+        return False
+    for arg in args:
+        if arg == "--":
+            break
+        if arg == "-h" or (len(arg) > 2 and arg.startswith("--") and "--help".startswith(arg)):
+            return False
+    return True
 
 
 def stop_action(a):

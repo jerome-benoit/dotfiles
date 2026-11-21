@@ -742,10 +742,20 @@ def runtime_pairs(repository, *, reverse=False):
     pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
              for path in sorted(source.glob(pattern)) if path.is_file() or path.is_symlink()]
     # Rollback copies are opaque payloads, not config or link-edit consumers.
-    pairs += [(path, destination / path.name)
-              for path in sorted(source.glob("strata-*.json.bak*"))
-              if re.fullmatch(r"strata-.*\.json\.bak(?:\.[0-9]+)?", path.name)
-              and not path.is_symlink() and path.is_file()]
+    backups = [(path, match[1]) for path in sorted(source.glob("strata-*.json.bak*"))
+               if (match := re.fullmatch(r"(strata-.*\.json\.bak)(?:\.[0-9]+)?", path.name))
+               and not path.is_symlink() and path.is_file()]
+    reserved = {destination / path.name for path, _ in backups}
+    for path, stem in backups:
+        target = destination / path.name
+        if os.path.lexists(target):
+            number = 1
+            target = destination / f"{stem}.{number}"
+            while target in reserved or os.path.lexists(target):
+                number += 1
+                target = destination / f"{stem}.{number}"
+            reserved.add(target)
+        pairs.append((path, target))
     pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
               if (source / name).is_dir() or (source / name).is_symlink()]
     engine = source / "engine"

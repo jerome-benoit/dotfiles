@@ -59,12 +59,12 @@ in
         The launcher migrates RAM budgets under this lock before dispatch, including help.
         Migration preserves access permissions and symbolic links, refuses files with
         multiple hard links, and does not overwrite backups. Incomplete migrations remain
-        pending. Probes and observers do not run migrations.
-        Serving and observation release the mutation lock after preparation.
-        Monitor updates refuse a busy workspace without blocking observation.
-        Once native migrations settle, same-pin observers and stop commands remain
-        available while an updater waits.
-        Commands prepare the requested source revision before parsing native arguments.
+        pending. Read-only probes do not migrate, but an observer command can enter
+        locked preparation if migration is pending.
+        With the requested source already prepared, stop commands skip migration and
+        do not wait for the mutation lock. Other observers bypass that lock once
+        migration is complete. Monitor updates refuse a busy workspace without
+        blocking observation.
         Source publication protects command initialization; direct upstream scripts
         outside this launcher do not participate in these protections.
 

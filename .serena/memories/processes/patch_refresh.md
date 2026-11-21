@@ -102,9 +102,10 @@ can remove the file. Exercise the real monitor worker and `cfg_paths.repair`
 after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
-Runtime stop must not wait for the RAM-budget migration or the workspace mutation
-lease. A migration failure leaves its folder pending without blocking other
-configs; layout changes relocate backups with their configs.
+With the requested source prepared, runtime stop bypasses RAM-budget migration
+and the workspace mutation lease. A migration failure leaves its folder pending
+without blocking other configs. Layout changes relocate backups with their
+configs without overwriting backups in either layout.
 
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts
@@ -114,9 +115,10 @@ and keep missing readers and preparation outputs at their requested destinations
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Forecast and acquire DFlash with the same feed and
-complete run config. Deduplicate picture reader candidates before hashing.
-Progress keeps completed parts through steps 6/7 and
-reaches 100 only when every part is complete; incomplete parts remain below 100.
+complete run config. A native model data move leaves `dflash2/` behind; check
+the drafter at the destination. Share reader hashes across name and content
+searches within one forecast. Progress keeps completed parts through steps 6/7
+and reaches 100 only when every part is complete.
 Managed ordinary shards need native finish evidence when the helper is available,
 not merely a final filename. Preserve explicit personal acceptance and legacy
 helper-free progress; do not impose this predicate on ready SHA or reader selection.
