@@ -11,7 +11,7 @@ Component references retain upstream compatibility and pins; raw paths use legac
 Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
 
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 import ast
 import errno
 import fcntl
@@ -41,6 +41,7 @@ ENGINE_DIRECTORIES = ("engine", "engine-cuda12")
 SOURCE_PATCH = "strata-source.patch"
 SOURCE_REQUEST = "strata-source-request.json"
 TERMINAL_CLI = "strata.py"
+RAM_BUDGET_RECEIPT_HEADER = b"strata-managed-ram-budget-v1\n"
 
 
 def git(root, *args, check=True):
@@ -171,6 +172,14 @@ def cached_source_patch(cache, revision):
     return text
 
 
+def _source_cache_current(cache, revision, text):
+    if text is None:
+        return True
+    payload, digest = source_patch_payload(cache, revision, text)
+    receipt = cache / f"{revision}.sha256"
+    return payload.is_file() and receipt.is_file() and receipt.read_text().strip() == digest
+
+
 def source_cache_paths(cache, publications):
     """Include final cache metadata and interrupted atomic-write artifacts in the source checkpoint."""
     paths = set()
@@ -250,11 +259,21 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
             raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
         cache = root / ".git" / "strata-source-patches"
         publications = [(current, previous)] if applied else []
-        cache_paths = source_cache_paths(cache, publications)
         if current == revision and (previous is None or applied) and (
                 previous == desired or accepted_source_request(root, revision, requested, previous)):
-            pairs = managed_state.runtime_pairs(root) if (root / "terminal/setup.py").is_file() else ()
             runtime = terminal_root(root)
+            pairs, retired = (managed_state._runtime_layout_plan(root, reverse=False)
+                              if runtime != root else ((), ()))
+            request_text = json.dumps(source_request(revision, requested, previous))
+            # No layout or source publication remains. The in-place repairs
+            # have their own rollback and need not snapshot unrelated configs.
+            if (not pairs and not retired and migration_complete(request_receipt)
+                    and request_receipt.read_text() == request_text
+                    and _source_cache_current(cache, current, previous)):
+                migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
+                               config_fds=config_fds, stationary=True)
+                return root
+            cache_paths = source_cache_paths(cache, publications)
             receipt = root / ".git" / ENGINE_ROLLBACK
             engines = ({name: engine_identity(runtime / name) for name in ENGINE_DIRECTORIES}
                        if os.path.lexists(receipt) else None)
@@ -269,7 +288,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                         receipt.unlink(missing_ok=True)
                     for cached_revision, text in publications:
                         cache_source_patch(cache, cached_revision, text)
-                    publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
+                    publish_source_patch(request_receipt, request_text)
                 except BaseException:
                     try:
                         managed_state.restore_runtime_moves(moved)
@@ -277,6 +296,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                         restore_metadata()
                     raise
             return root
+        cache_paths = source_cache_paths(cache, publications)
         target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
         cached = cached_source_patch(cache, revision)
         if desired is not None and not patch_revision_check(root, revision, desired):
@@ -297,11 +317,13 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         approval = snapshot_engine_approvals(terminal_root(root), current)
         pairs = managed_state.runtime_pairs(root, reverse=reverse_layout) if target_terminal or reverse_layout else ()
         # Layout, profiles, accepted cache bytes and the request receipt settle together.
-        with managed_state.engine_link_checkpoint(
-                root, reverse=reverse_layout, enabled=forward_layout or reverse_layout,
-                tracked_engine=reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0) as engine_link, managed_state.layout_checkpoint(
-                root, metadata_paths=cache_paths, metadata_directories=(cache,), runtime_moves=pairs,
-                reference_moves=engine_link.planned_reference_moves()) as restore_metadata, managed_state.cmake_metadata_checkpoint() as cmake_metadata:
+        tracked_engine = reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0
+        with (managed_state.engine_link_checkpoint(root, reverse=reverse_layout,
+                  enabled=forward_layout or reverse_layout, tracked_engine=tracked_engine) as engine_link,
+              managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
+                  runtime_moves=pairs, reference_moves=engine_link.planned_reference_moves()) as restore_metadata,
+              managed_state.cmake_metadata_checkpoint() as cmake_metadata,
+              ExitStack() as marker_snapshots):
             moved = []
             removed_patch = desired_applied = False
             try:
@@ -328,11 +350,15 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                                             reference_moves=engine_link.reference_moves()))
                 if not applied or desired is None:
                     # Native writers do not maintain the managed inspection receipt.
-                    # Clear both layout locations inside the checkpoint, after relocation.
+                    # Journal same-mount retirement after relocation, so rollback
+                    # puts the marker back before undoing its earlier layout move.
                     for folder in (root, root / "terminal"):
                         marker = folder / managed_state.RAM_BUDGET_MARK
                         if migration_complete(marker):
-                            marker.unlink()
+                            staged = Path(marker_snapshots.enter_context(tempfile.TemporaryDirectory(
+                                dir=folder, prefix=".strata-layout-"))) / marker.name
+                            os.rename(marker, staged)
+                            moved.append((marker, staged))
                 if not target_terminal:
                     cmake_metadata.invalidate(root)
                 for cached_revision, text in publications:
@@ -843,7 +869,8 @@ def runtime_python(root):
     return bundled if os.access(bundled, os.X_OK) else root / ".venv/bin/python"
 
 
-def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=False, reference_moves=()):
+def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=False, reference_moves=(),
+                   stationary=False):
     """Use the publisher's leases and return only successful payload renames."""
     previous = root / ".venv" if reverse else repository_root(root) / ".venv"
     if previous.is_dir():
@@ -854,7 +881,8 @@ def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=
         python = runtime_python(root)
     result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(repository_root(root)),
                              json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
-                             *(["--reverse"] if reverse else [])],
+                             *(["--reverse"] if reverse else []),
+                             *(["--stationary"] if stationary else [])],
                             check=True, stdout=subprocess.PIPE, text=True,
                             pass_fds=(lock_fd, publication_fd, *config_fds, *managed_state.namespace_fds()),
                             env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
@@ -935,12 +963,14 @@ def migration_candidates(folder):
         return []  # Native discovery can return a default install that does not yet exist.
 
 
-def migration_target(candidate, folders):
-    path = candidate.resolve(strict=False)
-    if not any(path.is_relative_to(folder) for folder in folders):
-        return None
-    path = candidate.resolve(strict=True)
+def _eligible_migration_path(path, folders):
     return path if any(path.is_relative_to(folder) for folder in folders) else None
+
+
+def migration_target(candidate, folders):
+    if _eligible_migration_path(candidate.resolve(strict=False), folders) is None:
+        return None
+    return _eligible_migration_path(candidate.resolve(strict=True), folders)
 
 
 def migration_config_identity(info):
@@ -1019,6 +1049,49 @@ def migration_complete(marker):
         return False
 
 
+def _migration_work(folder, marker, folders):
+    candidates = migration_candidates(folder)
+    if not migration_complete(marker):
+        return candidates, None, {}
+
+    # Native and older receipts prove folder inspection, not cross-install
+    # alias coverage. Recheck only eligible aliases without a matching target.
+    external = {}
+    for candidate in candidates:
+        if candidate.is_symlink():
+            path = _eligible_migration_path(candidate.resolve(strict=False), folders)
+            if path is not None and not path.is_relative_to(folder):
+                external[candidate] = str(path)
+    if not external:
+        return [], None, {}
+
+    info, original = read_migration_config(marker, marker)
+    known = {}
+    if original.startswith(RAM_BUDGET_RECEIPT_HEADER):
+        try:
+            receipt = json.loads(original[len(RAM_BUDGET_RECEIPT_HEADER):])
+            if isinstance(receipt, dict):
+                known = receipt
+        except ValueError:
+            pass  # An invalid receipt cannot prove cross-install coverage.
+    return [path for path, target in external.items() if known.get(path.name) != target], (info, original), known
+
+
+def _publish_migration_marker(marker, previous, targets):
+    payload = RAM_BUDGET_RECEIPT_HEADER + json.dumps(targets, sort_keys=True).encode() if targets else b""
+    with tempfile.TemporaryDirectory(dir=marker.parent, prefix=".strata-migration-") as staging:
+        updated = Path(staging) / "receipt"
+        updated.write_bytes(payload)
+        if previous is None:
+            os.link(updated, marker)  # Refuse a marker inserted outside the locking protocol.
+        else:
+            info, original = previous
+            current, contents = read_migration_config(marker, marker)
+            if migration_config_identity(info) != migration_config_identity(current) or contents != original:
+                raise OSError(f"Migration marker changed during inspection: {marker}")
+            os.replace(updated, marker)
+
+
 def migrate_native_settings(root):
     """Use native discovery and RAM policy; own publication and retry semantics."""
     migration = native_settings_migration(root)
@@ -1041,16 +1114,19 @@ def _migrate_native_settings(migration, folders, locked_roots):
             continue
         marker = folder / migration.MARK
         try:
-            if migration_complete(marker):
-                continue
-            if os.path.lexists(marker):
+            if os.path.lexists(marker) and not migration_complete(marker):
                 raise OSError(f"Migration marker is not a regular file: {marker}")
+            candidates, previous_marker, known_targets = _migration_work(folder, marker, folders)
+            inspected_targets = {}
             complete = True
             inspected = False
-            for candidate in migration_candidates(folder):
+            for candidate in candidates:
                 try:
                     path = migration_target(candidate, folders)
                     if path is None:
+                        continue
+                    external = not path.is_relative_to(folder)
+                    if previous_marker is not None and (not external or known_targets.get(candidate.name) == str(path)):
                         continue
                     if not covered(path):
                         raise OSError(f"Config target appeared outside the locked folders: {path}")
@@ -1072,17 +1148,13 @@ def _migrate_native_settings(migration, folders, locked_roots):
                                 print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
                         seen.add(path)
                     inspected = True
+                    if external:
+                        inspected_targets[candidate.name] = str(path)
                 except Exception as error:
                     complete = False
                     print(f"strata: RAM budget migration incomplete for {candidate}: {error}", file=sys.stderr)
             if complete and inspected:
-                # Exclusive creation also refuses a marker inserted outside the locking protocol.
-                try:
-                    with marker.open("x", encoding="utf-8"):
-                        pass
-                except FileExistsError:
-                    if not migration_complete(marker):
-                        raise
+                _publish_migration_marker(marker, previous_marker, known_targets | inspected_targets)
         except (OSError, RuntimeError) as error:
             print(f"strata: RAM budget migration incomplete in {folder}: {error}", file=sys.stderr)
 
@@ -1094,9 +1166,9 @@ def native_settings_migration_pending(root):
         if migration is None:
             return False
         folders = migration_folders(migration)
-        return any(not migration_complete(folder / migration.MARK)
-                   and any(migration_target(candidate, folders) is not None for candidate in migration_candidates(folder))
-                   for folder in folders)
+        return any(migration_target(candidate, folders) is not None
+                   for folder in folders
+                   for candidate in _migration_work(folder, folder / migration.MARK, folders)[0])
     except Exception:
         # Retry loading or discovery under acquisition, without failing the command.
         return True
@@ -1461,7 +1533,8 @@ if __name__ == "__main__":
             with redirect_stdout(sys.stderr):
                 references = [(Path(source), Path(destination)) for source, destination in json.loads(sys.argv[3])]
                 moved = managed_state._migrate_layout(Path(sys.argv[2]).resolve(),
-                                                      reverse="--reverse" in sys.argv[4:], reference_moves=references)
+                                                      reverse="--reverse" in sys.argv[4:], reference_moves=references,
+                                                      stationary="--stationary" in sys.argv[4:])
             print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))

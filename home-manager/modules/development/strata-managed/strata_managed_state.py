@@ -514,20 +514,32 @@ def canonical_config_paths(repository, paths=()):
     return result
 
 
-def normalize_sycl_configs(repository):
+def normalize_sycl_configs(repository, *, stationary=False):
     repository = Path(repository).resolve()
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     enable_source(runtime)
     sys.path.insert(0, str(runtime))
     from strata_control import profiles
     with profiles._source_references_lock():
-        _normalize_sycl_configs(repository, runtime)
+        _normalize_sycl_configs(repository, runtime, stationary=stationary)
 
 
-def _normalize_sycl_configs(repository, runtime):
+def _read_layout_config(path, *, stationary):
+    try:
+        return path.read_bytes()
+    except PermissionError:
+        if not stationary:
+            raise
+        # No paths are moving. Let the native action handle unreadable configs.
+        return None
+
+
+def _normalize_sycl_configs(repository, runtime, *, stationary):
     changes = []
     for path in canonical_config_paths(repository, runtime.glob("strata-*.json")):
-        before = path.read_bytes()
+        before = _read_layout_config(path, stationary=stationary)
+        if before is None:
+            continue
         config = _model_config(before)
         if config is None:
             continue
@@ -588,10 +600,12 @@ def config_locks(*folders):
     """Lock canonical subtrees, using a shared regular-file gate on Linux NFS."""
     roots = set()
     modes = {}
-    # Use path ancestry to discard requests already covered by an exclusive root.
+    # Prune redundant directory flocks, not mount checks. An exclusive local
+    # ancestor does not cover an NFS gate reached through another mount alias.
     for folder in sorted(set(folders)):
-        # An exclusive ancestor already covers all descendant writers.
         if any(parent in roots for parent in folder.parents):
+            for path in (folder, *folder.parents):
+                modes.setdefault(path, None)
             continue
         roots.add(folder)
         modes[folder] = fcntl.LOCK_EX
@@ -672,9 +686,12 @@ def _config_lock_snapshot(modes):
         # Open from descendants to ancestors so an unreadable shared ancestor
         # can promote its nearest lockable ancestor to an exclusive guard.
         for folder, mode in sorted(modes.items(), reverse=True):
-            # A checkout can create a missing destination under its locked root.
+            if mode is None and not mounts:
+                continue
+            # Only inspect the mount for paths covered by an exclusive ancestor.
+            access = os.O_PATH if mode is None else os.O_RDONLY
             try:
-                fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                fd = os.open(folder, access | os.O_DIRECTORY | os.O_NOFOLLOW)
             except (FileNotFoundError, NotADirectoryError):
                 # A vanished guard cannot cover the denied directory.
                 if folder in guards:
@@ -682,7 +699,7 @@ def _config_lock_snapshot(modes):
                 identities[folder] = None
                 continue
             except PermissionError:
-                if (mode == fcntl.LOCK_EX or folder == folder.parent
+                if (mode is None or mode == fcntl.LOCK_EX or folder == folder.parent
                         or os.access(folder, os.W_OK, effective_ids=os.access in os.supports_effective_ids)):
                     # Do not omit a writable directory that another alias could lock.
                     raise
@@ -713,6 +730,8 @@ def _config_lock_snapshot(modes):
                 locked_roots.add(folder)
             if _nfs_mount(fd, mounts) is not None:
                 nfs = True
+                continue
+            if mode is None:
                 continue
             if folder in guards:
                 mode = fcntl.LOCK_EX
@@ -1137,11 +1156,11 @@ def migrate_layout(repository, *, reverse=False, reference_moves=()):
         return _migrate_layout(repository, reverse=reverse, reference_moves=reference_moves)
 
 
-def _migrate_layout(repository, *, reverse, reference_moves):
+def _migrate_layout(repository, *, reverse, reference_moves, stationary=False):
     """Migrate with the layout locks held here or by the publishing parent."""
     terminal = repository / "terminal"
     if not (terminal / "setup.py").is_file():
-        normalize_sycl_configs(repository)
+        normalize_sycl_configs(repository, stationary=stationary)
         return []
     source, destination = (terminal, repository) if reverse else (repository, terminal)
     enable_source(terminal)
@@ -1149,24 +1168,28 @@ def _migrate_layout(repository, *, reverse, reference_moves):
     from strata_control import profiles
 
     pairs, retired_markers = _runtime_layout_plan(repository, reverse=reverse)
+    if stationary and (pairs or retired_markers or reference_moves):
+        raise RuntimeError("Managed runtime layout changed during in-place preparation; retry")
     conflicts = [dst for src, dst in pairs if dst.exists() or dst.is_symlink()]
     if conflicts:
         raise RuntimeError("Cannot migrate managed runtime without replacing existing destinations: "
                            + ", ".join(map(str, conflicts)))
     with profiles.relocate_sources([], runtime_moves=pairs) as publish_profiles:
         return _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles,
-                                 reverse=reverse, reference_moves=reference_moves)
+                                 reverse=reverse, reference_moves=reference_moves, stationary=stationary)
 
 
 def _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles, *,
-                      reverse, reference_moves):
+                      reverse, reference_moves, stationary=False):
     engine = source / "engine"
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
     paths = canonical_config_paths(repository,
             (path for runtime in (source, destination) for path in runtime.glob("strata-*.json")))
-    originals.update((path, path.read_bytes()) for path in paths)
-    configs = {path: config for path in paths if (config := _model_config(originals[path])) is not None}
+    originals.update((path, before) for path in paths
+                     if (before := _read_layout_config(path, stationary=stationary)) is not None)
+    configs = {path: config for path in paths
+               if path in originals and (config := _model_config(originals[path])) is not None}
     engine_paths = [((repository / "engine" / name, repository / name) if reverse
                      else (repository / name, repository / "engine" / name)) for name in ("metal", "sycl")]
     swaps = set(pairs + engine_paths)

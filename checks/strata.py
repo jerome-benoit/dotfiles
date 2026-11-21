@@ -115,7 +115,8 @@ class WorkspaceTests(unittest.TestCase):
         terminal_tests = self.repo / "tests/terminal"
         terminal_tests.mkdir(parents=True)
         for name in ("test_discovery.py", "test_net_own_folder.py", "test_model_folder_case.py",
-                     "test_fix3_0212.py", "test_flow2_022.py", "test_fixapp_0217_update_build.py"):
+                     "test_fix3_0212.py", "test_flow2_022.py", "test_fixapp_0217_update_build.py",
+                     "test_launch_tui.py", "test_fix_tui_0216.py"):
             shutil.copyfile(Path(UPSTREAM) / "tests/terminal" / name, terminal_tests / name)
         shutil.copyfile(Path(UPSTREAM) / "strata.py", self.repo / "strata.py")
         shutil.copyfile(UPSTREAM_SOURCE / "setup.sh", self.repository / "setup.sh")
@@ -2278,6 +2279,265 @@ with patch.object(state, "_nfs_mounts", return_value={1: []}), \
 assert sorted(path.name for path in parent.iterdir()) == ["nested", "old-child"]
 ''')
 
+    def test_native_layout_rollback_reverses_retired_moved_ram_marker_and_payloads(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        marker_name = "ram-budget-0217.done"
+        for previous, requested in ((self.old, self.new), (self.new, self.old)):
+            with self.subTest(reverse=previous == self.new):
+                self.state = state / requested
+                before = self.prepare_cross_pin(previous, overlay=False)
+                repository = self.state / "source"
+                after = repository / "terminal" if requested == self.new else repository
+                payloads = {marker_name: b"native receipt\n",
+                            "strata-relocating.json": b'{"args": []}\n',
+                            "models/inert.gguf": b"payload outside metadata checkpoint"}
+                (before / "models").mkdir()
+                for name, data in payloads.items():
+                    (before / name).write_bytes(data)
+                original = {name: (before / name).stat().st_ino for name in payloads}
+                receipt = repository / ".git/strata-source-request.json"
+                receipt_before = receipt.read_bytes(), receipt.stat().st_ino
+                script = r'''
+import importlib.util, sys
+from pathlib import Path
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+before, after = map(Path, sys.argv[5:7])
+publish = workspace.publish_source_patch
+
+def fail_request(path, text):
+    if path.name == workspace.SOURCE_REQUEST:
+        assert (after / "models/inert.gguf").read_bytes() == b"payload outside metadata checkpoint"
+        assert all(not (folder / "ram-budget-0217.done").exists() for folder in (before, after))
+        raise OSError("controlled publication refusal after marker retirement")
+    return publish(path, text)
+
+with patch.object(workspace, "publish_source_patch", side_effect=fail_request):
+    try:
+        workspace.prepare_workspace(sys.argv[2], sys.argv[3], sys.argv[4])
+    except OSError as error:
+        assert str(error) == "controlled publication refusal after marker retirement", error
+    else:
+        raise AssertionError("source publication unexpectedly succeeded")
+'''
+                failed = subprocess.run([sys.executable, "-c", script, WORKSPACE, str(self.state), requested,
+                                         str(self.repository), str(before), str(after)],
+                                        env=self.env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(failed.returncode, 0, failed.stderr + failed.stdout)
+                self.assertNotIn("Cannot restore source transaction", failed.stderr)
+                head = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+                self.assertEqual(head, previous)
+                self.assertEqual((receipt.read_bytes(), receipt.stat().st_ino), receipt_before)
+                for name, data in payloads.items():
+                    self.assertEqual(((before / name).read_bytes(), (before / name).stat().st_ino),
+                                     (data, original[name]))
+                    self.assertFalse((after / name).exists(), str(after / name))
+                self.assertFalse(list(repository.rglob(".strata-layout-*")))
+                self.assertEqual(self.prepare_cross_pin(requested, overlay=False), after)
+                for name, data in payloads.items():
+                    self.assertFalse((before / name).exists(), str(before / name))
+                    if name != marker_name:
+                        self.assertEqual(((after / name).read_bytes(), (after / name).stat().st_ino),
+                                         (data, original[name]))
+                self.assertFalse((after / marker_name).exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux NFS flock protocol")
+    def test_config_locks_observe_nfs_mounts_pruned_under_local_roots(self):
+        self.run_source_script(self.base, r'''
+import fcntl, os
+from pathlib import Path
+from unittest.mock import patch
+import strata_managed_state as state
+
+base = Path.cwd()
+local = base / "checkout"
+remote = local / "nfs"
+leaf = remote / "leaf"
+leaf.mkdir(parents=True)
+alias = base / "mount-alias"
+alias.mkdir()
+gate = base / "shared-writable-gate"
+gate.touch()
+open_dir, stat_dir, flock = os.open, Path.stat, fcntl.flock
+
+def aliased_open(path, flags):
+    return open_dir(nfs_at if path == alias else path, flags)
+
+def aliased_stat(path, **kwargs):
+    return stat_dir(nfs_at if path == alias else path, **kwargs)
+
+def nfs_mount(fd, mounts):
+    info = os.fstat(fd)
+    return [] if any(os.path.samestat(info, path.stat()) for path in (nfs_at, gate)) else None
+
+def identity(info):
+    return info.st_dev, info.st_ino
+
+calls = []
+
+def nonblocking(fd, mode):
+    info = os.fstat(fd)
+    calls.append((identity(info), mode))
+    if os.path.samestat(info, gate.stat()):
+        assert fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDWR
+        assert mode == fcntl.LOCK_EX
+    elif nfs_mount(fd, None) is not None:
+        raise AssertionError("attempted a directory flock on NFS")
+    flock(fd, mode | fcntl.LOCK_NB)
+
+for nfs_at in (remote, leaf):
+    with patch.object(os, "open", side_effect=aliased_open), patch.object(Path, "stat", aliased_stat), \
+         patch.object(state, "_nfs_mounts", return_value={1: []}), \
+         patch.object(state, "_nfs_mount", side_effect=nfs_mount), \
+         patch.object(fcntl, "flock", side_effect=nonblocking), \
+         patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=str(gate)):
+        expected = [(identity(gate.stat()), fcntl.LOCK_EX)] + sorted(
+            (identity(path.stat()), fcntl.LOCK_EX if path == local else fcntl.LOCK_SH)
+            for path in (local, *local.parents))
+        for roots in ((local, leaf), (leaf, local)):
+            calls.clear()
+            with state.config_locks(*roots) as (fds, locked):
+                assert locked == {local}, locked
+                assert len(fds) == len(expected) and calls == expected, calls
+                try:
+                    with state.config_locks(alias):
+                        raise AssertionError("bind mount alias bypassed a nested NFS gate")
+                except BlockingIOError:
+                    assert calls == expected + [expected[0]], calls
+        with patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=""):
+            try:
+                with state.config_locks(local, leaf):
+                    raise AssertionError("missing gate accepted under a local root")
+            except RuntimeError as error:
+                assert "STRATA_NFS_CONFIG_LOCK" in str(error), error
+''')
+
+    def test_native_same_pin_help_survives_unreadable_config_without_layout_mutation(self):
+        original = b'{"args": ["--resident-budget-gib", "40"]}'
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        for overlay in (SOURCE_PATCH, ""):
+            with self.subTest(overlay=bool(overlay)):
+                self.state = self.base / ("managed" if overlay else "native")
+                self.env["TEST_SOURCE_PATCH"] = overlay
+                root = self.prepare(self.new)
+                self.env["STRATA_INSTALL_DIR"] = str(root)
+                migration = root / "strata_cli/ram_budget_move.py"
+                with migration.open("a") as stream:
+                    stream.write("\ndef _load_setup():\n"
+                                 "    from types import SimpleNamespace\n"
+                                 "    return SimpleNamespace(migrate_ram_budget=lambda cfg: "
+                                 "dict(cfg, args=[BUDGET, '47'], ui_budget_work_gib=40))\n")
+                denied, readable = (root / name for name in ("strata-a-denied.json", "strata-z-readable.json"))
+                for path in (denied, readable):
+                    path.write_bytes(original)
+                denied.chmod(0)
+                try:
+                    if os.access(denied, os.R_OK):
+                        self.skipTest("permission denial requires an unprivileged user")
+                    receipt = root.parent / ".git/strata-source-request.json"
+                    before = receipt.read_bytes(), receipt.stat().st_ino
+                    help_command = self.command(self.new) + ["run", "--help"]
+                    pending = root.parent / "models"
+                    pending.mkdir()
+                    refused = subprocess.run(help_command, env=self.env, capture_output=True, text=True, timeout=30)
+                    self.assertNotEqual(refused.returncode, 0, refused.stderr + refused.stdout)
+                    self.assertIn(str(denied), refused.stderr)
+                    self.assertTrue(pending.is_dir())
+                    self.assertFalse((root / "models").exists())
+                    pending.rmdir()
+                    result = subprocess.run(help_command, env=self.env, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertIn("usage:", result.stdout.lower())
+                    self.assertIn(f"migration incomplete for {denied}", result.stderr)
+                    self.assertEqual((receipt.read_bytes(), receipt.stat().st_ino), before)
+                    self.assertEqual(json.loads(readable.read_bytes())["ui_budget_work_gib"], 40)
+                    self.assertFalse((root / "ram-budget-0217.done").exists())
+                    self.assertFalse(denied.with_name(denied.name + ".ram-budget-0217.bak").exists())
+                finally:
+                    denied.chmod(0o600)
+                self.assertEqual(denied.read_bytes(), original)
+                result = subprocess.run(help_command, env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertEqual(json.loads(denied.read_bytes())["ui_budget_work_gib"], 40)
+                self.assertTrue((root / "ram-budget-0217.done").is_file())
+                self.assertFalse((root / ".venv").exists())
+
+    def test_native_ram_marker_rechecks_only_newly_discovered_external_alias(self):
+        original = b'{"args": ["--resident-budget-gib", "40"]}'
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        self.env.pop("STRATA_INSTALL_DIR", None)
+        self.env.pop("STRATA_SETTINGS_FILE", None)
+        settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                self.state = self.base / ("legacy-receipt" if legacy else "managed-receipt")
+                root = self.prepare(self.new)
+                marker = root / "ram-budget-0217.done"
+                external = self.state / "external-install"
+                target = external / "models/private.json"
+                target.parent.mkdir(parents=True)
+                (external / "strata-present.json").write_text("{}")
+                external_marker = external / marker.name
+                external_marker.write_bytes(b"native external receipt\n")
+                outside_before = external_marker.read_bytes(), external_marker.stat().st_ino
+                target.write_bytes(original)
+                alias = root / "strata-external-alias.json"
+                alias.symlink_to(target)
+                local = root / "strata-local.json"
+                local.write_text("{}")
+                migration = root / "strata_cli/ram_budget_move.py"
+                with migration.open("a") as stream:
+                    stream.write("\ndef _load_setup():\n"
+                                 "    from types import SimpleNamespace\n"
+                                 "    return SimpleNamespace(migrate_ram_budget=lambda cfg: "
+                                 "dict(cfg, args=[BUDGET, '47'], ui_budget_work_gib=40))\n")
+                settings.write_text(json.dumps({"installs": []}))
+                help_command = self.command(self.new) + ["run", "--help"]
+
+                def help_result(timeout=30):
+                    result = subprocess.run(help_command, env=self.env, capture_output=True, text=True, timeout=timeout)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertIn("usage:", result.stdout.lower())
+                    return result
+
+                if legacy:
+                    marker.write_bytes(b"native root receipt\n")
+                else:
+                    help_result()
+                before = marker.read_bytes(), marker.stat().st_ino
+                self.assertEqual(target.read_bytes(), original)
+                local.write_bytes(original)
+                local_before = local.read_bytes(), local.stat().st_ino, local.stat().st_mtime_ns
+                with (self.state / ".source.lock").open("a") as lease:
+                    fcntl.flock(lease, fcntl.LOCK_EX)
+                    help_result(timeout=5)
+                self.assertEqual((marker.read_bytes(), marker.stat().st_ino), before)
+
+                settings.write_text(json.dumps({"installs": [str(external)]}))
+                target.unlink()
+                result = help_result()
+                self.assertIn(f"migration incomplete for {alias}", result.stderr)
+                self.assertEqual((marker.read_bytes(), marker.stat().st_ino), before)
+                target.write_bytes(original)
+                help_result()
+                self.assertEqual(json.loads(target.read_bytes())["ui_budget_work_gib"], 40)
+                backup = target.with_name(target.name + ".ram-budget-0217.bak")
+                self.assertEqual(backup.read_bytes(), original)
+                self.assertEqual(alias.readlink(), target)
+                self.assertEqual((local.read_bytes(), local.stat().st_ino, local.stat().st_mtime_ns), local_before)
+                self.assertEqual((external_marker.read_bytes(), external_marker.stat().st_ino), outside_before)
+                updated = marker.read_bytes(), marker.stat().st_ino
+                self.assertNotEqual(updated[0], before[0])
+                with (self.state / ".source.lock").open("a") as lease:
+                    fcntl.flock(lease, fcntl.LOCK_EX)
+                    help_result(timeout=5)
+                self.assertEqual((marker.read_bytes(), marker.stat().st_ino), updated)
+                self.assertFalse(backup.with_name(backup.name + ".1").exists())
+
     def test_managed_migration_finder_masks_canonical_package_alias(self):
         self.run_source_script(self.base, r'''
 import os
@@ -2818,7 +3078,7 @@ def refuse_publication():
     raise OSError("stationary-link publication refused")
 
 try:
-    state._migrate_payloads(repository, repository, terminal, pairs, refuse_publication,
+    state._migrate_payloads(repository, repository, terminal, pairs, [], refuse_publication,
                             reverse=False, reference_moves=())
 except RuntimeError as error:
     assert "stationary-link publication refused" in str(error), error
@@ -2829,7 +3089,7 @@ assert_original()
 
 # Source transaction rollback restores the original alias inode after accepted payload renames.
 with state.layout_checkpoint(repository, runtime_moves=pairs) as restore:
-    moved = state._migrate_payloads(repository, repository, terminal, pairs, assert_published,
+    moved = state._migrate_payloads(repository, repository, terminal, pairs, [], assert_published,
                                     reverse=False, reference_moves=())
     assert moved == pairs
     assert_published()
@@ -2838,10 +3098,10 @@ with state.layout_checkpoint(repository, runtime_moves=pairs) as restore:
 assert_original()
 
 # With no physical or logical move, stationary link identities remain unchanged.
-assert state._migrate_payloads(repository, terminal, terminal, [], lambda: None,
+assert state._migrate_payloads(repository, terminal, terminal, [], [], lambda: None,
                                reverse=False, reference_moves=()) == []
 assert_original()
-state._migrate_payloads(repository, repository, terminal, pairs, assert_published,
+state._migrate_payloads(repository, repository, terminal, pairs, [], assert_published,
                         reverse=False, reference_moves=())
 assert_published()
 ''')
@@ -10924,7 +11184,7 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
     def test_fresh_launch_drafter_forecast_tracks_feed_throttle_and_direct_override(self):
         root = self.prepare(self.old)
         self.run_source_script(root, '''
-import os
+import hashlib, os
 from pathlib import Path
 from unittest.mock import patch
 from strata_cli.launch.catalog import Catalog
@@ -10986,6 +11246,36 @@ with patch.object(drafting, "hardware_for", return_value=(backend, archs)), \
     reachable.assert_called_once_with(direct)
     offer.assert_not_called()
     feed.assert_not_called()
+
+# Both accepted pin types can be inspected without certifying them. The native
+# verification used by acquisition still writes the certificate.
+stock.unlink()
+payload = b"drafter" * 160_000
+sha = hashlib.sha256(payload).hexdigest()
+for tuned in (False, True):
+    variant = "selq4"
+    pack = drafting.tuned_path(data, variant) if tuned else drafting.converted_path(data)
+    pack.write_bytes(payload)
+    marker = pack.with_name(pack.name + ".ok")
+    with patch.multiple(drafting, CONVERTED_BYTES=len(payload), CONVERTED_SHA256=sha,
+                        TUNED_BYTES=len(payload), TUNED_SHA256=sha), \
+         patch.object(drafting, "hardware_for", return_value=(backend, archs)), \
+         patch.object(drafting, "engine_has_selector_q4", return_value=True), \
+         patch.object(drafting, "uses_tuned", return_value=tuned), \
+         patch.object(drafting, "tuned_variant", return_value=variant), \
+         patch.object(drafting, "tuned_applies", return_value=tuned), \
+         patch.object(runner, "drafting_signals", return_value={"args": [], "vram_mib": None}), \
+         patch.object(drafting, "sha256_of", wraps=drafting.sha256_of) as hashes:
+        directories = catalog.launch_directories("qwen", "IQ3_XXS", data_dir=str(data))
+        assert runner.drafter_part(directories=directories) is None
+        assert runner.drafting_plan_line(directories=directories, download_kinds=set()) == "Drafting: DFlash2"
+        hashes.assert_called_once_with(pack)
+        assert not marker.exists()
+        verified = drafting.tuned_ok(data, variant) if tuned else drafting.converted_ok(data)
+        assert verified
+        assert marker.is_file() and hashes.call_count == 2
+    pack.unlink()
+    marker.unlink()
 ''')
 
     @unittest.skipUnless(sys.platform == "linux", "Native Linux GGUF setup")
@@ -10996,7 +11286,7 @@ import contextlib, io, json, os, socket, subprocess, sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.catalog import Catalog, ModelRow
 from strata_cli.launch.runner import Runner
 from strata_cli.launch.settings import LaunchSettings
 from strata_control import drafting, engine_component, setup_config
@@ -11034,6 +11324,10 @@ for move in (False, True):
     settings.write_text(json.dumps({"data_dir": str(old)}))
     os.environ["STRATA_SETTINGS_FILE"] = str(settings)
     cat = Catalog(src=root, root=root, hardware={})
+    row = ModelRow(family=family, family_title=fam["title"], model=model, id="iq3_xxs", about="",
+        download_gb=setup.MODELS[model]["download_gb"], need_vram_gb=0, need_ram_gb=1, spill_gb=0,
+        verdict="fits", words="fits", experimental=False, images=False, installed=False)
+    cat.rows = lambda: [row]
     s = LaunchSettings(family=family, model=model, data_dir=str(new), context=8192, vision="off",
                        drafting="dflash2", tune="skip")
     runner = Runner(s, catalog=cat, move_data=move)
@@ -11067,13 +11361,21 @@ for move in (False, True):
         before = settings.read_bytes()
         parts = runner.download_plan()["parts"]
         [planned] = [part for part in parts if part["kind"] == "dflash2"]
+        assert [part["kind"] for part in parts] == ["dflash2"], (move, parts)
+        selected = cat.launch_directories(family, model, data_dir=str(new), move=move)
+        assert runner.model_state(directories=selected).remaining_gb == 0
+        with patch.object(cat, "disk_free", return_value=50.0) as free:
+            [space] = cat.download_space(selected, parts)
+        target = drafting.target_path(new if move else old).parent
+        assert space == (target, 50.0), space
+        free.assert_called_once_with(target)
         assert not planned["tuned"], parts
         stock = drafting.target_path(old)
         stock.parent.mkdir()
         with stock.open("wb") as stream:
             stream.truncate((1 << 20) + 1)
         parts = runner.download_plan()["parts"]
-        assert any(part["kind"] == "dflash2" for part in parts) == move, parts
+        assert [part["kind"] for part in parts] == (["dflash2"] if move else []), (move, parts)
         assert not new.exists() and settings.read_bytes() == before
         with contextlib.redirect_stdout(io.StringIO()):
             try:
@@ -12187,6 +12489,12 @@ for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyr
         elif case in ("requested-partial", "incomplete"):
             seed_shards(requested, family, model, tuple(range(1, count)))
         own = seed_shards(personal, family, model, ()) if case == "personal" else None
+        retained_drafter = family == "qwen" and case == "remembered"
+        if retained_drafter:
+            pack = retained / "packs" / (fam["tag"] + model).lower()
+            (pack / "tokenizer").mkdir(parents=True)
+            (pack / "tokenizer/vocab.json").touch()
+            (pack / "native_experts.txt").touch()
         settings = home / "settings.json"
         settings.write_text(json.dumps({"data_dir": str(retained)}))
         os.environ.update(STRATA_SETTINGS_FILE=str(settings), STRATA_WORKSPACE_CONTEXT=json.dumps({
@@ -12196,26 +12504,35 @@ for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyr
             download_gb=setup.MODELS[model]["download_gb"], need_vram_gb=0, need_ram_gb=1,
             spill_gb=0, verdict="fits", words="fits", experimental=False, images=False, installed=False)
         cat.rows = lambda: [row]
-        s = LaunchSettings(family=family, model=model, context=8192, vision="off", drafting="off", mtp="off",
+        s = LaunchSettings(family=family, model=model, context=8192, vision="off", mtp="off",
+            drafting="dflash2" if retained_drafter else "off",
             data_dir=str(data), model_path=str(personal) if own else None, tune="skip")
         runner = Runner(s, catalog=cat)
         expected = own if own else requested_files if case in ("requested-complete", "incomplete") else source_files
-        downloads, checked = [], []
+        downloads, checked, configured = [], [], []
         def download_selected(url, destination, *args, **kwargs):
             downloads.append(Path(destination))
             raise Selected()
         def check_selected(files):
             checked.extend(files)
+            if not retained_drafter:
+                raise Selected()
+        def capture_config(path, cfg):
+            configured.append(cfg)
             raise Selected()
         with contextlib.ExitStack() as guards:
             guards.enter_context(patch.object(sys, "platform", "darwin"))
             guards.enter_context(patch.object(ec, "host_platform", return_value="macos-arm64"))
             guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("metal", [])))
+            guards.enter_context(patch.object(drafting, "tuned_applies", return_value=False))
             guards.enter_context(patch.object(mac_fit, "mac_info", return_value={
                 "chip": "Test Apple Silicon", "ram_gb": 256, "macos": "27.0", "rosetta_python": False}))
             guards.enter_context(patch.object(mac_fit, "mac_problems", return_value=[]))
             guards.enter_context(patch.object(setup, "download", side_effect=download_selected))
             guards.enter_context(patch.object(setup, "check_shards", side_effect=check_selected))
+            if retained_drafter:
+                guards.enter_context(patch.object(setup, "write_setup_config", side_effect=capture_config))
+                guards.enter_context(patch.dict(os.environ, {drafting.TUNED_URL_ENV: ""}))
             guards.enter_context(patch.object(setup, "run", side_effect=forbidden))
             guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
             guards.enter_context(patch.object(socket, "create_connection", side_effect=forbidden))
@@ -12227,7 +12544,17 @@ for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyr
             else:
                 assert [Path(item["path"]) for item in job["files"] if item.get("role", "model") == "model"] == expected, (family, case, job)
             assert settings.read_bytes() == before
-            assert (plan["gb"] > 0) == (case == "incomplete"), (family, case, plan)
+            assert (plan["gb"] > 0) == (case == "incomplete" or retained_drafter), (family, case, plan)
+            if retained_drafter:
+                assert runner.installed_state() == (None, None)
+                [part] = plan["parts"]
+                assert part["kind"] == "dflash2" and part["data_dir"] == str(retained), part
+                stock = drafting.target_path(retained)
+                stock.parent.mkdir()
+                with stock.open("wb") as stream:
+                    stream.truncate((1 << 20) + 1)
+                assert not runner.download_plan()["parts"]
+                assert not data.exists() and settings.read_bytes() == before
             argv = runner.setup_args()
             with contextlib.redirect_stdout(io.StringIO()):
                 try:
@@ -12236,6 +12563,10 @@ for family, model in (("qwen", "Q2_0"), ("unsloth", "UD-Q4_K_XL"), ("gyro", "Gyr
                     pass
                 else:
                     raise AssertionError("native setup skipped the selected file boundary")
+            if retained_drafter:
+                [cfg] = configured
+                assert drafting.data_dir_of(cfg["args"]) == retained, cfg
+                assert part["data_dir"] == str(drafting.data_dir_of(cfg["args"])), (part, cfg)
             if case == "incomplete":
                 assert downloads == [requested_files[-1]] and not checked, (family, case, downloads, checked)
             else:
@@ -12853,7 +13184,14 @@ with patch.object(mod, "_hash_file", wraps=native_hash) as hashes:
     assert job["files"][0]["complete"] and hashes.call_count == 1
     assert hashes.call_args.kwargs == {"progress": False}
 assert runner.ready_pack_gap() is None
-expected = explain("nvfp4/" + model.lower(), catalog=cat)
+with patch.object(mod, "_hash_file", wraps=native_hash) as hashes:
+    expected = explain("nvfp4/" + model.lower(), catalog=cat)
+    hashes.assert_called_once_with(path, len(payload), progress=False)
+assert expected["repo"] == repo and expected["revision"] == "fixture-revision", expected
+assert expected["found"] and expected["folder"] == expected["checkpoint_dir"] == str(path.parent.parent), expected
+assert expected["models_dir"] == str(models) and expected["weights_bytes"] == len(payload), expected
+assert expected["artifacts"] == [{"role": "src", "path": str(path), "bytes": len(payload),
+                                 "present": True, "complete": True}], expected
 for output in ("json", "human"):
     result = subprocess.run([sys.executable, str(root / "strata.py"), "models", "explain",
         "nvfp4/" + model.lower(), "--output", output], env=os.environ,
@@ -12863,6 +13201,9 @@ for output in ("json", "human"):
         assert json.loads(result.stdout) == {"schema_version": 1, "ok": True, **expected}, result.stdout
     else:
         assert result.stdout.strip() == words(expected), result.stdout
+        assert f"Checkpoint folder: {path.parent.parent}" in result.stdout
+        assert f"src: {path} (verified)" in result.stdout
+        assert "Not found" not in result.stdout
     assert snapshot() == before and not marker.exists()
 # Same-size corruption cannot receive SHA credit, a mark, a rename or a partial-resume credit from the reader.
 path.write_bytes(b"x" * len(payload))
@@ -12883,6 +13224,15 @@ with patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
     assert not marks.called, marks.call_args_list
 assert snapshot() == wrong and not marker.exists()
 assert not path.with_name(path.name + ".bad").exists()
+corrupt = explain("nvfp4/" + model.lower(), catalog=cat)
+fallback_dir = data / "models" / repo.replace("/", "--")
+fallback = fallback_dir / "tensors/checkpoint.safetensors"
+assert not corrupt["found"] and corrupt["weights_bytes"] == 0, corrupt
+assert corrupt["folder"] == corrupt["checkpoint_dir"] == str(fallback_dir), corrupt
+assert corrupt["artifacts"] == [{
+    **expected["artifacts"][0], "path": str(fallback), "present": False, "complete": False,
+}], corrupt
+assert f"src: {fallback} (missing)" in words(corrupt) and snapshot() == wrong
 # Native acquisition, unlike the reader, publishes the certificate after checking the actual SHA.
 path.write_bytes(payload)
 original = (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
@@ -12896,6 +13246,59 @@ with patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
     assert hashes.call_count == 1, "acquisition discarded its native finish mark"
 assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == original
 assert not data.exists()
+
+# An unmarked checkpoint is reused, while two other pinned roles need space on
+# separate volumes. Each volume fits its own download, but neither fits both.
+from types import SimpleNamespace
+from strata_cli.launch.app import Ctx, LaunchApp
+from strata_cli.launch.screens import FolderScreen
+from strata_control import engine_component
+marker.unlink()
+data.mkdir()
+mod.NVFP4_REPOS[repo]["files"].update({
+    "dense.gguf": ("dense", 3_000_000_000, sha),
+    "pack/index.txt": ("pack", 3_000_000_000, sha),
+})
+gguf_folder = models / repo.replace("/", "--")
+pack_folder = data / "models" / repo.replace("/", "--") / "pack"
+native_stat = Path.stat
+class OtherDevice:
+    def __init__(self, stat):
+        self.stat = stat
+        self.st_dev = stat.st_dev + 1
+    def __getattr__(self, name):
+        return getattr(self.stat, name)
+def split_stat(path, *args, **kwargs):
+    st = native_stat(path, *args, **kwargs)
+    return OtherDevice(st) if path == data else st
+
+ctx = Ctx(cat, SimpleNamespace(raw={}, usable_gpus=[]), [], runner.s)
+app = LaunchApp(ctx)
+with patch.object(Path, "stat", split_stat), \
+     patch.object(cat, "disk_free", return_value=4.0) as capacity, \
+     patch.object(cat, "launch_directories", wraps=cat.launch_directories) as selections, \
+     patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
+     patch.object(engine_component, "status", return_value={"usable": True}), \
+     patch.object(app, "push_screen") as pushed, \
+     patch.object(app, "show", side_effect=AssertionError("split download was not confirmed")):
+    app.run_launch()
+    assert selections.call_count == 1, selections.call_args_list
+    hashes.assert_called_once_with(path, len(payload), progress=False)
+    dialog = pushed.call_args.args[0]
+    assert dialog.question == "Download about 6 GB?"
+    assert f"4 GB at {gguf_folder}" in dialog.detail and f"4 GB at {pack_folder}" in dialog.detail, dialog.detail
+    assert "will probably stop" not in dialog.detail, dialog.detail
+    assert [call.args[0] for call in capacity.call_args_list] == [gguf_folder, pack_folder]
+    assert not marker.exists()
+
+    text = []
+    folder = SimpleNamespace(ctx=ctx, state=ctx.model_state,
+        models_that_would_move=lambda value, **kwargs: None,
+        query_one=lambda selector, _: SimpleNamespace(value=str(data), update=text.append))
+    FolderScreen.refresh_body(folder)
+    [body] = text
+    assert f"{gguf_folder}: 4 GB" in body.plain and f"{pack_folder}: 4 GB" in body.plain, body.plain
+    assert "Not enough" not in body.plain, body.plain
 ''')
 
     def test_canonical_internal_profile_sources_follow_runtime_moves_and_restore_history(self):

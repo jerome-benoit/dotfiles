@@ -311,10 +311,10 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                continue
 +
 +    stores = {}
-+    configured = _persistent_store().resolve()
 +    try:
++        configured = _persistent_store().resolve(strict=True)
 +        info = configured.stat()
-+    except (FileNotFoundError, NotADirectoryError, PermissionError):
++    except (OSError, RuntimeError):
 +        pass
 +    else:
 +        # Fallback can leave the configured name pointing at an ordinary plugin asset.

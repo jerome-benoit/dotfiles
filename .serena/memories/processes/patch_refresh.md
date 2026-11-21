@@ -105,12 +105,13 @@ handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 With the requested source prepared, runtime stop bypasses RAM-budget migration
 and the workspace mutation lease. Keep migration and layout changes under the
 same locks through publication or rollback. Deduplicate local locks by inode
-and acquire them in a stable order. Linux NFS uses a shared writable regular
-lock file, not an exclusive lock on a read-only directory descriptor.
+and acquire them in a stable order. Detect nested NFS mounts before pruning
+lock roots: a local ancestor lock cannot replace the shared NFS lock.
 Invalidate RAM migration receipts when either side of a source transition uses
-native dispatch, even if the layout stays the same. Keep migration backups
-separate from native `.bak` files. Metadata-only moves must not retire engine
-approval.
+native dispatch, even if the layout stays the same. A retired receipt must not
+interrupt the rollback of payload moves. Keep migration backups separate from
+native `.bak` files. Metadata-only moves must not retire engine approval.
+Recheck aliases that become eligible as installation discovery expands.
 
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts
@@ -120,11 +121,13 @@ and keep missing readers and preparation outputs at their requested destinations
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Use the acquisition feed, retry policy and explicit
-URL override in DFlash2 forecasts. Check DFlash2 and MTP at the effective
-destinations after a data move; `dflash2/` stays behind. Reflect planned drafter
-downloads in the summary. Share reader hashes across name and content searches
-within one forecast. Progress keeps completed parts through steps 6/7 and
-reaches 100 only when all are complete.
+URL override in DFlash2 forecasts. Select the same pack as setup, including
+retained Metal packs, and verify it without writing receipts. Credit model
+files setup will move, but leave `dflash2/` at its original root. Report the
+selected NVFP4 paths in `models explain`. Share SHA proofs within one forecast
+or confirmation, and do not infer split-volume capacity from one volume.
+Progress keeps completed parts through steps 6/7 and reaches 100 only when
+all are complete.
 Managed ordinary shards need native finish evidence when the helper is available,
 not merely a final filename. Preserve explicit personal acceptance and legacy
 helper-free progress; do not impose this predicate on ready SHA or reader selection.
@@ -196,9 +199,10 @@ Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Publish the canonical snapshot root before sweeping old
 copies. Rename an exiting persistent root to a reclaimable claim before deleting
 its owner marker, and reclaim only roots owned by the current UID. Distinguish
-lock contention from storage failure, including quota exhaustion. Exclude
-snapshot artifacts without dropping provider files when a store overlaps its
-source.
+lock contention from storage failure, including quota exhaustion. An unusable
+configured store must not prevent a provider from loading from a temporary
+root. Exclude snapshot artifacts without dropping provider files when a store
+overlaps its source.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted

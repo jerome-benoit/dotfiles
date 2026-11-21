@@ -847,9 +847,13 @@ def owner_lock_storage_fallback(fixture, storage_errno):
             "snapshot_stores": "excluded", "cleanup": "complete"}
 
 
-def block_persistent_snapshots(home, root):
-    # A file blocks runtime creation regardless of the test user's privileges.
-    (home / "runtime").write_text("not a directory")
+def block_persistent_snapshots(home, root, *, symlink_loop=False):
+    runtime = home / "runtime"
+    if symlink_loop:
+        runtime.symlink_to(runtime.name, target_is_directory=True)
+    else:
+        # A file blocks runtime creation regardless of the test user's privileges.
+        runtime.write_text("not a directory")
     temp = root / "system-tmp"
     target = root / "system-tmp-real"
     target.mkdir()
@@ -859,11 +863,11 @@ def block_persistent_snapshots(home, root):
     return temp
 
 
-def temporary_cleanup(fixture):
+def temporary_cleanup(fixture, *, symlink_loop=False):
     from hermes_constants import get_default_hermes_root
 
     home = get_default_hermes_root()
-    temp = block_persistent_snapshots(home, fixture.root)
+    temp = block_persistent_snapshots(home, fixture.root, symlink_loop=symlink_loop)
     fixture.install(fixture.generation("one"))
     old = fixture.profile()
     fixture.install(fixture.generation("second"))
@@ -879,7 +883,11 @@ def temporary_cleanup(fixture):
         reloader._cleanup_snapshots()
     rename.assert_not_called()
     assert not list(temp.iterdir()), "explicit cleanup leaked temporary snapshots"
-    assert (home / "runtime").read_text() == "not a directory"
+    runtime = home / "runtime"
+    if symlink_loop:
+        assert runtime.readlink() == Path(runtime.name)
+    else:
+        assert runtime.read_text() == "not a directory"
     return {"fallback_provider": "second", "retained_provider": "one", "explicit_cleanup": "complete"}
 
 
@@ -1312,8 +1320,8 @@ def run_case(case, plugin):
             result = persistent_cleanup(fixture)
         elif case == "foreign-snapshot-owners":
             result = foreign_snapshot_owners(fixture)
-        elif case == "temporary-cleanup":
-            result = temporary_cleanup(fixture)
+        elif case in {"temporary-cleanup", "symlink-loop-storage-fallback"}:
+            result = temporary_cleanup(fixture, symlink_loop=case == "symlink-loop-storage-fallback")
         elif case == "owner-lock-failure":
             result = owner_lock_failure(fixture)
         elif case.startswith("owner-lock-"):
@@ -1429,6 +1437,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_temporary_provider_and_explicit_cleanup(self):
         self.run_case("temporary-cleanup")
+
+    def test_symlink_loop_storage_fallback(self):
+        self.run_case("symlink-loop-storage-fallback")
 
     def test_persistent_readonly_reclamation_preserves_live_owner(self):
         self.run_case("persistent-cleanup")
