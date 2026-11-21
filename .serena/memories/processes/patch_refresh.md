@@ -103,10 +103,10 @@ after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
 With the requested source prepared, runtime stop bypasses RAM-budget migration
-and the workspace mutation lease. Migration and layout changes share canonical
-installation locks through publication or rollback. Keep migration backups
-separate from native `.bak` files. Metadata-only moves must not retire engine
-approval.
+and the workspace mutation lease. Migration and layout changes share directory
+locks through publication or rollback. Acquire once per physical inode in a
+stable order. Keep migration backups separate from native `.bak` files.
+Metadata-only moves must not retire engine approval.
 
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts
@@ -192,8 +192,9 @@ Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Publish the canonical snapshot root before sweeping old
 copies. Rename an exiting persistent root to a reclaimable claim before deleting
 its owner marker, and reclaim only roots owned by the current UID. Distinguish
-lock contention from storage failure, including quota exhaustion. Keep the
-persistent store and the temporary root out of plugin copies.
+lock contention from storage failure, including quota exhaustion. Exclude
+snapshot artifacts without dropping provider files when a store overlaps its
+source.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted

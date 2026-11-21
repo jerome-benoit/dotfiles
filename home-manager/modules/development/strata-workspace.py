@@ -11,11 +11,12 @@ Component references retain upstream compatibility and pins; raw paths use legac
 Validation does not prove GPU compatibility, model integrity, or successful inference.
 """
 
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import ast
 import errno
 import fcntl
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -1094,17 +1095,20 @@ def native_settings_migration_pending(root):
         return True
 
 
-def stop_candidate(args):
-    # Let the real parser resolve flags and precedence. Other commands must
-    # check migration before the parser can exit early (such as help).
+def parse_stop_candidate(args, parse):
+    # Use native precedence without letting speculative help or parse errors
+    # exit before migration. The authoritative parse emits those results later.
     if args[:1] not in (["launch"], ["runtime"]):
-        return False
-    for arg in args:
-        if arg == "--":
-            break
-        if arg == "-h" or (len(arg) > 2 and arg.startswith("--") and "--help".startswith(arg)):
-            return False
-    return True
+        return None
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        try:
+            a = parse()
+        except SystemExit:
+            return None
+    sys.stdout.write(stdout.getvalue())
+    sys.stderr.write(stderr.getvalue())
+    return a
 
 
 def stop_action(a):
@@ -1113,7 +1117,7 @@ def stop_action(a):
 
 
 def observation_args(root, args, parse):
-    a = parse() if stop_candidate(args) else None
+    a = parse_stop_candidate(args, parse)
     if (a is None or not stop_action(a)) and native_settings_migration_pending(root):
         return None
     return a if a is not None else parse()
@@ -1382,7 +1386,7 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
                 return probe(root, TERMINAL_CLI, args)
             return terminal_args(root, args)
 
-        a = parse() if not managed_setup and stop_candidate(args) else None
+        a = None if managed_setup else parse_stop_candidate(args, parse)
         if a is None or not stop_action(a):
             try:
                 migrate_native_settings(root)

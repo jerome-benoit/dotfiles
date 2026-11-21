@@ -99,7 +99,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +131,326 @@
+@@ -73,176 +131,346 @@
          os.close(fd)
  
  
@@ -296,10 +296,30 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -    finally:
 -        shutil.rmtree(private, ignore_errors=True)
 -    return target
-+    # A linked plugin may contain the snapshot store, even under another name.
++    source_root = plugin_dir.resolve()
 +    root = _process_snapshot_root()
-+    active_store = root if root.name.startswith(_TEMP_ROOT_PREFIX) else root.parent
-+    storage = {active_store, _persistent_store().resolve()}
++    stores = {_persistent_store().resolve()}
++    if not root.name.startswith(_TEMP_ROOT_PREFIX):
++        stores.add(root.parent)
++    # A store outside the source ancestry can be skipped wholesale, including through aliases.
++    overlapping = {store for store in stores if source_root.is_relative_to(store)}
++    whole = (stores - overlapping) | {root}
++    root_prefixes = (_OWNED_PREFIX, _UNSWEPT_PREFIX, _REAPING_PREFIX)
++
++    def is_storage(path: Path) -> bool:
++        if any(path.is_relative_to(store) for store in whole):
++            return True
++        for store in overlapping:
++            if not path.is_relative_to(store):
++                continue
++            parts = path.relative_to(store).parts
++            # Keep plugin payload inside an overlapping store, but not aliases back to it
++            # or entries in the store's reserved root and lock namespaces.
++            if not parts or parts[0] == _SETUP_LOCK:
++                return True
++            if parts[0].startswith(root_prefixes) and (store / parts[0]).is_dir():
++                return True
++        return False
 +
 +    def ignore(directory: str, names: list[str]) -> set[str]:
 +        source = Path(directory)
@@ -307,14 +327,14 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        for name in names:
 +            if name not in excluded:
 +                path = (source / name).resolve()
-+                if any(path.is_relative_to(store) for store in storage):
++                if is_storage(path):
 +                    excluded.add(name)
 +        return excluded
 +
 +    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=root))
 +    try:
 +        copied = private / plugin_dir.name
-+        shutil.copytree(plugin_dir.resolve(), copied, ignore=ignore)
++        shutil.copytree(source_root, copied, ignore=ignore)
 +        fingerprint = tree_fingerprint(copied)
 +        target = root / f"{module_prefix}_{fingerprint}" / plugin_dir.name
 +        if not target.is_dir():

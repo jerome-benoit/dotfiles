@@ -60,14 +60,14 @@ class ManagedConsumers(importlib.abc.MetaPathFinder):
         repository = Path(repository).resolve()
         if fullname == "strata_cli.ram_budget_move":
             for root in (repository, repository / "terminal"):
-                package = root / "strata_cli"
+                package = (root / "strata_cli").resolve()
                 if any(Path(item).resolve() == package for item in path):
                     source = package / "ram_budget_move.py"
                     if source.is_file():
                         loader = LauncherOwnedMigration(fullname, str(source))
                         return importlib.util.spec_from_file_location(fullname, source, loader=loader)
             return None
-        packages = {repository / "strata_control", repository / "terminal" / "strata_control"}
+        packages = {(root / "strata_control").resolve() for root in (repository, repository / "terminal")}
         if not any(Path(item).resolve() in packages for item in path):
             return None
         return importlib.util.spec_from_file_location(fullname, DIRECTORY / (fullname.rsplit(".", 1)[1] + ".py"))
@@ -588,7 +588,7 @@ def config_locks(*folders):
     """Lock already canonical subtrees without writing into runtime directories."""
     roots = set()
     modes = {}
-    # Path order places ancestors before descendants; choose every mode up front.
+    # Use path ancestry to discard requests already covered by an exclusive root.
     for folder in sorted(set(folders)):
         # An exclusive ancestor already covers all descendant writers.
         if any(parent in roots for parent in folder.parents):
@@ -597,14 +597,52 @@ def config_locks(*folders):
         modes[folder] = fcntl.LOCK_EX
         for parent in folder.parents:
             modes.setdefault(parent, fcntl.LOCK_SH)
+
+    while True:
+        with _config_lock_snapshot(modes) as (descriptors, locked_roots, identities):
+            # A publisher may move directories while we wait for its lock.
+            # Reorder and reacquire the whole set if the snapshot changed.
+            if all(_config_directory_identity(folder) == identity for folder, identity in identities.items()):
+                yield descriptors, locked_roots
+                return
+
+
+def _config_directory_identity(folder):
+    try:
+        info = folder.stat(follow_symlinks=False)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return (info.st_dev, info.st_ino) if stat.S_ISDIR(info.st_mode) else None
+
+
+@contextmanager
+def _config_lock_snapshot(modes):
     with ExitStack() as stack:
-        descriptors = []
+        locks = {}
+        identities = {}
         locked_roots = set()
-        for folder, mode in sorted(modes.items()):
+        guards = set()
+        # Open from descendants to ancestors so an unreadable shared ancestor
+        # can promote its nearest lockable ancestor to an exclusive guard.
+        for folder, mode in sorted(modes.items(), reverse=True):
             # A checkout can create a missing destination under its locked root.
             try:
                 fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             except (FileNotFoundError, NotADirectoryError):
+                # A vanished guard cannot cover the denied directory.
+                if folder in guards:
+                    raise
+                identities[folder] = None
+                continue
+            except PermissionError:
+                if (mode == fcntl.LOCK_EX or folder == folder.parent
+                        or os.access(folder, os.W_OK, effective_ids=os.access in os.supports_effective_ids)):
+                    # Do not omit a writable directory that another alias could lock.
+                    raise
+                # Direct use of this unreadable directory is refused. Guard
+                # against another process with read access via this ancestry.
+                identities[folder] = _config_directory_identity(folder)
+                guards.add(folder.parent)
                 continue
             if fd < 3:
                 try:
@@ -613,11 +651,20 @@ def config_locks(*folders):
                     os.close(fd)
                 fd = reserved
             stack.callback(os.close, fd)
-            fcntl.flock(fd, mode)
-            descriptors.append(fd)
+            info = os.fstat(fd)
+            identity = (info.st_dev, info.st_ino)
+            identities[folder] = identity
             if mode == fcntl.LOCK_EX:
                 locked_roots.add(folder)
-        yield tuple(descriptors), locked_roots
+            if folder in guards:
+                mode = fcntl.LOCK_EX
+            if identity not in locks or mode == fcntl.LOCK_EX:
+                locks[identity] = (fd, mode)
+        descriptors = []
+        for _, (fd, mode) in sorted(locks.items()):
+            fcntl.flock(fd, mode)
+            descriptors.append(fd)
+        yield tuple(descriptors), locked_roots, identities
 
 
 @contextmanager
@@ -799,7 +846,7 @@ def ram_budget_candidate(path):
     return path.match("strata-*.json") and not path.name.endswith(".shared-settings.json")
 
 
-def _runtime_marker_plan(source, destination):
+def _runtime_marker_plan(source, destination, pairs):
     old, new = source / RAM_BUDGET_MARK, destination / RAM_BUDGET_MARK
     old_regular, new_regular = _regular_file(old), _regular_file(new)
     if old.is_symlink() or (old_regular and not new_regular and os.path.lexists(new)):
@@ -810,8 +857,23 @@ def _runtime_marker_plan(source, destination):
     incoming = any(ram_budget_candidate(path) and (path.is_file() or path.is_symlink())
                    for path in source.glob("strata-*.json"))
     if new_regular:
-        # Two receipts cannot prove a newly combined folder was inspected. Recheck
-        # incoming config candidates; when none arrive, keep the destination receipt.
+        # A stationary alias can start pointing at an eligible config when
+        # its payload moves under the destination, including a dangling alias
+        # that already names the payload's future location.
+        if not incoming and pairs:
+            root = destination.resolve()
+            moves = [(old.parent.resolve() / old.name, new.parent.resolve() / new.name) for old, new in pairs]
+            reverse_moves = [(new, old) for old, new in moves]
+            for path in destination.glob("strata-*.json"):
+                if not ram_budget_candidate(path) or not path.is_symlink():
+                    continue
+                target = path.resolve()
+                if target.is_relative_to(root) and target.is_file():
+                    continue
+                projected = relocated_path(target, moves)
+                if projected.is_relative_to(root) and relocated_path(projected, reverse_moves).is_file():
+                    incoming = True
+                    break
         return [], [path for path, retire in ((old, old_regular), (new, incoming)) if retire]
     if incoming and not any(ram_budget_candidate(path) for path in destination.glob("strata-*.json")):
         return [(old, new)], []
@@ -828,8 +890,6 @@ def _runtime_layout_plan(repository, *, reverse):
                            else (repository, repository / "terminal"))
     pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
              for path in sorted(source.glob(pattern)) if path.is_file() or path.is_symlink()]
-    markers, retired = _runtime_marker_plan(source, destination)
-    pairs += markers
     # Rollback copies are opaque payloads, not config or link-edit consumers.
     pattern = rf"(strata-.*\.json(?:\.bak|{re.escape(RAM_BUDGET_BACKUP)}))(?:\.[0-9]+)?"
     backups = [(path, match[1]) for path in sorted(source.glob("strata-*.json*.bak*"))
@@ -856,6 +916,8 @@ def _runtime_layout_plan(repository, *, reverse):
                else (repository / name, repository / "engine" / name)) for name in ENGINE_BUILDS
               if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()
               or ((repository / "engine" / name) if reverse else (repository / name)).is_symlink()]
+    markers, retired = _runtime_marker_plan(source, destination, pairs)
+    pairs += markers
     return pairs, retired
 
 

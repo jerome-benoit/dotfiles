@@ -214,6 +214,51 @@ def linked_snapshot_storage(fixture):
             "retained_provider": "one", "new_provider": "second"}
 
 
+def overlapping_snapshot_storage(fixture, *, equal):
+    reloader = fixture.reloader
+    storage = reloader._persistent_store()
+    storage.parent.mkdir(parents=True, exist_ok=True)
+    source = storage if equal else storage / "source"
+    if not equal:
+        storage.mkdir()
+    fixture.generation("one", mutable=True).rename(source)
+    fixture.install(source)
+
+    artifact = storage / f"{reloader._UNSWEPT_PREFIX}old"
+    artifact.mkdir()
+    (artifact / "marker").write_text("old snapshot")
+    (source / "snapshot-alias").symlink_to(artifact / "marker")
+    (source / "store-alias").symlink_to(storage, target_is_directory=True)
+    payload = source / "assets" / artifact.name
+    payload.mkdir(parents=True)
+    (payload / "marker").write_text("plugin payload")
+    payload_file = source / f"{reloader._OWNED_PREFIX}asset.txt"
+    payload_file.write_text("not a snapshot directory")
+
+    old = fixture.profile()
+    assert fixture.headers(old) == "one"
+    root = reloader._snapshot_root
+    assert root.parent == storage.resolve()
+    [copied] = root.glob("*/review-provider")
+    assert (copied / "assets" / artifact.name / "marker").read_text() == "plugin payload"
+    assert (copied / payload_file.name).read_text() == "not a snapshot directory"
+    for name in (root.name, reloader._SETUP_LOCK, artifact.name, "snapshot-alias", "store-alias"):
+        assert not (copied / name).exists(), name
+
+    (artifact / "marker").write_text("changed snapshot")
+    (source / "active-root-alias").symlink_to(root, target_is_directory=True)
+    fixture.refresh()
+    assert fixture.profile() is old
+    assert list(root.glob("*/review-provider")) == [copied]
+
+    (source / "version.json").write_text(json.dumps({"version": "second"}))
+    fixture.refresh()
+    assert fixture.headers(fixture.profile()) == "second"
+    assert fixture.headers(old) == "one"
+    assert not list(root.glob(".copy-*"))
+    return {"storage": "equal" if equal else "ancestor", "old_provider": "one", "new_provider": "second"}
+
+
 def removal_and_failure(fixture):
     one = fixture.generation("one")
     broken = fixture.generation("broken", tail='raise RuntimeError("broken release")')
@@ -1148,6 +1193,8 @@ def run_case(case, plugin):
             result = resource_identity(fixture)
         elif case == "linked-snapshot-storage":
             result = linked_snapshot_storage(fixture)
+        elif case in {"equal-snapshot-storage", "ancestor-snapshot-storage"}:
+            result = overlapping_snapshot_storage(fixture, equal=case.startswith("equal-"))
         elif case == "failure-removal":
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
@@ -1231,6 +1278,12 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_linked_provider_excludes_canonical_snapshot_storage(self):
         self.run_case("linked-snapshot-storage")
+
+    def test_linked_provider_can_equal_snapshot_storage(self):
+        self.run_case("equal-snapshot-storage")
+
+    def test_linked_provider_can_be_inside_snapshot_storage(self):
+        self.run_case("ancestor-snapshot-storage")
 
     def test_failed_and_empty_versions(self):
         self.run_case("failure-removal")

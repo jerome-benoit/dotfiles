@@ -2121,6 +2121,116 @@ assert not (root / "strata-pending.json").exists()
                 for config in configs:
                     (root / config.name).unlink()
 
+    def test_layout_rechecks_stationary_config_aliases_to_relocated_payloads(self):
+        root = self.prepare(self.new)
+        repository = root.parent
+        for target in ("../packs/settings.json", "packs/settings.json"):
+            with self.subTest(target=target):
+                marker = root / "ram-budget-0217.done"
+                marker.touch()
+                payload = repository / "packs/settings.json"
+                payload.parent.mkdir()
+                payload.write_text('{"args": ["--resident-budget-gib", "40"]}')
+                alias = root / "strata-link.json"
+                alias.symlink_to(target)
+                self.assertEqual(self.prepare(self.new), root)
+                self.assertFalse(marker.exists())
+                self.assertEqual(alias.resolve(strict=True), root / "packs/settings.json")
+                alias.unlink()
+                shutil.rmtree(root / "packs")
+
+    def test_config_locks_merge_inode_aliases_and_guard_search_only_parents(self):
+        self.run_source_script(self.base, r'''
+import fcntl
+import os
+from pathlib import Path
+from unittest.mock import patch
+import strata_managed_state as state
+
+base = Path.cwd()
+parent = base / "search-only"
+child = parent / "child"
+child.mkdir(parents=True)
+alias = base / "alias"
+alias.mkdir()
+open_dir, flock = os.open, fcntl.flock
+
+def aliased_open(path, flags):
+    # Model a mount alias: an exclusive root and shared ancestor open the same inode.
+    return open_dir(parent if path == alias else path, flags)
+
+stat_dir = Path.stat
+def aliased_stat(path, **kwargs):
+    return stat_dir(parent if path == alias else path, **kwargs)
+
+identity = (parent.stat().st_dev, parent.stat().st_ino)
+calls = []
+def nonblocking(fd, mode):
+    info = os.fstat(fd)
+    calls.append(((info.st_dev, info.st_ino), mode))
+    flock(fd, mode | fcntl.LOCK_NB)
+
+with patch.object(os, "open", side_effect=aliased_open), patch.object(Path, "stat", aliased_stat), \
+     patch.object(fcntl, "flock", side_effect=nonblocking):
+    with state.config_locks(alias, child) as (fds, roots):
+        assert roots == {alias, child}, roots
+        assert len(fds) == len({key for key, _ in calls}), calls
+        assert [mode for key, mode in calls if key == identity] == [fcntl.LOCK_EX], calls
+
+def search_only_open(path, flags):
+    if path == parent:
+        raise PermissionError("search-only")
+    return open_dir(path, flags)
+
+with patch.object(os, "open", side_effect=search_only_open):
+    parent.chmod(0o100)
+    with patch.object(os, "access", return_value=False):
+        with state.config_locks(child) as (_, roots):
+            assert roots == {child}, roots
+            fd = open_dir(base, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                try:
+                    flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass
+                else:
+                    raise AssertionError("search-only boundary did not guard its parent")
+            finally:
+                os.close(fd)
+        try:
+            with state.config_locks(parent):
+                raise AssertionError("unreadable root unexpectedly locked")
+        except PermissionError:
+            pass
+    parent.chmod(0o300)
+    try:
+        with patch.object(os, "access", return_value=True), state.config_locks(child):
+            raise AssertionError("unreadable writable ancestor was omitted")
+    except PermissionError:
+        pass
+    finally:
+        parent.chmod(0o700)
+''')
+
+    def test_managed_migration_finder_masks_canonical_package_alias(self):
+        self.run_source_script(self.base, r'''
+import os
+from pathlib import Path
+import strata_managed_state as state
+
+base = Path.cwd()
+repository = base / "source"
+terminal = repository / "terminal"
+terminal.mkdir(parents=True)
+package = base / "package"
+package.mkdir()
+(terminal / "strata_cli").symlink_to(package, target_is_directory=True)
+(package / "ram_budget_move.py").write_text("raise AssertionError('launcher owns migration')\n")
+os.environ["STRATA_MANAGED_SOURCE"] = str(repository)
+spec = state.ManagedConsumers().find_spec("strata_cli.ram_budget_move", [str(package)])
+assert isinstance(spec.loader, state.LauncherOwnedMigration), spec
+''')
+
     def test_native_managed_runtime_layout_renames_and_inverse_preserve_payload_identity(self):
         self.state = self.base / "native runtime's workspace with spaces"
         root = self.prepare(self.old)
@@ -3780,17 +3890,22 @@ if role == "layout":
         assert outcome == "commit"
 else:
     flock = workspace.fcntl.flock
+    contended = False
 
     def observe(fd, flags):
+        global contended
         if not os.path.samestat(os.fstat(fd), repository.stat()):
             return flock(fd, flags)
         assert flags == workspace.fcntl.LOCK_SH
         try:
             flock(fd, flags | workspace.fcntl.LOCK_NB)
         except BlockingIOError:
+            contended = True
             print("migration contended", flush=True)
             flock(fd, flags)
         else:
+            if contended:  # The restored directory may require a new inode snapshot.
+                return
             raise AssertionError("layout released its canonical lock before settling")
 
     folder = migration_state / "source"
@@ -3950,8 +4065,8 @@ def _load_setup():
                                             capture_output=True, text=True, timeout=5)
                     self.assertEqual(result.returncode, 73, result.stderr + result.stdout)
                     self.assertFalse(witness.exists())
-                for args in (["--help"], ["runtime", "stop", "--help"],
-                             ["runtime", "stop", "--hel"], ["runtime", "stop", "--h"]):
+                for args in (["--help"], ["runtime", "stop", "--help"], ["runtime", "stop", "-hh"],
+                             ["runtime", "stop", "--hel"], ["runtime", "stop", "--h"], ["launch", "--stop", "-hh"]):
                     witness.unlink(missing_ok=True)
                     result = subprocess.run(self.command(self.new) + ["run", *args], env=self.env,
                                             capture_output=True, text=True, timeout=30)
@@ -4151,6 +4266,7 @@ with Home() as isolated:
     # An explicit feed that offers a tuned pack must also drive acquisition.
     runner.s.model_path = None
     runner.feed = str(isolated.base / "signed-feed")
+    runner.look_up_feed = True
     directories = catalog.launch_directories("qwen", "IQ3_XXS", data_dir=str(data))
     def offered(*, feed, **_):
         return feed == runner.feed
@@ -4166,10 +4282,14 @@ with Home() as isolated:
          patch.object(drafting, "needs_conversion", return_value=False), \
          patch.object(drafting, "tuned_applies", return_value=True), \
          patch.object(drafting, "installed_engine_exe", return_value=None), \
-         patch.object(drafting_fetch, "tuned_offered", side_effect=offered), \
-         patch.object(drafting_fetch, "ensure_for", side_effect=acquire):
+         patch.object(drafting_fetch, "tuned_offered", side_effect=offered) as lookup, \
+         patch.object(drafting_fetch, "ensure_for", side_effect=acquire) as fetch:
         part = runner.drafter_part(directories=directories)
         runner.ensure_drafter(config)
+    lookup.assert_called_once()
+    assert lookup.call_args.kwargs["feed"] == runner.feed, lookup.call_args
+    fetch.assert_called_once()
+    assert fetch.call_args.kwargs["feed"] == runner.feed, fetch.call_args
     assert part["tuned"] and part["gb"] < drafting.DOWNLOAD_GB, part
     assert not runner.notices, runner.notices
 '''
@@ -4316,7 +4436,18 @@ def forecast_hash_boundary(terminal_root):
             changed = checkpoint / next(iter(contents))
             before = changed.read_bytes()
             changed.write_bytes(b"X" + before[1:])  # Same size; the pinned SHA is now invalid.
-            public = runner.plan()  # Same Runner, a fresh public forecast after changed bytes.
+            remaining = []
+            model_state = runner.model_state
+
+            def observe_state(**kwargs):
+                state = model_state(**kwargs)
+                remaining.extend(round(part.gb * 1e9) for part in state.parts if part.kind == "weights")
+                return state
+
+            # The public display rounds tiny fixtures away; inspect the same plan's raw weight budget.
+            with patch.object(runner, "model_state", side_effect=observe_state):
+                public = runner.plan()  # Same Runner, fresh forecast after changed bytes.
+            assert remaining and set(remaining) == {len(before)}, remaining
             assert public["download"]["gb"] is not None, public
             assert hashed == Counter({path: 3 for path in expected}), hashed
             assert changed.read_bytes() == b"X" + before[1:], "forecast altered invalid bytes"
