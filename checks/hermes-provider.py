@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 
@@ -12,16 +13,20 @@ with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
     home = Path(temporary)
     state = home / "hermes"
     destination = state / "plugins" / "github-copilot"
-    # Home Manager recursively links files into user-owned directories.
-    for directory, dirs, files in os.walk(plugin):
-        source = Path(directory)
-        target = destination / source.relative_to(plugin)
-        target.mkdir(parents=True, exist_ok=True)
-        for name in files:
-            (target / name).symlink_to(source / name)
-        for name in dirs:
-            if (source / name).is_symlink():
-                (target / name).symlink_to(source / name, target_is_directory=True)
+
+    def project(source, target):
+        target.mkdir(parents=True)
+        subprocess.run([sys.argv[2], "-silent", *sys.argv[3:], source, target], check=True)
+
+    source = home / "source" / "relative-plugin"
+    source.mkdir(parents=True)
+    (source.parent / "common.py").write_text("VALUE = 1\n")
+    (source / "__init__.py").symlink_to("../common.py")
+    projection = home / "projected" / source.name
+    project(source, projection)
+    assert (projection / "__init__.py").read_text() == "VALUE = 1\n"
+
+    project(plugin, destination)
     (state / "config.yaml").write_text("model:\n  provider: nous\n")
     os.environ.clear()
     os.environ.update(HOME=str(home), HERMES_HOME=str(state), PATH=os.defpath)

@@ -391,6 +391,8 @@ in
           inherit source;
           # Hermes moves its copied plugin root; a store directory retains read-only modes.
           recursive = true;
+          # Resolve relative symlinks from the plugin source, not the projected tree.
+          ignorelinks = true;
         }
       ) cfg.plugins;
 

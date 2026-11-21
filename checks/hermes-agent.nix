@@ -248,7 +248,11 @@ pkgs.runCommand "check-hermes-agent"
   }
   ''
     ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
-      ${./hermes-provider.py} ${plugin}
+      ${./hermes-provider.py} ${plugin} ${pkgs.lndir}/bin/lndir ${
+        lib.optionalString
+          configuration.config.home.file."${configuration.config.services.hermes-agent.hermesHome}/plugins/github-copilot".ignorelinks
+          "-ignorelinks"
+      }
     # Run only public regressions for the source delta, one fresh installed process per file.
     # Copy tests alone: upstream child probes add their test root to PYTHONPATH.
     python3 - ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
