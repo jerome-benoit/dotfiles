@@ -52,24 +52,13 @@ let
   # Patch the workspace wheel, not the outer wrapper or its filtered lock source.
   runtimeOverlay = _final: previous: {
     hermes-agent = previous.hermes-agent.overrideAttrs (old: {
-      patches =
-        (old.patches or [ ])
-        ++ [
-          # Workaround: provider reloads lose complete versions and leak read-only snapshots.
-          # Remove when upstream preserves frozen versions through publication, RPC and cleanup.
-          ../../../patches/hermes-agent-provider-reload.patch
-        ]
-        ++ lib.optionals miseEnabled [
-          # Workaround: local login profiles can put their tools ahead of inherited shims.
-          # Remove when Hermes provides an additive post-login PATH hook.
-          ../../../patches/hermes-agent-terminal-mise-shims.patch
-        ];
-      postPatch =
-        (old.postPatch or "")
-        + lib.optionalString miseEnabled ''
-          substituteInPlace tools/environments/local.py \
-            --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
-        '';
+      # Workaround: local login profiles can put their tools ahead of inherited shims.
+      # Remove when Hermes provides an additive post-login PATH hook.
+      patches = (old.patches or [ ]) ++ [ ../../../patches/hermes-agent-terminal-mise-shims.patch ];
+      postPatch = (old.postPatch or "") + ''
+        substituteInPlace tools/environments/local.py \
+          --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
+      '';
     });
   };
   baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override (
@@ -77,11 +66,10 @@ let
       callPackage =
         path: args:
         hermesCallPackage path (
-          # Workaround: runtime patches invalidate the icon interpreter and frontend builds.
-          # Remove when upstream separates icon dependencies from the runtime environment.
-          if toString path == "${inputs.hermes-agent}/nix/icons.nix" then
+          # The mise patch does not affect icon generation; keep the upstream interpreter there.
+          if miseEnabled && toString path == "${inputs.hermes-agent}/nix/icons.nix" then
             args // { venv = inputs.hermes-agent.packages.${system}.minimal.hermesVenv; }
-          else if toString path == "${inputs.hermes-agent}/nix/python.nix" then
+          else if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
             args
             // {
               uv2nix = args.uv2nix // {
@@ -99,26 +87,6 @@ let
                       };
                   };
                 };
-              };
-            }
-          else if
-            lib.elem (toString path) [
-              "${inputs.hermes-agent}/nix/desktop.nix"
-              "${inputs.hermes-agent}/nix/webapp.nix"
-            ]
-          then
-            args
-            // {
-              hermesNpmLib = args.hermesNpmLib // {
-                # Workaround: pending provider activation is not a next-chat tool report.
-                # Remove when the renderer classifies only tools and prompt sections here.
-                buildPnpmPackage =
-                  options:
-                  (args.hermesNpmLib.buildPnpmPackage options).overrideAttrs (old: {
-                    patches = (old.patches or [ ]) ++ [
-                      ../../../patches/hermes-agent-provider-activation-ui.patch
-                    ];
-                  });
               };
             }
           else
@@ -422,7 +390,12 @@ in
       # Workaround: upstream extraPlugins uses names its migration checks do not recognize.
       # Remove when upstream installs plugins under their canonical names.
       file = lib.mapAttrs' (
-        name: source: lib.nameValuePair "${configDir}/plugins/${name}" { inherit source; }
+        name: source:
+        lib.nameValuePair "${configDir}/plugins/${name}" {
+          inherit source;
+          # Hermes moves its copied plugin root; a store directory retains read-only modes.
+          recursive = true;
+        }
       ) cfg.plugins;
 
       # Workaround: Linux needs the stable secret link before reloadSystemd.

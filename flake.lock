@@ -163,6 +163,7 @@
       "original": {
         "owner": "NousResearch",
         "repo": "hermes-labs-plugins",
+        "rev": "46f6da9af0c4e9ad5a3c9444dfecfa5bf7debf76",
         "type": "github"
       }
     },

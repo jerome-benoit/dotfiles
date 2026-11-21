@@ -28,12 +28,6 @@ Each patch records its base, intent and prerequisites. Keep relevant upstream
 provenance and tracked issues; omit empty issue fields. Document a concrete
 replacement condition when applicable, not a circular condition for local policy.
 Proposals are not fixes in the pin, and partial coverage stays explicit.
-Hermes provider causes are tracked by #156556 (identity), #156557 (hosted RPC),
-#156558 (activation), #156559 (namespaces) and #156560 (readonly POSIX cleanup)
-in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrency
-coverage. The selected source supplies persistent owner-locked roots and reclamation
-(#156493); local read-only cleanup composes with that protocol. PR156209 is a
-historical persistence proposal, closed without merge; it does not supply reclamation.
 OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
@@ -50,9 +44,6 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
 - `patches/colibri-cuda-glibc.patch` — preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
 - `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
-- `patches/hermes-agent-provider-activation-ui.patch` — do not classify pending provider activation as next-chat tools or prompts.
-- `patches/hermes-agent-provider-reload.patch` — preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
-- `patches/hermes-agent-provider-update-tests.patch` — verify provider publication, structured errors and retained clients without pinning display wording. Check-only.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 - `patches/opencode-nvim-execution-lifecycle.patch` — register native OpenCode execution lifecycle events and map completion or interruption to idle status.
@@ -107,60 +98,18 @@ upstream deliberately applies 0600 instead.
 
 ### Hermes local terminal
 
-Keep the `hermes-agent` patch inside `nix/python.nix`'s workspace package overlay:
+Keep the mise shim patch inside `nix/python.nix`'s workspace package overlay:
 the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
 
-Provider discovery identifies the copied tree by names, modes and file contents,
-not source timestamps. Publish its writable staging parent, preserving the copied
-permissions. Cache only completed registrations, retain old versions for rollback
-and late calls, and never wait for an active import from a public lookup.
-Published registries are copied once per publication, not per lookup. Readers
-capture registry/alias state under the publication lock, then inspect profiles
-outside it. Never hold that lock across imports, callbacks or waits.
-Home scans use the registration ContextVar and restore its token in `finally`.
-Reserve the global discovery flag for process-wide initialization; it must not
-be saved/restored by concurrent home scans. Resolver and auth guards combine
-that global state with the current registration context.
-The per-home publication status is independent of scan completion: loading is
-reported as deferred, failed carries the current error, and only ready is active.
-Read status without rescanning, using the manager home; gateway status wins over
-backend status. Keep provider deferrals out of next-chat tools/prompt notices.
-Extraction and RPC must use the same frozen code; the host shares the complete
-version loader instead of replacing the process-wide registration function.
-Cleanup restores owner access only in owned copies, including before the host
-exits without atexit. Coordinate root allocation and publication with host
-shutdown without waiting for the sweep. Delete unswept roots directly.
-Rename owned persistent roots to reclaimable claims before deleting their
-owner markers. Only reclaim roots owned by the current UID. Keep unpublished
-allocations reclaimable until they have an owner lock. Distinguish lock
-contention from storage errors.
-Retry destination capacity failures in private temporary storage. Reject
-snapshot roots in Hermes scratch and profile trees. Reject persistent aliases
-into Hermes homes, where a data purge can remove the resolved target. Anchor
-copies to the opened store and filter reserved artifacts without changing the
-identity of the surrounding provider resources.
-Apply the wheel patch with or without mise.
-Interrupted imports discard only the failed module family before waking waiters.
-Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
-names do not expand internal storage components or collide after normalization.
-`checks/hermes-provider.py` exercises canonical Copilot discovery;
-`checks/hermes-provider-reload.py` covers generations, RPC, concurrency and exit
-cleanup against the installed interpreter. Copying then hashing guarantees the
-identity of the consumed copy, not an atomic multi-file update of a mutable source.
-Exercise both concurrent completion orders, subsequent resolver/auth discovery,
-import callbacks versus independent observers, failure/cancellation and the
-global pending-auth guard. Advance only the provider clock; do not sleep or
-mutate stamp caches to make those checks due.
+Apply the patch only when gateway mise integration is enabled.
+`checks/hermes-provider.py` exercises canonical Copilot discovery with
+Home Manager's recursive layout: writable directories and store-linked files.
 
 For source deltas in provider cache ceilings, cwd recovery, secret routing or
 offline TTS, copy only the selected upstream tests and run the installed wheel with
 isolated Python imports. Keep pytest tooling outside the runtime environment.
-Apply the check-only provider-update patch after copying its upstream test.
-Keep publication status, structured failures and v2/v4 client coverage; do not
-pin user-facing wording. The concurrent-list regression delays a real identity
-lookup while a newer generation publishes and verifies both coherent views.
 
 Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
 the configured mise package and returns PATH only; no path comes from the private
