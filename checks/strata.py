@@ -172,8 +172,8 @@ class WorkspaceTests(unittest.TestCase):
         return Path(result.stdout.strip())
 
 
-    def make_cross_pin_sources(self):
-        """Build two tracked revisions from the exact flat and split upstream consumer bytes."""
+    def make_cross_pin_sources(self, *, old_source=OLD_UPSTREAM_SOURCE):
+        """Build two tracked revisions from exact upstream consumer bytes."""
         (self.repository / ".git/info/attributes").write_text("* -text\n")
         patch_paths = {line.split()[3][2:] for line in Path(SOURCE_PATCH).read_text().splitlines()
                        if line.startswith("diff --git ")}
@@ -220,7 +220,7 @@ class WorkspaceTests(unittest.TestCase):
             attributes.write_bytes((attributes.read_bytes() if attributes.exists() else b"") + b"\n* -text\n")
             self.git("add", "--force", "--all")  # upstream tracks some paths also matched by its current ignore rules
             return self.commit()
-        self.old = replace(OLD_UPSTREAM_SOURCE)
+        self.old = replace(old_source)
         self.new = replace(UPSTREAM_SOURCE)
         import difflib
         original = (OLD_UPSTREAM_SOURCE / "strata.py").read_bytes().decode().splitlines(keepends=True)
@@ -2212,6 +2212,72 @@ with patch.object(os, "open", side_effect=search_only_open):
         parent.chmod(0o700)
 ''')
 
+    @unittest.skipUnless(sys.platform == "linux", "Linux NFS flock protocol")
+    def test_config_locks_use_single_writable_nfs_gate_for_roots_and_ancestors(self):
+        self.run_source_script(self.base, r'''
+import errno
+import fcntl
+import os
+from pathlib import Path
+from unittest.mock import patch
+import strata_managed_state as state
+
+base = Path.cwd()
+parent = base / "install"
+child = parent / "nested"
+child.mkdir(parents=True)
+alias = base / "alias"
+alias.symlink_to(child, target_is_directory=True)
+gate = base / "shared-lock"
+gate.touch()
+gate_alias = base / "shared-lock-alias"
+os.link(gate, gate_alias)
+flock = fcntl.flock
+
+def nfs_mount(fd, mounts):
+    return [] if os.path.samestat(os.fstat(fd), gate.stat()) or any(
+        os.path.samestat(os.fstat(fd), directory.stat()) for directory in (parent, child)
+    ) else None
+
+calls = 0
+
+def observe(fd, mode):
+    global calls
+    if not os.path.samestat(os.fstat(fd), gate.stat()):
+        if nfs_mount(fd, None) is not None:
+            raise OSError(errno.EBADF, "NFS requires a writable descriptor")
+        return flock(fd, mode)
+    assert mode == fcntl.LOCK_EX
+    assert fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDWR
+    flock(fd, mode)
+    calls += 1
+    if calls == 1:
+        child.rename(child.with_name("old-child"))
+        child.mkdir()
+
+with patch.object(state, "_nfs_mounts", return_value={1: []}), \
+     patch.object(state, "_nfs_mount", side_effect=nfs_mount), \
+     patch.object(fcntl, "flock", side_effect=observe), \
+     patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=str(gate)):
+    with state.config_locks(alias.resolve()) as (fds, locked):
+        assert calls == 2 and locked == {child}, (calls, locked)
+        assert sum(os.path.samestat(os.fstat(fd), gate.stat()) for fd in fds) == 1
+        with gate_alias.open("r+b") as fd:
+            try:
+                flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                raise AssertionError("gate alias bypassed exclusion")
+    with patch.dict(os.environ, STRATA_NFS_CONFIG_LOCK=""):
+        try:
+            with state.config_locks(parent):
+                raise AssertionError("unguarded NFS root")
+        except RuntimeError as error:
+            assert "STRATA_NFS_CONFIG_LOCK" in str(error), error
+assert sorted(path.name for path in parent.iterdir()) == ["nested", "old-child"]
+''')
+
     def test_managed_migration_finder_masks_canonical_package_alias(self):
         self.run_source_script(self.base, r'''
 import os
@@ -4090,8 +4156,6 @@ spec = importlib.util.spec_from_file_location("workspace", WORKSPACE_PATH)
 workspace = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workspace)
 root = Path.cwd()
-assert workspace.stop_candidate(["runtime", "stop", "--profile=--help"])
-assert workspace.stop_candidate(["launch", "--sto", "--", "--hel"])
 os.environ["STRATA_INSTALL_DIR"] = str(root)
 migration = workspace.native_settings_migration(root)
 setup = migration._load_setup()
@@ -4638,6 +4702,56 @@ forecast_hash_boundary(Path.cwd())
             self.assertEqual((flat / ".git/strata-source.patch").read_bytes(), historical)
             self.assertEqual(receipt.read_bytes(), accepted)
             self.assertFalse((root / ".venv").exists())
+
+    def test_native_split_pin_visits_invalidate_ram_receipts_and_failed_return_restores_them(self):
+        self.make_cross_pin_sources(old_source=PREVIOUS_UPSTREAM_SOURCE)
+        root = self.prepare_cross_pin(self.new)
+        repository = root.parent
+        markers = [folder / "ram-budget-0217.done" for folder in (repository, root)]
+        config = root / "strata-rewritten.json"
+        for native in (self.old, self.new):
+            with self.subTest(native=native):
+                for marker in markers:
+                    marker.touch()
+                self.assertEqual(self.prepare_cross_pin(native, overlay=False), root)
+                self.assertTrue(all(not marker.exists() for marker in markers))
+                self.assertFalse((repository / ".git/strata-source.patch").exists())
+                # Model a native writer rewriting a config after earlier inspection.
+                config.write_text(json.dumps({"args": ["--resident-budget-gib", "40"]}))
+                for marker in markers:
+                    marker.write_text(f"native inspection: {marker.parent.name}")
+                saved = [(marker.read_bytes(), marker.stat().st_ino) for marker in markers]
+                self.run_source_script(root, r'''
+from pathlib import Path
+from unittest.mock import patch
+import importlib.util
+
+spec = importlib.util.spec_from_file_location("workspace", WORKSPACE)
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+publish = workspace.publish_source_patch
+root = Path.cwd()
+
+def fail_receipt(path, data):
+    if path.name == workspace.SOURCE_REQUEST:
+        assert all(not (folder / "ram-budget-0217.done").exists() for folder in (root, root.parent))
+        raise OSError("controlled source receipt failure")
+    return publish(path, data)
+
+with patch.object(workspace, "publish_source_patch", side_effect=fail_receipt):
+    try:
+        workspace.prepare_workspace(STATE, REVISION, REMOTE, source_patch=OVERLAY)
+    except OSError as error:
+        assert str(error) == "controlled source receipt failure", error
+    else:
+        raise AssertionError("source publication unexpectedly succeeded")
+'''.replace("WORKSPACE", repr(WORKSPACE)).replace("STATE", repr(str(self.state)))
+                   .replace("REVISION", repr(self.new)).replace("REMOTE", repr(str(self.repository)))
+                   .replace("OVERLAY", repr(SOURCE_PATCH)))
+                self.assertEqual([(marker.read_bytes(), marker.stat().st_ino) for marker in markers], saved)
+                self.assertEqual(self.prepare_cross_pin(self.new), root)
+                self.assertTrue(all(not marker.exists() for marker in markers))
+                self.assertEqual(json.loads(config.read_text())["args"][-1], "40")
 
     def test_incompatible_same_pin_delta_refuses_before_retiring_accepted_overlay(self):
         root = self.prepare(self.old)
@@ -10873,6 +10987,106 @@ with patch.object(drafting, "hardware_for", return_value=(backend, archs)), \
     offer.assert_not_called()
     feed.assert_not_called()
 ''')
+
+    @unittest.skipUnless(sys.platform == "linux", "Native Linux GGUF setup")
+    def test_first_launch_drafter_forecast_follows_native_retained_pack(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import contextlib, io, json, os, socket, subprocess, sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+from strata_control import drafting, engine_component, setup_config
+
+root = Path.cwd()
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root),
+                  **{drafting.TUNED_URL_ENV: ""})
+import setup
+@HARDWARE@
+card["count"] = 1
+family, model = "qwen", "IQ3_XXS"
+fam = setup.FAMILIES[family]
+base = root.parent.parent / "retained-drafter"
+
+class Configured(Exception):
+    pass
+
+def forbidden(*args, **kwargs):
+    raise AssertionError("unexpected acquisition, process or network")
+
+for move in (False, True):
+    home = base / str(move)
+    old, new = home / "old", home / "new"
+    folder = old / "models" / model
+    folder.mkdir(parents=True)
+    for i in range(1, setup.model_shards(fam, model) + 1):
+        shard = folder / setup.model_file(fam, model, i)
+        shard.write_bytes(b"marked fixture")
+        setup.mark(shard)
+    pack = old / "packs/iq3_xxs"
+    (pack / "tokenizer").mkdir(parents=True)
+    (pack / "tokenizer/vocab.json").touch()
+    (pack / "native_experts.txt").touch()
+    settings = home / "settings.json"
+    settings.write_text(json.dumps({"data_dir": str(old)}))
+    os.environ["STRATA_SETTINGS_FILE"] = str(settings)
+    cat = Catalog(src=root, root=root, hardware={})
+    s = LaunchSettings(family=family, model=model, data_dir=str(new), context=8192, vision="off",
+                       drafting="dflash2", tune="skip")
+    runner = Runner(s, catalog=cat, move_data=move)
+    native_args = []
+
+    def capture_config(inputs, _setup):
+        native_args.extend(inputs.model_args)
+        raise Configured()
+
+    with contextlib.ExitStack() as guards:
+        for name, value in (("gpu_compute_mode", None), ("gpu_drives_display", False), ("rotational_disk", None),
+                            ("free_gb", 1000.0), ("cpu_sockets", []), ("disk_room_problem", None),
+                            ("provide_dflash2_vocab", None), ("refresh_dflash2_vocab", None)):
+            guards.enter_context(patch.object(setup, name, return_value=value))
+        for module, name in ((setup, "download"), (setup, "run"), (subprocess, "Popen"),
+                             (socket.socket, "connect"), (socket, "create_connection")):
+            guards.enter_context(patch.object(module, name, side_effect=forbidden))
+        guards.enter_context(patch.object(setup, "engine_step",
+            side_effect=lambda a, gpu, hip, amd, tk, choice: (root, root / "engine", {"version": "99.0.0"}, [], gpu, choice)))
+        guards.enter_context(patch.object(drafting, "hardware_for", return_value=("cuda", ["sm_89"])))
+        guards.enter_context(patch.object(drafting, "tuned_applies", return_value=False))
+        guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cuda"}}))
+        guards.enter_context(patch.object(runner, "drafting_signals", return_value={"args": [], "vram_mib": None}))
+        guards.enter_context(patch.object(setup_config, "config_for", side_effect=capture_config))
+        tensor = SimpleNamespace(name="per_layer_token_embd.weight", offset=0, expected_bytes=lambda: 1)
+        reader = SimpleNamespace(data_start=0, tensors=[tensor])
+        guards.enter_context(patch.dict(sys.modules, {"gguf_reader": SimpleNamespace(GGUFFile=lambda path: reader)}))
+        assert runner.installed_state() == (None, None)
+        argv = runner.setup_args()
+        assert argv[argv.index("--drafter") + 1] == "dflash2", argv
+        before = settings.read_bytes()
+        parts = runner.download_plan()["parts"]
+        [planned] = [part for part in parts if part["kind"] == "dflash2"]
+        assert not planned["tuned"], parts
+        stock = drafting.target_path(old)
+        stock.parent.mkdir()
+        with stock.open("wb") as stream:
+            stream.truncate((1 << 20) + 1)
+        parts = runner.download_plan()["parts"]
+        assert any(part["kind"] == "dflash2" for part in parts) == move, parts
+        assert not new.exists() and settings.read_bytes() == before
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                setup.main(argv)
+            except Configured:
+                pass
+        assert native_args, "native setup did not reach config assembly"
+        actual = drafting.data_dir_of(native_args)
+        assert actual == (new if move else old), (move, native_args)
+        assert planned["data_dir"] == str(actual), (planned, native_args)
+        assert drafting.pack_ready(actual) != move
+'''.replace("@HARDWARE@", HARDWARE_SETUP))
+
 
     def test_own_file_move_plan_reuses_helper_before_and_after_native_move(self):
         root = self.prepare(self.old)

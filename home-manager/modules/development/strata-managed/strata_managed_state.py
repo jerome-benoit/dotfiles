@@ -585,7 +585,7 @@ def namespace_fds():
 
 @contextmanager
 def config_locks(*folders):
-    """Lock already canonical subtrees without writing into runtime directories."""
+    """Lock canonical subtrees, using a shared regular-file gate on Linux NFS."""
     roots = set()
     modes = {}
     # Use path ancestry to discard requests already covered by an exclusive root.
@@ -615,6 +615,51 @@ def _config_directory_identity(folder):
     return (info.st_dev, info.st_ino) if stat.S_ISDIR(info.st_mode) else None
 
 
+def _nfs_mounts():
+    if sys.platform != "linux":
+        return {}
+    mounts = {}
+    with open("/proc/self/mountinfo", encoding="ascii", errors="surrogateescape") as stream:
+        for line in stream:
+            fields, filesystem = line.split(" - ", 1)
+            kind, _, options = filesystem.split()
+            if kind in ("nfs", "nfs4"):
+                mounts[int(fields.split(" ", 1)[0])] = options.split(",")
+    return mounts
+
+
+def _nfs_mount(fd, mounts):
+    if mounts:
+        with open(f"/proc/self/fdinfo/{fd}", encoding="ascii") as stream:
+            for line in stream:
+                if line.startswith("mnt_id:"):
+                    return mounts.get(int(line.split()[1]))
+        raise RuntimeError(f"Cannot identify Strata config lock mount for descriptor {fd}")
+    return None
+
+
+def _nfs_config_lock(stack, mounts):
+    # One gate covers both exclusive roots and shared ancestors. Per-root
+    # sidecars would let a child bypass an ancestor that has no sidecar yet.
+    path = Path(os.environ.get("STRATA_NFS_CONFIG_LOCK", ""))
+    if not path.is_absolute():
+        raise RuntimeError("Set STRATA_NFS_CONFIG_LOCK to an absolute path to a shared writable lock file for NFS")
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+    stack.callback(os.close, fd)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK is not a regular file: {path}")
+    options = _nfs_mount(fd, mounts)
+    if options is None:
+        raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK must reside on shared NFS storage: {path}")
+    if {"nolock", "local_lock=all", "local_lock=flock"}.intersection(options):
+        raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK requires server-side flock: {path}")
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    if not os.path.samestat(info, path.lstat()):
+        raise RuntimeError(f"STRATA_NFS_CONFIG_LOCK was replaced: {path}")
+    return fd
+
+
 @contextmanager
 def _config_lock_snapshot(modes):
     with ExitStack() as stack:
@@ -622,6 +667,8 @@ def _config_lock_snapshot(modes):
         identities = {}
         locked_roots = set()
         guards = set()
+        mounts = _nfs_mounts()
+        nfs = False
         # Open from descendants to ancestors so an unreadable shared ancestor
         # can promote its nearest lockable ancestor to an exclusive guard.
         for folder, mode in sorted(modes.items(), reverse=True):
@@ -642,6 +689,14 @@ def _config_lock_snapshot(modes):
                 # Direct use of this unreadable directory is refused. Guard
                 # against another process with read access via this ancestry.
                 identities[folder] = _config_directory_identity(folder)
+                if mounts:
+                    probe = os.open(folder, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+                    try:
+                        if _nfs_mount(probe, mounts) is not None:
+                            nfs = True
+                            continue
+                    finally:
+                        os.close(probe)
                 guards.add(folder.parent)
                 continue
             if fd < 3:
@@ -656,11 +711,14 @@ def _config_lock_snapshot(modes):
             identities[folder] = identity
             if mode == fcntl.LOCK_EX:
                 locked_roots.add(folder)
+            if _nfs_mount(fd, mounts) is not None:
+                nfs = True
+                continue
             if folder in guards:
                 mode = fcntl.LOCK_EX
             if identity not in locks or mode == fcntl.LOCK_EX:
                 locks[identity] = (fd, mode)
-        descriptors = []
+        descriptors = [_nfs_config_lock(stack, mounts)] if nfs else []
         for _, (fd, mode) in sorted(locks.items()):
             fcntl.flock(fd, mode)
             descriptors.append(fd)

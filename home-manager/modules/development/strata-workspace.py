@@ -326,6 +326,13 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 moved.extend(migrate_layout(state, terminal_root(root), lock_fd,
                                             publication_fd=publication_lock.fileno(), config_fds=config_fds,
                                             reference_moves=engine_link.reference_moves()))
+                if not applied or desired is None:
+                    # Native writers do not maintain the managed inspection receipt.
+                    # Clear both layout locations inside the checkpoint, after relocation.
+                    for folder in (root, root / "terminal"):
+                        marker = folder / managed_state.RAM_BUDGET_MARK
+                        if migration_complete(marker):
+                            marker.unlink()
                 if not target_terminal:
                     cmake_metadata.invalidate(root)
                 for cached_revision, text in publications:

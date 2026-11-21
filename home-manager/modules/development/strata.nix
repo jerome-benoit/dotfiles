@@ -69,6 +69,11 @@ in
         Source publication protects command initialization; direct upstream scripts
         outside this launcher do not participate in these protections.
 
+        On Linux NFS with server-side locking, set STRATA_NFS_CONFIG_LOCK to the
+        absolute path of an existing writable regular file on NFS. Every client
+        sharing the managed directories must use the same lock file. Keep it
+        outside the movable layout and do not replace or unlink it.
+
         Other workspace contents remain user-owned. Changing this path does not
         migrate the workspace.
       '';

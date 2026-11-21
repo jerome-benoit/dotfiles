@@ -103,10 +103,13 @@ after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
 With the requested source prepared, runtime stop bypasses RAM-budget migration
-and the workspace mutation lease. Migration and layout changes share directory
-locks through publication or rollback. Acquire once per physical inode in a
-stable order. Keep migration backups separate from native `.bak` files.
-Metadata-only moves must not retire engine approval.
+and the workspace mutation lease. Keep migration and layout changes under the
+same locks through publication or rollback. Deduplicate local locks by inode
+and acquire them in a stable order. Linux NFS uses a shared writable regular
+lock file, not an exclusive lock on a read-only directory descriptor.
+Invalidate RAM migration receipts on pin changes even if the layout stays the
+same. Keep migration backups separate from native `.bak` files. Metadata-only
+moves must not retire engine approval.
 
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts

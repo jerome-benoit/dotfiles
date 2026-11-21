@@ -99,7 +99,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +131,346 @@
+@@ -73,176 +131,381 @@
          os.close(fd)
  
  
@@ -298,27 +298,62 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -    return target
 +    source_root = plugin_dir.resolve()
 +    root = _process_snapshot_root()
-+    stores = {_persistent_store().resolve()}
++    # Path.resolve removes symlinks but need not normalize case on POSIX.
++    # Compare actual directory identities, including every ancestor of an alias target.
++    def file_id(info: os.stat_result) -> tuple[int, int]:
++        return info.st_dev, info.st_ino
++
++    def ancestry(path: Path):
++        for entry in itertools.chain((path,), path.parents):
++            try:
++                yield entry, entry.stat()
++            except (FileNotFoundError, NotADirectoryError):
++                continue
++
++    stores = {}
++    configured = _persistent_store().resolve()
++    try:
++        info = configured.stat()
++    except (FileNotFoundError, NotADirectoryError, PermissionError):
++        pass
++    else:
++        # Fallback can leave the configured name pointing at an ordinary plugin asset.
++        if stat.S_ISDIR(info.st_mode):
++            stores[file_id(info)] = configured
 +    if not root.name.startswith(_TEMP_ROOT_PREFIX):
-+        stores.add(root.parent)
-+    # A store outside the source ancestry can be skipped wholesale, including through aliases.
-+    overlapping = {store for store in stores if source_root.is_relative_to(store)}
-+    whole = (stores - overlapping) | {root}
++        stores[file_id(root.parent.stat())] = root.parent
++
++    overlapping = {file_id(info) for _, info in ancestry(source_root)} & stores.keys()
++    whole = (stores.keys() - overlapping) | {file_id(root.stat())}
 +    root_prefixes = (_OWNED_PREFIX, _UNSWEPT_PREFIX, _REAPING_PREFIX)
++    reserved = {}
++    for key in overlapping:
++        members = reserved[key] = set()
++        store = stores[key]
++        with contextlib.suppress(FileNotFoundError, NotADirectoryError, PermissionError):
++            members.add(file_id((store / _SETUP_LOCK).lstat()))
++        # Discover the actual spelling of existing reserved directories. In particular,
++        # a case-variant symlink target need not have a lexically reserved prefix.
++        with contextlib.suppress(FileNotFoundError, PermissionError), os.scandir(store) as entries:
++            for entry in entries:
++                if entry.name.startswith(root_prefixes) and entry.is_dir(follow_symlinks=False):
++                    with contextlib.suppress(FileNotFoundError):
++                        members.add(file_id(entry.stat(follow_symlinks=False)))
 +
 +    def is_storage(path: Path) -> bool:
-+        if any(path.is_relative_to(store) for store in whole):
-+            return True
-+        for store in overlapping:
-+            if not path.is_relative_to(store):
-+                continue
-+            parts = path.relative_to(store).parts
-+            # Keep plugin payload inside an overlapping store, but not aliases back to it
-+            # or entries in the store's reserved root and lock namespaces.
-+            if not parts or parts[0] == _SETUP_LOCK:
++        child = None
++        for entry, info in ancestry(path):
++            key = file_id(info)
++            if key in whole:
 +                return True
-+            if parts[0].startswith(root_prefixes) and (store / parts[0]).is_dir():
-+                return True
++            if key in reserved:
++                if child is None:
++                    return True  # alias directly back to the overlapping store
++                name, child_info = child
++                if (name == _SETUP_LOCK or file_id(child_info) in reserved[key]
++                        or (name.startswith(root_prefixes) and stat.S_ISDIR(child_info.st_mode))):
++                    return True
++            child = entry.name, info
 +        return False
 +
 +    def ignore(directory: str, names: list[str]) -> set[str]:

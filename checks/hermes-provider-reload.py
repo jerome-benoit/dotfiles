@@ -259,6 +259,71 @@ def overlapping_snapshot_storage(fixture, *, equal):
     return {"storage": "equal" if equal else "ancestor", "old_provider": "one", "new_provider": "second"}
 
 
+def case_variant_snapshot_storage(fixture):
+    reloader = fixture.reloader
+    storage = reloader._persistent_store().resolve()
+    storage.mkdir(parents=True)
+    source = storage / "source"
+    fixture.generation("one", mutable=True).rename(source)
+    fixture.install(source)
+    artifact = storage / f"{reloader._UNSWEPT_PREFIX}old"
+    artifact.mkdir()
+    marker = artifact / "marker"
+    marker.write_text("old snapshot")
+    (source / "snapshot-alias").symlink_to(marker)
+    (source / "store-alias").symlink_to(storage, target_is_directory=True)
+
+    # Keep a resource whose name only resembles a reserved root on a sensitive volume.
+    payload = source / artifact.name.upper()
+    payload.mkdir()
+    (payload / "marker").write_text("plugin payload")
+
+    alternate_store = storage.with_name(storage.name.upper())
+    alternate_artifact = alternate_store / artifact.name.upper()
+    native = alternate_store.exists()
+    if not native:
+        # Exercise the same inode under both spellings on a case-sensitive test volume.
+        alternate_store.symlink_to(storage.name, target_is_directory=True)
+        alternate_artifact.symlink_to(artifact.name, target_is_directory=True)
+        distinct_store = storage.with_name(storage.name.capitalize())
+        distinct_store.mkdir()
+        (distinct_store / "marker").write_text("distinct directory")
+        (source / "distinct-store").symlink_to(distinct_store, target_is_directory=True)
+    assert alternate_store.samefile(storage) and alternate_artifact.samefile(artifact)
+    real_resolve = Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        resolved = real_resolve(path, *args, **kwargs)
+        # POSIX resolve can return the supplied spelling rather than the on-disk spelling.
+        if resolved == source:
+            return alternate_store / source.name
+        if resolved == storage and path.name == "store-alias":
+            return alternate_store
+        if resolved == marker:
+            return alternate_artifact / marker.name
+        if path.name == "active-root-alias":
+            return alternate_store / resolved.name
+        return resolved
+
+    with patch.object(Path, "resolve", resolve):
+        old = fixture.profile()
+        assert fixture.headers(old) == "one"
+        root = reloader._snapshot_root
+        assert root.parent.samefile(storage)
+        [copied] = root.glob("*/review-provider")
+        assert (copied / payload.name / "marker").read_text() == "plugin payload"
+        assert not (copied / "snapshot-alias").exists()
+        assert not (copied / "store-alias").exists()
+        if not native:
+            assert (copied / "distinct-store" / "marker").read_text() == "distinct directory"
+        (source / "active-root-alias").symlink_to(root, target_is_directory=True)
+        marker.write_text("changed snapshot")
+        fixture.refresh()
+        assert fixture.profile() is old
+        assert list(root.glob("*/review-provider")) == [copied]
+    return {"case_variant": "native" if native else "same-inode simulation", "storage": "excluded"}
+
+
 def removal_and_failure(fixture):
     one = fixture.generation("one")
     broken = fixture.generation("broken", tail='raise RuntimeError("broken release")')
@@ -818,6 +883,34 @@ def temporary_cleanup(fixture):
     return {"fallback_provider": "second", "retained_provider": "one", "explicit_cleanup": "complete"}
 
 
+def file_alias_storage_fallback(fixture):
+    runtime = fixture.home / "runtime"
+    fixture.generation("one", mutable=True).rename(runtime)
+    resource = runtime / "provider-data.txt"
+    resource.write_text("ordinary plugin resource")
+    alias = runtime / "provider-plugins"
+    alias.symlink_to(resource.name)
+    fixture.install(runtime)
+    temp = runtime / "system-tmp"
+    temp.mkdir()
+    with patch.object(tempfile, "tempdir", str(temp)):
+        old = fixture.profile()
+    root = fixture.reloader._snapshot_root
+    assert root.parent.samefile(temp)
+    [copied] = root.glob("*/review-provider")
+    for name in (resource.name, alias.name):
+        assert (copied / name).read_text() == "ordinary plugin resource"
+    (runtime / "version.json").write_text(json.dumps({"version": "second"}))
+    fixture.refresh()
+    assert fixture.headers(fixture.profile()) == "second"
+    assert fixture.headers(old) == "one"
+    fixture.reloader._cleanup_snapshots()
+    assert list(temp.iterdir()) == []
+    assert alias.is_symlink() and alias.samefile(resource)
+    assert resource.read_text() == "ordinary plugin resource"
+    return {"file_alias": "copied as payload", "fallback_cleanup": "complete"}
+
+
 def normal_exit(plugin, *, fallback=False):
     # Persistent copies live below the account root; retain it until exit so
     # fixture deletion cannot bypass the application's real cleanup hook.
@@ -1195,6 +1288,10 @@ def run_case(case, plugin):
             result = linked_snapshot_storage(fixture)
         elif case in {"equal-snapshot-storage", "ancestor-snapshot-storage"}:
             result = overlapping_snapshot_storage(fixture, equal=case.startswith("equal-"))
+        elif case == "case-variant-snapshot-storage":
+            result = case_variant_snapshot_storage(fixture)
+        elif case == "file-alias-storage-fallback":
+            result = file_alias_storage_fallback(fixture)
         elif case == "failure-removal":
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
@@ -1284,6 +1381,12 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_linked_provider_can_be_inside_snapshot_storage(self):
         self.run_case("ancestor-snapshot-storage")
+
+    def test_case_variant_snapshot_storage(self):
+        self.run_case("case-variant-snapshot-storage")
+
+    def test_file_alias_storage_fallback_preserves_payload(self):
+        self.run_case("file-alias-storage-fallback")
 
     def test_failed_and_empty_versions(self):
         self.run_case("failure-removal")
