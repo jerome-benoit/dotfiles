@@ -665,7 +665,7 @@ def host_cleanup_during_sweep(fixture):
 
 def another_snapshot_root(reloader):
     """Exercise allocation as a new process would, without replacing this fixture's live root."""
-    with patch.multiple(reloader, _snapshot_root=None, _snapshot_creator_pid=None):
+    with patch.multiple(reloader, _snapshot_root=None, _snapshot_creator_pid=None, _snapshot_store=None):
         return reloader._process_snapshot_root()
 
 
@@ -1112,6 +1112,88 @@ def file_alias_storage_fallback(fixture):
     return {"file_alias": "copied as payload", "fallback_cleanup": "complete"}
 
 
+def directory_alias_storage_fallback(fixture):
+    from pm import filesystem
+
+    reloader = fixture.reloader
+    runtime = reloader._persistent_store().parent
+    fixture.generation("one", mutable=True).rename(runtime)
+    resource = runtime / "provider-data"
+    resource.mkdir()
+    payload = resource / "asset.bin"
+    payload.write_bytes(b"provider\0resource")
+    payload.chmod(0o444)
+    alias = reloader._persistent_store()
+    alias.symlink_to(resource.name, target_is_directory=True)
+    artifacts = [resource / f"{prefix}old" for prefix in (
+        reloader._OWNED_PREFIX, reloader._UNSWEPT_PREFIX,
+        reloader._ALLOCATING_PREFIX, reloader._REAPING_PREFIX,
+    )]
+    for artifact in artifacts:
+        artifact.mkdir()
+        (artifact / "marker").write_text("existing snapshot")
+    setup = resource / reloader._SETUP_LOCK
+    setup.touch()
+    artifact_alias = runtime / "artifact-alias"
+    artifact_alias.symlink_to(artifacts[0] / "marker")
+    resource.chmod(0o555)
+    temp = runtime / "system-tmp"
+    temp.mkdir()
+    fixture.install(runtime)
+
+    # Force the real setup-lock failure even when the test runs with elevated privileges.
+    with patch.object(tempfile, "tempdir", str(temp)), patch.object(
+        filesystem, "lock_path", side_effect=OSError(errno.EROFS, "read-only snapshot destination", setup),
+    ) as lock_path:
+        assert fixture.headers(fixture.profile()) == "one"
+    lock_path.assert_called_once_with(setup.resolve(), timeout=reloader._SETUP_WAIT_SECONDS)
+    root = reloader._snapshot_root
+    assert root.parent.samefile(temp)
+    [copied] = root.glob("*/review-provider")
+    for name in (resource.name, alias.name):
+        assert list((copied / name).iterdir()) == [copied / name / payload.name]
+        assert (copied / name / payload.name).read_bytes() == b"provider\0resource"
+    assert not (copied / artifact_alias.name).exists()
+    assert not list((copied / temp.name).iterdir()), "active staging root entered the snapshot"
+    reloader._cleanup_snapshots()
+    assert not list(temp.iterdir())
+    assert alias.is_symlink() and alias.samefile(resource)
+    assert payload.read_bytes() == b"provider\0resource"
+    assert setup.exists() and all(artifact.is_dir() for artifact in artifacts)
+    return {"directory_alias": "copied as payload", "snapshot_artifacts": "excluded"}
+
+
+def profile_snapshot_storage_fallback(fixture):
+    from hermes_cli.data_cleanup import plan_data_removal, remove_data
+
+    reloader = fixture.reloader
+    profile_home = fixture.home / "profiles" / "work"
+    storage = profile_home / "snapshots"
+    storage.mkdir(parents=True)
+    alias = reloader._persistent_store()
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(storage, target_is_directory=True)
+    project = fixture.root / "project"
+    project.mkdir()
+    temp = fixture.root / "system-tmp"
+    temp.mkdir()
+    fixture.install(fixture.generation("one"))
+
+    with patch.object(tempfile, "tempdir", str(temp)):
+        old = fixture.profile()
+    root = reloader._snapshot_root
+    assert root.parent.samefile(temp)
+    assert not list(storage.iterdir()), "allocated persistent artifacts inside a deletable profile"
+    assert alias.parent.resolve() / alias.name in plan_data_removal(fixture.home, project).keep
+    storage = storage.resolve()
+    plan = plan_data_removal(profile_home, project)
+    assert storage in plan.remove
+    removed, failed = remove_data(plan)
+    assert storage in removed and not failed
+    assert fixture.headers(old) == "one"
+    return {"profile_storage": "rejected", "provider_after_profile_cleanup": "one"}
+
+
 def normal_exit(plugin, *, fallback=False, copy_fallback=False):
     # Persistent copies live below the account root; retain it until exit so
     # fixture deletion cannot bypass the application's real cleanup hook.
@@ -1513,6 +1595,10 @@ def run_case(case, plugin):
             result = case_variant_snapshot_storage(fixture)
         elif case == "file-alias-storage-fallback":
             result = file_alias_storage_fallback(fixture)
+        elif case == "directory-alias-storage-fallback":
+            result = directory_alias_storage_fallback(fixture)
+        elif case == "profile-snapshot-storage-fallback":
+            result = profile_snapshot_storage_fallback(fixture)
         elif case == "failure-removal":
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
@@ -1618,6 +1704,12 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_file_alias_storage_fallback_preserves_payload(self):
         self.run_case("file-alias-storage-fallback")
+
+    def test_directory_alias_storage_fallback_preserves_payload(self):
+        self.run_case("directory-alias-storage-fallback")
+
+    def test_profile_snapshot_storage_fallback_survives_cleanup(self):
+        self.run_case("profile-snapshot-storage-fallback")
 
     def test_failed_and_empty_versions(self):
         self.run_case("failure-removal")

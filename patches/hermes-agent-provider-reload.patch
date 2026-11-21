@@ -49,13 +49,14 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  _OWNED_PREFIX = "owned-"
  _UNSWEPT_PREFIX = "unswept-"
  _REAPING_PREFIX = f".reaping-{_OWNED_PREFIX}"
-@@ -53,6 +62,60 @@
+@@ -53,6 +62,61 @@
  # One directory per process for the frozen copies; removed on a normal exit, reclaimed later otherwise.
  _snapshot_root: Path | None = None
  _snapshot_lock = threading.Lock()
 +_ALLOCATING_PREFIX = ".allocating-owned-"
 +_TEMP_ROOT_PREFIX = "hermes-provider-plugins-"
 +_snapshot_creator_pid: int | None = None
++_snapshot_store: Path | None = None
 +_snapshot_fallback_root: Path | None = None
 +_CAPACITY_ERRORS = (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC))
 +_versions_lock = threading.Lock()
@@ -110,7 +111,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +136,474 @@
+@@ -73,176 +137,493 @@
          os.close(fd)
  
  
@@ -200,21 +201,28 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    return get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
 +
 +
-+def _new_root(claimed: list[Path]) -> Path:
-+    """Allocate a root and collect claims for deletion after allocation and publication."""
++def _new_root(claimed: list[Path]) -> tuple[Path, Path | None]:
++    """Allocate a root, report its opened persistent store, and collect claims."""
      from pm.filesystem import lock_path
++    from hermes_constants import named_profile_home
  
 -    parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
 +    try:
 +        parent = mkdir_under_hermes_home(_persistent_store()).resolve(strict=True)
++        # Profile deletion removes the entire profile, regardless of data-only exclusions.
++        profiles = get_default_hermes_root() / "profiles"
++        if named_profile_home(parent) is not None or (
++            profiles.is_dir() and any(ancestor.samefile(profiles) for ancestor in parent.parents)
++        ):
++            raise OSError(errno.EINVAL, "Snapshot storage is inside a deletable profile", parent)
 +    except OSError as exc:
-+        return _new_temporary_root(exc)
++        return _new_temporary_root(exc), None
      try:
          setup_fd = lock_path(parent / _SETUP_LOCK, timeout=_SETUP_WAIT_SECONDS)
      except PermissionError:  # another user's lock file: a home shared across UIDs
          setup_fd = None
 +    except OSError as exc:
-+        return _new_temporary_root(exc)
++        return _new_temporary_root(exc), None
      if setup_fd is None:
          # Without the setup lock a sweep could see this root before its owner lock is taken, so make it under a
          # name no sweep matches. It is still removed on a normal exit; after a crash it stays.
@@ -224,9 +232,10 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        try:
 +            root = Path(tempfile.mkdtemp(prefix=_UNSWEPT_PREFIX, dir=parent))
 +        except OSError as exc:
-+            return _new_temporary_root(exc)
++            return _new_temporary_root(exc), None
          atexit.register(_release_root, root, None, os.getpid())
-         return root
+-        return root
++        return root, parent
 -    claimed: list[Path] = []
      try:
 -        claimed = _claim_dead_roots(parent)
@@ -235,7 +244,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        try:
 +            root = Path(tempfile.mkdtemp(prefix=_ALLOCATING_PREFIX, dir=parent))
 +        except OSError as exc:
-+            return _new_temporary_root(exc)
++            return _new_temporary_root(exc), parent
 +        owner_fd = None
          try:
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
@@ -257,7 +266,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                    os.close(owner_fd)
 +
 +            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, errno.EIO, *_CAPACITY_ERRORS):
-+                return _new_temporary_root(exc)
++                return _new_temporary_root(exc), parent
              raise
 -        if owner_fd is None:
 -            shutil.rmtree(root, ignore_errors=True)
@@ -268,11 +277,12 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -        for claim in claimed:
 -            shutil.rmtree(claim, ignore_errors=True)
 -    atexit.register(_release_root, root, owner_fd, os.getpid())
-     return root
+-    return root
++    return root, parent
  
  
 +def _process_snapshot_root() -> Path:
-+    global _snapshot_root, _snapshot_creator_pid
++    global _snapshot_root, _snapshot_creator_pid, _snapshot_store
 +    root = _snapshot_root
 +    if root is not None:
 +        return root
@@ -281,7 +291,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        with _snapshot_lock:
 +            root = _snapshot_root
 +            if root is None:
-+                root = _new_root(claimed)
++                root, _snapshot_store = _new_root(claimed)
 +                _snapshot_creator_pid = os.getpid()
 +                _snapshot_root = root
 +            return root
@@ -400,25 +410,37 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                continue
 +
 +    stores = {}
++    aliased_store = None
 +    try:
-+        configured = _persistent_store().resolve(strict=True)
++        configured_path = get_default_hermes_root().resolve().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
++        configured = configured_path.resolve(strict=True)
 +        info = configured.stat()
 +    except (OSError, RuntimeError):
 +        pass
 +    else:
 +        # Fallback can leave the configured name pointing at an ordinary plugin asset.
 +        if stat.S_ISDIR(info.st_mode):
-+            stores[file_id(info)] = configured
-+    if not primary.name.startswith(_TEMP_ROOT_PREFIX):
-+        stores[file_id(primary.parent.stat())] = primary.parent
++            key = file_id(info)
++            stores[key] = configured
++            if configured != configured_path:
++                aliased_store = key
++    opened_store = None
++    if _snapshot_store is not None:
++        with contextlib.suppress(FileNotFoundError, NotADirectoryError):
++            opened_store = file_id(_snapshot_store.stat())
++            stores[opened_store] = _snapshot_store
 +
 +    overlapping = {file_id(info) for _, info in ancestry(source_root)} & stores.keys()
-+    whole = (stores.keys() - overlapping) | {file_id(primary.stat())}
++    # A failed allocation through an alias does not make its target a private store.
++    reserved_only = overlapping
++    if aliased_store is not None and aliased_store != opened_store and primary.name.startswith(_TEMP_ROOT_PREFIX):
++        reserved_only = overlapping | {aliased_store}
++    whole = (stores.keys() - reserved_only) | {file_id(primary.stat())}
 +    if root != primary:
 +        whole.add(file_id(root.stat()))
 +    root_prefixes = (_OWNED_PREFIX, _UNSWEPT_PREFIX, _ALLOCATING_PREFIX, _REAPING_PREFIX)
 +    reserved = {}
-+    for key in overlapping:
++    for key in reserved_only:
 +        members = reserved[key] = set()
 +        store = stores[key]
 +        with contextlib.suppress(FileNotFoundError, NotADirectoryError, PermissionError):
@@ -439,7 +461,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                return True
 +            if key in reserved:
 +                if child is None:
-+                    return True  # alias directly back to the overlapping store
++                    return key in overlapping  # exclude aliases back to a store containing the source
 +                name, child_info = child
 +                if (name == _SETUP_LOCK or file_id(child_info) in reserved[key]
 +                        or (name.startswith(root_prefixes) and stat.S_ISDIR(child_info.st_mode))):
