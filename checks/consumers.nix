@@ -13,9 +13,9 @@ let
       tmuxPlugins = previous.lib.mapAttrs (
         _name: plugin:
         if previous.lib.isDerivation plugin then
-          plugin.overrideAttrs (old: {
-            buildInputs = (old.buildInputs or [ ]) ++ [ previous.bash ];
-            postInstall = (old.postInstall or "") + ''
+          plugin.overrideAttrs (previousAttrs: {
+            buildInputs = (previousAttrs.buildInputs or [ ]) ++ [ previous.bash ];
+            postInstall = (previousAttrs.postInstall or "") + ''
               patchShebangs --host "$out"
             '';
           })

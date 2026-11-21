@@ -51,11 +51,13 @@ let
       pkgs.callPackage;
   # Patch the workspace wheel, not the outer wrapper or its filtered lock source.
   runtimeOverlay = _final: previous: {
-    hermes-agent = previous.hermes-agent.overrideAttrs (old: {
+    hermes-agent = previous.hermes-agent.overrideAttrs (previousAttrs: {
       # Workaround: local login profiles can put their tools ahead of inherited shims.
       # Remove when Hermes provides an additive post-login PATH hook.
-      patches = (old.patches or [ ]) ++ [ ../../../patches/hermes-agent-terminal-mise-shims.patch ];
-      postPatch = (old.postPatch or "") + ''
+      patches = (previousAttrs.patches or [ ]) ++ [
+        ../../../patches/hermes-agent-terminal-mise-shims.patch
+      ];
+      postPatch = (previousAttrs.postPatch or "") + ''
         substituteInPlace tools/environments/local.py \
           --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
       '';
