@@ -106,6 +106,9 @@ would make workspace lock reads depend on a derivation. Preserve the Darwin
 Apply the patch only when gateway mise integration is enabled.
 `checks/hermes-provider.py` exercises canonical Copilot discovery with
 Home Manager's recursive layout: writable directories and store-linked files.
+Before linking, remove the previous generation's whole-directory symlink only
+if it still points to that generation. Leave unmanaged links and directories
+alone.
 
 For source deltas in provider cache ceilings, cwd recovery, secret routing or
 offline TTS, copy only the selected upstream tests and run the installed wheel with

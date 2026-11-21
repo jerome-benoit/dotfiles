@@ -383,10 +383,6 @@ in
     };
 
     home = {
-      activation.hermesAgentSetup = lib.mkForce (
-        lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] hermesStateScript
-      );
-
       # Workaround: upstream extraPlugins uses names its migration checks do not recognize.
       # Remove when upstream installs plugins under their canonical names.
       file = lib.mapAttrs' (
@@ -398,23 +394,53 @@ in
         }
       ) cfg.plugins;
 
-      # Workaround: Linux needs the stable secret link before reloadSystemd.
-      # Its target may still be absent: After/Requires=sops-nix gates service startup.
-      # Darwin waits for synchronous sops activation before loading launchd agents.
-      # Remove when upstream preserves this stable secret link and both startup orders.
-      activation.hermesAgentEnvironment =
-        let
-          linkEnvironment = ''
-            run mkdir -p ${lib.escapeShellArg configDir}
-            run ln -sfn ${
-              lib.escapeShellArg config.sops.secrets."hermes-env".path
-            } ${lib.escapeShellArg "${configDir}/.env"}
-          '';
-        in
-        if isDarwin then
-          lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] linkEnvironment
-        else
-          lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "hermesAgentSetup" ] linkEnvironment;
+      activation = {
+        hermesAgentSetup = lib.mkForce (
+          lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] hermesStateScript
+        );
+
+        # Remove the previous generation's directory link before linking its individual files.
+        hermesAgentMigratePluginLinks = lib.mkIf (cfg.plugins != { }) (
+          lib.hm.dag.entryBetween [ "linkGeneration" ] [ "writeBoundary" ] ''
+            if [[ -n "''${oldGenPath:-}" && -d "$oldGenPath/home-files" ]]; then
+              hermesOldFiles="$(readlink -e "$oldGenPath/home-files")"
+              ${lib.concatMapStringsSep "\n" (
+                name:
+                let
+                  path = "${configDir}/plugins/${name}";
+                  target = config.home.file.${path}.target;
+                in
+                ''
+                  hermesPluginPath=${lib.escapeShellArg path}
+                  hermesOldPlugin="$hermesOldFiles"/${lib.escapeShellArg target}
+                  if [[ -L "$hermesOldPlugin" && -L "$hermesPluginPath" ]] &&
+                      [[ "$(readlink "$hermesPluginPath")" == "$hermesOldPlugin" ]]; then
+                    run rm -- "$hermesPluginPath"
+                  fi
+                ''
+              ) (lib.attrNames cfg.plugins)}
+            fi
+          ''
+        );
+
+        # Workaround: Linux needs the stable secret link before reloadSystemd.
+        # Its target may still be absent: After/Requires=sops-nix gates service startup.
+        # Darwin waits for synchronous sops activation before loading launchd agents.
+        # Remove when upstream preserves this stable secret link and both startup orders.
+        hermesAgentEnvironment =
+          let
+            linkEnvironment = ''
+              run mkdir -p ${lib.escapeShellArg configDir}
+              run ln -sfn ${
+                lib.escapeShellArg config.sops.secrets."hermes-env".path
+              } ${lib.escapeShellArg "${configDir}/.env"}
+            '';
+          in
+          if isDarwin then
+            lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] linkEnvironment
+          else
+            lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "hermesAgentSetup" ] linkEnvironment;
+      };
     };
 
     warnings = lib.optional (

@@ -226,6 +226,10 @@ assert lib.all (condition: condition) [
     ) (externalHomes ++ nonCanonicalHomes)
   ))
   (check "real sops activation orders the link before service startup" startupOrder)
+  (check "plugin migration runs between the write boundary and linking" (
+    startsBefore "writeBoundary" "hermesAgentMigratePluginLinks"
+    && startsBefore "hermesAgentMigratePluginLinks" "linkGeneration"
+  ))
 ];
 pkgs.runCommand "check-hermes-agent"
   {
@@ -235,9 +239,11 @@ pkgs.runCommand "check-hermes-agent"
     ];
     setup = smokeActivation.hermesAgentSetup.data;
     environment = smokeActivation.hermesAgentEnvironment.data;
+    migratePlugins = smokeActivation.hermesAgentMigratePluginLinks.data;
     passAsFile = [
       "setup"
       "environment"
+      "migratePlugins"
     ];
   }
   ''
@@ -447,7 +453,7 @@ pkgs.runCommand "check-hermes-agent"
         assert json.loads(stdout) == {"argv": argv, "pid": child.pid}, stdout
         assert login_marker.read_text() == "ready"
     PY
-    python3 - "$setupPath" "$environmentPath" <<'PY'
+    python3 - "$setupPath" "$environmentPath" "$migratePluginsPath" <<'PY'
     import os
     from pathlib import Path
     import shlex
@@ -462,16 +468,19 @@ pkgs.runCommand "check-hermes-agent"
         state = home / "custom hermes"
         workspace = home / "working directory"
         secret = home / "secret env"
-        setup, environment = [
+        setup, environment, migrate_plugins = [
             Path(path).read_text().replace("${smokeRoot}", temporary)
             for path in sys.argv[1:]
         ]
         prelude = "source " + shlex.quote("${home-manager}/lib/bash/home-manager.sh") + "\n"
 
-        def activate(script, dry=False):
+        def activate(script, dry=False, previous_generation=None):
             env = os.environ.copy()
             env.pop("DRY_RUN", None)
             env["DRY_RUN_CMD"] = ""
+            env.pop("oldGenPath", None)
+            if previous_generation is not None:
+                env["oldGenPath"] = str(previous_generation)
             if dry:
                 env["DRY_RUN"] = "1"
                 env["DRY_RUN_CMD"] = "echo"
@@ -505,6 +514,30 @@ pkgs.runCommand "check-hermes-agent"
         before = {p: p.lstat().st_mtime_ns for p in home.rglob("*")}
         activate(setup + environment, dry=True)
         assert before == {p: p.lstat().st_mtime_ns for p in home.rglob("*")}
+
+        path = state / "plugins" / "github-copilot"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        old_generation = root / "old generation"
+        old_files = root / "old home files"
+        old_generation.mkdir()
+        (old_generation / "home-files").symlink_to(old_files)
+        old_plugin = old_files / path.relative_to(home)
+        old_plugin.parent.mkdir(parents=True)
+        source = root / "plugin source"
+        source.mkdir()
+        payload = source / "plugin.yaml"
+        payload.write_text("name: github-copilot")
+        old_plugin.symlink_to(source)
+        path.symlink_to(old_plugin)
+        activate(migrate_plugins)
+        activate(migrate_plugins, dry=True, previous_generation=old_generation)
+        assert path.readlink() == old_plugin
+        activate(migrate_plugins, previous_generation=old_generation)
+        assert not path.is_symlink() and not path.exists()
+        assert old_plugin.readlink() == source and payload.read_text() == "name: github-copilot"
+        path.symlink_to(source)
+        activate(migrate_plugins, previous_generation=old_generation)
+        assert path.readlink() == source
     PY
     touch "$out"
   ''
