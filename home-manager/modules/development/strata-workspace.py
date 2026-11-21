@@ -892,64 +892,108 @@ def native_settings_migration(root):
     spec = util.spec_from_file_location("strata_workspace_settings_migration", path)
     migration = util.module_from_spec(spec)
     spec.loader.exec_module(migration)
-    if (not isinstance(getattr(migration, "MARK", None), str)
-            or not callable(getattr(migration, "_folders", None))
-            or not callable(getattr(migration, "run", None))
-            or not callable(getattr(migration, "_load_setup", None))):
-        raise RuntimeError("Pinned native settings migration has no read-only pending contract")
+    mark = getattr(migration, "MARK", None)
+    if (not isinstance(mark, str) or not mark or Path(mark).name != mark or mark in (".", "..")
+            or not all(callable(getattr(migration, name, None))
+                       for name in ("_folders", "_needs_setup", "_load_setup"))):
+        raise RuntimeError("Pinned settings migration has no supported discovery contract")
     return migration
 
 
+def migration_folders(migration):
+    # Native discovery rejects invalid explicit targets; none can need migration.
+    explicit = os.environ.get("STRATA_INSTALL_DIR")
+    if explicit:
+        path = Path(explicit).expanduser()
+        if not path.is_absolute() or not path.is_dir():
+            return []
+    return list(dict.fromkeys(Path(folder).resolve() for folder in migration._folders()))
+
+
+def publish_migrated_config(path, info, original, payload):
+    with tempfile.TemporaryDirectory(dir=path.parent, prefix=".strata-migration-") as staging:
+        updated = Path(staging) / "config"
+        with updated.open("x+b") as stream:
+            # The platform's cp -p preserves the access ACL as well as owner and mode.
+            cp = "/bin/cp" if sys.platform == "darwin" else "cp"
+            subprocess.run([cp, "-p", str(path), str(updated)], check=True)
+            copy = os.fstat(stream.fileno())
+            if ((copy.st_uid, copy.st_gid, copy.st_mode) != (info.st_uid, info.st_gid, info.st_mode)
+                    or not os.path.samestat(copy, updated.stat())):
+                raise OSError(f"Cannot preserve access metadata for {path}")
+            stream.write(payload)
+            stream.truncate()
+            stream.flush()
+            if os.fstat(stream.fileno()).st_mode != info.st_mode:
+                raise OSError(f"Cannot preserve mode for {path}")
+        if sys.platform == "linux":
+            name = "system.posix_acl_access"
+
+            def acl(file):
+                return os.getxattr(file, name) if name in os.listxattr(file) else None
+
+            if acl(path) != acl(updated):
+                raise OSError(f"Cannot preserve access ACL for {path}")
+
+        with tempfile.NamedTemporaryFile(dir=staging, prefix="backup-") as backup:
+            backup.write(original)
+            backup.flush()
+            # Publish without replacing another backup, even if it is a dangling link.
+            suffix = ".bak"
+            number = 0
+            while True:
+                destination = path.with_name(path.name + suffix)
+                try:
+                    os.link(backup.name, destination)
+                    break
+                except FileExistsError:
+                    number += 1
+                    suffix = f".bak.{number}"
+        os.replace(updated, path)
+
+
 def migrate_native_settings(root):
-    """Run native discovery and RAM policy with a mode- and alias-preserving writer."""
+    """Use native discovery and RAM policy; own publication and retry semantics."""
     migration = native_settings_migration(root)
     if migration is None:
         return
-    folders = [Path(folder).resolve() for folder in migration._folders()]
+    folders = migration_folders(migration)
     seen = set()
-
-    def publish(path, payload, mode):
-        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    setup = None
+    for folder in folders:
+        marker = folder / migration.MARK
         try:
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fchmod(stream.fileno(), mode)
-            os.replace(temporary, path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
-
-    class MigrationWriter:
-        setup = None
-
-        def migrate_run_configs(self, folder):
-            if self.setup is None:
-                self.setup = migration._load_setup()
-            moved = []
-            for candidate in sorted(self.setup.model_config_files(folder)):
-                try:
-                    path = candidate.resolve(strict=True)
+            if not folder.is_dir() or os.path.lexists(marker):
+                continue
+            if migration._needs_setup(folder):
+                if setup is None:
+                    setup = migration._load_setup()
+                for candidate in sorted(setup.model_config_files(folder)):
+                    path = candidate.resolve()
                     if (path in seen or not path.is_file()
                             or not any(path.is_relative_to(install) for install in folders)):
                         continue
-                    seen.add(path)
                     with path.open("rb") as source:
                         info = os.fstat(source.fileno())
                         if not stat.S_ISREG(info.st_mode):
                             continue
                         original = source.read()
-                    old = json.loads(original.decode("utf-8-sig"))
-                    new = self.setup.migrate_ram_budget(old) if isinstance(old, dict) else None
-                    if new is None:
+                    try:
+                        old = json.loads(original.decode("utf-8-sig"))
+                    except ValueError:
                         continue
-                    publish(path.with_name(path.name + ".bak"), original, 0o600)
-                    publish(path, json.dumps(new, indent=1).encode(), stat.S_IMODE(info.st_mode))
-                    moved.append(candidate.name)
-                except (OSError, ValueError, RuntimeError):
-                    continue
-            return moved
-
-    migration.run(folders=folders, setup_module=MigrationWriter())
+                    new = setup.migrate_ram_budget(old) if isinstance(old, dict) else None
+                    if new is not None:
+                        if info.st_nlink != 1:
+                            raise OSError(f"Config has multiple hard links: {path}")
+                        publish_migrated_config(path, info, original, json.dumps(new, indent=1).encode())
+                        print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
+                    seen.add(path)
+            # A failed update leaves the marker absent. Exclusive creation never follows links.
+            with marker.open("x", encoding="utf-8"):
+                pass
+        except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+            print(f"strata: RAM budget migration incomplete in {folder}: {error}", file=sys.stderr)
 
 
 def native_settings_migration_pending(root):
@@ -958,8 +1002,8 @@ def native_settings_migration_pending(root):
     if migration is None:
         return False
     try:
-        return any(Path(folder).is_dir() and not (Path(folder) / migration.MARK).exists()
-                   for folder in migration._folders())
+        return any(folder.is_dir() and not os.path.lexists(folder / migration.MARK)
+                   for folder in migration_folders(migration))
     except Exception:
         # Native entry treats discovery failures as best-effort; make that attempt under acquisition.
         return True

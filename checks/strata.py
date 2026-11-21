@@ -3347,11 +3347,9 @@ for reverse in (False, True):
         mark_name = "ram-budget-0217.done"
         markers = [folder / mark_name for folder in (root, external)]
         writer_log = self.base / "native-migration-writers"
-        native_errors = self.base / "native-migration-errors"
-        native_runs = self.base / "native-migration-runs"
         migration = root / "strata_cli/ram_budget_move.py"
         source = migration.read_text()
-        anchor = "            (folder / MARK).write_text("
+        anchor = "def _needs_setup(folder: Path) -> bool:\n"
         self.assertEqual(source.count(anchor), 1)
         guard = r"""
 
@@ -3372,16 +3370,11 @@ def _assert_managed_writer(folder):
     with Path(WRITER_LOG).open("a") as log:
         log.write(str(folder) + "\n")
 
-def _record_native_failure(folder):
-    import traceback
-    with Path(NATIVE_ERRORS).open("a") as log:
-        log.write(str(folder) + "\n" + traceback.format_exc())
+_native_needs_setup = _needs_setup
 
-def _record_native_run():
-    import os
-    with Path(NATIVE_RUNS).open("a") as log:
-        log.write(json.dumps({"source": __file__, "entry": sys.argv[0],
-                              "lease": os.environ.get("STRATA_WORKSPACE_LOCK_FD")}) + "\n")
+def _needs_setup(folder):
+    _assert_managed_writer(folder)
+    return _native_needs_setup(folder)
 
 def _fixture_load_setup():
     setup = _real_load_setup()
@@ -3392,14 +3385,8 @@ def _fixture_load_setup():
     return setup
 
 _real_load_setup, _load_setup = _load_setup, _fixture_load_setup
-""".replace("WRITER_LOG", repr(str(writer_log))).replace("NATIVE_ERRORS", repr(str(native_errors))).replace("NATIVE_RUNS", repr(str(native_runs)))
-        failure_handler = "        except Exception:                              # noqa: BLE001 - never a reason for the command to fail\n"
-        run_anchor = '    say = say or (lambda text: sys.stderr.write(text + "\\n"))\n'
-        self.assertEqual(source.count(failure_handler), 1)
-        self.assertEqual(source.count(run_anchor), 1)
-        migration.write_text(source.replace(anchor, "            _assert_managed_writer(folder)\n" + anchor).replace(
-            run_anchor, "    _record_native_run()\n" + run_anchor).replace(
-            failure_handler, failure_handler + "            _record_native_failure(folder)\n") + guard)
+""".replace("WRITER_LOG", repr(str(writer_log)))
+        migration.write_text(source + guard)
         discovery = r"""
 import importlib.util, json, sys
 from pathlib import Path
@@ -3427,7 +3414,6 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
             result = subprocess.run([*args, "--help"], env=self.env, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 72, result.stderr + result.stdout)
             self.assertFalse(writer_log.exists())
-            self.assertFalse(native_runs.exists(), "shared-only probe entered the native migration")
             self.assertTrue(all(not marker.exists() for marker in markers))
         for args in (("--help",), ("source", "--help")):
             config.write_bytes(before)
@@ -3435,7 +3421,6 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
             for marker in markers:
                 marker.unlink(missing_ok=True)
             writer_log.unlink(missing_ok=True)
-            native_runs.unlink(missing_ok=True)
             with (self.state / ".source.lock").open("a") as lease:
                 fcntl.flock(lease, fcntl.LOCK_EX)
                 process = subprocess.Popen(self.command(self.new) + ["run", *args], env=self.env,
@@ -3448,13 +3433,6 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
                     fcntl.flock(lease, fcntl.LOCK_UN)
                 output, errors = process.communicate(timeout=30)
             self.assertEqual(process.returncode, 0, errors + output)
-            self.assertTrue(native_runs.is_file(), f"{args}: the native pre-parser migration was not entered; {errors}{output}")
-            runs = [json.loads(line) for line in native_runs.read_text().splitlines()]
-            self.assertEqual(len(runs), 1, f"{args}: {runs}")
-            self.assertEqual(runs[0]["source"], str(migration))
-            self.assertIsNotNone(runs[0]["lease"], f"{args}: native migration was entered without acquisition")
-            self.assertFalse(native_errors.exists(),
-                             f"{args}: " + (native_errors.read_text() if native_errors.exists() else ""))
             self.assertTrue(writer_log.is_file(), f"{args}: native writer was not reached; {errors}{output}")
             self.assertEqual(set(writer_log.read_text().splitlines()), {str(root), str(external)})
             self.assertTrue(all(marker.is_file() for marker in markers))
@@ -3502,11 +3480,9 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
         attempts = self.base / "native-migration-attempts"
         migration = root / "strata_cli/ram_budget_move.py"
         source = migration.read_text()
-        anchor = "            (folder / MARK).write_text("
-        self.assertEqual(source.count(anchor), 1)
         guard = r"""
 
-def _refuse_native_mark():
+def _needs_setup(folder):
     import fcntl, os
     with Path(ATTEMPTS).open("a") as log:
         log.write("leased\n" if "STRATA_WORKSPACE_LOCK_FD" in os.environ else "unleased\n")
@@ -3521,7 +3497,7 @@ def _refuse_native_mark():
             raise OSError("controlled native marker refusal")
         raise AssertionError("migration ran without its mutation lease")
 """.replace("ATTEMPTS", repr(str(attempts)))
-        migration.write_text(source.replace(anchor, "            _refuse_native_mark()\n" + anchor) + guard)
+        migration.write_text(source + guard)
         cli = root / "strata_cli/cli.py"
         source = cli.read_text()
         anchor = "def _run(a: argparse.Namespace) -> int:\n"
@@ -3529,9 +3505,10 @@ def _refuse_native_mark():
         dispatch = r"""    import fcntl, os
     from pathlib import Path
     assert "STRATA_WORKSPACE_LOCK_FD" not in os.environ
-    with Path(LOCK_PATH).open("a") as lease:
-        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    Path(WITNESS).write_text("native dispatch released acquisition")
+    if Path(os.environ["STRATA_INSTALL_DIR"]).is_dir():
+        with Path(LOCK_PATH).open("a") as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        Path(WITNESS).write_text("native dispatch released acquisition")
 """.replace("LOCK_PATH", repr(str(self.state / ".source.lock"))).replace("WITNESS", repr(str(witness)))
         cli.write_text(source.replace(anchor, anchor + dispatch))
         # An absent local owner gives a native stop plan without contacting any API server.
@@ -3546,9 +3523,78 @@ def _refuse_native_mark():
         self.assertFalse((root / "ram-budget-0217.done").exists())
         self.assert_workspace_unlocked()
 
+        self.env["STRATA_INSTALL_DIR"] = str(self.base / "removed-install")
+        with (self.state / ".source.lock").open("a") as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX)
+            result = subprocess.run(self.command(self.new) + ["run", "runtime", "stop", "--profile", "migration-probe",
+                                                            "--plan", "--output", "json"], env=self.env,
+                                    capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout)["error"], "runtime_not_owned")
+        self.assertEqual(attempts.read_text().splitlines(), ["leased"])
+
+    def test_native_migration_retries_failed_publication_without_replacing_user_files(self):
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        root = self.prepare(self.new)
+        self.run_source_script(root, r"""
+import importlib.util
+import json
+import os
+from pathlib import Path
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location("workspace", WORKSPACE_PATH)
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+root = Path.cwd()
+os.environ["STRATA_INSTALL_DIR"] = str(root)
+migration = workspace.native_settings_migration(root)
+setup = migration._load_setup()
+setup.migrate_ram_budget = lambda cfg: (
+    dict(cfg, args=["--resident-budget-gib", "47"], ui_budget_work_gib=40)
+    if cfg["args"][-1] == "40" else None
+)
+migration._load_setup = lambda: setup
+config = root / "strata-migration.json"
+original = json.dumps({"args": ["--resident-budget-gib", "40"]}).encode()
+config.write_bytes(original)
+backup = config.with_name(config.name + ".bak")
+backup.write_bytes(b"older backup")
+marker = root / migration.MARK
+outside = root.parent / "outside"
+marker.symlink_to(outside)
+alias = root / "hard-link.json"
+
+def migrate():
+    with patch.object(workspace, "native_settings_migration", return_value=migration):
+        workspace.migrate_native_settings(root)
+
+migrate()
+assert marker.is_symlink() and not outside.exists() and config.read_bytes() == original
+marker.unlink()
+os.link(config, alias)
+migrate()
+assert config.samefile(alias) and config.read_bytes() == original and not marker.exists()
+alias.unlink()
+replace = os.replace
+
+def interrupt(src, dst):
+    if dst == config:
+        raise OSError("publication interrupted")
+    return replace(src, dst)
+
+with patch.object(os, "replace", side_effect=interrupt):
+    migrate()
+assert config.read_bytes() == original and not marker.exists()
+migrate()
+assert json.loads(config.read_bytes())["args"][-1] == "47" and marker.is_file()
+assert backup.read_bytes() == b"older backup"
+assert backup.with_name(backup.name + ".1").read_bytes() == original
+""".replace("WORKSPACE_PATH", repr(WORKSPACE)))
+
     def test_native_drafter_part_keeps_shared_directory_and_disk_contract(self):
         root = self.prepare(self.new)
         script = "import sys\nsys.path.insert(0, " + repr(str(Path(UPSTREAM) / "tests/terminal")) + ")\n" + r'''
+import json
 from pathlib import Path
 from unittest.mock import patch
 from launch_support import Home, HW_12
@@ -3581,6 +3627,24 @@ with Home() as isolated:
     assert part["data_dir"] == str(data.resolve()), part
     assert part["gb"] == drafting.DOWNLOAD_GB and not part["tuned"], part
     assert part["disk_gb"] == round((drafting.PACK_BYTES + drafting.CONVERTED_BYTES) / 1e9, 2), part
+
+    old = isolated.base / "old-data"
+    old.mkdir()
+    config = old / "strata-test.json"
+    config.write_text(json.dumps({"args": ["--pack", str(old / "pack"), str(old / "old.gguf")]}))
+    own = isolated.base / "own"
+    own.mkdir()
+    runner.s.model_path = str(own)
+    directories = catalog.launch_directories("qwen", "IQ3_XXS", data_dir=str(data), model_path=str(own))
+    with patch.object(runner, "installed_state", return_value=(config, {})), \
+         patch.object(runner, "drafting_signals", return_value={"args": []}), \
+         patch.object(drafting, "hardware_for", return_value=("cuda", [])), \
+         patch.object(drafting, "needs_pack", side_effect=lambda **want: want["data_dir"] == directories.data_dir), \
+         patch.object(drafting, "needs_tuned", return_value=False), \
+         patch.object(drafting, "tuned_applies", return_value=False), \
+         patch.object(drafting, "installed_engine_exe", return_value=None):
+        part = runner.drafter_part(directories=directories)
+    assert part["gb"] == drafting.DOWNLOAD_GB and part["data_dir"] == str(directories.data_dir), part
 '''
         self.run_source_script(root, script)
 
@@ -3593,6 +3657,10 @@ import io
 from pathlib import Path
 from unittest.mock import patch
 import setup
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+from strata_control import discovery
 
 own = Path.cwd() / "own-model-files"
 own.mkdir()
@@ -3613,12 +3681,34 @@ with patch.object(setup, "_hash_file", side_effect=observe), redirect_stdout(qui
 assert selected == ("near", renamed), selected
 assert quiet.getvalue() == "" and hashed == [False], (quiet.getvalue(), hashed)
 assert not mark.exists() and list(own.iterdir()) == [renamed]
+
+model = own / "model.gguf"
+model.write_bytes(b"model")
+catalog = Catalog(src=Path.cwd(), root=Path.cwd(), hardware={})
+native = catalog.strata.setup_module()
+family = dict(native.FAMILIES["qwen"], mmproj="pinned-reader.gguf", mmproj_sha256=(size, digest))
+runner = Runner(LaunchSettings(family="qwen", model="IQ3_XXS", model_path=str(model),
+                               vision="on", mtp="off", drafting="off"), catalog=catalog)
+hashed.clear()
+with patch.dict(native.FAMILIES, {"qwen": family}), \
+     patch.object(native, "_hash_file", side_effect=observe), \
+     patch.object(discovery, "prepared_beside", return_value={"pack": own}), \
+     patch.object(runner, "ready_pack_gap", return_value=None):
+    assert "mmproj" not in {part["kind"] for part in runner.download_plan()["parts"]}
+    assert hashed == [False], hashed
+    renamed.write_bytes(b"X" + content[1:])
+    assert "mmproj" in {part["kind"] for part in runner.download_plan()["parts"]}
+    assert hashed == [False, False], hashed
+    renamed.write_bytes(content)
+mark = setup._alt_reader_mark(renamed)
+assert mark is not None and not mark.exists()
+hashed[:] = [False]
 with patch.object(setup, "_hash_file", side_effect=observe):
     selected = setup.resolve_reader("pinned-reader.gguf", Path.cwd() / "missing-reader.gguf",
                                     Path.cwd() / "models", [], own, size, digest)
 assert selected == ("renamed", renamed), selected
 assert hashed == [False, True] and mark.is_file(), hashed
-assert renamed.read_bytes() == content and list(own.iterdir()) == [renamed]
+assert renamed.read_bytes() == content and set(own.iterdir()) == {renamed, model}
 ''')
 
     def test_public_forecast_shares_hash_evidence_and_revalidates_changed_bytes(self):

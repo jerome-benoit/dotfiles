@@ -395,6 +395,9 @@ def host_cleanup(fixture):
     assert child_root != parent_root and child_root.is_dir()
     fixture.stop_host()
     assert not child_root.exists(), "forced host exit leaked its owned snapshots"
+    assert not list(child_root.parent.glob(f"{fixture.reloader._REAPING_PREFIX}*")), (
+        "forced host exit leaked a snapshot cleanup claim"
+    )
     assert parent_root.is_dir(), "host exit removed parent-owned versions"
     return {"forced_host_cleanup": "complete"}
 
@@ -461,6 +464,45 @@ def persistent_cleanup(fixture):
     return {"persistent_readonly_reclaim": "complete", "partial_removal_recovery": "complete"}
 
 
+def owner_lock_failure(fixture):
+    from pm import filesystem
+
+    reloader = fixture.reloader
+    live = reloader._new_root()
+    parent = live.parent
+    real_lock_path = filesystem.lock_path
+    for lock_error in (PermissionError("injected owner.lock failure"), None):
+        def lock_path(path, *, timeout):
+            if path.name == reloader._OWNER_LOCK:
+                if lock_error is not None:
+                    raise lock_error
+                return None
+            return real_lock_path(path, timeout=timeout)
+
+        with (
+            patch.object(filesystem, "lock_path", side_effect=lock_path),
+            patch.object(reloader.shutil, "rmtree", side_effect=PermissionError("injected purge failure")) as purge,
+            unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs,
+            unittest.TestCase().assertRaisesRegex(OSError, r"owner\.lock") as caught,
+        ):
+            reloader._new_root()
+        if lock_error is not None:
+            assert caught.exception is lock_error
+        else:
+            assert "is held by another process" in str(caught.exception)
+        purge.assert_called_once()
+        claim = purge.call_args.args[0]
+        assert claim.name.startswith(reloader._REAPING_PREFIX) and claim.is_dir()
+        assert str(claim) in logs.output[0] and "injected purge failure" in logs.output[0]
+        assert list(parent.glob(f"{reloader._OWNED_PREFIX}*")) == [live]
+
+        recovered = reloader._new_root()
+        assert not list(parent.glob(f"{reloader._REAPING_PREFIX}*")), "sweep left failed root cleanup claims"
+        assert live.is_dir(), "sweep removed a live owner while recovering a failed root"
+        reloader._release_root(recovered, None, os.getpid())
+    return {"owner_lock_failure_recovery": "complete"}
+
+
 def normal_exit(plugin):
     # Persistent copies live below the account root; retain it until exit so
     # fixture deletion cannot bypass the application's real cleanup hook.
@@ -474,7 +516,11 @@ def normal_exit(plugin):
     import providers
     from providers import plugin_reload
     assert providers.get_provider_profile("copilot") is not None
-    print(json.dumps({"snapshot_root": str(plugin_reload._snapshot_root), "fixture_root": str(home)}))
+    print(json.dumps({
+        "snapshot_root": str(plugin_reload._snapshot_root),
+        "fixture_root": str(home),
+        "reaping_prefix": plugin_reload._REAPING_PREFIX,
+    }))
     # No manual runtime cleanup: the outer process verifies the real atexit callback.
 
 
@@ -839,6 +885,8 @@ def run_case(case, plugin):
             result = host_cleanup(fixture)
         elif case == "persistent-cleanup":
             result = persistent_cleanup(fixture)
+        elif case == "owner-lock-failure":
+            result = owner_lock_failure(fixture)
         elif case in {"activation-success", "activation-failure"}:
             result = activation_pending(fixture, fail=case == "activation-failure")
         elif case == "activation-home":
@@ -875,7 +923,9 @@ class ProviderLifecycle(unittest.TestCase):
         result = json.loads(process.stdout.splitlines()[-1])
         if case == "normal-exit":
             try:
-                self.assertFalse(Path(result["snapshot_root"]).exists(), result)
+                root = Path(result["snapshot_root"])
+                self.assertFalse(root.exists(), result)
+                self.assertEqual(list(root.parent.glob(f"{result['reaping_prefix']}*")), [])
             finally:
                 remove_fixture(Path(result["fixture_root"]))
         print(case, result)
@@ -924,6 +974,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_persistent_readonly_reclamation_preserves_live_owner(self):
         self.run_case("persistent-cleanup")
+
+    def test_owner_lock_failure_recovers_after_purge_failure(self):
+        self.run_case("owner-lock-failure")
 
     def test_deferred_activation_then_success(self):
         self.run_case("activation-success")

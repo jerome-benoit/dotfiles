@@ -847,13 +847,15 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          """The DFlash2 drafter's row of the download plan, or None when nothing of it comes. ONE rule, the one the launch follows (ensure_drafter -> drafting_fetch.ensure_for), read from the
          same run config the launch reads: a drafter file that is here is no download; the small tuned file is a download only while it is missing and the signed feed lists it for this
          engine family; otherwise the standard drafter is downloaded (1.2 GB) and packed on this computer. ``gb``: what is downloaded, ``disk_gb``: what stays on the disk afterwards.
-@@ -2669,12 +2664,11 @@
+@@ -2669,12 +2664,12 @@
          without the tuned file it said 0.34 GB where the launch fetched 1.21 GB.)"""
          from strata_control import drafting, drafting_fetch
          _b, _cfg = self.installed_state()
 -        if _b is not None and self.other_copy() is not None:
-+        if _b is not None and self.other_copy(directories=directories) is not None:
-             _cfg = None                                      # another data folder's copy: its drafter is not the one this launch uses
+-            _cfg = None                                      # another data folder's copy: its drafter is not the one this launch uses
++        if _b is not None and ((self.s.model_path and not self.installed_serves_request(_b))
++                               or self.other_copy(directories=directories) is not None):
++            _cfg = None                                      # setup will write a config for the requested files
          elif _b is not None:
              _cfg = read_config(_b)                           # the run config itself (installed_state gives a summary without --pack, so the drafting folder was not found)
 -        want = self.drafting_inputs(_cfg or {})
@@ -862,7 +864,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          sig = self.drafting_signals(_cfg or {}, want)
          missing_stock = drafting.needs_pack(**want, **sig)
          if not (missing_stock or drafting.needs_tuned(**want, **sig)):
-@@ -2701,11 +2695,15 @@
+@@ -2701,11 +2696,15 @@
 -    def download_plan(self) -> dict:
 +    def download_plan(self, *, directories=None) -> dict:
          """What this launch would download, in numbers and words (nothing is changed): the model's missing files, and for a model that is
@@ -880,7 +882,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
          helpers = s.family in modelstate.HELPER_FAMILIES
-@@ -2715,17 +2713,15 @@
+@@ -2715,17 +2714,15 @@
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -904,10 +906,10 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 +                    if own is not None and not own.is_dir():
 +                        own = own.parent
 +                    # setup's rule, not any mmproj*.gguf: the pinned name (lane NET 4b; which file setup accepts is unchanged)
-+                    if not modelstate.reader_present(self.catalog, directories.family, homes, own=own, models_dir=directories.models_dir):
++                    if not modelstate.launch_reader_present(self.catalog, directories, own=own):
 +                        parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
-@@ -2733,8 +2729,8 @@
+@@ -2733,8 +2730,8 @@
          try:
 -            part = self.drafter_part()
 +            part = self.drafter_part(directories=directories)
@@ -918,7 +920,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 -        gap = self.ready_pack_gap() if st.own_files else None
 +        gap = self.ready_pack_gap(directories=directories) if st.own_files else None
          if gap:
-@@ -2758,7 +2754,7 @@
+@@ -2758,7 +2755,7 @@
          else:
              names = [f"{p['label']} ({p['gb']:.2f} GB)" if p["kind"] == "dflash2" and p["gb"] < 1 else f"{p['label']} ({p['gb']:.1f} GB)" for p in parts]       # (the tuned drafter is 0.34 / 0.52 GB: one decimal said 0.3 / 0.5)
              what = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
@@ -927,7 +929,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
              text = (f"About {gb:.1f} GB to download into {Path(s.data_dir).expanduser()}: {what}." if other is not None else
                      f"About {gb:.1f} GB to download: {what}.")
              if other is not None:                            # lane NET 4a: the start uses --data-dir, not the copy installed elsewhere
-@@ -2787,7 +2783,7 @@
+@@ -2787,7 +2784,7 @@
              text += " For the Intel card Strata builds the model's pack from your files itself, once; it takes a few minutes and downloads nothing."
          return {"gb": gb, "parts": parts, "engine_missing": not engine and not here, "engine_usable": engine, "own_files": st.own_files, "text": text}
  
@@ -936,7 +938,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          """For a ready-made pack family (NVFP4): what setup would still fetch into its models folder for these choices, {gb, folder, free_gb}, or None."""
          s = self.s
          try:
-@@ -2795,17 +2791,21 @@
+@@ -2795,17 +2792,21 @@
              _m, families, _c, _src = self.catalog.tables()
              if mod is None or not (families.get(s.family or "") or {}).get("ready") or not hasattr(mod, "ready_needed"):
                  return None
@@ -964,7 +966,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          except Exception:                                    # noqa: BLE001 - a plan that cannot work this out still shows the rest
              return None
  
-@@ -2840,8 +2840,10 @@
+@@ -2840,8 +2841,10 @@
              self.resolved_vision()
          except Exception:                                    # noqa: BLE001
              pass
@@ -977,7 +979,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          except Exception:                                    # noqa: BLE001 - a plan that cannot count the download still shows the rest
              download = {"gb": None, "parts": [], "engine_missing": None, "own_files": bool(s.model_path),
                          "text": "How much would be downloaded could not be worked out here."}
-@@ -2849,7 +2851,8 @@
+@@ -2849,7 +2852,8 @@
          model = {"title": title, "family": s.family, "model": s.model, "model_gb": row.download_gb if row is not None else None,
                   "own_files": bool(s.model_path), "folder": s.model_path}
          out = {"profile": self.profile, "settings": s.to_dict(with_key=False), "warnings": warns,
@@ -987,7 +989,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          return out
  
      def feed_without_draft_layer(self, family: str | None = None) -> bool:
-@@ -2976,14 +2979,14 @@
+@@ -2976,14 +2980,14 @@
          except Exception:                                    # noqa: BLE001 - an unreadable file keeps the launch as it was
              return
  
@@ -1007,7 +1009,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/catalog.py
 --- a/terminal/strata_cli/launch/catalog.py
 +++ b/terminal/strata_cli/launch/catalog.py
-@@ -324,14 +324,67 @@
+@@ -324,14 +324,68 @@
      return cards
  
  
@@ -1034,6 +1036,7 @@ diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/
 +    download_dir: Path
 +    moving_sources: tuple[Path, ...] = ()
 +    verified_files: dict[Path, bool] = field(default_factory=dict)
++    reader_presence: dict[Path | None, bool] = field(default_factory=dict)
 +
 +    @property
 +    def data_roots(self) -> tuple[Path, ...]:
@@ -1077,7 +1080,7 @@ diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/
          mcp = self.src / "tools" / "strata_mcp.py"
          if not mcp.is_file() or not (self.src / "setup.py").is_file():
              raise CatalogUnavailable(
-@@ -554,8 +607,8 @@
+@@ -554,8 +608,8 @@
 -    def model_folder_trace(self, base: Path, family: str, model: str) -> dict:
 +    def model_folder_trace(self, base: Path, family: str, model: str, *, models_dir: Path | None = None) -> dict:
          """model_folder's lookup with its steps (#4887, `strata models explain`): {"folder", "rule", "tried": [{"path", "rule", "exists"}]}. rule: "exact" (setup's
@@ -1088,7 +1091,7 @@ diff --git a/terminal/strata_cli/launch/catalog.py b/terminal/strata_cli/launch/
          own = models / (families[family].get("tag", "") + model)
          lower = models / self.tag_of(family, model)
          tried = []
-@@ -704,19 +757,112 @@
+@@ -704,19 +758,112 @@
      def data_dir(self) -> Path:
          return self.data_dir_choice()[0]
  
@@ -1254,7 +1257,7 @@ diff --git a/terminal/strata_cli/launch/modelstate.py b/terminal/strata_cli/laun
              st.parts.append(Part("mtp", "the draft layer", MTP_FETCH_GB))
          if wants_pictures and beside.get("pack") is not None and \
 -                not reader_present(catalog, family, [st.folder, *data_places(catalog, data)], own=first.parent if first else None):
-+                not reader_present(catalog, family, homes, own=first.parent if first else None, models_dir=directories.models_dir):
++                not launch_reader_present(catalog, directories, own=first.parent if first else None):
              st.parts.append(Part("mmproj", "the picture reader", MMPROJ_GB))
          return st
      if config is None and family and model and use_installed:          # (False: the installed copy is in another data folder than the one this launch uses)
@@ -1275,7 +1278,7 @@ diff --git a/terminal/strata_cli/launch/modelstate.py b/terminal/strata_cli/laun
 -            base = st.folder / "models" if st.folder else data
 -            have = (base / mmproj_name(catalog, family)) if base else None
 -            if have is None or not have.exists():
-+            if not reader_present(catalog, family, homes, models_dir=directories.models_dir):
++            if not launch_reader_present(catalog, directories):
                  st.parts.append(Part("mmproj", "the picture reader", MMPROJ_GB))
          return st
      # not installed: whatever of the weights is in the model's folder counts
@@ -1322,7 +1325,7 @@ diff --git a/terminal/strata_cli/launch/modelstate.py b/terminal/strata_cli/laun
 +            if mtp != "off" and discovery.mtp_layer_in(*homes) is None:
                  st.parts.append(Part("mtp", "the draft layer", MTP_FETCH_GB))
 -            if wants_pictures and not reader_present(catalog, family, [base, *data_places(catalog, None)]):     # setup's rule: the pinned name, here or in a folder it reuses
-+            if wants_pictures and not reader_present(catalog, family, homes, models_dir=directories.models_dir):
++            if wants_pictures and not launch_reader_present(catalog, directories):
                  st.parts.append(Part("mmproj", "the picture reader", MMPROJ_GB))
      return st
  
@@ -1343,10 +1346,18 @@ diff --git a/terminal/strata_cli/launch/modelstate.py b/terminal/strata_cli/laun
 -
 -
  def mmproj_size(catalog, family: str | None, name: str) -> int | None:
-@@ -245,12 +255,14 @@
+@@ -245,12 +255,22 @@
          return None
  
  
++def launch_reader_present(catalog, directories, *, own: Path | None = None) -> bool:
++    """Reuse the reader lookup within one forecast or Folder repaint."""
++    if own not in directories.reader_presence:
++        directories.reader_presence[own] = reader_present(
++            catalog, directories.family, directories.data_roots, own=own, models_dir=directories.models_dir)
++    return directories.reader_presence[own]
++
++
 -def reader_present(catalog, family: str | None, data_folders, own: Path | None = None) -> bool:
 +def reader_present(catalog, family: str | None, data_folders, own: Path | None = None, *, models_dir: Path | None = None) -> bool:
      """Whether setup will find the picture reader without a download - setup's own rule (setup.py step 5 and mmproj_beside), not any
@@ -1359,7 +1370,7 @@ diff --git a/terminal/strata_cli/launch/modelstate.py b/terminal/strata_cli/laun
      for base in data_folders:
          if not base:
              continue
-@@ -286,6 +298,8 @@
+@@ -286,6 +306,8 @@
          if alt is None:
              return False
          places = [Path(b) / sub / alt[0] for b in data_folders if b for sub in ("models", "Models")]

@@ -130,11 +130,11 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
          except BaseException:
 -            shutil.rmtree(root, ignore_errors=True)
-+            _remove_owned_tree(root)
++            _release_root(root, None, os.getpid())
              raise
          if owner_fd is None:
 -            shutil.rmtree(root, ignore_errors=True)
-+            _remove_owned_tree(root)
++            _release_root(root, None, os.getpid())
              raise OSError(f"{root / _OWNER_LOCK} is held by another process")
 +        atexit.register(_release_root, root, owner_fd, os.getpid())
      finally:
