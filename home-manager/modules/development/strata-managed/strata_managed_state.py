@@ -492,20 +492,22 @@ def normalize_sycl_config(config, repository, *, base=None):
     return sycl_config(config, runtime, runtime, repository, False, lambda value: value, base=base)
 
 
-def canonical_config_paths(repository, paths=()):
-    """Collect owned run configs and every internal saved selection, once per regular inode."""
+def _canonical_config_candidates(repository, paths):
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     enable_source(runtime)
     sys.path.insert(0, str(runtime))
     from strata_control import profiles
-    candidates = set(paths)
-    candidates.update(profiles.source_config_paths())
+    for candidate in sorted(set(paths) | profiles.source_config_paths()):
+        path = candidate.resolve()
+        if path.is_relative_to(repository) and path.is_file():
+            yield path
+
+
+def canonical_config_paths(repository, paths=()):
+    """Collect owned run configs and every internal saved selection, once per regular inode."""
     identities = set()
     result = []
-    for candidate in sorted(candidates):
-        path = candidate.resolve()
-        if not path.is_relative_to(repository) or not path.is_file():
-            continue
+    for path in _canonical_config_candidates(repository, paths):
         info = path.stat()
         identity = (info.st_dev, info.st_ino)
         if identity not in identities:
@@ -516,17 +518,24 @@ def canonical_config_paths(repository, paths=()):
 
 def normalize_sycl_configs(repository, *, stationary=False):
     repository = Path(repository).resolve()
-    with layout_locks(repository) as descriptors:
-        _normalize_layout(repository, stationary=stationary, gate_fd=config_gate_fd(descriptors))
+    for inventory in layout_attempts(repository):
+        try:
+            with layout_locks(repository, **inventory) as lease:
+                _normalize_layout(repository, stationary=stationary, gate_fd=lease.gate_fd,
+                                  check_targets=lease.require_targets)
+                return
+        except LayoutTargetsChanged as error:
+            error.remember(inventory)
 
 
-def _normalize_layout(repository, *, stationary, gate_fd):
+def _normalize_layout(repository, *, stationary, gate_fd, check_targets=None):
     runtime = repository / "terminal" if (repository / "terminal/setup.py").is_file() else repository
     enable_source(runtime)
     sys.path.insert(0, str(runtime))
     from strata_control import profiles
     with profiles._source_references_lock():
-        _normalize_sycl_configs(repository, runtime, stationary=stationary, gate_fd=gate_fd)
+        _normalize_sycl_configs(repository, runtime, stationary=stationary, gate_fd=gate_fd,
+                                check_targets=check_targets)
 
 
 def _read_layout_config(path, *, stationary):
@@ -539,7 +548,7 @@ def _read_layout_config(path, *, stationary):
         return None
 
 
-def _normalize_sycl_configs(repository, runtime, *, stationary, gate_fd):
+def _normalize_sycl_configs(repository, runtime, *, stationary, gate_fd, check_targets):
     changes = []
     for path in canonical_config_paths(repository, runtime.glob("strata-*.json")):
         before = _read_layout_config(path, stationary=stationary)
@@ -551,12 +560,16 @@ def _normalize_sycl_configs(repository, runtime, *, stationary, gate_fd):
         mapped = normalize_sycl_config(config, repository, base=path.parent)
         if mapped != config:
             changes.append((path, before, (json.dumps(mapped, indent=2) + "\n").encode("utf-8")))
+    if check_targets is not None:
+        check_targets(path for path, _, _ in changes)
     edited = []
     try:
         for path, before, after in changes:
             if path.resolve() != path:
                 raise RuntimeError(f"Strata config changed before normalization: {path}")
             require_config_mounts(gate_fd, (path, path.parent))
+            if check_targets is not None:
+                check_targets((path,))
             edited.append((path, before, path.stat()))
             path.write_bytes(after)
     except BaseException:
@@ -606,6 +619,12 @@ def namespace_fds():
 @contextmanager
 def config_locks(*folders, mount_targets=None, mount_subtrees=()):
     """Lock canonical subtrees, using a shared regular-file gate on Linux NFS."""
+    with _config_locks(folders, mount_targets, mount_subtrees) as (descriptors, locked_roots, _, _):
+        yield descriptors, locked_roots
+
+
+@contextmanager
+def _config_locks(folders, mount_targets, mount_subtrees):
     roots = set()
     modes = {}
     # Prune redundant directory flocks, not mount checks. An exclusive local
@@ -629,7 +648,7 @@ def config_locks(*folders, mount_targets=None, mount_subtrees=()):
         return bool(mounts) and (
             _nested_nfs(mounts, mount_subtrees) or _paths_on_nfs(paths, mounts))
 
-    while True:
+    for _ in range(4):
         paths = targets()
         parents = {path.parent for path in paths}
         snapshot_modes = modes.copy() if parents else modes
@@ -639,7 +658,7 @@ def config_locks(*folders, mount_targets=None, mount_subtrees=()):
                 if snapshot_modes.get(ancestor) is None:
                     snapshot_modes[ancestor] = fcntl.LOCK_SH
         with _config_lock_snapshot(snapshot_modes, lambda mounts: needs_gate(mounts, paths)) as (
-                descriptors, locked_roots, identities):
+                descriptors, locked_roots, identities, exclusive_fds):
             # A publisher may move directories or retarget a config while we wait.
             # Release local locks before retrying with a different lock set.
             paths = targets()
@@ -653,8 +672,9 @@ def config_locks(*folders, mount_targets=None, mount_subtrees=()):
                 _validate_nfs_gate(gate_fd, mounts)
             elif needs_gate(mounts, paths):
                 continue
-            yield descriptors, locked_roots
+            yield descriptors, locked_roots, identities, exclusive_fds
             return
+    raise RuntimeError("Strata config target parents keep changing; retry")
 
 
 def _config_directory_identity(folder):
@@ -827,42 +847,185 @@ def _config_lock_snapshot(modes, needs_gate):
         for _, (fd, mode) in sorted(locks.items()):
             fcntl.flock(fd, mode)
             descriptors.append(fd)
-        yield tuple(descriptors), locked_roots, identities
+        exclusive_fds = [fd for fd, mode in locks.values() if mode == fcntl.LOCK_EX]
+        yield tuple(descriptors), locked_roots, identities, exclusive_fds
+
+
+class LayoutTargetsChanged(RuntimeError):
+    def __init__(self, paths, subtrees):
+        super().__init__("Strata layout target parents changed; retry")
+        self.paths = paths
+        self.subtrees = subtrees
+
+    def remember(self, inventory):
+        inventory["extra_paths"].update(self.paths)
+        inventory["extra_subtrees"].update(self.subtrees)
+
+
+def layout_attempts(repository):
+    """Carry newly discovered coordinates across attempts, not stale descriptor identities."""
+    inventory = {"extra_paths": set(), "extra_subtrees": set()}
+    for _ in range(4):
+        yield inventory
+    raise RuntimeError(f"Strata layout target parents keep changing in {repository}; retry")
+
+
+def _layout_config_targets(repository):
+    configs = set(_canonical_config_candidates(repository, (
+        path for root in (repository, repository / "terminal") for path in root.glob("strata-*.json"))))
+    # When a config itself is renamed, its destination may have a different
+    # parent inode. A directory payload move instead carries its lease along.
+    targets = configs.copy()
+    for reverse in (False, True):
+        for source, destination in runtime_pairs(repository, reverse=reverse):
+            if source.parent.resolve() / source.name in configs and destination.parent.is_dir():
+                targets.add(destination.parent.resolve() / destination.name)
+    return targets
+
+
+def _layout_target_parents(gate_fd, paths, subtrees):
+    mounts = _nfs_mounts()
+    if gate_fd is not None:
+        _validate_nfs_gate(gate_fd, mounts)
+    elif mounts and (_nested_nfs(mounts, subtrees) or _paths_on_nfs(paths, mounts)):
+        raise LayoutTargetsChanged(paths, subtrees)
+    for folder in sorted({path.parent.resolve() for path in paths}):
+        if mounts and _paths_on_nfs((folder,), mounts):
+            # The regular-file gate replaces directory flock on NFS.
+            if gate_fd is None:
+                raise LayoutTargetsChanged(paths, subtrees)
+            continue
+        yield folder
+
+
+def _directory_fd_identity(fd):
+    info = os.fstat(fd)
+    return info.st_dev, info.st_ino
+
+
+def _lock_layout_parent_now(folder, stack):
+    fd = _promote_lock_fd(os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW))
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if _directory_fd_identity(fd) != _config_directory_identity(folder):
+            raise BlockingIOError(f"Strata layout target parent changed: {folder}")
+    except BaseException:
+        os.close(fd)
+        raise
+    stack.callback(os.close, fd)
+    return fd
+
+
+def require_layout_targets(gate_fd, directory_fds, paths):
+    """Check inherited exclusive directory leases without opening any new locks."""
+    paths = set(paths)
+    identities = {_directory_fd_identity(fd) for fd in directory_fds}
+    if any(_config_directory_identity(folder) not in identities
+           for folder in _layout_target_parents(gate_fd, paths, ())):
+        raise LayoutTargetsChanged(paths, ())
+
+
+class LayoutLease:
+    def __init__(self, descriptors, directory_fds, identities, stack):
+        self.descriptors = list(descriptors)
+        self.gate_fd = config_gate_fd(descriptors)
+        self.directory_fds = directory_fds
+        self.missing = {folder for folder, identity in identities.items() if identity is None}
+        self.stack = stack
+
+    def __iter__(self):
+        return iter(self.descriptors)
+
+    def __len__(self):
+        return len(self.descriptors)
+
+    def __getitem__(self, index):
+        return self.descriptors[index]
+
+    def require_targets(self, paths, *, subtrees=()):
+        paths = set(paths)
+        identities = {_directory_fd_identity(fd) for fd in self.directory_fds}
+        for folder in _layout_target_parents(self.gate_fd, paths, subtrees):
+            identity = _config_directory_identity(folder)
+            if identity in identities:
+                continue
+            if (folder not in self.missing or identity is None
+                    or not any(_config_directory_identity(parent) in identities for parent in folder.parents)):
+                raise LayoutTargetsChanged(paths, subtrees)
+            # Git can create a missing parent under our exclusive ancestor. A
+            # new alias could already contend; never wait while publishing.
+            try:
+                fd = _lock_layout_parent_now(folder, self.stack)
+            except (BlockingIOError, FileNotFoundError, NotADirectoryError):
+                raise LayoutTargetsChanged(paths, subtrees) from None
+            self.descriptors.append(fd)
+            self.directory_fds.append(fd)
+            identities.add(_directory_fd_identity(fd))
 
 
 @contextmanager
-def layout_locks(repository):
-    # The checkout root covers normal split layouts and nested run configs.
-    # Also cover the canonical destination if Terminal is a directory alias.
-    destination = repository / "terminal"
-    terminal = destination.resolve()
-    # Saved selections can name any owned path, even after source publication.
-    # Inspect the mount namespace rather than walking the checkout.
-    subtrees = (repository, terminal)
-    with config_locks(repository, terminal, mount_subtrees=subtrees) as (descriptors, _):
-        if destination.resolve() != terminal:
-            raise RuntimeError(f"Terminal destination changed before layout: {destination}")
-        yield descriptors
+def layout_locks(repository, *, inventory=True, extra_paths=(), extra_subtrees=()):
+    terminal = repository / "terminal"
+    destination = terminal.resolve()
+    subtrees = {repository, destination, *extra_subtrees}
+
+    def targets():
+        # Keep exact parents even underneath an exclusive checkout root. A
+        # second workspace can reach their inodes through another bind alias.
+        paths = {repository / "setup.py", terminal.resolve() / "setup.py", *extra_paths}
+        if inventory:
+            paths.update(_layout_config_targets(repository))
+        return paths
+
+    with (_config_locks((repository, destination), targets, subtrees) as (
+            descriptors, _, identities, directory_fds), ExitStack() as extensions):
+        if terminal.resolve() != destination:
+            raise LayoutTargetsChanged((), {terminal.resolve()})
+        yield LayoutLease(descriptors, directory_fds, identities, extensions)
+
+
+def require_layout_configs(repository, lease):
+    terminal = (repository / "terminal").resolve()
+    paths = _layout_config_targets(repository)
+    if terminal.is_dir():
+        paths.add(terminal / "setup.py")
+    lease.require_targets(paths, subtrees=(repository, terminal))
 
 
 @contextmanager
-def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None,
-                      reference_moves=(), gate_fd=None):
-    """Keep small original bytes/inodes and the profile namespace while the caller holds layout locks."""
-    if not enabled:
-        yield lambda: None
-        return
-    repository = Path(repository).resolve()
+def layout_profile_lock():
     explicit = os.environ.get("STRATA_PROFILE_DIR")
     directory = (Path(explicit).expanduser() if explicit else
                  Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "strata" / "profiles")
     directory.mkdir(parents=True, mode=0o700, exist_ok=True)
     namespace = directory.resolve() / ".source-references.namespace.lock"
-    with namespace.open("a+b") as lock, ExitStack() as snapshots:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with ExitStack() as stack:
+        fd = _promote_lock_fd(os.open(namespace, os.O_RDWR | os.O_CREAT, 0o666))
+        stack.callback(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
         before_fd = os.environ.get("STRATA_PROFILE_NAMESPACE_FD")
-        os.environ["STRATA_PROFILE_NAMESPACE_FD"] = str(lock.fileno())
+        os.environ["STRATA_PROFILE_NAMESPACE_FD"] = str(fd)
         try:
+            yield directory
+        finally:
+            if before_fd is None:
+                os.environ.pop("STRATA_PROFILE_NAMESPACE_FD", None)
+            else:
+                os.environ["STRATA_PROFILE_NAMESPACE_FD"] = before_fd
+
+
+@contextmanager
+def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None,
+                      reference_moves=(), gate_fd=None, lease=None, extra_configs=()):
+    """Keep small original bytes/inodes and the profile namespace while the caller holds layout locks."""
+    if not enabled:
+        yield lambda: None
+        return
+    repository = Path(repository).resolve()
+    with layout_profile_lock() as directory:
+        if lease is not None:
+            require_layout_configs(repository, lease)
+        with ExitStack() as snapshots:
             paths = {path for path in directory.glob("*.json") if path.is_file() and not path.is_symlink()}
             metadata = directory / ".source-relocations.json"
             # Receipts and engine approval rollback data share the outer source transaction.
@@ -872,6 +1035,12 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
             absent = {path for path in tracked if not path.exists() and not path.is_symlink()}
             absent_directories = {Path(path) for path in metadata_directories if not Path(path).exists()}
             paths.update(tracked - absent)
+            extra = {path for path in extra_configs if path.resolve() == path
+                     and path.is_relative_to(repository) and path.is_file()
+                     and path not in (repository / "setup.py", repository / "terminal/setup.py")}
+            if lease is not None:
+                lease.require_targets(extra)
+            paths.update(extra)
             history = set((directory / ".history").glob("*/*.json"))
             for runtime in (repository, repository / "terminal"):
                 paths.update(path for pattern in LAYOUT_FILES for path in runtime.glob(pattern) if path.is_file()
@@ -1002,11 +1171,6 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                     raise RuntimeError("Cannot restore layout checkpoint: " + "; ".join(map(str, errors))) from errors[0]
 
             yield restore
-        finally:
-            if before_fd is None:
-                os.environ.pop("STRATA_PROFILE_NAMESPACE_FD", None)
-            else:
-                os.environ["STRATA_PROFILE_NAMESPACE_FD"] = before_fd
 
 
 def _regular_file(path):
@@ -1263,18 +1427,22 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
 
 def migrate_layout(repository, *, reverse=False, reference_moves=()):
     repository = Path(repository).resolve()
-    with layout_locks(repository) as descriptors:
-        return _migrate_layout(repository, reverse=reverse, reference_moves=reference_moves,
-                               gate_fd=config_gate_fd(descriptors))
+    for inventory in layout_attempts(repository):
+        try:
+            with layout_locks(repository, **inventory) as lease:
+                return _migrate_layout(repository, reverse=reverse, reference_moves=reference_moves,
+                                       gate_fd=lease.gate_fd, check_targets=lease.require_targets)
+        except LayoutTargetsChanged as error:
+            error.remember(inventory)
 
 
-def _migrate_layout(repository, *, reverse, reference_moves, stationary=False, gate_fd=None):
+def _migrate_layout(repository, *, reverse, reference_moves, stationary=False, gate_fd=None, check_targets=None):
     """Migrate with the layout locks held here or by the publishing parent."""
     terminal = repository / "terminal"
     subtrees = repository, terminal.resolve()
     require_config_mounts(gate_fd, subtrees, subtrees=subtrees)
     if not (terminal / "setup.py").is_file():
-        _normalize_layout(repository, stationary=stationary, gate_fd=gate_fd)
+        _normalize_layout(repository, stationary=stationary, gate_fd=gate_fd, check_targets=check_targets)
         return []
     source, destination = (terminal, repository) if reverse else (repository, terminal)
     enable_source(terminal)
@@ -1291,11 +1459,11 @@ def _migrate_layout(repository, *, reverse, reference_moves, stationary=False, g
     with profiles.relocate_sources([], runtime_moves=pairs) as publish_profiles:
         return _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles,
                                  reverse=reverse, reference_moves=reference_moves, stationary=stationary,
-                                 gate_fd=gate_fd)
+                                 gate_fd=gate_fd, check_targets=check_targets)
 
 
 def _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles, *,
-                      reverse, reference_moves, stationary=False, gate_fd=None):
+                      reverse, reference_moves, stationary=False, gate_fd=None, check_targets=None):
     engine = source / "engine"
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
@@ -1303,6 +1471,8 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
             (path for runtime in (source, destination) for path in runtime.glob("strata-*.json")))
     originals.update((path, before) for path in paths
                      if (before := _read_layout_config(path, stationary=stationary)) is not None)
+    if check_targets is not None:
+        check_targets(paths)
     configs = {path: config for path in paths
                if path in originals and (config := _model_config(originals[path])) is not None}
     engine_paths = [((repository / "engine" / name, repository / name) if reverse
@@ -1408,8 +1578,9 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
         if mapped != config:
             transformed[src] = (json.dumps(mapped, indent=2) + "\n").encode("utf-8")
     runtime_edits = []
-    for src, after in transformed.items():
-        runtime_edits.append((relocated_path(src, pairs), originals[src], after, None))
+    config_edits = {relocated_path(src, pairs): src for src in transformed}
+    for dst, src in config_edits.items():
+        runtime_edits.append((dst, originals[src], transformed[src], None))
     for src, dst in pairs:
         if src in originals and src.suffix != ".json" and not src.is_symlink():
             text = originals[src].decode("utf-8", "surrogateescape")
@@ -1456,14 +1627,36 @@ def _migrate_payloads(repository, source, destination, pairs, retired_markers, p
             require_config_mounts(gate_fd, (path for pair in pairs for entry in pair
                                            for path in (entry, entry.parent)),
                                   subtrees=(repository, (repository / "terminal").resolve()))
+            new_parents = {}
+            if check_targets is not None:
+                # Git may not track the destination's engine directory. Only
+                # take a new local lock here if mkdir proves we own its birth.
+                for folder in sorted({dst.parent for src, dst in pairs if dst in config_edits}):
+                    if not folder.is_dir():
+                        folder.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            folder.mkdir()
+                        except FileExistsError:
+                            pass
+                        else:
+                            for canonical in _layout_target_parents(gate_fd, (folder / "config",), ()):
+                                new_parents[folder] = _lock_layout_parent_now(canonical, snapshots)
             for src, dst in pairs:
                 dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst in config_edits and check_targets is not None and dst.parent not in new_parents:
+                    check_targets((dst,))
                 os.rename(src, dst)
                 moved.append((src, dst))
             for entry, before, after, mode in runtime_edits:
                 if mode is None and entry.is_symlink():
                     raise RuntimeError(f"Strata runtime changed before relocation write: {entry}")
                 require_config_mounts(gate_fd, (entry, entry.parent))
+                if entry in config_edits and check_targets is not None:
+                    fd = new_parents.get(entry.parent)
+                    if fd is None:
+                        check_targets((entry,))
+                    elif _config_directory_identity(entry.parent.resolve()) != _directory_fd_identity(fd):
+                        raise LayoutTargetsChanged((entry,), ())
                 backup = None
                 if mode is not None:
                     backup = staging_root(entry.parent) / str(len(edited))

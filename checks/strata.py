@@ -116,7 +116,7 @@ class WorkspaceTests(unittest.TestCase):
         terminal_tests.mkdir(parents=True)
         for name in ("test_discovery.py", "test_net_own_folder.py", "test_model_folder_case.py",
                      "test_fix3_0212.py", "test_flow2_022.py", "test_fixapp_0217_update_build.py",
-                     "test_launch_tui.py", "test_fix_tui_0216.py"):
+                     "test_launch_tui.py", "test_fix_tui_0216.py", "test_tui_0217.py"):
             shutil.copyfile(Path(UPSTREAM) / "tests/terminal" / name, terminal_tests / name)
         shutil.copyfile(Path(UPSTREAM) / "strata.py", self.repo / "strata.py")
         shutil.copyfile(UPSTREAM_SOURCE / "setup.sh", self.repository / "setup.sh")
@@ -1214,7 +1214,7 @@ dirs = cat.launch_directories(own_family, model, data_dir=data)
 selected = setup.own_path_download_layout(own_family, model, data / "models")
 assert selected["folder"] != dirs.models_dir
 with patch.object(cat, "disk_free", return_value=50.0) as free:
-    assert cat.download_space(dirs, [{"kind": "weights", "gb": 20}]) == [(selected["folder"], 50.0)]
+    assert cat.download_space(dirs, [{"kind": "weights", "gb": 20}]) == [(selected["folder"], 50.0, 20)]
     free.assert_called_once_with(selected["folder"])
 ''')
 
@@ -2604,6 +2604,49 @@ with state.config_locks(root, mount_targets=lambda: (alias.resolve(),)) as (fds,
             raise AssertionError("target parent is writable by another holder")
     finally:
         os.close(peer)
+''')
+
+    def test_layout_excludes_migration_through_a_local_bind_alias(self):
+        self.run_source_script(self.prepare(self.old), r'''
+import fcntl
+import json
+import os
+from pathlib import Path
+from unittest.mock import patch
+import strata_managed_state as state
+
+terminal = Path.cwd()
+repository = terminal.parent
+parent = terminal / "nested"
+parent.mkdir()
+target = parent / "model.json"
+target.write_text(json.dumps({"exe": "echo", "args": [], "cwd": str(repository)}))
+(terminal / "strata-local.json").symlink_to(target)
+alias = repository.parent / "other-installation"
+alias.mkdir()
+open_dir, stat_dir, flock = os.open, Path.stat, fcntl.flock
+identity = parent.stat()
+
+def alias_open(path, flags):
+    return open_dir(parent if path == alias else path, flags)
+
+def alias_stat(path, **kwargs):
+    return stat_dir(parent if path == alias else path, **kwargs)
+
+def nonblocking(fd, mode):
+    try:
+        return flock(fd, mode | fcntl.LOCK_NB)
+    except BlockingIOError:
+        assert os.path.samestat(os.fstat(fd), identity), "blocked by an unrelated lock"
+        raise
+
+with state.layout_locks(repository), patch.object(os, "open", side_effect=alias_open), \
+     patch.object(Path, "stat", alias_stat), patch.object(fcntl, "flock", side_effect=nonblocking):
+    try:
+        with state.config_locks(alias):
+            raise AssertionError("layout and aliased native migration hold concurrent leases")
+    except BlockingIOError:
+        pass
 ''')
 
     @unittest.skipUnless(sys.platform == "linux", "Linux NFS flock protocol")
@@ -4856,6 +4899,72 @@ def _load_setup():
                     self.assertIn("usage:", result.stdout.lower())
                     self.assertTrue(witness.is_file(), args)
                 self.assertFalse((root / "ram-budget-0217.done").exists())
+
+    def test_prepared_stop_does_not_wait_for_layout_lock(self):
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        runtime = self.base / "stop-runtime"
+        runtime.mkdir(mode=0o700)
+        self.env["STRATA_RUNTIME_DIR"] = str(runtime)
+        root = self.prepare(self.old)
+        target = root / "nested/model.json"
+        target.parent.mkdir()
+        original = json.dumps({"exe": "echo", "args": [], "cwd": str(root.parent)}).encode()
+        target.write_bytes(original)
+        alias = "strata-after-checkout.json"
+        (self.repo / alias).symlink_to(f"nested/{target.name}")
+        self.git("add", "--force", str(self.repo / alias))
+        requested = self.commit()
+        publisher = r'''
+import fcntl, importlib.util, os, sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+state, revision, remote, source_patch, config_parent = sys.argv[2:]
+source = Path(config_parent).stat()
+flock = fcntl.flock
+
+def observe(fd, mode):
+    if isinstance(fd, int) and mode == fcntl.LOCK_EX and os.path.samestat(os.fstat(fd), source):
+        try:
+            flock(fd, mode | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("waiting for layout", flush=True)
+        else:
+            raise AssertionError("layout lock was not held by the test")
+    return flock(fd, mode)
+
+fcntl.flock = observe
+workspace.prepare_workspace(state, revision, remote, source_patch=source_patch)
+'''
+        args = [sys.executable, "-c", publisher, WORKSPACE, str(self.state), requested,
+                str(self.repository), SOURCE_PATCH, str(target.parent)]
+        fd = os.open(target.parent, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            with subprocess.Popen(args, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True) as process:
+                try:
+                    self.assertTrue(select.select([process.stdout], [], [], 5)[0], "publisher never waited for layout")
+                    self.assertEqual(process.stdout.readline(), "waiting for layout\n")
+                    head = subprocess.check_output(
+                        ["git", "-C", str(root.parent), "rev-parse", "HEAD"], text=True).strip()
+                    self.assertEqual(head, self.old)
+                    self.assertFalse((root / alias).is_symlink())
+                    self.assertEqual(target.read_bytes(), original)
+                    stop = ["run", "runtime", "stop", "--profile", "not-running", "--plan", "--output", "json"]
+                    result = subprocess.run(self.command(self.old) + stop, env=self.env,
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 6, result.stderr + result.stdout)
+                    self.assertEqual(json.loads(result.stdout)["error"], "runtime_not_owned")
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    out, err = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 0, out + err)
+                self.assertEqual((root / alias).resolve(), target)
+        finally:
+            os.close(fd)
 
     def test_native_migration_retries_failed_publication_without_replacing_user_files(self):
         self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
@@ -11426,21 +11535,21 @@ for shard in layout.layout[3]:
 state = runner.model_state()
 parts = [part for part in state.parts if part.gb > 0]
 assert {part.kind for part in parts} == {"mtp"}, state
-assert layout.download_folders({"kind": part.kind, "gb": part.gb} for part in parts) == (data / "mtp",)
+assert list(layout.download_needs({"kind": part.kind, "gb": part.gb} for part in parts)) == [(data / "mtp", parts[0].gb)]
 plan = runner.download_plan()
 assert {part["kind"] for part in plan["parts"]} == {"mtp"}, plan
-assert layout.download_folders(plan["parts"]) == (data / "mtp",)
+assert list(layout.download_needs(plan["parts"])) == [(data / "mtp", plan["parts"][0]["gb"])]
 (data / "mtp/rt/experts.bin").write_bytes(b"mtp")
 (models / mod.FAMILIES["qwen"]["mmproj"]).unlink()
 state = runner.model_state()
 parts = [part for part in state.parts if part.gb > 0]
 assert {part.kind for part in parts} == {"mmproj"}, state
-assert layout.download_folders({"kind": part.kind, "gb": part.gb} for part in parts) == (models,)
+assert list(layout.download_needs({"kind": part.kind, "gb": part.gb} for part in parts)) == [(models, parts[0].gb)]
 with patch.object(runner, "model_state", return_value=state), patch.object(modelstate, "reader_present") as reader:
     plan = runner.download_plan()
     assert {part["kind"] for part in plan["parts"]} == {"mmproj"}, plan
     reader.assert_not_called()
-assert layout.download_folders(plan["parts"]) == (models,)
+assert list(layout.download_needs(plan["parts"])) == [(models, plan["parts"][0]["gb"])]
 runner.s.vision = "off"
 state = runner.model_state()
 with patch.object(runner, "model_state", return_value=state), patch.object(modelstate, "reader_present") as reader:
@@ -11514,6 +11623,44 @@ with patch.object(drafting, "detect_hardware", return_value=("cpu", [])):
     asyncio.run(exercise(None))
 ''')
 
+
+    def test_move_data_preserves_models_inode_and_relative_link_receipts(self):
+        self.run_source_script(self.prepare(self.old), r'''
+import os
+from pathlib import Path
+from strata_cli.launch.catalog import Catalog
+
+root = Path.cwd()
+move = Catalog(src=root, root=root, hardware={}).strata.setup_module().move_into
+for merge in (False, True):
+    case = root / f"move-models-{merge}"
+    source, target = case / "before", case / "after"
+    (source / "A").mkdir(parents=True)
+    (source / "B").mkdir()
+    (source / "A/bytes.gguf").write_bytes(b"weights")
+    (source / "B/link.gguf").symlink_to("../A/bytes.gguf")
+    (source / "B/link.gguf.done").write_bytes(b"receipt")
+    original = source.stat()
+    try:
+        if merge:
+            (target / "B").mkdir(parents=True)
+            (target / "B/extra.gguf").write_bytes(b"keep")
+        else:
+            source.chmod(0o555)
+        move(source, target, model_downloads=True)
+        assert (target / "B/link.gguf").read_bytes() == b"weights"
+        assert (target / "B/link.gguf.done").read_bytes() == b"receipt"
+        assert not source.exists()
+        if merge:
+            assert (target / "B/extra.gguf").read_bytes() == b"keep"
+        else:
+            assert os.path.samestat(target.stat(), original), "models directory was recreated"
+            assert target.stat().st_mode & 0o777 == 0o555
+    finally:
+        for directory in (source, target):
+            if directory.is_dir():
+                directory.chmod(0o700)
+''')
 
     def test_installed_move_plan_credits_only_complete_native_destinations(self):
         root = self.prepare(self.old)
@@ -11840,7 +11987,7 @@ for move in (False, True):
         with patch.object(cat, "disk_free", return_value=50.0) as free:
             [space] = cat.download_space(selected, parts)
         target = drafting.target_path(new if move else old).parent
-        assert space == (target, 50.0), space
+        assert space == (target, 50.0, planned["disk_gb"]), space
         free.assert_called_once_with(target)
         assert not planned["tuned"], parts
         stock = drafting.target_path(old)
@@ -13724,6 +13871,7 @@ assert not data.exists()
 # separate volumes. Each volume fits its own download, but neither fits both.
 from types import SimpleNamespace
 from strata_cli.launch.app import Ctx, LaunchApp
+from strata_cli.launch.runner import Runner
 from strata_cli.launch.screens import FolderScreen
 from strata_control import engine_component
 marker.unlink()
@@ -13753,14 +13901,20 @@ with patch.object(Path, "stat", split_stat), \
      patch.object(mod, "_hash_file", wraps=native_hash) as hashes, \
      patch.object(engine_component, "status", return_value={"usable": True}), \
      patch.object(app, "push_screen") as pushed, \
-     patch.object(app, "show", side_effect=AssertionError("split download was not confirmed")):
+     patch.object(app, "show", side_effect=AssertionError("split download was not confirmed")), \
+     patch.object(app, "call_from_thread", side_effect=lambda callback, *args: callback(*args)):
+    def finish_plan(dispatch, done):
+        s = ctx.settings
+        directories = cat.launch_directories(s.family, s.model, data_dir=s.data_dir, model_path=s.model_path)
+        done(directories, Runner(s, catalog=cat).download_plan(directories=directories))
+    ctx.check_download_plan = finish_plan
     app.run_launch()
     assert selections.call_count == 1, selections.call_args_list
     hashes.assert_called_once_with(path, len(payload), progress=False)
     dialog = pushed.call_args.args[0]
     assert dialog.question == "Download about 6 GB?"
     assert f"4 GB at {gguf_folder}" in dialog.detail and f"4 GB at {pack_folder}" in dialog.detail, dialog.detail
-    assert "will probably stop" not in dialog.detail, dialog.detail
+    assert "not enough" not in dialog.detail.lower(), dialog.detail
     assert [call.args[0] for call in capacity.call_args_list] == [gguf_folder, pack_folder]
     assert not marker.exists()
 
@@ -13768,10 +13922,22 @@ with patch.object(Path, "stat", split_stat), \
     folder = SimpleNamespace(ctx=ctx, state=ctx.model_state,
         models_that_would_move=lambda value, **kwargs: None,
         query_one=lambda selector, _: SimpleNamespace(value=str(data), update=text.append))
-    FolderScreen.refresh_body(folder)
+    verified = cat.launch_directories(runner.s.family, runner.s.model, data_dir=data)
+    capacity.side_effect = lambda path: 4.0 if path == gguf_folder else 12.0
+    FolderScreen.refresh_body(folder, directories=verified)
     [body] = text
-    assert f"{gguf_folder}: 4 GB" in body.plain and f"{pack_folder}: 4 GB" in body.plain, body.plain
-    assert "Not enough" not in body.plain, body.plain
+    assert f"{gguf_folder}: 4 GB free, 3.0 GB needed" in body.plain, body.plain
+    assert f"{pack_folder}: 12 GB free, 11.0 GB needed" in body.plain, body.plain
+    assert "not enough" not in body.plain.lower(), body.plain
+
+    capacity.side_effect = lambda path: 2.0 if path == gguf_folder else 12.0
+    app.run_launch()
+    detail = pushed.call_args.args[0].detail
+    assert str(gguf_folder) in detail and "not enough" in detail.lower(), detail
+    text.clear()
+    FolderScreen.refresh_body(folder, directories=verified)
+    [body] = text
+    assert f"{gguf_folder}: 2 GB free, 3.0 GB needed (not enough)" in body.plain, body.plain
 ''')
 
     def test_canonical_internal_profile_sources_follow_runtime_moves_and_restore_history(self):
@@ -15228,10 +15394,30 @@ async def exercise():
             selections.clear()
             screen.paint()
             assert not hashes, hashes
-            # Explicit forecasts revalidate, rather than reusing the screen's snapshot.
-            forecast = cat.launch_directories(family, model, data_dir=data)
-            assert hashes == Counter({p: 1 for p in expected}), hashes
-            assert not forecast.verified_files[victim], 'same-size changed shard retained completion proof'
+            assert screen._folder_forecast is None, "Folder kept a stale forecast"
+            FolderScreen.check_folder(screen)
+            for _ in range(100):
+                if screen._folder_forecast is not None:
+                    break
+                await pilot.pause(0.05)
+            refreshed = screen._folder_forecast
+            assert refreshed is not None and not refreshed.verified_files[victim]
+            assert hashes[victim] >= 1, hashes
+            assert get_ident() not in hash_threads
+            # The confirmation forecast uses the same read-only worker contract.
+            hashes.clear()
+            result = []
+            done = asyncio.Event()
+
+            def finish(directories, plan):
+                result.append((directories, plan))
+                done.set()
+
+            ctx.check_download_plan(app.call_from_thread, finish)
+            await asyncio.wait_for(done.wait(), timeout=5)
+            [(checked, plan)] = result
+            assert plan is not None and not checked.verified_files[victim]
+            assert get_ident() not in hash_threads
             assert snapshot() == changed
             assert not any(p.name.endswith('.done') for p in data.rglob('*'))
             assert not any(p.name.endswith('.done') for p in models.rglob('*'))

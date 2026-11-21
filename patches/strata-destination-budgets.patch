@@ -142,7 +142,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
  
  
  def ready_verified(p: Path, sha: str) -> bool:
-@@ -7967,20 +8066,20 @@
+@@ -7977,20 +8076,20 @@
  
  
 -def resolve_reader(pinned: str, mmproj: Path, models_dir, roots, gguf_dir, size, sha=None):
@@ -167,7 +167,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
      if renamed is not None:
          return ("renamed", renamed[1]) if renamed[0] == "near" else renamed
      return "fetch", mmproj
-@@ -11243,11 +11342,22 @@
+@@ -11253,11 +11352,22 @@
          (40 if q2_avx and not pack_bin else 0) + (1 if vision != "none" else 0) + copy_gb
      need = real + margin
      free_now = free_gb(models_dir)
@@ -195,7 +195,7 @@ diff --git a/terminal/setup.py b/terminal/setup.py
          warn(f"little free disk space in {models_dir}: {free_now:.0f} GB free for about {real:.0f} GB of files. "
               "Setup goes on and should fit; free up space if it stops")
  
-@@ -11321,12 +11431,7 @@
+@@ -11331,12 +11441,7 @@
      ok("model files present")
      mmproj = Path(a.models_dir) / fam.get("mmproj", MMPROJ)
 -    if not mmproj.exists():                            # an earlier install's copy (the same file for every family)

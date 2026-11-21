@@ -230,7 +230,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         match = re.fullmatch(r"source-([0-9a-f]{40})", root.name)
         initial = match[1] if match else revision
         git(root, "fetch", "--quiet", "--depth=1", remote, initial)
-        with source_publication_lock(state), managed_state.layout_locks(root):
+        with managed_state.layout_locks(root, inventory=False), source_publication_lock(state):
             if match:
                 git(root, "reset", "--quiet", "--mixed", "FETCH_HEAD")
             else:
@@ -242,166 +242,185 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     ) from None
     if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
-    with (source_publication_lock(state) as publication_lock,
-          managed_state.layout_locks(root) as config_fds):
-        gate_fd = managed_state.config_gate_fd(config_fds)
-        current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-        # Workaround: upstream pulls its configured branch, not a pinned revision.
-        # Keep visited revisions reachable for GC-safe offline rollback.
-        # Remove when upstream supports both revision pinning and GC-safe offline rollback.
-        git(root, "update-ref", f"refs/strata/revisions/{current}", current)
-        ledger = root / ".git" / SOURCE_PATCH
-        previous = ledger.read_bytes().decode("utf-8") if ledger.exists() else None
-        desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
-        requested = desired
-        request_receipt = root / ".git" / SOURCE_REQUEST
-        applied = previous is not None and patch_check(root, previous, reverse=True)
-        if previous is not None and not applied and not patch_check(root, previous):
-            raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
-        cache = root / ".git" / "strata-source-patches"
-        publications = [(current, previous)] if applied else []
-        if current == revision and (previous is None or applied) and (
-                previous == desired or accepted_source_request(root, revision, requested, previous)):
-            runtime = terminal_root(root)
-            pairs, retired = (managed_state._runtime_layout_plan(root, reverse=False)
-                              if runtime != root else ((), ()))
-            request_text = json.dumps(source_request(revision, requested, previous))
-            # No layout or source publication remains. The in-place repairs
-            # have their own rollback and need not snapshot unrelated configs.
-            if (not pairs and not retired and migration_complete(request_receipt)
-                    and request_receipt.read_text() == request_text
-                    and _source_cache_current(cache, current, previous)):
-                migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
+    # Observers need neither acquisition nor config locks. Leave publication
+    # open to readers while a writer waits for the ordered layout leases.
+    for inventory in managed_state.layout_attempts(root):
+        try:
+            with (managed_state.layout_locks(root, **inventory) as config_fds,
+                  source_publication_lock(state) as publication_lock):
+                return _publish_workspace(state, root, revision, source_patch, lock_fd,
+                                          publication_lock.fileno(), config_fds, inventory["extra_paths"])
+        except managed_state.LayoutTargetsChanged as error:
+            error.remember(inventory)
+
+
+def _publish_workspace(state, root, revision, source_patch, lock_fd, publication_fd, config_fds, extra_configs):
+    gate_fd = managed_state.config_gate_fd(config_fds)
+    current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    # Workaround: upstream pulls its configured branch, not a pinned revision.
+    # Keep visited revisions reachable for GC-safe offline rollback.
+    # Remove when upstream supports both revision pinning and GC-safe offline rollback.
+    git(root, "update-ref", f"refs/strata/revisions/{current}", current)
+    ledger = root / ".git" / SOURCE_PATCH
+    previous = ledger.read_bytes().decode("utf-8") if ledger.exists() else None
+    desired = Path(source_patch).read_bytes().decode("utf-8") if source_patch is not None else None
+    requested = desired
+    request_receipt = root / ".git" / SOURCE_REQUEST
+    applied = previous is not None and patch_check(root, previous, reverse=True)
+    if previous is not None and not applied and not patch_check(root, previous):
+        raise RuntimeError(f"Cannot reconcile source patch in {root}; preserve {ledger} and repair conflicting edits")
+    cache = root / ".git" / "strata-source-patches"
+    publications = [(current, previous)] if applied else []
+    if current == revision and (previous is None or applied) and (
+            previous == desired or accepted_source_request(root, revision, requested, previous)):
+        runtime = terminal_root(root)
+        pairs, retired = (managed_state._runtime_layout_plan(root, reverse=False)
+                          if runtime != root else ((), ()))
+        request_text = json.dumps(source_request(revision, requested, previous))
+        # No layout or source publication remains. The in-place repairs
+        # have their own rollback and need not snapshot unrelated configs.
+        if (not pairs and not retired and migration_complete(request_receipt)
+                and request_receipt.read_text() == request_text
+                and _source_cache_current(cache, current, previous)):
+            with managed_state.layout_profile_lock():
+                migrate_layout(state, runtime, lock_fd, publication_fd=publication_fd,
                                config_fds=config_fds, stationary=True)
-                return root
-            cache_paths = source_cache_paths(cache, publications)
-            receipt = root / ".git" / ENGINE_ROLLBACK
-            engines = ({name: engine_identity(runtime / name) for name in ENGINE_DIRECTORIES}
-                       if os.path.lexists(receipt) else None)
-            moved = []
-            with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
-                                                 runtime_moves=pairs, gate_fd=gate_fd) as restore_metadata:
-                try:
-                    moved = migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
-                                           config_fds=config_fds)
-                    if engines is not None and any(engine_identity(runtime / name) != identity
-                                                   for name, identity in engines.items()):
-                        receipt.unlink(missing_ok=True)
-                    for cached_revision, text in publications:
-                        cache_source_patch(cache, cached_revision, text)
-                    publish_source_patch(request_receipt, request_text)
-                except BaseException:
-                    try:
-                        managed_state.restore_runtime_moves(moved)
-                    finally:
-                        restore_metadata()
-                    raise
             return root
         cache_paths = source_cache_paths(cache, publications)
-        target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
-        cached = cached_source_patch(cache, revision)
-        if desired is not None and not patch_revision_check(root, revision, desired):
-            if current == revision:
-                raise RuntimeError(f"Requested source patch is incompatible with revision {revision}; existing source/runtime preserved")
-            if cached is None:
-                desired = None      # A pin published before the overlay runs native; the stable state owns its runtime.
-            elif not patch_revision_check(root, revision, cached):
-                raise RuntimeError(f"Published source patch for revision {revision} no longer applies; "
-                                   "the source and runtime were not migrated")
-            else:
-                desired = cached
-        if desired is not None:
-            cache_paths.update(source_cache_paths(cache, [(revision, desired)]))
-            publications.append((revision, desired))
-        reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
-        forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
-        previous_runtime = terminal_root(root)
-        previous_managed = managed_source_hooks(previous_runtime)
-        approval = snapshot_engine_approvals(previous_runtime, current)
-        pairs = managed_state.runtime_pairs(root, reverse=reverse_layout) if target_terminal or reverse_layout else ()
-        # Layout, profiles, accepted cache bytes and the request receipt settle together.
-        tracked_engine = reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0
-        with (managed_state.engine_link_checkpoint(root, reverse=reverse_layout,
-                  enabled=forward_layout or reverse_layout, tracked_engine=tracked_engine) as engine_link,
-              managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
-                  runtime_moves=pairs, reference_moves=engine_link.planned_reference_moves(),
-                  gate_fd=gate_fd) as restore_metadata,
-              managed_state.cmake_metadata_checkpoint() as cmake_metadata,
-              ExitStack() as marker_snapshots):
-            moved = []
-            removed_patch = desired_applied = False
+        receipt = root / ".git" / ENGINE_ROLLBACK
+        engines = ({name: engine_identity(runtime / name) for name in ENGINE_DIRECTORIES}
+                   if os.path.lexists(receipt) else None)
+        moved = []
+        with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
+                                             runtime_moves=pairs, gate_fd=gate_fd, lease=config_fds,
+                                             extra_configs=extra_configs) as restore_metadata:
             try:
-                managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
-                engine_link.stage()
-                if reverse_layout:
-                    moved.extend(migrate_layout(state, root / "terminal", lock_fd,
-                                                publication_fd=publication_lock.fileno(), config_fds=config_fds, reverse=True,
-                                                reference_moves=engine_link.reference_moves()))
-                if applied:
-                    apply_source_patch(root, previous, reverse=True)
-                    removed_patch = True
-                ledger.unlink(missing_ok=True)
-                git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
-                git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
-                engine_link.publish()
-                if desired is not None:
-                    if not patch_check(root, desired):
-                        raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
-                    publish_source_patch(ledger, desired)
-                    apply_source_patch(root, desired)
-                    desired_applied = True
-                runtime = terminal_root(root)
-                moved.extend(migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
-                                            config_fds=config_fds,
-                                            reference_moves=engine_link.reference_moves()))
-                managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
-                if not (previous_managed and managed_source_hooks(runtime)):
-                    # Native writers do not maintain the managed inspection receipt.
-                    # Retire a relocated receipt directly from its original
-                    # coordinate so rollback need not reuse the new path.
-                    for folder in (root, root / "terminal"):
-                        marker = folder / managed_state.RAM_BUDGET_MARK
-                        if migration_complete(marker):
-                            staged = Path(marker_snapshots.enter_context(tempfile.TemporaryDirectory(
-                                dir=folder, prefix=".strata-layout-"))) / marker.name
-                            os.rename(marker, staged)
-                            for index, (original, destination) in enumerate(moved):
-                                if destination == marker:
-                                    moved[index] = (original, staged)
-                                    break
-                            else:
-                                moved.append((marker, staged))
-                if not target_terminal:
-                    cmake_metadata.invalidate(root)
+                moved = migrate_layout(state, runtime, lock_fd, publication_fd=publication_fd,
+                                       config_fds=config_fds)
+                if engines is not None and any(engine_identity(runtime / name) != identity
+                                               for name, identity in engines.items()):
+                    receipt.unlink(missing_ok=True)
                 for cached_revision, text in publications:
                     cache_source_patch(cache, cached_revision, text)
-                (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
-                publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
-                cmake_metadata.accept()
+                publish_source_patch(request_receipt, request_text)
             except BaseException:
-                def restore(operation):
-                    try:
-                        operation()
-                    except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
-                        print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
-
-                # Uncover old source coordinates, then undo only this transaction's accepted renames.
-                restore(engine_link.withdraw)
-                restore(lambda: managed_state.restore_runtime_moves(moved))
-                if desired_applied:
-                    restore(lambda: apply_source_patch(root, desired, reverse=True))
-                restore(lambda: ledger.unlink(missing_ok=True))
-                restore(lambda: git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current))
-                restore(engine_link.restore)
-                if previous is not None:
-                    restore(lambda: publish_source_patch(ledger, previous))
-                    if removed_patch:
-                        restore(lambda: apply_source_patch(root, previous))
-                restore(cmake_metadata.restore)
-                restore(restore_metadata)
-                restore(lambda: restore_engine_approvals(terminal_root(root), approval))
+                try:
+                    managed_state.restore_runtime_moves(moved)
+                finally:
+                    restore_metadata()
                 raise
         return root
+    cache_paths = source_cache_paths(cache, publications)
+    target_terminal = git(root, "cat-file", "-e", f"{revision}:terminal/setup.py", check=False).returncode == 0
+    cached = cached_source_patch(cache, revision)
+    if desired is not None and not patch_revision_check(root, revision, desired):
+        if current == revision:
+            raise RuntimeError(f"Requested source patch is incompatible with revision {revision}; existing source/runtime preserved")
+        if cached is None:
+            desired = None      # A pin published before the overlay runs native; the stable state owns its runtime.
+        elif not patch_revision_check(root, revision, cached):
+            raise RuntimeError(f"Published source patch for revision {revision} no longer applies; "
+                               "the source and runtime were not migrated")
+        else:
+            desired = cached
+    if desired is not None:
+        cache_paths.update(source_cache_paths(cache, [(revision, desired)]))
+        publications.append((revision, desired))
+    reverse_layout = (root / "terminal" / "setup.py").is_file() and not target_terminal
+    forward_layout = not (root / "terminal" / "setup.py").is_file() and target_terminal
+    previous_runtime = terminal_root(root)
+    previous_managed = managed_source_hooks(previous_runtime)
+    approval = snapshot_engine_approvals(previous_runtime, current)
+    pairs = managed_state.runtime_pairs(root, reverse=reverse_layout) if target_terminal or reverse_layout else ()
+    # Layout, profiles, accepted cache bytes and the request receipt settle together.
+    tracked_engine = reverse_layout and git(root, "cat-file", "-e", f"{current}:engine", check=False).returncode == 0
+    with (managed_state.engine_link_checkpoint(root, reverse=reverse_layout,
+              enabled=forward_layout or reverse_layout, tracked_engine=tracked_engine) as engine_link,
+          managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
+              runtime_moves=pairs, reference_moves=engine_link.planned_reference_moves(),
+              gate_fd=gate_fd, lease=config_fds, extra_configs=extra_configs) as restore_metadata,
+          managed_state.cmake_metadata_checkpoint() as cmake_metadata,
+          ExitStack() as marker_snapshots):
+        moved = []
+        removed_patch = desired_applied = False
+        try:
+            managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
+            engine_link.stage()
+            if reverse_layout:
+                moved.extend(migrate_layout(state, root / "terminal", lock_fd,
+                                            publication_fd=publication_fd, config_fds=config_fds, reverse=True,
+                                            reference_moves=engine_link.reference_moves()))
+            if applied:
+                apply_source_patch(root, previous, reverse=True)
+                removed_patch = True
+            ledger.unlink(missing_ok=True)
+            git(root, "update-ref", f"refs/strata/revisions/{revision}", revision)
+            git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", revision)
+            engine_link.publish()
+            if desired is not None:
+                if not patch_check(root, desired):
+                    raise RuntimeError(f"Cannot apply managed source patch in {root}; repair conflicting edits without discarding user files")
+                publish_source_patch(ledger, desired)
+                apply_source_patch(root, desired)
+                desired_applied = True
+            runtime = terminal_root(root)
+            moved.extend(migrate_layout(state, runtime, lock_fd, publication_fd=publication_fd,
+                                        config_fds=config_fds,
+                                        reference_moves=engine_link.reference_moves()))
+            managed_state.require_config_mounts(gate_fd, subtrees=(root, (root / "terminal").resolve()))
+            if not (previous_managed and managed_source_hooks(runtime)):
+                # Native writers do not maintain the managed inspection receipt.
+                # Retire a relocated receipt directly from its original
+                # coordinate so rollback need not reuse the new path.
+                for folder in (root, root / "terminal"):
+                    marker = folder / managed_state.RAM_BUDGET_MARK
+                    if migration_complete(marker):
+                        staged = Path(marker_snapshots.enter_context(tempfile.TemporaryDirectory(
+                            dir=folder, prefix=".strata-layout-"))) / marker.name
+                        os.rename(marker, staged)
+                        for index, (original, destination) in enumerate(moved):
+                            if destination == marker:
+                                moved[index] = (original, staged)
+                                break
+                        else:
+                            moved.append((marker, staged))
+            if not target_terminal:
+                cmake_metadata.invalidate(root)
+            for cached_revision, text in publications:
+                cache_source_patch(cache, cached_revision, text)
+            (root / ".git" / ENGINE_ROLLBACK).unlink(missing_ok=True)
+            publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, desired)))
+            cmake_metadata.accept()
+        except BaseException as error:
+            restore_failed = False
+
+            def restore(operation):
+                nonlocal restore_failed
+                try:
+                    operation()
+                except (OSError, RuntimeError, subprocess.CalledProcessError) as restore_error:
+                    restore_failed = True
+                    print(f"Cannot restore source transaction in {root}: {restore_error}", file=sys.stderr)
+
+            # Uncover old source coordinates, then undo only this transaction's accepted renames.
+            restore(engine_link.withdraw)
+            restore(lambda: managed_state.restore_runtime_moves(moved))
+            if desired_applied:
+                restore(lambda: apply_source_patch(root, desired, reverse=True))
+            restore(lambda: ledger.unlink(missing_ok=True))
+            restore(lambda: git(root, "checkout", "--quiet", "--no-overwrite-ignore", "--detach", current))
+            restore(engine_link.restore)
+            if previous is not None:
+                restore(lambda: publish_source_patch(ledger, previous))
+                if removed_patch:
+                    restore(lambda: apply_source_patch(root, previous))
+            restore(cmake_metadata.restore)
+            restore(restore_metadata)
+            restore(lambda: restore_engine_approvals(terminal_root(root), approval))
+            if restore_failed and isinstance(error, managed_state.LayoutTargetsChanged):
+                raise RuntimeError(f"Cannot retry layout publication after incomplete rollback in {root}") from error
+            raise
+    return root
 
 
 def prepare_workspace(state, revision, remote=REMOTE, source_patch=None):
@@ -887,7 +906,9 @@ def runtime_python(root):
 def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=False, reference_moves=(),
                    stationary=False):
     """Use the publisher's leases and return only successful payload renames."""
-    previous = root / ".venv" if reverse else repository_root(root) / ".venv"
+    repository = repository_root(root)
+    managed_state.require_layout_configs(repository, config_fds)
+    previous = root / ".venv" if reverse else repository / ".venv"
     if previous.is_dir():
         retain_interpreter(state, previous)
     # A previous phase may already have moved this process's interpreter to the current runtime root.
@@ -896,11 +917,12 @@ def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=
         python = runtime_python(root)
     env = dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
                STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)}))
+    env["STRATA_LAYOUT_DIRECTORY_FDS"] = json.dumps(config_fds.directory_fds)
     env.pop("STRATA_LAYOUT_NFS_GATE_FD", None)
     gate_fd = managed_state.config_gate_fd(config_fds)
     if gate_fd is not None:
         env["STRATA_LAYOUT_NFS_GATE_FD"] = str(gate_fd)
-    result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(repository_root(root)),
+    result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(repository),
                              json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
                              *(["--reverse"] if reverse else []),
                              *(["--stationary"] if stationary else [])],
@@ -1581,9 +1603,15 @@ if __name__ == "__main__":
                 references = [(Path(source), Path(destination)) for source, destination in json.loads(sys.argv[3])]
                 gate = os.environ.pop("STRATA_LAYOUT_NFS_GATE_FD", None)
                 gate_fd = int(gate) if gate is not None else None
+                directory_fds = json.loads(os.environ.pop("STRATA_LAYOUT_DIRECTORY_FDS"))
+
+                def check_targets(paths):
+                    managed_state.require_layout_targets(gate_fd, directory_fds, paths)
+
                 moved = managed_state._migrate_layout(Path(sys.argv[2]).resolve(),
                                                       reverse="--reverse" in sys.argv[4:], reference_moves=references,
-                                                      stationary="--stationary" in sys.argv[4:], gate_fd=gate_fd)
+                                                      stationary="--stationary" in sys.argv[4:], gate_fd=gate_fd,
+                                                      check_targets=check_targets)
             print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))

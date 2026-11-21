@@ -103,9 +103,10 @@ after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
 With the requested source prepared, runtime stop bypasses RAM-budget migration
-and the workspace mutation lease. Keep migration and layout changes under the
-same locks through publication or rollback. Lock config target parents by
-inode, including local bind aliases, and acquire locks in a stable order.
+and the workspace mutation lease. Wait for layout locks before taking the
+source publication writer lease. Hold the layout locks through publication or
+rollback. Lock config target parents by inode, including local bind aliases,
+and acquire locks in a stable order.
 Check the mounts containing migration targets. Layout publication also checks
 nested NFS mounts under its managed roots because a pin change can reveal new
 targets. Pass the NFS gate to layout subprocesses outside stdin, stdout and stderr.
@@ -125,12 +126,12 @@ and keep missing readers and preparation outputs at their requested destinations
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Use the acquisition feed, retry policy and explicit
 URL override in DFlash2 forecasts. Select the same pack as setup, including
-retained Metal packs, and verify it without writing receipts. Project native
-move order for model files and resume receipts without widening access to
-private directories; `dflash2/` stays at its original root. Report the selected
-NVFP4 paths in `models explain`. Keep expensive SHA reads out of Folder repaints.
-Check split capacity against selected destinations even when weights are
-retained, exclude reused readers, and report the failing volume and byte counts.
+retained Metal packs, and verify it without writing receipts. Preserve whole
+model directories when renaming into an empty destination. Keep resume
+receipts with their payloads during merges; `dflash2/` stays at its original
+root. Report the selected NVFP4 paths in `models explain`. Run TUI forecasts
+that hash files off the UI thread. Invalidate displayed proofs when files
+change. Compare required bytes and free capacity per destination volume.
 Progress keeps completed parts through steps 6/7 and reaches 100 only when
 all are complete.
 Managed ordinary shards need native finish evidence when the helper is available,
@@ -206,8 +207,9 @@ copies. Rename an exiting persistent root to a reclaimable claim before deleting
 its owner marker, and reclaim only roots owned by the current UID. Keep
 unpublished allocations reclaimable until they have an owner lock. Distinguish
 lock contention from storage errors. Retry destination capacity failures in
-private temporary storage without moving published generations. Exclude
-snapshot artifacts without dropping provider files when a store overlaps its source.
+private temporary storage without moving published generations. Keep active
+snapshots outside removable profiles. Exclude snapshot artifacts without
+dropping provider resources when persistent storage falls back to temporary storage.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
