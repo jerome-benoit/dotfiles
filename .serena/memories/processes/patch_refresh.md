@@ -107,9 +107,10 @@ and the workspace mutation lease. Keep migration and layout changes under the
 same locks through publication or rollback. Deduplicate local locks by inode
 and acquire them in a stable order. Linux NFS uses a shared writable regular
 lock file, not an exclusive lock on a read-only directory descriptor.
-Invalidate RAM migration receipts on pin changes even if the layout stays the
-same. Keep migration backups separate from native `.bak` files. Metadata-only
-moves must not retire engine approval.
+Invalidate RAM migration receipts when either side of a source transition uses
+native dispatch, even if the layout stays the same. Keep migration backups
+separate from native `.bak` files. Metadata-only moves must not retire engine
+approval.
 
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts
@@ -118,11 +119,12 @@ sets are never combined across roots. Preserve explicit personal-file selection
 and keep missing readers and preparation outputs at their requested destinations.
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
-when rebasing role changes. Use the acquisition feed and retry policy in DFlash
-forecasts. Check DFlash and MTP at the effective destinations after a data move;
-`dflash2/` stays behind. Reflect planned drafter downloads in the summary. Share
-reader hashes across name and content searches within one forecast. Progress
-keeps completed parts through steps 6/7 and reaches 100 only when all are complete.
+when rebasing role changes. Use the acquisition feed, retry policy and explicit
+URL override in DFlash2 forecasts. Check DFlash2 and MTP at the effective
+destinations after a data move; `dflash2/` stays behind. Reflect planned drafter
+downloads in the summary. Share reader hashes across name and content searches
+within one forecast. Progress keeps completed parts through steps 6/7 and
+reaches 100 only when all are complete.
 Managed ordinary shards need native finish evidence when the helper is available,
 not merely a final filename. Preserve explicit personal acceptance and legacy
 helper-free progress; do not impose this predicate on ready SHA or reader selection.
@@ -162,8 +164,7 @@ not a release label or BUILD.json alone.
    code. Exercise affected behavior when code or upstream assumptions change.
    Provenance-only updates with unchanged code and consumers do not require
    aggregate runtime checks.
-   This does not waive package-specific checks below. Source imports do not
-   satisfy required installed-wheel checks; record any outstanding validation.
+   Apply the package-specific checks below and record any outstanding validation.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
 
@@ -243,8 +244,9 @@ gateway cases. A source-only import or a patched test copy is not a substitute.
 Compare workspace manifests, root catalogs, native lockfile entries, the recipe,
 normalizers and Bun after updating OpenCode or Nixpkgs. Recalculate all three
 targets when dependency inputs change; update source and toolchain provenance together.
-Keep `hashSourceRevision` at the source used to measure the hashes. Change
-`sourceRevision` when a new source reuses those hashes after validation.
+Keep `hashSourceRevision` and `hashNixpkgsRevision` at the revisions used to
+measure the hashes. Record the selected source and toolchain separately when
+reusing the hashes after validation.
 Record dependency-output hash checks separately from CLI builds and ARM-targeted
 `--cpu`/`--os` calculations separately from native builds. Do not carry forward
 verification claims from an older source. Keep hash-only checks serial with
@@ -253,8 +255,9 @@ verification claims from an older source. Keep hash-only checks serial with
 Use a disk-backed `TMPDIR` for standalone calculations when `/tmp` is tmpfs;
 large dependency trees otherwise count against the memory limit. Replay the
 selected dependency derivation's filters, frozen lock, normalizers and
-`installPhase`. The default package prunes nested `node_modules` in that phase;
-the upstream `node_modules_updater` does not. Calibrate the procedure against
+`installPhase`. The default package override skips descending into `node_modules`
+trees it has already copied recursively. The upstream `node_modules_updater`
+keeps its original copy command. Calibrate the procedure against
 the previous known native pin at its exact source and Bun version before
 trusting new outputs. If calibration is performed afterwards, record it as
 retrospective without rewriting the initial execution history. Limit Bun network

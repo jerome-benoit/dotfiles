@@ -8,12 +8,13 @@
     "sourceRevision": "494e8b6154ca6e2f78b5e79d38c9904ba2aed025",
     "hashSourceRevision": "4122af020611976880692dfc1d203d9ab1ef7962",
     "dependencyInputs": {
-      "inputs": "Dependency-resolution fingerprint: all 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
+      "inputs": "Source fingerprint for the dependency output: all 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
       "inputCount": 64,
       "inputSha256": "606be335b9addadee914ccebc63bf17818f8e0d4864119abec23b0b58287c817",
-      "inputHashMethod": "SHA-256 of sorted relative path bytes, NUL and the raw SHA-256 digest of each file."
+      "inputHashMethod": "SHA-256 of the concatenated records in relative path order. Each record contains the path bytes, a NUL and the raw SHA-256 file digest."
     },
     "nixpkgsRevision": "b758f1622588b4d5ce019971748a68be80e5943c",
+    "hashNixpkgsRevision": "19cfded70b91ca0981373973c5b1efffdd4d6647",
     "bunVersion": "1.4.4",
     "installCommand": "find . -type d -name node_modules -prune -exec cp -R --parents {} $out \\;",
     "buildSystems": {

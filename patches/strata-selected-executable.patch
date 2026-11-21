@@ -11,7 +11,7 @@ diff --git a/terminal/strata_control/engine_component.py b/terminal/strata_contr
 -    """Raise IntegrityProblem unless the files are what the manifest says. `full` hashes every file; without it only
 -    the entrypoint is hashed (sizes are always checked), once per file as it is on disk (see _HASHED_OK)."""
 +def verify(component: EngineComponent, *, full: bool = False, executable: str | None = None) -> None:
-+    """Check all sizes; explicit selection hashes its executable and entrypoint without the listing cache."""
++    """Check all sizes. Full mode hashes every file; default mode hashes the entrypoint with the listing cache; explicit selection hashes both executables without that cache."""
 +    if executable is not None:
 +        executable = _plain_relative(executable)
 +        if not any(rel == executable for rel, _, _ in component.files):

@@ -280,7 +280,7 @@ index c695062..2d48b6c 100644
 -    had = configured_generator(bdir)
 -    if had is None or had == generator:
 +def fresh_if_other_generator(bdir: Path, generator: str = "Ninja", *, src: Path | None = None) -> bool:
-+    """Configure afresh after a generator change or relocation of the source/build roots.
++    """Configure afresh when the cached generator or source/build paths differ.
 +
 +    Only CMakeCache.txt and CMakeFiles are discarded; engines, rollback generations and
 +    unrelated user caches stay. Callers pass the exact -S path, including vision/Metal/SYCL.
@@ -294,8 +294,8 @@ index c695062..2d48b6c 100644
 +    if not (other_generator or relocated):
          return False
 -    say(f"  {Path(bdir).name}/ was configured with {had}; setup builds with {generator}, so it is configured again (the other build is not used)")
-+    reason = f"configured with {had}, not {generator}" if other_generator else "configured before its source/build folders moved"
-+    say(f"  {Path(bdir).name}/ was {reason}; setup configures it again")
++    reason = f"cached generator is {had}, expected {generator}" if other_generator else "cached source or build path differs"
++    say(f"  {Path(bdir).name}/: {reason}; setup configures it again")
      (Path(bdir) / "CMakeCache.txt").unlink(missing_ok=True)
      shutil.rmtree(Path(bdir) / "CMakeFiles", ignore_errors=True)
      return True

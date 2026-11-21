@@ -56,23 +56,23 @@ in
         source --update --build retains upstream's rebuild semantics.
 
         Managed setup, updates and model acquisition serialize workspace mutations.
-        The launcher takes this lock and an installation lock for RAM budget
-        migration before dispatch, including help. Migration preserves access
-        permissions and symbolic links, refuses files with multiple hard links,
-        and keeps private backups separate from native backups. Incomplete
-        migrations remain pending. Probes do not migrate, but an observer command
-        can enter locked preparation if migration is pending.
+        When RAM budget migration is pending, the launcher can take the workspace
+        mutation lock and an installation lock before dispatch, including for help.
+        Migration preserves access permissions and symbolic links, refuses files
+        with multiple hard links, and keeps private backups separate from native
+        backups. Incomplete migrations remain pending. Probes do not migrate.
         With the requested source already prepared, stop commands skip migration and
-        do not wait for the mutation lock. Other observers bypass that lock once
-        migration is complete. Monitor updates refuse a busy workspace without
+        do not wait for the mutation lock. Other observers can bypass that lock when
+        no migration is pending. Monitor updates refuse a busy workspace without
         blocking observation.
         Source publication protects command initialization; direct upstream scripts
         outside this launcher do not participate in these protections.
 
-        On Linux NFS with server-side locking, set STRATA_NFS_CONFIG_LOCK to the
-        absolute path of an existing writable regular file on NFS. Every client
-        sharing the managed directories must use the same lock file. Keep it
-        outside the movable layout and do not replace or unlink it.
+        For Linux NFS, set STRATA_NFS_CONFIG_LOCK to the absolute path of an
+        existing writable regular file on NFS with server-side locking. The path
+        must not end in a symbolic link. All clients sharing the managed
+        directories must use the same file. Keep it outside the movable layout;
+        do not replace or unlink it.
 
         Other workspace contents remain user-owned. Changing this path does not
         migrate the workspace.

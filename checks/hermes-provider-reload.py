@@ -626,7 +626,7 @@ def host_cleanup_during_sweep(fixture):
                 [child_root] = temp.glob(f"{reloader._TEMP_ROOT_PREFIX}*")
             finally:
                 fixture.stop_host()
-            assert proc.returncode == 0, "host cleanup waited for the slow sweep and needed a kill"
+            assert proc.returncode == 0, f"host exited with status {proc.returncode} during the snapshot sweep"
             assert not child_root.exists(), "host exit leaked the temporary root allocated before the sweep"
             with unittest.TestCase().assertRaises(PluginHostUnavailable):
                 pending.result(timeout=15)

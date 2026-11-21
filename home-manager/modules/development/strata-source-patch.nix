@@ -10,7 +10,7 @@ pkgs.writeText "strata-source.patch" (
       # Remove with equivalent native vision CMake metadata handling.
       ../../../patches/strata-windows-cmake-metadata.patch
       # Setup, forecast and progress share one artifact-role layout.
-      # Remove when all consumers use the same selected destinations.
+      # Remove with equivalent role destinations and DFlash2 forecast policy.
       ../../../patches/strata-setup-directory-roles.patch
       # Capacity depends on role destinations, not the input GGUF filesystem.
       # Remove with equivalent split-destination accounting.

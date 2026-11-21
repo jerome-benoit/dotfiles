@@ -3,7 +3,7 @@
 # intent: share artifact roles and selected destinations across setup, forecast, progress and models explain, including native macOS Control --models-dir; reuse SHA proofs only within one forecast or Folder repaint.
 # upstream: https://github.com/Niko1221/Strata/issues/4892 open / PR4901 closed: partial NVFP4 selection; PR3528 open includes flat-root reuse, not equivalent split-layout coverage.
 # issues: local Darwin layout and native shard-completion contracts; checks/strata.py covers selection, completion evidence and first emitted progress events.
-# removal: remove only when setup, forecast, progress, models explain, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir parity between plan and acquisition.
+# removal: remove only when setup, forecast, progress, models explain, moves, ready outputs and image VAE share equivalent role destinations, including macOS Control --models-dir, and DFlash2 plans match acquisition feed, retry and URL override behavior.
 diff --git a/terminal/setup.py b/terminal/setup.py
 --- a/terminal/setup.py
 +++ b/terminal/setup.py
@@ -969,11 +969,13 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 -        """The DFlash2 drafter's row of the download plan, or None when nothing of it comes. ONE rule, the one the launch follows (ensure_drafter -> drafting_fetch.ensure_for), read from the
 -        same run config the launch reads: a drafter file that is here is no download; the small tuned file is a download only while it is missing and the signed feed lists it for this
 -        engine family; otherwise the standard drafter is downloaded (1.2 GB) and packed on this computer. ``gb``: what is downloaded, ``disk_gb``: what stays on the disk afterwards.
-+        """The DFlash2 download forecast for ensure_drafter: the tuned pack if available without a feed throttle, otherwise the missing stock pack.
-+        ``gb`` is the download size; ``disk_gb`` is what stays on disk.
-+        Use the same run config, backend and data folder as acquisition.
-         (0217 item 3: the plan used the installed model's summary, which has no arguments, so it looked for the drafter in another folder and listed one that was installed; and on a feed
-         without the tuned file it said 0.34 GB where the launch fetched 1.21 GB.)"""
++        """Forecast the DFlash2 download using acquisition's config, backend and data folder.
++        An explicit URL bypasses feed retry throttling. Otherwise, if a feed retry
++        is allowed, assume a tuned offer until the feed rules it out. Fall back
++        to the stock pack if it is missing.
++        ``gb`` is the download size; ``disk_gb`` is what stays on disk."""
+-        (0217 item 3: the plan used the installed model's summary, which has no arguments, so it looked for the drafter in another folder and listed one that was installed; and on a feed
+-        without the tuned file it said 0.34 GB where the launch fetched 1.21 GB.)"""
 -        from strata_control import drafting, drafting_fetch
 -        _b, _cfg = self.installed_state()
 -        if _b is not None and self.other_copy() is not None:
