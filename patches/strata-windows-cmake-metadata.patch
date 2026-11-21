@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
+# base: Niko1221/Strata 3142b66b96e9c0e775e30f620b11b191a1427c2a
 # prerequisites: strata-workspace-source-lifecycle.patch
 # intent: refresh Windows vision CMake metadata against the selected Terminal source.
 # upstream: local managed source-layout contract; no exact replacement established.

@@ -51,11 +51,19 @@ in
         are refused before runtime migration.
         Repeated commands reuse the accepted overlay or native fallback for the same request.
         The launcher keeps its source patch visible and refuses conflicting edits.
+        Automatic repair keeps approved rolled-back engines only through a proven native
+        updater capability. Unknown updater contracts are refused before repair; explicit
+        source --update --build retains upstream's rebuild semantics.
 
         Managed setup, updates and model acquisition serialize workspace mutations.
+        The launcher migrates RAM budgets under this lock before dispatch, including help.
+        Migration preserves access permissions and symbolic links, refuses files with
+        multiple hard links, and does not overwrite backups. Incomplete migrations remain
+        pending. Probes and observers do not run migrations.
         Serving and observation release the mutation lock after preparation.
         Monitor updates refuse a busy workspace without blocking observation.
-        Prepared same-pin observers and stop commands remain available while an updater waits.
+        Once native migrations settle, same-pin observers and stop commands remain
+        available while an updater waits.
         Commands prepare the requested source revision before parsing native arguments.
         Source publication protects command initialization; direct upstream scripts
         outside this launcher do not participate in these protections.

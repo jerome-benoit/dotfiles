@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 import runpy
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -695,6 +696,43 @@ def native_setup(root, args, *, acquisition=None):
     runpy.run_path(str(root / "setup.py"), run_name="__main__")
 
 
+def retained_engine_update_args(root, args=()):
+    """Negotiate a proven native update guard, never infer --build semantics from a source revision."""
+    source = ast.parse((Path(root) / "setup.py").read_text())
+    update = next((node for node in source.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "update_install"), None)
+    parser = next((node for node in source.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "main"), None)
+    if update is not None and parser is not None and [arg.arg for arg in update.args.args] == ["have", "a"]:
+        calls = [node for node in ast.walk(update) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "update_installed_engine"]
+        for flag, attribute in (("--keep-installed-engine", "keep_installed_engine"), ("--build", "build")):
+            accepted = any(
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "ap"
+                and node.func.attr == "add_argument"
+                and any(isinstance(arg, ast.Constant) and arg.value == flag for arg in node.args)
+                and any(keyword.arg == "action" and isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value == "store_true" for keyword in node.keywords)
+                for node in ast.walk(parser)
+            )
+            guarded = any(
+                isinstance(node, ast.If) and isinstance(node.test, ast.UnaryOp)
+                and isinstance(node.test.op, ast.Not) and isinstance(node.test.operand, ast.Attribute)
+                and isinstance(node.test.operand.value, ast.Name) and node.test.operand.value.id == "a"
+                and node.test.operand.attr == attribute and not node.orelse
+                and len(node.body) == 1 and isinstance(node.body[0], ast.Expr)
+                and len(calls) == 1 and node.body[0].value is calls[0]
+                for node in update.body
+            )
+            if accepted and guarded:
+                # A repair preserves approved engines; only the original command owns --build.
+                args = [arg for arg in args if not (arg.startswith("--b") and "--build".startswith(arg))]
+                return [*args, flag]
+    raise RuntimeError("Pinned setup has no proven installed-engine preservation capability; "
+                       "source and approved engines remain available, but automatic runtime repair was refused")
+
+
 def prepare_launch_runtime(root, revision, lock_fd):
     """Refresh source/Python once per pin, leaving engine and model acquisition to native launch."""
     receipt = repository_root(root) / ".git" / SOURCE_REFRESH_REVISION
@@ -702,10 +740,11 @@ def prepare_launch_runtime(root, revision, lock_fd):
     status = runtime_status(root, lock_fd, mode="--python-status")
     if current and status.returncode == 0:
         return
+    rollbacks = engine_rollbacks(root, revision)
+    update_args = retained_engine_update_args(root) if rollbacks else []
     receipt.unlink(missing_ok=True)
     (repository_root(root) / ".git" / RUNTIME_REVISION).unlink(missing_ok=True)
-    rollbacks = engine_rollbacks(root, revision)
-    command, env = setup_command(root, ["--update", *(["--build"] if rollbacks else [])])
+    command, env = setup_command(root, ["--update", *update_args])
     subprocess.run(command, check=True, stdout=sys.stderr, pass_fds=(lock_fd,), env=env)
     status = runtime_status(root, lock_fd, mode="--python-status")
     if status.returncode:
@@ -739,6 +778,7 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
         rollback_path.unlink(missing_ok=True)
         receipt.unlink(missing_ok=True)
     rollbacks = engine_rollbacks(root, revision) if not force else {}
+    repair_args = retained_engine_update_args(root, args) if rollbacks else args
     current = marker.exists() and marker.read_text().strip() == revision
     status = None
     if not force and (current or rollbacks):
@@ -750,8 +790,7 @@ def refresh_runtime(root, revision, lock_fd, args, *, force=False, configs=()):
     if not rollbacks:
         rollback_path.unlink(missing_ok=True)
     if force or not current or status is None or status.returncode:
-        # Upstream --build preserves approved rolled-back engines while repairing Python and configs.
-        repair_args = [*args, "--build"] if rollbacks else args
+        # Preserve approved engines only through a native parser and updater guard with proven semantics.
         command, env = setup_command(root, ["--update", *repair_args])
         subprocess.run(command, check=True, stdout=sys.stderr, pass_fds=(lock_fd,), env=env)
         status = runtime_status(root, lock_fd, configs, reconcile=True)
@@ -844,14 +883,175 @@ def bootstrap_runtime(state, root, lock_fd):
     return python
 
 
+def native_settings_migration(root):
+    """Load the selected pin's native one-time migration without running its setup or hardware probes."""
+    path = Path(root) / "strata_cli/ram_budget_move.py"
+    if not path.is_file():
+        return None
+    from importlib import util
+    spec = util.spec_from_file_location("strata_workspace_settings_migration", path)
+    migration = util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    mark = getattr(migration, "MARK", None)
+    if (not isinstance(mark, str) or not mark or Path(mark).name != mark or mark in (".", "..")
+            or not all(isinstance(getattr(migration, name, None), str) for name in ("BUDGET", "WORK_KEY"))
+            or not all(callable(getattr(migration, name, None)) for name in ("_folders", "_load_setup"))):
+        raise RuntimeError("Pinned settings migration has no supported discovery contract")
+    return migration
+
+
+def migration_folders(migration):
+    # Native discovery rejects invalid explicit targets; none can need migration.
+    explicit = os.environ.get("STRATA_INSTALL_DIR")
+    if explicit is not None:
+        path = Path(explicit).expanduser()
+        if not path.is_absolute() or not path.is_dir():
+            return []
+    return list(dict.fromkeys(Path(folder).resolve() for folder in migration._folders()))
+
+
+def publish_migrated_config(path, info, original, payload):
+    with tempfile.TemporaryDirectory(dir=path.parent, prefix=".strata-migration-") as staging:
+        updated = Path(staging) / "config"
+        with updated.open("x+b") as stream:
+            # The platform's cp -p preserves the access ACL as well as owner and mode.
+            cp = "/bin/cp" if sys.platform == "darwin" else "cp"
+            subprocess.run([cp, "-p", str(path), str(updated)], check=True)
+            copy = os.fstat(stream.fileno())
+            if ((copy.st_uid, copy.st_gid, copy.st_mode) != (info.st_uid, info.st_gid, info.st_mode)
+                    or not os.path.samestat(copy, updated.stat())):
+                raise OSError(f"Cannot preserve access metadata for {path}")
+            stream.write(payload)
+            stream.truncate()
+            stream.flush()
+            if os.fstat(stream.fileno()).st_mode != info.st_mode:
+                raise OSError(f"Cannot preserve mode for {path}")
+        if sys.platform == "linux":
+            name = "system.posix_acl_access"
+
+            def acl(file):
+                return os.getxattr(file, name) if name in os.listxattr(file) else None
+
+            if acl(path) != acl(updated):
+                raise OSError(f"Cannot preserve access ACL for {path}")
+
+        with tempfile.NamedTemporaryFile(dir=staging, prefix="backup-") as backup:
+            backup.write(original)
+            backup.flush()
+            # Publish without replacing another backup, even if it is a dangling link.
+            suffix = ".bak"
+            number = 0
+            while True:
+                destination = path.with_name(path.name + suffix)
+                try:
+                    os.link(backup.name, destination)
+                    break
+                except FileExistsError:
+                    number += 1
+                    suffix = f".bak.{number}"
+        os.replace(updated, path)
+
+
+def migration_complete(marker):
+    try:
+        return stat.S_ISREG(marker.lstat().st_mode)
+    except FileNotFoundError:
+        return False
+
+
+def migrate_native_settings(root):
+    """Use native discovery and RAM policy; own publication and retry semantics."""
+    migration = native_settings_migration(root)
+    if migration is None:
+        return
+    folders = migration_folders(migration)
+    seen = set()
+    setup = None
+    for folder in folders:
+        marker = folder / migration.MARK
+        try:
+            if not folder.is_dir() or migration_complete(marker):
+                continue
+            if os.path.lexists(marker):
+                raise OSError(f"Migration marker is not a regular file: {marker}")
+            complete = True
+            # Match native model-config discovery, but do not hide directory or read errors.
+            for candidate in sorted(folder.iterdir()):
+                if not (candidate.match("strata-*.json")
+                        and not candidate.name.endswith(".shared-settings.json")):
+                    continue
+                try:
+                    path = candidate.resolve(strict=True)
+                    if path in seen or not any(path.is_relative_to(install) for install in folders):
+                        continue
+                    if not stat.S_ISREG(path.stat().st_mode):
+                        raise OSError(f"Config is not a regular file: {path}")
+                    with path.open("rb") as source:
+                        info = os.fstat(source.fileno())
+                        if not stat.S_ISREG(info.st_mode):
+                            raise OSError(f"Config is not a regular file: {path}")
+                        original = source.read()
+                    old = json.loads(original.decode("utf-8-sig"))
+                    if (isinstance(old, dict) and isinstance(old.get("args"), list)
+                            and migration.BUDGET in old["args"] and migration.WORK_KEY not in old):
+                        if setup is None:
+                            setup = migration._load_setup()
+                        new = setup.migrate_ram_budget(old)
+                        if new is not None:
+                            if info.st_nlink != 1:
+                                raise OSError(f"Config has multiple hard links: {path}")
+                            publish_migrated_config(path, info, original, json.dumps(new, indent=1).encode())
+                            print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
+                    seen.add(path)
+                except Exception as error:
+                    complete = False
+                    print(f"strata: RAM budget migration incomplete for {candidate}: {error}", file=sys.stderr)
+            if complete:
+                # Exclusive creation never follows links and refuses any late collision.
+                with marker.open("x", encoding="utf-8"):
+                    pass
+        except (OSError, RuntimeError) as error:
+            print(f"strata: RAM budget migration incomplete in {folder}: {error}", file=sys.stderr)
+
+
+def native_settings_migration_pending(root):
+    """Use native install discovery and its real marker; observers never import setup to decide readiness."""
+    try:
+        migration = native_settings_migration(root)
+        return migration is not None and any(
+            folder.is_dir() and not migration_complete(folder / migration.MARK)
+            for folder in migration_folders(migration))
+    except Exception:
+        # Retry loading or discovery under acquisition, without failing the command.
+        return True
+
+
+def stop_candidate(args):
+    # Let the real parser resolve flags and precedence. Other commands must
+    # check migration before the parser can exit early (such as help).
+    return args[:1] in (["launch"], ["runtime"]) and not {"-h", "--help"}.intersection(args)
+
+
+def stop_action(a):
+    return ((a.command == "runtime" and a.runtime_command == "stop")
+            or (a.command == "launch" and a.stop and not a.list_presets and not a.delete_preset))
+
+
+def observation_args(root, args, parse):
+    a = parse() if stop_candidate(args) else None
+    if (a is None or not stop_action(a)) and native_settings_migration_pending(root):
+        return None
+    return a if a is not None else parse()
+
+
 def observer_probe(root, args):
     """Use the real parser and UI constructor in an isolated interpreter, never a stale import cache."""
     managed_state.enable_source(root)
     sys.path.insert(0, str(root))
     from strata_control import acquisition
     with acquisition.source_observation():
-        a = terminal_args(root, args)
-        if not passive_action(a):
+        a = observation_args(root, args, lambda: terminal_args(root, args))
+        if a is None or not passive_action(a):
             return 72
         if a.command == "monitor" and runtime_action(a):
             try:
@@ -895,9 +1095,7 @@ def terminal_args(root, args):
 
 def passive_action(a):
     """Follow native dispatch precedence for commands that never acquire."""
-    return (a.command in {"status", "monitor", "logs", "connection"}
-            or (a.command == "runtime" and a.runtime_command == "stop")
-            or (a.command == "launch" and a.stop and not a.list_presets and not a.delete_preset))
+    return a.command in {"status", "monitor", "logs", "connection"} or stop_action(a)
 
 
 def runtime_action(a):
@@ -1099,15 +1297,31 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
         root = terminal_root(repository)
         revision = context["revision"]
         managed_state.enable_source(root)
-        if not managed_source_hooks(root):
+        # Native migration discovers installs through this pin's lazily imported packages.
+        sys.path.insert(0, str(root))
+        native = not managed_source_hooks(root)
+
+        def parse():
+            if native:
+                from strata_native_observer import probe
+                return probe(root, TERMINAL_CLI, args)
+            return terminal_args(root, args)
+
+        a = parse() if not managed_setup and stop_candidate(args) else None
+        if a is None or not stop_action(a):
+            try:
+                migrate_native_settings(root)
+            except Exception as error:
+                print(f"strata: RAM budget migration unavailable: {error}", file=sys.stderr)
+        if native:
             # Execute this pin's native CLI when its accepted source lacks managed APIs.
             if managed_setup:
                 return native_setup(root, args, acquisition=lock)
             python = runtime_python(root)
             if not os.access(python, os.X_OK):
                 python = Path(sys.executable)
-            from strata_native_observer import probe
-            a = probe(root, TERMINAL_CLI, args)
+            if a is None:
+                a = parse()
             # Native launch also acquires through Runner setup children; early returns
             # need only the source-reader readiness contract.
             from strata_native_observer import acquisition_action
@@ -1120,7 +1334,8 @@ def run_prepared_workspace(context, args, *, managed_setup=False):
                                   "--native-active", str(root), TERMINAL_CLI, *args])
         if managed_setup:
             return source_exec(context, args, acquisition=lock)
-        a = terminal_args(root, args)
+        if a is None:
+            a = parse()
         if a.command == "source":
             return source_exec(context, a.setup_args, acquisition=lock)
         python = runtime_python(root)
@@ -1179,7 +1394,10 @@ if __name__ == "__main__":
             from strata_native_observer import probe
             root = Path(sys.argv[2]).resolve()
             managed_state.enable_source(root)
-            sys.exit(73 if passive_action(probe(root, sys.argv[3], sys.argv[4:])) else 72)
+            sys.path.insert(0, str(root))
+            args = sys.argv[4:]
+            a = observation_args(root, args, lambda: probe(root, sys.argv[3], args))
+            sys.exit(73 if a is not None and passive_action(a) else 72)
         elif sys.argv[1] == "--native-observer":
             from strata_native_observer import run
             run(Path(sys.argv[2]).resolve(), sys.argv[3], sys.argv[4:])

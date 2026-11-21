@@ -1,4 +1,4 @@
-# base: Niko1221/Strata 58ee3227720629ff2e41d640165ebe89c880dfef
+# base: Niko1221/Strata 3142b66b96e9c0e775e30f620b11b191a1427c2a
 # prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract)
 # intent: validate serve and monitor arguments before optional dependencies.
 # upstream: no exact upstream fix established; local shared parser consumers.
@@ -6,7 +6,7 @@
 diff --git a/terminal/strata_cli/cli.py b/terminal/strata_cli/cli.py
 --- a/terminal/strata_cli/cli.py
 +++ b/terminal/strata_cli/cli.py
-@@ -951,26 +951,43 @@
+@@ -954,26 +954,43 @@
      return server_main(args, interrupt_exit_code=130)
  
  

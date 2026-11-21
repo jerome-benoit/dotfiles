@@ -9,6 +9,7 @@ Only configs, launch scripts and interpreter metadata are edited, with exact-byt
 from contextlib import ExitStack, contextmanager
 import importlib.abc
 import importlib.util
+from importlib.machinery import SourceFileLoader
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -21,7 +22,8 @@ import tempfile
 
 
 DIRECTORY = Path(__file__).resolve().parent
-LAYOUT_FILES = ("strata-*.json", "strata-*.log", "run-*.bat", "run-*.sh", "build-strata*.bat")
+LAYOUT_FILES = ("strata-*.json", "strata-*.log", "run-*.bat", "run-*.sh", "build-strata*.bat",
+                "ram-budget-0217.done")
 LAYOUT_DIRS = ("models", "packs", "mtp", "marks", ".strata-mcp", "engine-sycl", "engine-cuda12", ".rocm-win",
                ".venv", ".python", "python")
 TERMINAL_BUILDS = ("build", "build-cuda12", "build-hip", "build-vision-hip", "build-vision",
@@ -38,14 +40,31 @@ SYCL_PATH_FLAGS = {"--pack", "--native", "--native-dense-gguf", "--embd-gguf",
                    "--ple-gguf", "--expert-profile", "--mtp", "--control-vector-scaled"}
 
 
+class LauncherOwnedMigration(SourceFileLoader):
+    def exec_module(self, module):
+        # The launcher loads the real migration under acquisition. Native entry
+        # points must not even execute its module code.
+        module.run = lambda: None
+
+
 class ManagedConsumers(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname not in {"strata_control.profiles", "strata_control.cfg_paths", "strata_control.doctor"} or path is None:
+        if fullname not in {"strata_control.profiles", "strata_control.cfg_paths", "strata_control.doctor",
+                           "strata_cli.ram_budget_move"} or path is None:
             return None
         repository = os.environ.get("STRATA_MANAGED_SOURCE")
         if not repository:
             return None
         repository = Path(repository).resolve()
+        if fullname == "strata_cli.ram_budget_move":
+            for root in (repository, repository / "terminal"):
+                package = root / "strata_cli"
+                if any(Path(item).resolve() == package for item in path):
+                    source = package / "ram_budget_move.py"
+                    if source.is_file():
+                        loader = LauncherOwnedMigration(fullname, str(source))
+                        return importlib.util.spec_from_file_location(fullname, source, loader=loader)
+            return None
         packages = {repository / "strata_control", repository / "terminal" / "strata_control"}
         if not any(Path(item).resolve() in packages for item in path):
             return None
@@ -722,6 +741,11 @@ def runtime_pairs(repository, *, reverse=False):
                            else (repository, repository / "terminal"))
     pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
              for path in sorted(source.glob(pattern)) if path.is_file() or path.is_symlink()]
+    # Rollback copies are opaque payloads, not config or link-edit consumers.
+    pairs += [(path, destination / path.name)
+              for path in sorted(source.glob("strata-*.json.bak*"))
+              if re.fullmatch(r"strata-.*\.json\.bak(?:\.[0-9]+)?", path.name)
+              and not path.is_symlink() and path.is_file()]
     pairs += [(source / name, destination / name) for name in (*LAYOUT_DIRS, *TERMINAL_BUILDS)
               if (source / name).is_dir() or (source / name).is_symlink()]
     engine = source / "engine"

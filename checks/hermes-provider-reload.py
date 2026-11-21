@@ -13,6 +13,7 @@ import tempfile
 import threading
 import types
 import unittest
+from unittest.mock import patch
 
 
 DECLARATION = '''from pathlib import Path
@@ -394,23 +395,172 @@ def host_cleanup(fixture):
     assert child_root != parent_root and child_root.is_dir()
     fixture.stop_host()
     assert not child_root.exists(), "forced host exit leaked its owned snapshots"
+    assert not list(child_root.parent.glob(f"{fixture.reloader._REAPING_PREFIX}*")), (
+        "forced host exit leaked a snapshot cleanup claim"
+    )
     assert parent_root.is_dir(), "host exit removed parent-owned versions"
     return {"forced_host_cleanup": "complete"}
 
 
-def normal_exit(plugin):
-    with tempfile.TemporaryDirectory(prefix="provider-exit-home-") as temporary:
-        home = Path(temporary)
-        (home / "plugins").mkdir()
-        (home / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
-        (home / "config.yaml").write_text("model:\n  provider: nous\n")
-        os.environ.clear()
-        os.environ.update(HOME=str(home), HERMES_HOME=str(home), PATH=os.defpath,
-                          HERMES_DISABLE_LAZY_INSTALLS="1")
-        import providers
-        from providers import plugin_reload
-        assert providers.get_provider_profile("copilot") is not None
-        print(json.dumps({"snapshot_root": str(plugin_reload._snapshot_root)}))
+def persistent_cleanup(fixture):
+    from hermes_constants import get_default_hermes_root
+
+    fixture.install(fixture.generation("one"))
+    profile = fixture.profile()
+    live = fixture.reloader._snapshot_root
+    assert live.parent == get_default_hermes_root() / "runtime" / "provider-plugins"
+    # Reclaim a crashed owner's immutable copy without touching a live owner.
+    dead = live.parent / (fixture.reloader._OWNED_PREFIX + "regression-dead")
+    dead.mkdir()
+    (dead / fixture.reloader._OWNER_LOCK).touch()
+    shutil.copytree(fixture.link.resolve(), dead / "review-provider")
+    reloader = fixture.reloader
+    interrupted = []
+
+    def interrupted_delete(path):
+        (path / reloader._OWNER_LOCK).unlink()
+        interrupted.append(path)
+        raise PermissionError("injected partial snapshot deletion")
+
+    with unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs:
+        with (
+            patch.object(reloader.shutil, "rmtree", side_effect=interrupted_delete),
+            patch.object(reloader.atexit, "register", wraps=reloader.atexit.register) as register,
+        ):
+            another = reloader._new_root()
+        owner_fd = register.call_args.args[2]
+        register.assert_called_once_with(reloader._release_root, another, owner_fd, os.getpid())
+    try:
+        assert not dead.exists(), "sweep did not claim the dead root"
+        assert os.fstat(owner_fd).st_ino == (another / reloader._OWNER_LOCK).stat().st_ino
+        assert not reloader._owner_gone(another), "new root lost its owner lock"
+        assert len(interrupted) == 1
+        stale_claim = interrupted[0]
+        assert stale_claim.name.startswith(reloader._REAPING_PREFIX) and stale_claim.is_dir()
+        assert str(stale_claim) in logs.output[0] and "injected partial snapshot deletion" in logs.output[0]
+        assert live.is_dir(), "sweep reclaimed a live owner's root"
+        assert fixture.headers(profile) == "one"
+
+        # Explicit host cleanup must leave a sweepable claim even after owner.lock is gone.
+        with unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs:
+            with patch.object(reloader.shutil, "rmtree", side_effect=interrupted_delete):
+                reloader._cleanup_snapshots()
+        assert len(interrupted) == 2
+        exit_claim = interrupted[1]
+        assert not live.exists(), "cleanup did not publish a claim"
+        assert exit_claim.name.startswith(reloader._REAPING_PREFIX) and exit_claim.is_dir()
+        assert str(exit_claim) in logs.output[0] and "injected partial snapshot deletion" in logs.output[0]
+
+        recovered = reloader._new_root()
+        try:
+            assert not any(path.name.startswith(reloader._REAPING_PREFIX) for path in live.parent.iterdir()), (
+                "next sweep did not finish the partially removed read-only claims"
+            )
+            assert another.is_dir(), "recovery sweep reclaimed a live owner's root"
+        finally:
+            reloader._release_root(recovered, None, os.getpid())
+    finally:
+        reloader._release_root(another, None, os.getpid())
+    return {"persistent_readonly_reclaim": "complete", "partial_removal_recovery": "complete"}
+
+
+def owner_lock_failure(fixture):
+    from pm import filesystem
+
+    reloader = fixture.reloader
+    live = reloader._new_root()
+    parent = live.parent
+    real_lock_path = filesystem.lock_path
+    for lock_error in (PermissionError("injected owner.lock failure"), None):
+        def lock_path(path, *, timeout):
+            if path.name == reloader._OWNER_LOCK:
+                if lock_error is not None:
+                    raise lock_error
+                return None
+            return real_lock_path(path, timeout=timeout)
+
+        with (
+            patch.object(filesystem, "lock_path", side_effect=lock_path),
+            patch.object(reloader.shutil, "rmtree", side_effect=PermissionError("injected purge failure")) as purge,
+            unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs,
+            unittest.TestCase().assertRaisesRegex(OSError, r"owner\.lock") as caught,
+        ):
+            reloader._new_root()
+        if lock_error is not None:
+            assert caught.exception is lock_error
+        else:
+            assert "is held by another process" in str(caught.exception)
+        purge.assert_called_once()
+        claim = purge.call_args.args[0]
+        assert claim.name.startswith(reloader._REAPING_PREFIX) and claim.is_dir()
+        assert str(claim) in logs.output[0] and "injected purge failure" in logs.output[0]
+        assert list(parent.glob(f"{reloader._OWNED_PREFIX}*")) == [live]
+
+        recovered = reloader._new_root()
+        assert not list(parent.glob(f"{reloader._REAPING_PREFIX}*")), "sweep left failed root cleanup claims"
+        assert live.is_dir(), "sweep removed a live owner while recovering a failed root"
+        reloader._release_root(recovered, None, os.getpid())
+    return {"owner_lock_failure_recovery": "complete"}
+
+
+def block_persistent_snapshots(home, root):
+    # A file blocks runtime creation regardless of the test user's privileges.
+    (home / "runtime").write_text("not a directory")
+    temp = root / "system-tmp"
+    temp.mkdir()
+    os.environ["TMPDIR"] = str(temp)
+    tempfile.tempdir = None  # Recompute after creating the outer test fixture.
+    return temp
+
+
+def temporary_cleanup(fixture):
+    from hermes_constants import get_default_hermes_root
+
+    home = get_default_hermes_root()
+    temp = block_persistent_snapshots(home, fixture.root)
+    fixture.install(fixture.generation("one"))
+    old = fixture.profile()
+    fixture.install(fixture.generation("second"))
+    fixture.refresh()
+    assert fixture.headers(fixture.profile()) == "second"
+    assert fixture.headers(old) == "one"
+    assert fixture.providers.plugin_load_error("review-provider") == ""
+    reloader = fixture.reloader
+    root = reloader._snapshot_root
+    assert root.parent == temp.resolve() and root.stat().st_mode & 0o077 == 0
+    assert not (root / reloader._OWNER_LOCK).exists()
+    with patch.object(reloader.os, "rename", wraps=reloader.os.rename) as rename:
+        reloader._cleanup_snapshots()
+    rename.assert_not_called()
+    assert not list(temp.iterdir()), "explicit cleanup leaked temporary snapshots"
+    assert (home / "runtime").read_text() == "not a directory"
+    return {"fallback_provider": "second", "retained_provider": "one", "explicit_cleanup": "complete"}
+
+
+def normal_exit(plugin, *, fallback=False):
+    # Persistent copies live below the account root; retain it until exit so
+    # fixture deletion cannot bypass the application's real cleanup hook.
+    home = Path(tempfile.mkdtemp(prefix="provider-exit-home-"))
+    (home / "plugins").mkdir()
+    (home / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
+    (home / "config.yaml").write_text("model:\n  provider: nous\n")
+    os.environ.clear()
+    os.environ.update(HOME=str(home), HERMES_HOME=str(home), PATH=os.defpath,
+                      HERMES_DISABLE_LAZY_INSTALLS="1")
+    if fallback:
+        temp = block_persistent_snapshots(home, home)
+    import providers
+    from providers import plugin_reload
+    assert providers.get_provider_profile("copilot") is not None
+    root = plugin_reload._snapshot_root
+    if fallback:
+        assert root.parent == temp.resolve() and root.stat().st_mode & 0o077 == 0
+        assert not (root / plugin_reload._OWNER_LOCK).exists()
+    print(json.dumps({
+        "snapshot_root": str(root),
+        "fixture_root": str(home),
+        "reaping_prefix": plugin_reload._REAPING_PREFIX,
+    }))
     # No manual runtime cleanup: the outer process verifies the real atexit callback.
 
 
@@ -748,8 +898,8 @@ def discovery_global_guard(fixture):
 
 
 def run_case(case, plugin):
-    if case == "normal-exit":
-        normal_exit(plugin)
+    if case in {"normal-exit", "temporary-exit"}:
+        normal_exit(plugin, fallback=case == "temporary-exit")
         return
     root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-"))
     hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup", "interrupt-host", "long-host"}
@@ -773,6 +923,12 @@ def run_case(case, plugin):
             result = hosted_overlap(fixture)
         elif case == "host-cleanup":
             result = host_cleanup(fixture)
+        elif case == "persistent-cleanup":
+            result = persistent_cleanup(fixture)
+        elif case == "temporary-cleanup":
+            result = temporary_cleanup(fixture)
+        elif case == "owner-lock-failure":
+            result = owner_lock_failure(fixture)
         elif case in {"activation-success", "activation-failure"}:
             result = activation_pending(fixture, fail=case == "activation-failure")
         elif case == "activation-home":
@@ -807,8 +963,16 @@ class ProviderLifecycle(unittest.TestCase):
         )
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         result = json.loads(process.stdout.splitlines()[-1])
-        if case == "normal-exit":
-            self.assertFalse(Path(result["snapshot_root"]).exists(), result)
+        if case in {"normal-exit", "temporary-exit"}:
+            try:
+                root = Path(result["snapshot_root"])
+                self.assertFalse(root.exists(), result)
+                self.assertEqual(list(root.parent.glob(f"{result['reaping_prefix']}*")), [])
+                if case == "temporary-exit":
+                    self.assertEqual(list(root.parent.iterdir()), [])
+                    self.assertEqual((Path(result["fixture_root"]) / "runtime").read_text(), "not a directory")
+            finally:
+                remove_fixture(Path(result["fixture_root"]))
         print(case, result)
 
     def test_rollback(self):
@@ -852,6 +1016,18 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_normal_exit_cleanup(self):
         self.run_case("normal-exit")
+
+    def test_temporary_exit_cleanup(self):
+        self.run_case("temporary-exit")
+
+    def test_temporary_provider_and_explicit_cleanup(self):
+        self.run_case("temporary-cleanup")
+
+    def test_persistent_readonly_reclamation_preserves_live_owner(self):
+        self.run_case("persistent-cleanup")
+
+    def test_owner_lock_failure_recovers_after_purge_failure(self):
+        self.run_case("owner-lock-failure")
 
     def test_deferred_activation_then_success(self):
         self.run_case("activation-success")
