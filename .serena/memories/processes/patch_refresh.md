@@ -103,9 +103,10 @@ after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
 With the requested source prepared, runtime stop bypasses RAM-budget migration
-and the workspace mutation lease. A migration failure leaves its folder pending
-without blocking other configs. Layout changes relocate backups with their
-configs without overwriting backups in either layout.
+and the workspace mutation lease. Serialize migrations targeting the same
+install. Keep migration backups separate from native `.bak` files and preserve
+both histories across layouts. Metadata-only moves must not retire engine
+approval.
 
 Darwin Control forecasts, progress and setup share requested destinations and
 native completed-file selection. Keep --models-dir and --separate-model-artifacts
@@ -115,10 +116,10 @@ and keep missing readers and preparation outputs at their requested destinations
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
 when rebasing role changes. Forecast and acquire DFlash with the same feed and
-complete run config. A native model data move leaves `dflash2/` behind; check
-the drafter at the destination. Share reader hashes across name and content
-searches within one forecast. Progress keeps completed parts through steps 6/7
-and reaches 100 only when every part is complete.
+complete run config. Check DFlash and MTP at their effective destinations after
+a model data move; the `dflash2/` directory stays behind. Share reader hashes
+across name and content searches within one forecast. Progress keeps completed
+parts through steps 6/7 and reaches 100 only when every part is complete.
 Managed ordinary shards need native finish evidence when the helper is available,
 not merely a final filename. Preserve explicit personal acceptance and legacy
 helper-free progress; do not impose this predicate on ready SHA or reader selection.
@@ -190,8 +191,9 @@ version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Rename an exiting root to a reclaimable claim before
 deleting its owner marker. Failed claim deletion must not block a new owner
-or lose its exit hook. Use a private temporary root if persistent storage is
-inaccessible; clean it at exit without involving the persistent sweeper.
+or lose its exit hook. Use a private temporary root if persistent storage
+cannot be created or locked because of a storage error. Keep lock contention
+separate from storage failure. Do not copy the snapshot store into a plugin.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
@@ -237,6 +239,8 @@ gateway cases. A source-only import or a patched test copy is not a substitute.
 Compare workspace manifests, root catalogs, native lockfile entries, the recipe,
 normalizers and Bun after updating OpenCode or Nixpkgs. Recalculate all three
 targets when dependency inputs change; update source and toolchain provenance together.
+Keep `hashSourceRevision` at the source used to measure the hashes. Change
+`sourceRevision` when a new source reuses those hashes after validation.
 Record dependency-output hash checks separately from CLI builds and ARM-targeted
 `--cpu`/`--os` calculations separately from native builds. Do not carry forward
 verification claims from an older source. Keep hash-only checks serial with

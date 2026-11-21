@@ -6,7 +6,7 @@
   },
   "provenance": {
     "sourceRevision": "494e8b6154ca6e2f78b5e79d38c9904ba2aed025",
-    "hashSourceRevision": "494e8b6154ca6e2f78b5e79d38c9904ba2aed025",
+    "hashSourceRevision": "4122af020611976880692dfc1d203d9ab1ef7962",
     "dependencyInputs": {
       "inputs": "Dependency-resolution fingerprint: all 38 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
       "inputCount": 64,

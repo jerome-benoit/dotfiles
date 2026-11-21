@@ -1989,15 +1989,16 @@ for reverse in (False, True):
         root = self.prepare(self.old)
         self.run_source_script(root, r'''
 import os
+from itertools import product
 from pathlib import Path
 from unittest.mock import patch
 import strata_managed_state as state
 
 root = Path.cwd()
 repository = root.parent
-stem = "strata-collision.json.bak"
 rename = os.rename
-for reverse in (False, True):
+for reverse, suffix in product((False, True), (".bak", ".ram-budget-0217.bak")):
+    stem = "strata-collision.json" + suffix
     source, destination = (root, repository) if reverse else (repository, root)
     base, numbered, occupied = (source / (stem + suffix) for suffix in ("", ".1", ".2"))
     originals = {base: b"opaque \xff", numbered: b"unmodified numbered copy",
@@ -2041,6 +2042,85 @@ for reverse in (False, True):
     dangling.unlink()
 ''')
 
+    def test_layout_duplicate_budget_markers_preserve_approval_and_recheck_incoming_configs(self):
+        root = self.prepare(self.new)
+        repository = root.parent
+        engine = root / "engine/strata"
+        engine.parent.mkdir(exist_ok=True)
+        engine.write_bytes(b"approved engine")
+        module = self.workspace_module()
+        entry = {"files": module.engine_identity(engine.parent), "sources": {}}
+        approval = repository / ".git/strata-engine-rollback.json"
+        approval.write_text(json.dumps({"revision": self.new, "engines": {"engine": entry}}))
+        original_approval = approval.read_bytes(), approval.stat().st_ino
+        markers = [folder / "ram-budget-0217.done" for folder in (repository, root)]
+        markers[1].write_bytes(b"native destination inspection")
+        retained = markers[1].stat().st_ino
+        markers[0].write_bytes(b"legacy empty inspection")
+        backup = repository / "strata-config.json.ram-budget-0217.bak"
+        backup.write_bytes(b"opaque backup")
+        self.assertEqual(self.prepare(self.new), root)
+        self.assertFalse(markers[0].exists())
+        self.assertEqual((markers[1].read_bytes(), markers[1].stat().st_ino),
+                         (b"native destination inspection", retained))
+        self.assertEqual((root / backup.name).read_bytes(), b"opaque backup")
+        self.assertEqual((approval.read_bytes(), approval.stat().st_ino), original_approval)
+        self.assertEqual(module.engine_rollbacks(root, self.new), {"engine": entry})
+
+        config = repository / "strata-pending.json"
+        config.write_text(json.dumps({"exe": "unused", "args": ["--resident-budget-gib", "40"]}))
+        markers[0].touch()
+        self.run_source_script(root, r'''
+from pathlib import Path
+from unittest.mock import patch
+import os
+import strata_managed_state as state
+
+root = Path.cwd()
+repository = root.parent
+old, new = (folder / state.RAM_BUDGET_MARK for folder in (repository, root))
+originals = {p: (p.read_bytes(), p.stat().st_ino) for p in (old, new)}
+rename = os.rename
+
+def fail_second_marker(src, dst):
+    if src == new:
+        raise OSError("test marker retirement refusal")
+    rename(src, dst)
+
+with patch.object(os, "rename", side_effect=fail_second_marker):
+    try:
+        state.migrate_layout(repository)
+    except RuntimeError as error:
+        assert "test marker retirement refusal" in str(error), error
+    else:
+        raise AssertionError("marker retirement unexpectedly succeeded")
+assert all((p.read_bytes(), p.stat().st_ino) == original for p, original in originals.items())
+assert (repository / "strata-pending.json").exists()
+assert not (root / "strata-pending.json").exists()
+''')
+        self.assertEqual(self.prepare(self.new), root)
+        self.assertTrue((root / config.name).is_file())
+        self.assertTrue(all(not marker.exists() for marker in markers))
+        self.assertEqual(module.engine_rollbacks(root, self.new), {"engine": entry})
+
+    def test_layout_moves_budget_receipt_only_when_destination_configs_were_inspected(self):
+        root = self.prepare(self.new)
+        repository = root.parent
+        mark = "ram-budget-0217.done"
+        payload = json.dumps({"exe": "unused", "args": ["--resident-budget-gib", "40"]})
+        for marked, first, second in ((root, repository, root), (repository, root, repository)):
+            with self.subTest(marked=marked):
+                (marked / mark).touch()
+                configs = [first / "strata-first.json", second / "strata-second.json"]
+                for config in configs:
+                    config.write_text(payload)
+                self.assertEqual(self.prepare(self.new), root)
+                self.assertFalse((root / mark).exists())
+                self.assertFalse((repository / mark).exists())
+                self.assertTrue(all((root / config.name).is_file() for config in configs))
+                for config in configs:
+                    (root / config.name).unlink()
+
     def test_native_managed_runtime_layout_renames_and_inverse_preserve_payload_identity(self):
         self.state = self.base / "native runtime's workspace with spaces"
         root = self.prepare(self.old)
@@ -2062,7 +2142,8 @@ for reverse in (False, True):
                  "packs/helpers/reader.py": b"runtime helper", "packs/tokenizer/vocab.json": b"{}\n",
                  "ram-budget-0217.done": b"native migration completed\n",
                  "strata-layout.json.bak": config.read_bytes(),
-                 "strata-layout.json.bak.3": b"older budget backup\n"}
+                 "strata-layout.json.bak.3": b"older budget backup\n",
+                 "strata-layout.json.ram-budget-0217.bak": b"managed budget backup\n"}
         identity = {}
         for name, data in paths.items():
             path = repository / name
@@ -3406,7 +3487,7 @@ for reverse in (False, True):
         config.chmod(0o600)
         alias = external / "strata-linked.json"
         alias.symlink_to("models/private.json")
-        backup = config.with_name("private.json.bak")
+        backup = config.with_name("private.json.ram-budget-0217.bak")
         settings = Path(self.env["XDG_CONFIG_HOME"]) / "strata/settings.json"
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text(json.dumps({"installs": [str(external)]}))
@@ -3527,6 +3608,106 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
         self.assertEqual(late_config.read_bytes(), before)
         self.assertFalse((late / mark_name).exists())
         self.assertFalse(late_config.with_name(late_config.name + ".bak").exists())
+        self.assertFalse(late_config.with_name(late_config.name + ".ram-budget-0217.bak").exists())
+
+    def test_empty_native_migration_targets_do_not_mark_or_force_observer_acquisition(self):
+        self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
+        root = self.prepare(self.new)
+        env = dict(self.env, STRATA_INSTALL_DIR=str(root))
+        mark = "ram-budget-0217.done"
+        (root / "strata-only.shared-settings.json").write_text("{}")
+        outside = self.base / "outside.json"
+        outside.write_text(json.dumps({"args": ["--resident-budget-gib", "40"]}))
+        alias = root / "strata-external.json"
+        alias.symlink_to(outside)
+        # Outside aliases were never inspected and cannot justify a completion marker.
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--help"],
+                                env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertFalse((root / mark).exists())
+        self.assertTrue(alias.is_symlink())
+        alias.unlink()
+        with (self.state / ".source.lock").open("a") as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX)
+            for overrides in ({}, {"STRATA_INSTALL_DIR": str(root)}):
+                result = subprocess.run(self.command(self.new) + ["run", "--help"],
+                                        env=dict(self.env, **overrides), capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertFalse((root / mark).exists())
+
+    def test_native_budget_migrations_share_canonical_target_lock_across_workspaces(self):
+        shared = self.base / "shared"
+        shared.mkdir()
+        target = shared / "private.json"
+        before = json.dumps({"args": ["--resident-budget-gib", "40"]}).encode()
+        target.write_bytes(before)
+        states = [self.base / name for name in ("first", "second")]
+        for state in states:
+            folder = state / "source"
+            folder.mkdir(parents=True)
+            (folder / "strata-alias.json").symlink_to(target)
+        writer = r"""
+import importlib.util, os, sys
+from pathlib import Path
+from types import SimpleNamespace
+
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+state, shared = map(Path, sys.argv[2:])
+first = state.name == "first"
+
+def load_setup():
+    if not first:
+        raise AssertionError("second workspace read config before first published")
+    print("staged", flush=True)
+    assert sys.stdin.readline() == "continue\n"
+    return SimpleNamespace(migrate_ram_budget=lambda cfg: dict(cfg, args=["--resident-budget-gib", "47"],
+                                                              ui_budget_work_gib=40))
+
+migration = SimpleNamespace(MARK="ram-budget-0217.done", BUDGET="--resident-budget-gib", WORK_KEY="ui_budget_work_gib",
+                            _folders=lambda: [state / "source", shared], _load_setup=load_setup)
+workspace.native_settings_migration = lambda _root: migration
+with workspace.workspace_lock(state):
+    if not first:
+        flock = workspace.fcntl.flock
+
+        def observe(fd, flags):
+            assert os.path.samestat(os.fstat(fd), (shared / ".strata-ram-budget-migration.lock").stat())
+            try:
+                flock(fd, flags | workspace.fcntl.LOCK_NB)
+            except BlockingIOError:
+                print("contended", flush=True)
+                flock(fd, flags)
+            else:
+                raise AssertionError("canonical target lock was not held")
+
+        workspace.fcntl.flock = observe
+    workspace.migrate_native_settings(state / "source")
+assert (state / "source" / migration.MARK).is_file()
+"""
+        processes = []
+        try:
+            for state, expected in zip(states, ("staged", "contended"), strict=True):
+                proc = subprocess.Popen([sys.executable, "-c", writer, WORKSPACE, str(state), str(shared)], env=self.env,
+                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                processes.append(proc)
+                self.assertTrue(select.select([proc.stdout], [], [], 10)[0], f"{state.name} did not reach target lock")
+                self.assertEqual(proc.stdout.readline().strip(), expected)
+            for proc, input_ in zip(processes, ("continue\n", None), strict=True):
+                output, errors = proc.communicate(input_, timeout=10)
+                self.assertEqual(proc.returncode, 0, errors + output)
+        finally:
+            for proc in processes:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.communicate()
+                for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                    pipe.close()
+        self.assertEqual(json.loads(target.read_bytes())["args"][-1], "47")
+        backups = list(shared.glob("private.json.ram-budget-0217.bak*"))
+        self.assertEqual([path.read_bytes() for path in backups], [before])
+        self.assertFalse((shared / "ram-budget-0217.done").exists(), "shared folder had no local candidate")
 
     def test_native_failed_migration_is_not_retried_by_the_observer(self):
         self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
@@ -3654,6 +3835,7 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import patch
+from serve import runconfig
 spec = importlib.util.spec_from_file_location("workspace", WORKSPACE_PATH)
 workspace = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workspace)
@@ -3671,8 +3853,10 @@ migration._load_setup = lambda: setup
 config = root / "strata-migration.json"
 original = json.dumps({"args": ["--resident-budget-gib", "40"]}).encode()
 config.write_bytes(original)
-backup = config.with_name(config.name + ".bak")
-backup.write_bytes(b"older backup")
+native_backup = config.with_name(config.name + ".bak")
+native_backup.write_bytes(b"older native backup")
+backup = config.with_name(config.name + ".ram-budget-0217.bak")
+backup.write_bytes(b"older managed backup")
 marker = root / migration.MARK
 outside = root.parent / "outside"
 marker.symlink_to(outside)
@@ -3702,6 +3886,29 @@ os.link(config, alias)
 migrate()
 assert config.samefile(alias) and config.read_bytes() == original and not marker.exists()
 alias.unlink()
+
+# Check both an in-place edit and a same-content replacement after staging the backup.
+link = os.link
+for changed in (b'{"args": ["--resident-budget-gib", "60"]}', original):
+    config.write_bytes(original)
+    expected = []
+
+    def edit_source(src, dst, **kwargs):
+        link(src, dst, **kwargs)
+        if dst == backup.with_name(backup.name + ".1"):
+            if changed == original:
+                replacement = config.with_name("replacement.json")
+                replacement.write_bytes(changed)
+                replacement.replace(config)
+            else:
+                config.write_bytes(changed)
+            expected.append(config.stat().st_ino)
+
+    with patch.object(os, "link", side_effect=edit_source):
+        migrate()
+    assert expected == [config.stat().st_ino] and config.read_bytes() == changed
+    assert not marker.exists() and not backup.with_name(backup.name + ".1").exists()
+
 replace = os.replace
 
 def interrupt(src, dst):
@@ -3712,11 +3919,12 @@ def interrupt(src, dst):
 with patch.object(os, "replace", side_effect=interrupt):
     migrate()
 assert config.read_bytes() == original and not marker.exists()
-assert backup.read_bytes() == b"older backup"
+assert backup.read_bytes() == b"older managed backup"
 assert not backup.with_name(backup.name + ".1").exists()
 migrate()
 assert json.loads(config.read_bytes())["args"][-1] == "47" and marker.is_file()
-assert backup.read_bytes() == b"older backup"
+assert native_backup.read_bytes() == b"older native backup"
+assert backup.read_bytes() == b"older managed backup"
 assert backup.with_name(backup.name + ".1").read_bytes() == original
 assert not backup.with_name(backup.name + ".2").exists()
 
@@ -3724,22 +3932,30 @@ assert not backup.with_name(backup.name + ".2").exists()
 marker.unlink()
 unreadable = root / "strata-a-unreadable.json"
 unreadable.write_bytes(original)
+invalid = {root / "strata-invalid-json.json": b"{", root / "strata-invalid-text.json": b"\xff"}
+for path, data in invalid.items():
+    path.write_bytes(data)
+read_backup = unreadable.with_name(unreadable.name + ".ram-budget-0217.bak")
 config.write_bytes(original)
-open_file = Path.open
+open_file = os.open
 
 def inaccessible(path, *args, **kwargs):
     if path == unreadable:
         raise PermissionError("controlled config read refusal")
     return open_file(path, *args, **kwargs)
 
-with patch.object(Path, "open", inaccessible):
+with patch.object(os, "open", inaccessible):
     migrate()
 assert not marker.exists() and unreadable.read_bytes() == original
 assert json.loads(config.read_bytes())["args"][-1] == "47"
-assert not unreadable.with_name(unreadable.name + ".bak").exists()
+assert not read_backup.exists()
 migrate()
 assert marker.is_file() and json.loads(unreadable.read_bytes())["args"][-1] == "47"
-assert unreadable.with_name(unreadable.name + ".bak").read_bytes() == original
+assert read_backup.read_bytes() == original
+assert all(path.read_bytes() == data for path, data in invalid.items())
+after = unreadable.read_bytes()
+assert runconfig.save(unreadable, {"args": ["--resident-budget-gib", "55"]}).read_bytes() == after
+assert read_backup.read_bytes() == original
 """.replace("WORKSPACE_PATH", repr(WORKSPACE)))
 
     def test_native_drafter_part_keeps_shared_directory_and_disk_contract(self):
@@ -10213,7 +10429,7 @@ from unittest.mock import patch
 from strata_cli import cli
 from strata_cli.launch import catalog as C, cmd
 from strata_cli.launch.runner import Runner
-from strata_control import drafting, engine_component
+from strata_control import drafting, drafting_fetch, engine_component
 root = Path.cwd()
 base = root.parent.parent / "installed-move"
 base.mkdir()
@@ -10244,7 +10460,8 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
     pack = old / "packs/iq3_xxs"
     pack.mkdir(parents=True)
     config = root / "strata-iq3_xxs.json"
-    config.write_text(json.dumps({"exe": str(root / "engine/strata"), "args": ["--native", str(shards[0]), "--pack", str(pack)]}))
+    config.write_text(json.dumps({"exe": str(root / "engine/strata"), "args": [
+        "--native", str(shards[0]), "--pack", str(pack), "--mtp", str(old / "mtp/rt")]}))
     cat.strata.describe_config = lambda path: {"images": "off"}
     if scenario == "missing-sibling":
         shards[-1].unlink()
@@ -10254,28 +10471,34 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         destination.write_bytes(b"unfinished conflict")
     def forbidden(*args, **kwargs):
         raise AssertionError("plan attempted acquisition or data mutation")
-    def plan(drafter="off"):
+    def plan(drafter="off", mtp="off"):
         output = io.StringIO()
         before = (settings.read_bytes(), config.read_bytes())
         with patch.object(mod, "data_folder", side_effect=forbidden), patch.object(mod, "data_folder_for", side_effect=forbidden), \
                 patch.object(mod, "save_settings", side_effect=forbidden), contextlib.redirect_stdout(output):
             assert cmd.run_launch(cli.parse_args(["launch", "--family", family, "--model", model, "--context", "8192",
-                "--data-dir", str(new), "--move-data", "--vision", "off", "--mtp", "off", "--drafting", drafter,
+                "--data-dir", str(new), "--move-data", "--vision", "off", "--mtp", mtp, "--drafting", drafter,
                 "--no-api-key", "--plan", "--output", "json"])) == 0
         assert before == (settings.read_bytes(), config.read_bytes())
-        return json.loads(output.getvalue())["plan"]["download"]
+        return json.loads(output.getvalue())["plan"]
     with contextlib.ExitStack() as guards:
         guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
         guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
         guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
         guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
         guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
-        for name, value in (("intel_chosen", False), ("preflight_words", []), ("drafting_plan_line", "")):
+        for name, value in (("intel_chosen", False), ("preflight_words", [])):
             guards.enter_context(patch.object(Runner, name, return_value=value))
         guards.enter_context(patch.object(C, "Catalog", return_value=cat))
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
         if scenario == "move":
-            assert plan()["gb"] == 0
+            assert plan()["download"]["gb"] == 0
+            rt = new / "mtp/rt"
+            rt.mkdir(parents=True)
+            (rt / "experts.bin").touch()
+            mtp_plan = plan("mtp", "on")
+            assert mtp_plan["drafting"] == "Drafting: MTP", mtp_plan
+            assert not mtp_plan["download"]["parts"], mtp_plan
             stock = drafting.target_path(old)
             stock.parent.mkdir()
             with stock.open("wb") as stream:
@@ -10284,17 +10507,30 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
             with patch.object(drafting, "hardware_for", return_value=("cuda", ["sm_120"])), \
                     patch.object(drafting, "tuned_applies", return_value=False), \
                     patch.object(Runner, "drafting_signals", return_value={"args": [], "vram_mib": None}):
-                parts = plan("dflash2")["parts"]
+                parts = plan("dflash2")["download"]["parts"]
             assert {p["kind"] for p in parts} == {"dflash2"}, parts
             assert parts[0]["data_dir"] == str(new), parts
+            destination_stock = drafting.target_path(new)
+            destination_stock.parent.mkdir()
+            with destination_stock.open("wb") as stream:
+                stream.truncate((1 << 20) + 1)
+            with patch.object(drafting, "hardware_for", return_value=("cuda", ["sm_120"])), \
+                    patch.object(drafting, "tuned_applies", return_value=True), \
+                    patch.object(Runner, "drafting_signals", return_value={"args": [], "vram_mib": None}), \
+                    patch.object(drafting_fetch, "tuned_offered", return_value=False) as offer:
+                stocked = plan("dflash2")
+            offer.assert_called_once()
+            assert stocked["drafting"] == "Drafting: DFlash2", stocked
+            assert not stocked["download"]["parts"], stocked
+            destination_stock.unlink()
             assert all(shard.exists() for shard in shards)
             with contextlib.redirect_stdout(io.StringIO()):
                 mod.data_folder(str(new), move=True, yes=True, set_default=True)
             assert all((new / shard.relative_to(old)).is_file() and mod.done(new / shard.relative_to(old)) for shard in shards)
             assert stock.is_file() and not drafting.pack_ready(new)
-            assert plan()["gb"] == 0
+            assert plan()["download"]["gb"] == 0
         else:
-            assert plan()["gb"] > 0, scenario
+            assert plan()["download"]["gb"] > 0, scenario
     config.unlink()
 ''')
 

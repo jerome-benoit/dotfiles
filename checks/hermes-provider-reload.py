@@ -2,6 +2,7 @@
 
 import builtins
 import concurrent.futures
+import errno
 import json
 import os
 from pathlib import Path
@@ -154,6 +155,49 @@ def resource_identity(fixture):
     remove_fixture(one)  # simulate collection of the previous installation, not its frozen copy
     assert fixture.headers(old) == "1"
     return {"new_resource": fixture.headers(new), "old_resource": fixture.headers(old)}
+
+
+def linked_snapshot_storage(fixture):
+    runtime = fixture.home / "runtime"
+    fixture.generation("one", mutable=True).rename(runtime)
+    storage = runtime / "snapshot-store"
+    storage.mkdir()
+    (runtime / "provider-plugins").symlink_to(storage.name, target_is_directory=True)
+    assets = runtime / "assets" / "provider-plugins"
+    assets.mkdir(parents=True)
+    (assets / "asset.txt").write_text("plugin data, not snapshots")
+    fixture.link.symlink_to("../runtime", target_is_directory=True)
+
+    old = fixture.profile()
+    reloader = fixture.reloader
+    root = reloader._snapshot_root
+    assert root.parent.samefile(storage)
+    [copied] = root.glob("*/review-provider")
+    fingerprint = reloader.tree_fingerprint(copied)
+    assert copied.parent.name.endswith(f"_{fingerprint}")
+    assert not (copied / "provider-plugins").exists()
+    assert not (copied / "snapshot-store").exists()
+    assert (copied / "assets" / "provider-plugins" / "asset.txt").read_text() == "plugin data, not snapshots"
+
+    # Storage activity and an alias to an owned root must not create a new generation.
+    (storage / "unrelated-state").write_text("persistent storage activity")
+    (runtime / "owned-alias").symlink_to(root, target_is_directory=True)
+    fixture.refresh()
+    assert fixture.profile() is old
+    assert list(root.glob("*/review-provider")) == [copied]
+
+    (runtime / "version.json").write_text(json.dumps({"version": "second"}))
+    fixture.refresh()
+    assert fixture.headers(fixture.profile()) == "second"
+    assert fixture.headers(old) == "one"
+    assert len(list(root.glob("*/review-provider"))) == 2
+    assert not list(root.glob(".copy-*"))
+    reloader._cleanup_snapshots()
+    assert not root.exists()
+    assert not list(storage.glob(f"{reloader._REAPING_PREFIX}*"))
+    assert (storage / "unrelated-state").read_text() == "persistent storage activity"
+    assert (assets / "asset.txt").read_text() == "plugin data, not snapshots"
+    return {"linked_storage": "excluded", "retained_provider": "one", "new_provider": "second"}
 
 
 def removal_and_failure(fixture):
@@ -471,7 +515,13 @@ def owner_lock_failure(fixture):
     live = reloader._new_root()
     parent = live.parent
     real_lock_path = filesystem.lock_path
-    for lock_error in (PermissionError("injected owner.lock failure"), None):
+    failures = (
+        None,
+        InterruptedError(errno.EINTR, "injected owner.lock interruption"),
+        KeyboardInterrupt("injected owner.lock cancellation"),
+        OSError(errno.EINVAL, "injected owner.lock invalid operation"),
+    )
+    for lock_error in failures:
         def lock_path(path, *, timeout):
             if path.name == reloader._OWNER_LOCK:
                 if lock_error is not None:
@@ -483,7 +533,9 @@ def owner_lock_failure(fixture):
             patch.object(filesystem, "lock_path", side_effect=lock_path),
             patch.object(reloader.shutil, "rmtree", side_effect=PermissionError("injected purge failure")) as purge,
             unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs,
-            unittest.TestCase().assertRaisesRegex(OSError, r"owner\.lock") as caught,
+            unittest.TestCase().assertRaisesRegex(
+                type(lock_error) if lock_error is not None else OSError, r"owner\.lock"
+            ) as caught,
         ):
             reloader._new_root()
         if lock_error is not None:
@@ -501,6 +553,54 @@ def owner_lock_failure(fixture):
         assert live.is_dir(), "sweep removed a live owner while recovering a failed root"
         reloader._release_root(recovered, None, os.getpid())
     return {"owner_lock_failure_recovery": "complete"}
+
+
+def owner_lock_storage_fallback(fixture, storage_errno):
+    from pm import filesystem
+
+    reloader = fixture.reloader
+    live = reloader._new_root()
+    parent = live.parent
+    dead = parent / f"{reloader._OWNED_PREFIX}regression-dead"
+    dead.mkdir()
+    (dead / reloader._OWNER_LOCK).touch()
+    temp = fixture.root / "system-tmp"
+    temp.mkdir()
+    real_open = os.open
+    attempted = []
+
+    def open_file(path, flags, *args, **kwargs):
+        if flags & os.O_CREAT and Path(path).name == reloader._OWNER_LOCK:
+            lock = Path(path)
+            assert lock.parent.parent == parent
+            attempted.append(lock.parent)
+            raise OSError(storage_errno, "injected owner.lock storage failure", str(lock))
+        return real_open(path, flags, *args, **kwargs)
+
+    fixture.install(fixture.generation("one"))
+    with (
+        patch.object(os, "open", side_effect=open_file),
+        patch.object(tempfile, "tempdir", str(temp)),
+        unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs,
+    ):
+        assert fixture.headers(fixture.profile()) == "one"
+
+    [failed] = attempted
+    assert not failed.exists() and not dead.exists()
+    assert list(parent.glob(f"{reloader._OWNED_PREFIX}*")) == [live]
+    assert not list(parent.glob(f"{reloader._REAPING_PREFIX}*"))
+    assert not reloader._owner_gone(live)
+    setup_fd = filesystem.lock_path(parent / reloader._SETUP_LOCK, timeout=0)
+    assert setup_fd is not None, "fallback leaked the setup lock"
+    os.close(setup_fd)
+    assert any("using system temp" in line and "injected owner.lock storage failure" in line for line in logs.output)
+    root = reloader._snapshot_root
+    assert root.parent.samefile(temp)
+    assert not (root / reloader._OWNER_LOCK).exists()
+    assert fixture.providers.plugin_load_error("review-provider") == ""
+    reloader._cleanup_snapshots()
+    assert not list(temp.iterdir()), "fallback leaked its temporary root"
+    return {"owner_lock_error": errno.errorcode[storage_errno], "fallback_provider": "one", "cleanup": "complete"}
 
 
 def block_persistent_snapshots(home, root):
@@ -911,6 +1011,8 @@ def run_case(case, plugin):
             result = rollback(fixture)
         elif case == "resources":
             result = resource_identity(fixture)
+        elif case == "linked-snapshot-storage":
+            result = linked_snapshot_storage(fixture)
         elif case == "failure-removal":
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
@@ -931,6 +1033,8 @@ def run_case(case, plugin):
             result = temporary_cleanup(fixture)
         elif case == "owner-lock-failure":
             result = owner_lock_failure(fixture)
+        elif case in {"owner-lock-eacces", "owner-lock-enospc"}:
+            result = owner_lock_storage_fallback(fixture, errno.EACCES if case == "owner-lock-eacces" else errno.ENOSPC)
         elif case in {"activation-success", "activation-failure"}:
             result = activation_pending(fixture, fail=case == "activation-failure")
         elif case == "activation-home":
@@ -986,6 +1090,9 @@ class ProviderLifecycle(unittest.TestCase):
     def test_same_size_resources_and_old_lazy_reads(self):
         self.run_case("resources")
 
+    def test_linked_provider_excludes_canonical_snapshot_storage(self):
+        self.run_case("linked-snapshot-storage")
+
     def test_failed_and_empty_versions(self):
         self.run_case("failure-removal")
 
@@ -1030,6 +1137,12 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_owner_lock_failure_recovers_after_purge_failure(self):
         self.run_case("owner-lock-failure")
+
+    def test_owner_lock_access_error_uses_temporary_root(self):
+        self.run_case("owner-lock-eacces")
+
+    def test_owner_lock_space_error_uses_temporary_root(self):
+        self.run_case("owner-lock-enospc")
 
     def test_deferred_activation_then_success(self):
         self.run_case("activation-success")

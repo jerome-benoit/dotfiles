@@ -56,11 +56,12 @@ in
         source --update --build retains upstream's rebuild semantics.
 
         Managed setup, updates and model acquisition serialize workspace mutations.
-        The launcher migrates RAM budgets under this lock before dispatch, including help.
-        Migration preserves access permissions and symbolic links, refuses files with
-        multiple hard links, and does not overwrite backups. Incomplete migrations remain
-        pending. Read-only probes do not migrate, but an observer command can enter
-        locked preparation if migration is pending.
+        The launcher takes this lock and an installation lock for RAM budget
+        migration before dispatch, including help. Migration preserves access
+        permissions and symbolic links, refuses files with multiple hard links,
+        and keeps private backups separate from native backups. Incomplete
+        migrations remain pending. Probes do not migrate, but an observer command
+        can enter locked preparation if migration is pending.
         With the requested source already prepared, stop commands skip migration and
         do not wait for the mutation lock. Other observers bypass that lock once
         migration is complete. Monitor updates refuse a busy workspace without

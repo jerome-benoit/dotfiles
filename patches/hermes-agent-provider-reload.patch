@@ -10,6 +10,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 @@ -24,23 +24,32 @@
  import atexit
  import contextlib
++import errno
  import hashlib
 +import itertools
  import logging
@@ -39,7 +40,6 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -_SNAPSHOT_IGNORE = shutil.ignore_patterns("__pycache__", ".git", "node_modules", ".venv")
 +# Copies and content identities exclude the same non-runtime artifacts.
 +_EXCLUDED = frozenset({"__pycache__", ".git", "node_modules", ".venv"})
-+_SNAPSHOT_IGNORE = shutil.ignore_patterns(*_EXCLUDED)
  # The directory is Hermes-private, and these names are reserved in it. A sweep reclaims "owned-" roots (made under
  # the setup lock) once their owner.lock exists and nobody holds it, and finishes "_REAPING_PREFIX" claims; entries
  # under any other name are never touched.
@@ -99,7 +99,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -97,152 +155,258 @@
+@@ -97,152 +155,271 @@
      # neither delete the parent's live copy nor drop the parent's lock.
      if os.getpid() != creator_pid:
          return
@@ -177,9 +177,12 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            return _new_temporary_root(exc)
          try:
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
-         except BaseException:
+-        except BaseException:
++        except BaseException as exc:
 -            shutil.rmtree(root, ignore_errors=True)
 +            _release_root(root, None, os.getpid())
++            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, errno.ENOSPC):
++                return _new_temporary_root(exc)
              raise
          if owner_fd is None:
 -            shutil.rmtree(root, ignore_errors=True)
@@ -221,12 +224,23 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -    finally:
 -        shutil.rmtree(private, ignore_errors=True)
 -    return target
-+    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=_snapshot_root))
++    # A linked plugin may contain the snapshot store, even under another name.
++    root = _snapshot_root
++    storage = (root if root.name.startswith(_TEMP_ROOT_PREFIX) else root.parent).resolve()
++
++    def ignore(directory: str, names: list[str]) -> set[str]:
++        source = Path(directory)
++        return _EXCLUDED.intersection(names) | {
++            name for name in names
++            if name not in _EXCLUDED and (source / name).resolve().is_relative_to(storage)
++        }
++
++    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=root))
 +    try:
 +        copied = private / plugin_dir.name
-+        shutil.copytree(plugin_dir.resolve(), copied, ignore=_SNAPSHOT_IGNORE)
++        shutil.copytree(plugin_dir.resolve(), copied, ignore=ignore)
 +        fingerprint = tree_fingerprint(copied)
-+        target = _snapshot_root / f"{module_prefix}_{fingerprint}" / plugin_dir.name
++        target = root / f"{module_prefix}_{fingerprint}" / plugin_dir.name
 +        if not target.is_dir():
 +            try:
 +                os.rename(private, target.parent)

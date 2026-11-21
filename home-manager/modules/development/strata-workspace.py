@@ -252,11 +252,18 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         if current == revision and (previous is None or applied) and (
                 previous == desired or accepted_source_request(root, revision, requested, previous)):
             pairs = managed_state.runtime_pairs(root) if (root / "terminal/setup.py").is_file() else ()
+            runtime = terminal_root(root)
+            receipt = root / ".git" / ENGINE_ROLLBACK
+            engines = ({name: engine_identity(runtime / name) for name in ENGINE_DIRECTORIES}
+                       if os.path.lexists(receipt) else None)
             moved = []
             with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
                                                  runtime_moves=pairs) as restore_metadata:
                 try:
-                    moved = migrate_layout(state, terminal_root(root), lock_fd, publication_fd=publication_lock.fileno())
+                    moved = migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno())
+                    if engines is not None and any(engine_identity(runtime / name) != identity
+                                                   for name, identity in engines.items()):
+                        receipt.unlink(missing_ok=True)
                     for cached_revision, text in publications:
                         cache_source_patch(cache, cached_revision, text)
                     publish_source_patch(request_receipt, json.dumps(source_request(revision, requested, previous)))
@@ -905,12 +912,62 @@ def migration_folders(migration):
     explicit = os.environ.get("STRATA_INSTALL_DIR")
     if explicit is not None:
         path = Path(explicit).expanduser()
-        if not path.is_absolute() or not path.is_dir():
+        if not path.is_absolute():
+            return []
+        try:
+            if not stat.S_ISDIR(path.stat().st_mode):
+                return []
+        except (FileNotFoundError, NotADirectoryError):
             return []
     return list(dict.fromkeys(Path(folder).resolve() for folder in migration._folders()))
 
 
-def publish_migrated_config(path, info, original, payload):
+def migration_candidates(folder):
+    try:
+        return sorted(path for path in folder.iterdir() if managed_state.ram_budget_candidate(path))
+    except FileNotFoundError:
+        return []  # Native discovery can return a default install that does not yet exist.
+
+
+def migration_target(candidate, folders):
+    path = candidate.resolve(strict=True)
+    return path if any(path.is_relative_to(folder) for folder in folders) else None
+
+
+@contextmanager
+def migration_target_lock(path):
+    # Profile locks protect profile documents, not the run configs they refer to.
+    # A sidecar in the canonical target directory also covers aliases in other workspaces.
+    lock = path.parent / ".strata-ram-budget-migration.lock"
+    fd = os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"Migration lock is not a regular file: {lock}")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def migration_config_identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def read_migration_config(candidate, path):
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError(f"Config is not a regular file: {path}")
+        original = source.read()
+        if candidate.resolve(strict=True) != path:
+            raise OSError(f"Config target changed during migration: {candidate}")
+        if migration_config_identity(info) != migration_config_identity(path.lstat()):
+            raise OSError(f"Config changed during migration: {path}")
+    return info, original
+
+
+def publish_migrated_config(candidate, path, info, original, payload):
     with tempfile.TemporaryDirectory(dir=path.parent, prefix=".strata-migration-") as staging:
         updated = Path(staging) / "config"
         with updated.open("x+b") as stream:
@@ -939,7 +996,7 @@ def publish_migrated_config(path, info, original, payload):
             backup.write(original)
             backup.flush()
             # Publish without replacing another backup, even if it is a dangling link.
-            suffix = ".bak"
+            suffix = managed_state.RAM_BUDGET_BACKUP
             number = 0
             while True:
                 destination = path.with_name(path.name + suffix)
@@ -948,10 +1005,15 @@ def publish_migrated_config(path, info, original, payload):
                     break
                 except FileExistsError:
                     number += 1
-                    suffix = f".bak.{number}"
+                    suffix = f"{managed_state.RAM_BUDGET_BACKUP}.{number}"
             try:
+                # Cooperating migrations hold the target lock. This check detects
+                # external edits before replace; it is not an atomic compare-and-swap.
+                current, contents = read_migration_config(candidate, path)
+                if migration_config_identity(info) != migration_config_identity(current) or contents != original:
+                    raise OSError(f"Config changed during migration: {path}")
                 os.replace(updated, path)
-            except OSError:
+            except BaseException:
                 destination.unlink(missing_ok=True)
                 raise
 
@@ -974,46 +1036,48 @@ def migrate_native_settings(root):
     for folder in folders:
         marker = folder / migration.MARK
         try:
-            if not folder.is_dir() or migration_complete(marker):
+            if migration_complete(marker):
                 continue
             if os.path.lexists(marker):
                 raise OSError(f"Migration marker is not a regular file: {marker}")
             complete = True
-            # Match native model-config discovery, but do not hide directory or read errors.
-            for candidate in sorted(folder.iterdir()):
-                if not (candidate.match("strata-*.json")
-                        and not candidate.name.endswith(".shared-settings.json")):
-                    continue
+            inspected = False
+            for candidate in migration_candidates(folder):
                 try:
-                    path = candidate.resolve(strict=True)
-                    if path in seen or not any(path.is_relative_to(install) for install in folders):
+                    path = migration_target(candidate, folders)
+                    if path is None:
                         continue
-                    if not stat.S_ISREG(path.stat().st_mode):
-                        raise OSError(f"Config is not a regular file: {path}")
-                    with path.open("rb") as source:
-                        info = os.fstat(source.fileno())
-                        if not stat.S_ISREG(info.st_mode):
-                            raise OSError(f"Config is not a regular file: {path}")
-                        original = source.read()
-                    old = json.loads(original.decode("utf-8-sig"))
-                    if (isinstance(old, dict) and isinstance(old.get("args"), list)
-                            and migration.BUDGET in old["args"] and migration.WORK_KEY not in old):
-                        if setup is None:
-                            setup = migration._load_setup()
-                        new = setup.migrate_ram_budget(old)
-                        if new is not None:
-                            if info.st_nlink != 1:
-                                raise OSError(f"Config has multiple hard links: {path}")
-                            publish_migrated_config(path, info, original, json.dumps(new, indent=1).encode())
-                            print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
-                    seen.add(path)
+                    if path not in seen:
+                        with migration_target_lock(path):
+                            info, original = read_migration_config(candidate, path)
+                            try:
+                                old = json.loads(original.decode("utf-8-sig"))
+                            except ValueError:
+                                old = None  # Readable, but not a config this migration can handle.
+                            if (isinstance(old, dict) and isinstance(old.get("args"), list)
+                                    and migration.BUDGET in old["args"] and migration.WORK_KEY not in old):
+                                if setup is None:
+                                    setup = migration._load_setup()
+                                new = setup.migrate_ram_budget(old)
+                                if new is not None:
+                                    if info.st_nlink != 1:
+                                        raise OSError(f"Config has multiple hard links: {path}")
+                                    publish_migrated_config(candidate, path, info, original,
+                                                            json.dumps(new, indent=1).encode())
+                                    print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
+                        seen.add(path)
+                    inspected = True
                 except Exception as error:
                     complete = False
                     print(f"strata: RAM budget migration incomplete for {candidate}: {error}", file=sys.stderr)
-            if complete:
-                # Exclusive creation never follows links and refuses any late collision.
-                with marker.open("x", encoding="utf-8"):
-                    pass
+            if complete and inspected:
+                # Exclusive creation never follows links. Another migration may finish first.
+                try:
+                    with marker.open("x", encoding="utf-8"):
+                        pass
+                except FileExistsError:
+                    if not migration_complete(marker):
+                        raise
         except (OSError, RuntimeError) as error:
             print(f"strata: RAM budget migration incomplete in {folder}: {error}", file=sys.stderr)
 
@@ -1022,9 +1086,12 @@ def native_settings_migration_pending(root):
     """Use native install discovery and its real marker; observers never import setup to decide readiness."""
     try:
         migration = native_settings_migration(root)
-        return migration is not None and any(
-            folder.is_dir() and not migration_complete(folder / migration.MARK)
-            for folder in migration_folders(migration))
+        if migration is None:
+            return False
+        folders = migration_folders(migration)
+        return any(not migration_complete(folder / migration.MARK)
+                   and any(migration_target(candidate, folders) is not None for candidate in migration_candidates(folder))
+                   for folder in folders)
     except Exception:
         # Retry loading or discovery under acquisition, without failing the command.
         return True

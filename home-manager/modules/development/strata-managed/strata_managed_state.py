@@ -22,8 +22,9 @@ import tempfile
 
 
 DIRECTORY = Path(__file__).resolve().parent
-LAYOUT_FILES = ("strata-*.json", "strata-*.log", "run-*.bat", "run-*.sh", "build-strata*.bat",
-                "ram-budget-0217.done")
+RAM_BUDGET_MARK = "ram-budget-0217.done"
+RAM_BUDGET_BACKUP = ".ram-budget-0217.bak"
+LAYOUT_FILES = ("strata-*.json", "strata-*.log", "run-*.bat", "run-*.sh", "build-strata*.bat")
 LAYOUT_DIRS = ("models", "packs", "mtp", "marks", ".strata-mcp", "engine-sycl", "engine-cuda12", ".rocm-win",
                ".venv", ".python", "python")
 TERMINAL_BUILDS = ("build", "build-cuda12", "build-hip", "build-vision-hip", "build-vision",
@@ -613,6 +614,9 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
             for runtime in (repository, repository / "terminal"):
                 paths.update(path for pattern in LAYOUT_FILES for path in runtime.glob(pattern) if path.is_file()
                              and (path.suffix == ".json" or path.name.startswith("run-")))
+                marker = runtime / RAM_BUDGET_MARK
+                if _regular_file(marker):
+                    paths.add(marker)
                 for name in (".venv", ".python", "python"):
                     root = runtime / name
                     if not root.exists() and not root.is_symlink():
@@ -735,15 +739,52 @@ def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_d
                 os.environ["STRATA_PROFILE_NAMESPACE_FD"] = before_fd
 
 
+def _regular_file(path):
+    try:
+        return stat.S_ISREG(path.lstat().st_mode)
+    except FileNotFoundError:
+        return False
+
+
+def ram_budget_candidate(path):
+    return path.match("strata-*.json") and not path.name.endswith(".shared-settings.json")
+
+
+def _runtime_marker_plan(source, destination):
+    old, new = source / RAM_BUDGET_MARK, destination / RAM_BUDGET_MARK
+    old_regular, new_regular = _regular_file(old), _regular_file(new)
+    if old.is_symlink() or (old_regular and not new_regular and os.path.lexists(new)):
+        return [(old, new)], []  # Keep the ordinary conflict protection for nonregular entries.
+    if not old_regular and not new_regular:
+        return [], []
+
+    incoming = any(ram_budget_candidate(path) and (path.is_file() or path.is_symlink())
+                   for path in source.glob("strata-*.json"))
+    if new_regular:
+        # Two receipts cannot prove a newly combined folder was inspected. Recheck
+        # incoming config candidates; when none arrive, keep the destination receipt.
+        return [], [path for path, retire in ((old, old_regular), (new, incoming)) if retire]
+    if incoming and not any(ram_budget_candidate(path) for path in destination.glob("strata-*.json")):
+        return [(old, new)], []
+    return [], [old]
+
+
 def runtime_pairs(repository, *, reverse=False):
     """Describe owned entry identities, retaining links while source staging temporarily vacates their targets."""
+    return _runtime_layout_plan(repository, reverse=reverse)[0]
+
+
+def _runtime_layout_plan(repository, *, reverse):
     source, destination = ((repository / "terminal", repository) if reverse
                            else (repository, repository / "terminal"))
     pairs = [(path, destination / path.name) for pattern in LAYOUT_FILES
              for path in sorted(source.glob(pattern)) if path.is_file() or path.is_symlink()]
+    markers, retired = _runtime_marker_plan(source, destination)
+    pairs += markers
     # Rollback copies are opaque payloads, not config or link-edit consumers.
-    backups = [(path, match[1]) for path in sorted(source.glob("strata-*.json.bak*"))
-               if (match := re.fullmatch(r"(strata-.*\.json\.bak)(?:\.[0-9]+)?", path.name))
+    pattern = rf"(strata-.*\.json(?:\.bak|{re.escape(RAM_BUDGET_BACKUP)}))(?:\.[0-9]+)?"
+    backups = [(path, match[1]) for path in sorted(source.glob("strata-*.json*.bak*"))
+               if (match := re.fullmatch(pattern, path.name))
                and not path.is_symlink() and path.is_file()]
     reserved = {destination / path.name for path, _ in backups}
     for path, stem in backups:
@@ -766,7 +807,7 @@ def runtime_pairs(repository, *, reverse=False):
                else (repository / name, repository / "engine" / name)) for name in ENGINE_BUILDS
               if ((repository / "engine" / name) if reverse else (repository / name)).is_dir()
               or ((repository / "engine" / name) if reverse else (repository / name)).is_symlink()]
-    return pairs
+    return pairs, retired
 
 
 def restore_runtime_moves(moves):
@@ -932,17 +973,18 @@ def migrate_layout(repository, *, reverse=False, reference_moves=()):
     sys.path.insert(0, str(terminal))
     from strata_control import profiles
 
-    pairs = runtime_pairs(repository, reverse=reverse)
+    pairs, retired_markers = _runtime_layout_plan(repository, reverse=reverse)
     conflicts = [dst for src, dst in pairs if dst.exists() or dst.is_symlink()]
     if conflicts:
         raise RuntimeError("Cannot migrate managed runtime without replacing existing destinations: "
                            + ", ".join(map(str, conflicts)))
     with profiles.relocate_sources([], runtime_moves=pairs) as publish_profiles:
-        return _migrate_payloads(repository, source, destination, pairs, publish_profiles,
+        return _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles,
                                  reverse=reverse, reference_moves=reference_moves)
 
 
-def _migrate_payloads(repository, source, destination, pairs, publish_profiles, *, reverse, reference_moves):
+def _migrate_payloads(repository, source, destination, pairs, retired_markers, publish_profiles, *,
+                      reverse, reference_moves):
     engine = source / "engine"
     originals = {src: src.read_bytes() for src, dst in pairs if src.is_file()
                  and (src.name.startswith("strata-") and src.suffix == ".json" or src.name.startswith("run-"))}
@@ -1089,12 +1131,14 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
     edited = []
     with ExitStack() as snapshots:
         temporary_roots = {}
-        approval = repository / ".git/strata-engine-rollback.json"
-        approval_backup = None
-        if approval.exists() or approval.is_symlink():
-            temporary = Path(snapshots.enter_context(tempfile.TemporaryDirectory(prefix="strata-links-", dir=approval.parent)))
-            approval_backup = temporary / "approval"
-            os.link(approval, approval_backup, follow_symlinks=False)
+        retired = []
+
+        def staging_root(anchor):
+            if anchor not in temporary_roots:
+                temporary_roots[anchor] = Path(snapshots.enter_context(
+                    tempfile.TemporaryDirectory(prefix=".strata-links-", dir=anchor)))
+            return temporary_roots[anchor]
+
         try:
             for src, dst in pairs:
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1103,17 +1147,16 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
             for entry, before, after, mode in runtime_edits:
                 backup = None
                 if mode is not None:
-                    anchor = entry.parent
-                    if anchor not in temporary_roots:
-                        temporary_roots[anchor] = Path(snapshots.enter_context(
-                            tempfile.TemporaryDirectory(prefix=".strata-links-", dir=anchor)))
-                    backup = temporary_roots[anchor] / str(len(edited))
+                    backup = staging_root(entry.parent) / str(len(edited))
                 edited.append((entry, before, mode, backup, entry.stat() if mode is None else None))
                 write_runtime(entry, after, mode, backup)
+            for marker in retired_markers:
+                if not _regular_file(marker):
+                    raise OSError(f"Migration marker changed during layout relocation: {marker}")
+                backup = staging_root(marker.parent) / f"marker-{len(retired)}"
+                os.rename(marker, backup)
+                retired.append((marker, backup))
             publish_profiles()
-            # A committed layout move retires old path identities; source rollback restores its snapshot.
-            if moved:
-                approval.unlink(missing_ok=True)
         except BaseException as error:
             rollback_errors = []
 
@@ -1123,8 +1166,8 @@ def _migrate_payloads(repository, source, destination, pairs, publish_profiles, 
                 except BaseException as failure:
                     rollback_errors.append(failure)
 
-            if approval_backup is not None and not approval.exists() and not approval.is_symlink():
-                restore(os.replace, approval_backup, approval)
+            for marker, backup in reversed(retired):
+                restore(os.rename, backup, marker)
             for entry, before, mode, backup, info in reversed(edited):
                 if mode is None:
                     restore(write_runtime, entry, before, None)
