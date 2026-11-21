@@ -1209,11 +1209,16 @@ def directory_alias_storage_fallback(fixture):
     return {"directory_alias": "copied as payload", "snapshot_artifacts": "excluded"}
 
 
-def profile_snapshot_storage_fallback(fixture, *, profiles_root=False):
+def profile_snapshot_storage_fallback(fixture, *, profiles_root=False, other_home=False):
     from hermes_cli.data_cleanup import plan_data_removal
 
     reloader = fixture.reloader
-    profiles = fixture.home / "profiles"
+    home = fixture.home
+    if other_home:
+        home = fixture.root / "other-hermes-home"
+        home.mkdir()
+        (home / "config.yaml").write_text("{}\n")
+    profiles = home / "profiles"
     profile_home = profiles / "work"
     storage = profiles if profiles_root else profile_home / "snapshots"
     storage.mkdir(parents=True)
@@ -1239,7 +1244,7 @@ def profile_snapshot_storage_fallback(fixture, *, profiles_root=False):
     return {"profile_storage": "rejected", "provider_after_profile_cleanup": "one"}
 
 
-def unsafe_temporary_parent(fixture, *, scratch_export):
+def unsafe_temporary_parent(fixture, *, scratch_export, other_home=False):
     from hermes_constants import apply_scratch_tmp_env, get_default_hermes_root
 
     home = get_default_hermes_root()
@@ -1251,6 +1256,12 @@ def unsafe_temporary_parent(fixture, *, scratch_export):
             assert apply_scratch_tmp_env(os.environ)
         unsafe = Path(os.environ["TMPDIR"])
         assert unsafe == home / "cache" / "scratch"
+    elif other_home:
+        other = fixture.root / "other-hermes-home"
+        unsafe = other / "profiles"
+        unsafe.mkdir(parents=True)
+        (other / "config.yaml").write_text("{}\n")
+        os.environ["TMPDIR"] = str(unsafe)
     else:
         unsafe = home / "profiles" / "work" / "cache"
         unsafe.mkdir(parents=True)
@@ -1273,7 +1284,7 @@ def unsafe_temporary_parent(fixture, *, scratch_export):
     assert root.name.startswith(fixture.reloader._TEMP_ROOT_PREFIX)
     assert not root.is_relative_to(home.resolve())
     assert not list(unsafe.iterdir())
-    remove_fixture(unsafe if scratch_export else unsafe.parent)
+    remove_fixture(unsafe if scratch_export or other_home else unsafe.parent)
     assert fixture.headers(old) == "one"
     fixture.reloader._cleanup_snapshots()
     assert not root.exists()
@@ -1685,10 +1696,13 @@ def run_case(case, plugin):
             result = file_alias_storage_fallback(fixture)
         elif case == "directory-alias-storage-fallback":
             result = directory_alias_storage_fallback(fixture)
-        elif case in {"profile-snapshot-storage-fallback", "profiles-root-storage-fallback"}:
-            result = profile_snapshot_storage_fallback(fixture, profiles_root=case.startswith("profiles-root-"))
-        elif case in {"scratch-tmp-fallback", "profile-tmp-fallback"}:
-            result = unsafe_temporary_parent(fixture, scratch_export=case.startswith("scratch-"))
+        elif case in {"profile-snapshot-storage-fallback", "profiles-root-storage-fallback",
+                      "other-profiles-root-storage-fallback"}:
+            result = profile_snapshot_storage_fallback(fixture, profiles_root="profiles-root-" in case,
+                                                       other_home=case.startswith("other-"))
+        elif case in {"scratch-tmp-fallback", "profile-tmp-fallback", "other-profiles-root-tmp-fallback"}:
+            result = unsafe_temporary_parent(fixture, scratch_export=case.startswith("scratch-"),
+                                             other_home=case.startswith("other-"))
         elif case == "failure-removal":
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
@@ -1813,6 +1827,11 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_fallback_ignores_tmpdir_alias_inside_profile(self):
         self.run_case("profile-tmp-fallback")
+
+    def test_other_hermes_profiles_root_is_rejected_for_persistent_and_temporary_storage(self):
+        for case in ("other-profiles-root-storage-fallback", "other-profiles-root-tmp-fallback"):
+            with self.subTest(case=case):
+                self.run_case(case)
 
     def test_failed_and_empty_versions(self):
         self.run_case("failure-removal")

@@ -111,7 +111,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +137,540 @@
+@@ -73,176 +137,547 @@
          os.close(fd)
  
  
@@ -201,11 +201,20 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +    return root.is_dir() and any(p.samefile(root) for p in itertools.chain((path,), path.parents))
 +
 +
++def _in_profile_storage(path: Path) -> bool:
++    from hermes_constants import _is_hermes_profiles_root
++
++    return _within(path, get_default_hermes_root() / "profiles") or any(
++        folder.name == "profiles" and _is_hermes_profiles_root(folder)
++        for folder in itertools.chain((path,), path.parents)
++    )
++
++
 +def _new_temporary_root(error: OSError) -> Path:
 +    logger.warning("Persistent provider snapshot storage unavailable; using system temp: %s", error)
 +    from hermes_constants import (
 +        SCRATCH_DIR_MARKER_ENV, SCRATCH_TMP_ENV_VARS, get_hermes_home,
-+        get_process_hermes_home, named_profile_home,
++        get_process_hermes_home,
 +    )
 +
 +    default = get_default_hermes_root()
@@ -219,7 +228,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            continue
 +        try:
 +            parent = candidate.resolve(strict=True)
-+            if named_profile_home(parent) is not None or any(
++            if _in_profile_storage(parent) or any(
 +                candidate.is_relative_to(base) or _within(parent, base) for base in protected
 +            ):
 +                continue
@@ -241,14 +250,12 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +def _new_root(claimed: list[Path]) -> tuple[Path, Path | None]:
 +    """Allocate a root, report its opened persistent store, and collect claims."""
      from pm.filesystem import lock_path
-+    from hermes_constants import named_profile_home
  
 -    parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
 +    try:
 +        parent = mkdir_under_hermes_home(_persistent_store()).resolve(strict=True)
 +        # Profile deletion removes the entire profile, regardless of data-only exclusions.
-+        profiles = get_default_hermes_root() / "profiles"
-+        if named_profile_home(parent) is not None or _within(parent, profiles):
++        if _in_profile_storage(parent):
 +            raise OSError(errno.EINVAL, "Snapshot storage is inside a deletable profile", parent)
 +    except OSError as exc:
 +        return _new_temporary_root(exc), None
