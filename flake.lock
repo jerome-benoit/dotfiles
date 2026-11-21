@@ -420,7 +420,6 @@
         "pyproject-nix": "pyproject-nix",
         "qmd": "qmd",
         "sops-nix": "sops-nix",
-        "strata": "strata",
         "uv2nix": "uv2nix"
       }
     },
@@ -441,29 +440,6 @@
       "original": {
         "owner": "Mic92",
         "repo": "sops-nix",
-        "type": "github"
-      }
-    },
-    "strata": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "dir": "tools/nix",
-        "lastModified": 1795155116,
-        "narHash": "sha256-s/wQB75lkVaR3cUad8oAHId1fWQW8k2YJI+7iyzFDFU=",
-        "owner": "Niko1221",
-        "repo": "Strata",
-        "rev": "3142b66b96e9c0e775e30f620b11b191a1427c2a",
-        "type": "github"
-      },
-      "original": {
-        "dir": "tools/nix",
-        "owner": "Niko1221",
-        "ref": "main",
-        "repo": "Strata",
         "type": "github"
       }
     },

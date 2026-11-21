@@ -269,35 +269,6 @@ Agent of Empires session manager:
 - Options: `enable`, `package`
 - Uses `inputs.pi.packages.${system}.default` from upstream `main`, pinned by `flake.lock`.
 
-### strata.nix
-
-- Options: `enable`, `package`, `workspaceDirectory`, `dataDirectory`, `modelsDirectory`.
-- The default package launches the pinned upstream `x86_64-linux` CUDA development environment; a custom `package` replaces it.
-- `workspaceDirectory` defaults to `${config.xdg.dataHome}/strata` and holds the writable source checkout, virtual environment, engines, build caches and interpreter GC root.
-- Directory values are absolute strings outside `/nix/store`, not Nix paths. Changing paths does not migrate existing files.
-- `dataDirectory` supplies `--data-dir` for new models, packs and drafts; null preserves upstream folder selection.
-- Non-null `modelsDirectory` supplies `--models-dir` and separates GGUF destinations: ready dense/PLE/embedding and QAD dense/PLE use this directory; NVFP4 packs, QAD checkpoints/drafts and image VAE files use the data directory. Null preserves upstream layout, even with an explicit CLI `--models-dir`.
-- On `nemesis`, `home.nix` sets `dataDirectory` to `/data00/strata`.
-- Both directory defaults apply only during initial or explicit setup (`--setup`, `--model`, `--family`, `--no-start`).
-- Explicit CLI values take priority independently, including equals syntax and unambiguous upstream abbreviations (`--models` is accepted; `--model` selects a model; `--mod` is ambiguous).
-- Launcher classification reads only literal option names, actions and arities from the pinned upstream parser. It uses argparse without importing setup or running acquisition; unknown or ambiguous argument forms reach upstream unchanged.
-- Installed launches do not receive directory defaults, collect existing files or rewrite folder settings. Updates, checks, calibration and standalone commands retain upstream behavior.
-- Upstream owns model selection, tuning, profiles and explicit data-move confirmation. Existing XDG config/state settings remain unchanged; no Terminal package or service is added.
-- The launcher applies `strata-setup-directory-roles.patch` to the pinned checkout under the workspace lock. The diff stays visible; `.git/strata-source.patch` records the patch text for revision changes and offline rollback. Conflicting edits are refused.
-- Complete NVFP4 installations are reused in place before selecting a QAD checkpoint, including under the current `dataDirectory`.
-- Fully verified QAD checkpoints take priority over partial downloads; other candidates retain the existing byte-length heuristic. Checkpoints resume in their original directory. Verified files in the selected checkpoint root are reused; files from different roots are not combined.
-- Incomplete QAD preparations write to the selected GGUF and data destinations; completion marks stay with their outputs.
-- Split ready downloads use pinned remaining sizes and resume parts grouped by destination filesystem. QAD preparation retains its aggregate estimate once on a shared filesystem; separate filesystems retain the data-side expert-arena lower bound while setup warns that the remaining output split is unknown.
-
-- The runtime revision records validated local prerequisites; incomplete updates invalidate it and retry on the next launch.
-- Validation uses upstream component inventory and engine metadata; component manifests do not require `BUILD.json`.
-- Source refs, the workspace lock and Nix interpreter roots support offline rollback and serialized updates.
-- Component references use upstream compatibility and explicit pins; raw executable paths use the legacy engine-version floor.
-- Successful engine rollbacks remain approved while the source revision, payload and local source fingerprints are unchanged.
-- Python/config repair and calibration preserve approved engines; explicit update/setup or source/payload changes invalidate the corresponding approval.
-- Rollback approval does not bypass runtime prerequisites or unknown-version rejection.
-- Runtime validation does not establish GPU compatibility, model integrity or successful inference.
-
 ### opencode.nix
 
 OpenCode AI assistant:

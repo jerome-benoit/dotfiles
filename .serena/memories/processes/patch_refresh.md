@@ -3,7 +3,7 @@
 ## Context
 
 Local patches live directly under `patches/`. Builders declare their `patches`
-lists; the Strata launcher declares its runtime source patch.
+lists.
 Prime Agent source pins come from
 `home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
 installer follow the `caveman` input in `flake.lock`; Blocks, release assets
@@ -13,8 +13,7 @@ OpenCode Desktop patches follow the selected CLI source, which defaults to the
 Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
 Colibri patches follow the `colibri` input in `flake.lock`.
 Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
-The `strata` input sets the base of its runtime setup patch. The `hermes-agent`
-input sets the base of its local terminal shim-priority patch.
+The `hermes-agent` input sets the base of its local terminal shim-priority patch.
 Reassess each patch when its own source changes.
 
 ## Naming
@@ -63,13 +62,6 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/prime-agent-nix-self-update.patch` — refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
 - `patches/prime-agent-python-skill-source.patch` — bind Nix kernel imports to selected non-project skill sources without installing dependencies.
 - `patches/prime-agent-release-offline.patch` — use the catalog boolean parser for release-check PI_OFFLINE.
-- `patches/strata-cli-validation.patch` — validate serve and monitor arguments before optional dependencies. Prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract).
-- `patches/strata-destination-budgets.patch` — account remaining downloads and preparation by destination filesystem. Prerequisites: strata-setup-directory-roles.patch.
-- `patches/strata-engine-inspection.patch` — inspect SYCL launcher and mapped host engine/argument paths without importing server.
-- `patches/strata-selected-executable.patch` — verify the selected manifest executable, hash and execute permission.
-- `patches/strata-setup-directory-roles.patch` — share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir. Prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch).
-- `patches/strata-windows-cmake-metadata.patch` — refresh Windows vision metadata with native CRLF contexts. Prerequisites: strata-workspace-source-lifecycle.patch.
-- `patches/strata-workspace-source-lifecycle.patch` — keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
 
 ### Partition and source equivalence
 
@@ -78,70 +70,6 @@ OpenCode factories/cwd/Stop are separate. CLI and installer roots are physically
 separate with one raw-absolute-root policy; trailing spaces were already preserved
 in the pin. Preserving existing settings modes is a local permissions policy;
 upstream deliberately applies 0600 instead.
-
-Strata workspace/source publication stays indivisible. Roles, forecasts and
-progress use one layout; budgets depend on roles. Validation uses the shared
-source parser; SYCL inspection and selected-executable verification are distinct.
-`home-manager/modules/development/strata-source-patch.nix` defines the same ordered
-atomic composite for launcher and checks, without changing the helper API.
-
-Compare the complete applied stack with its previous composition, then reverse
-the composite to the pinned base. This proves application and source equivalence,
-not runtime behavior. In Strata's initial a00be3c8 → f96717e87c partition, the only
-behavioral change was Control --models-dir parity on Darwin. Keep its complete
-consumer regression; later provider corrections are outside that comparison.
-At Strata c77572806996349b49995e4f98d41b5294d36a21, DeepSeek is deliberately
-retired by the parser, installer, catalog, runtime, server and updater. Remove
-only local hunks and test slices whose consumers disappeared; do not recreate
-its tables, helpers or dispatch branches. Keep supported Qwen and Qwen36 source
-reuse, moves, ready/QAD outputs, vision and image VAE role destinations.
-
-Cache retirement checks before a monitor releases its source read lease: its
-updater and runtime import `strata_control.retired` later, after a source rollback
-can remove the file. Exercise the real monitor worker and `cfg_paths.repair`
-after independently publishing that rollback. Preserve the workspace/source FD
-handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
-
-With the requested source prepared, runtime stop bypasses RAM-budget migration
-and the workspace mutation lease. Wait for layout locks before taking the
-source publication writer lease. Hold the layout locks through publication or
-rollback. Lock config target parents by inode, including local bind aliases,
-and acquire locks in a stable order.
-Check the mounts containing migration targets. Layout publication also checks
-nested NFS mounts under its managed roots because a pin change can reveal new
-targets. Pass the NFS gate to layout subprocesses outside stdin, stdout and stderr.
-Invalidate RAM migration receipts when either side dispatches natively,
-including pins with a historical overlay but no managed hooks. A conflicting
-receipt must not stop rollback of unrelated payload moves. Keep migration
-backups separate from native `.bak` files. Metadata-only moves must not retire
-engine approval.
-Recheck aliases that become eligible as installation discovery expands.
-
-Darwin Control forecasts, progress and setup share requested destinations and
-native completed-file selection. Keep --models-dir and --separate-model-artifacts
-through the Darwin filter. Complete requested sets precede retained sets; partial
-sets are never combined across roots. Preserve explicit personal-file selection
-and keep missing readers and preparation outputs at their requested destinations.
-
-Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
-when rebasing role changes. Use the acquisition feed, retry policy and explicit
-URL override in DFlash2 forecasts. Select the same pack as setup, including
-retained Metal packs, and verify it without writing receipts. Preserve whole
-model directories when renaming into an empty destination. Keep resume
-receipts with their payloads during merges; `dflash2/` stays at its original
-root. Report the selected NVFP4 paths in `models explain`. Run TUI forecasts
-that hash files off the UI thread. Invalidate displayed proofs when files
-change. Compare required bytes and free capacity per destination volume.
-Progress keeps completed parts through steps 6/7 and reaches 100 only when
-all are complete.
-Managed ordinary shards need native finish evidence when the helper is available,
-not merely a final filename. Preserve explicit personal acceptance and legacy
-helper-free progress; do not impose this predicate on ready SHA or reader selection.
-The native GGUF tools use tools/_paths.py, strata_gguf.py and strata_quants.py by
-default, and the vendored third_party/strata-gguf-py converter where required.
-Keep gguf_py_env(): llama overrides can now be None. Validate compiled source
-identity with the actual CMake project version, source hashes and binary marker,
-not a release label or BUILD.json alone.
 
 ## Local Patch Refresh
 
