@@ -156,7 +156,6 @@
               profile
               constants
               privateConfig
-              self
               ;
           };
           modules = [

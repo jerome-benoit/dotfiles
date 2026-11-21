@@ -111,7 +111,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -73,176 +137,493 @@
+@@ -73,176 +137,540 @@
          os.close(fd)
  
  
@@ -169,11 +169,11 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -        with contextlib.suppress(OSError):
 -            os.close(owner_fd)
 -    shutil.rmtree(root, ignore_errors=True)
-+    if root.name.startswith(_TEMP_ROOT_PREFIX):
++    if root.name.startswith((_TEMP_ROOT_PREFIX, _UNSWEPT_PREFIX)):
 +        try:
 +            _remove_owned_tree(root)
 +        except OSError as exc:
-+            logger.warning("Could not remove temporary provider snapshot root %s: %s", root, exc)
++            logger.warning("Could not remove provider snapshot root %s: %s", root, exc)
 +        return
 +    try:
 +        # The atomic rename does not need the setup lock.
@@ -186,12 +186,49 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +                os.close(owner_fd)
  
  
++def _system_temp_parents():
++    if sys.platform == "win32":
++        for variable in ("LOCALAPPDATA", "SystemRoot"):
++            if value := os.environ.get(variable):
++                yield Path(value) / "Temp"
++    else:
++        yield Path("/tmp")  # no-tmp: ok — must outlive Hermes scratch pruning
++        yield Path("/var/tmp")
++
++
++def _within(path: Path, root: Path) -> bool:
++    """Compare directory identities, including case variants and the root itself."""
++    return root.is_dir() and any(p.samefile(root) for p in itertools.chain((path,), path.parents))
++
++
 +def _new_temporary_root(error: OSError) -> Path:
 +    logger.warning("Persistent provider snapshot storage unavailable; using system temp: %s", error)
-+    parent = Path(tempfile.gettempdir()).resolve(strict=True)
-+    root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX, dir=parent))
-+    atexit.register(_release_root, root, None, os.getpid())
-+    return root
++    from hermes_constants import (
++        SCRATCH_DIR_MARKER_ENV, SCRATCH_TMP_ENV_VARS, get_hermes_home,
++        get_process_hermes_home, named_profile_home,
++    )
++
++    default = get_default_hermes_root()
++    protected = (default, default / "profiles", get_process_hermes_home(), get_hermes_home())
++    scratch = os.environ.get(SCRATCH_DIR_MARKER_ENV)
++    if scratch:
++        protected += (Path(scratch),)
++    explicit = (Path(value) for key in SCRATCH_TMP_ENV_VARS if (value := os.environ.get(key)))
++    for candidate in itertools.chain(explicit, _system_temp_parents()):
++        if not candidate.is_absolute():
++            continue
++        try:
++            parent = candidate.resolve(strict=True)
++            if named_profile_home(parent) is not None or any(
++                candidate.is_relative_to(base) or _within(parent, base) for base in protected
++            ):
++                continue
++            root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX, dir=parent))
++        except (OSError, RuntimeError):
++            continue
++        atexit.register(_release_root, root, None, os.getpid())
++        return root
++    raise OSError(errno.EIO, "No safe temporary directory for provider snapshots") from error
 +
 +
 -def _new_root() -> Path:
@@ -211,9 +248,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        parent = mkdir_under_hermes_home(_persistent_store()).resolve(strict=True)
 +        # Profile deletion removes the entire profile, regardless of data-only exclusions.
 +        profiles = get_default_hermes_root() / "profiles"
-+        if named_profile_home(parent) is not None or (
-+            profiles.is_dir() and any(ancestor.samefile(profiles) for ancestor in parent.parents)
-+        ):
++        if named_profile_home(parent) is not None or _within(parent, profiles):
 +            raise OSError(errno.EINVAL, "Snapshot storage is inside a deletable profile", parent)
 +    except OSError as exc:
 +        return _new_temporary_root(exc), None
@@ -431,10 +466,10 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            stores[opened_store] = _snapshot_store
 +
 +    overlapping = {file_id(info) for _, info in ancestry(source_root)} & stores.keys()
-+    # A failed allocation through an alias does not make its target a private store.
-+    reserved_only = overlapping
-+    if aliased_store is not None and aliased_store != opened_store and primary.name.startswith(_TEMP_ROOT_PREFIX):
-+        reserved_only = overlapping | {aliased_store}
++    # A different alias target is not the store this process opened. Filter its
++    # reserved artifacts but keep any ordinary assets it contains.
++    other_alias = aliased_store if aliased_store != opened_store else None
++    reserved_only = overlapping | ({other_alias} if other_alias is not None else set())
 +    whole = (stores.keys() - reserved_only) | {file_id(primary.stat())}
 +    if root != primary:
 +        whole.add(file_id(root.stat()))
@@ -469,6 +504,18 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            child = entry.name, info
 +        return False
 +
++    def is_artifact_only_alias(path: Path) -> bool:
++        if other_alias is None or other_alias in overlapping:
++            return False
++        if not path.is_dir() or file_id(path.stat()) != other_alias:
++            return False
++        # Keep genuinely empty asset directories. Omit the container only when
++        # it would otherwise contribute nothing but filtered store artifacts.
++        with contextlib.suppress(PermissionError):
++            members = list(path.iterdir())
++            return bool(members) and all(is_storage(member.resolve()) for member in members)
++        return False
++
 +    temporary = root if root.name.startswith(_TEMP_ROOT_PREFIX) else None
 +
 +    def ignore(directory: str, names: list[str]) -> set[str]:
@@ -485,7 +532,7 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +        for name in names:
 +            if name not in excluded:
 +                path = (source / name).resolve()
-+                if is_storage(path):
++                if is_storage(path) or (path.is_dir() and is_artifact_only_alias(path)):
 +                    excluded.add(name)
 +        return excluded
 +

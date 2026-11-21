@@ -131,13 +131,13 @@ Extraction and RPC must use the same frozen code; the host shares the complete
 version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
 exits without atexit. Publish the canonical snapshot root before sweeping old
-copies. Rename an exiting persistent root to a reclaimable claim before deleting
-its owner marker, and reclaim only roots owned by the current UID. Keep
-unpublished allocations reclaimable until they have an owner lock. Distinguish
-lock contention from storage errors. Retry destination capacity failures in
-private temporary storage without moving published generations. Keep active
-snapshots outside removable profiles. Exclude snapshot artifacts without
-dropping provider resources when persistent storage falls back to temporary storage.
+copies. Delete unswept roots directly. Rename owned persistent roots to
+reclaimable claims before deleting their owner markers. Only reclaim roots
+owned by the current UID. Keep unpublished allocations reclaimable until
+they have an owner lock. Distinguish lock contention from storage errors.
+Retry destination capacity failures in private temporary storage outside
+Hermes scratch and removable profiles. Anchor copies to the opened store;
+retargeting its configured alias must not hide provider resources.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted

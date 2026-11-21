@@ -198,11 +198,23 @@ def linked_snapshot_storage(fixture):
     assert fixture.profile() is old and fixture.headers(old) == "one"
     assert list(root.glob("*/review-provider")) == [copied]
 
+    # A retarget to real plugin data must change the generation without copying
+    # the old store or reserved artifacts in the new target.
+    (replacement / "asset.txt").write_text("new plugin asset")
+    fixture.refresh()
+    current = fixture.profile()
+    assert current is not old and fixture.headers(current) == "one"
+    [retargeted] = set(root.glob("*/review-provider")) - {copied}
+    for name in (replacement.name, alias.name):
+        assert list((retargeted / name).iterdir()) == [retargeted / name / "asset.txt"]
+        assert (retargeted / name / "asset.txt").read_text() == "new plugin asset"
+    assert not (retargeted / storage.name).exists()
+
     (runtime / "version.json").write_text(json.dumps({"version": "second"}))
     fixture.refresh()
     assert fixture.headers(fixture.profile()) == "second"
     assert fixture.headers(old) == "one"
-    assert len(list(root.glob("*/review-provider"))) == 2
+    assert len(list(root.glob("*/review-provider"))) == 3
     assert not list(root.glob(".copy-*"))
     reloader._cleanup_snapshots()
     assert not root.exists()
@@ -545,20 +557,30 @@ def hosted_overlap(fixture):
     return {"concurrent_host_versions": [fixture.headers(old), fixture.headers(new)]}
 
 
-def host_cleanup(fixture, *, copy_fallback=False):
+def host_cleanup(fixture, *, copy_fallback=False, unswept=False):
     (fixture.home / "plugins" / "github-copilot").symlink_to(fixture.plugin, target_is_directory=True)
-    temp = fixture.home / "child-temp"
+    temp = fixture.root / "child-temp"
     temp.mkdir()
     extra = '''
     def request_headers(self, *, base_url, model="", user_initiated=False):
         import providers
         from providers import plugin_reload
 
-        open_path = Path.open
-        if COPY_FALLBACK:
-            import errno, os, tempfile
+        import os
+        from pm import filesystem
 
-            tempfile.tempdir = str(Path(os.environ["HERMES_HOME"]) / "child-temp")
+        open_path, real_lock_path = Path.open, filesystem.lock_path
+        if UNSWEPT:
+            def lock_path(path, *, timeout):
+                if path.name == plugin_reload._SETUP_LOCK:
+                    return None
+                return real_lock_path(path, timeout=timeout)
+
+            filesystem.lock_path = lock_path
+        if COPY_FALLBACK:
+            import errno
+
+            os.environ["TMPDIR"] = str(Path(os.environ["HERMES_HOME"]).parent / "child-temp")
 
             def open_file(path, mode="r", *args, **kwargs):
                 if (mode == "wb" and path.parents[1].name.startswith(".copy-")
@@ -571,9 +593,10 @@ def host_cleanup(fixture, *, copy_fallback=False):
             assert providers.get_provider_profile("copilot") is not None
         finally:
             Path.open = open_path
+            filesystem.lock_path = real_lock_path
         return {"X-Child-Root": str(plugin_reload._snapshot_root),
                 "X-Fallback-Root": str(plugin_reload._snapshot_fallback_root)}
-'''.replace("COPY_FALLBACK", repr(copy_fallback))
+'''.replace("COPY_FALLBACK", repr(copy_fallback)).replace("UNSWEPT", repr(unswept))
     path = fixture.generation("one", headers=extra)
     fixture.install(path)
     profile = fixture.profile()
@@ -581,6 +604,10 @@ def host_cleanup(fixture, *, copy_fallback=False):
     child_root = Path(response["X-Child-Root"])
     parent_root = fixture.reloader._snapshot_root
     assert child_root != parent_root and child_root.is_dir()
+    if unswept:
+        assert child_root.name.startswith(fixture.reloader._UNSWEPT_PREFIX)
+        assert child_root.parent.samefile(parent_root.parent)
+        assert not (child_root / fixture.reloader._OWNER_LOCK).exists()
     if copy_fallback:
         fallback = Path(response["X-Fallback-Root"])
         assert fallback.parent.samefile(temp) and fallback.is_dir()
@@ -601,19 +628,19 @@ def host_cleanup_during_sweep(fixture):
     from hermes_cli.plugin_host_wire import PluginHostUnavailable
 
     (fixture.home / "plugins" / "github-copilot").symlink_to(fixture.plugin, target_is_directory=True)
-    temp = fixture.home / "child-temp"
+    temp = fixture.root / "child-temp"
     temp.mkdir()
     entered = fixture.home / "reap-entered"
     os.mkfifo(entered)
     headers = '''
     def request_headers(self, *, base_url, model="", user_initiated=False):
-        import errno, os, tempfile, threading
+        import errno, os, threading
         import providers
         from pm import filesystem
         from providers import plugin_reload
 
         home = Path(os.environ["HERMES_HOME"])
-        tempfile.tempdir = str(home / "child-temp")
+        os.environ["TMPDIR"] = str(home.parent / "child-temp")
         real_lock_path, reap = filesystem.lock_path, plugin_reload._reap_claim
 
         def lock_path(path, *, timeout):
@@ -729,6 +756,24 @@ def persistent_cleanup(fixture):
     finally:
         reloader._release_root(another, None, os.getpid())
     return {"persistent_readonly_reclaim": "complete", "partial_removal_recovery": "complete"}
+
+
+def unswept_snapshot_cleanup(fixture):
+    from pm import filesystem
+
+    reloader = fixture.reloader
+    fixture.install(fixture.generation("one"))
+    with patch.object(filesystem, "lock_path", return_value=None):
+        assert fixture.headers(fixture.profile()) == "one"
+    root = reloader._snapshot_root
+    assert root.parent.samefile(reloader._persistent_store())
+    assert root.name.startswith(reloader._UNSWEPT_PREFIX)
+    assert not (root / reloader._OWNER_LOCK).exists()
+    with patch.object(reloader.os, "rename", side_effect=PermissionError("cannot rename a sibling")) as rename:
+        reloader._cleanup_snapshots()
+    rename.assert_not_called()
+    assert not root.exists()
+    return {"unswept_cleanup": "direct"}
 
 
 def interrupted_snapshot_allocation(fixture):
@@ -858,8 +903,9 @@ def owner_lock_storage_fallback(fixture, storage_errno):
     dead = parent / f"{reloader._OWNED_PREFIX}regression-dead"
     dead.mkdir()
     (dead / reloader._OWNER_LOCK).touch()
-    temp = runtime / "system-tmp"
+    temp = fixture.root / "system-tmp"
     temp.mkdir()
+    (runtime / temp.name).symlink_to(temp, target_is_directory=True)
     (temp / "ordinary").write_text("plugin resource")
     real_open = os.open
     attempted = []
@@ -876,7 +922,7 @@ def owner_lock_storage_fallback(fixture, storage_errno):
     fixture.install(runtime)
     with (
         patch.object(os, "open", side_effect=open_file),
-        patch.object(tempfile, "tempdir", str(temp)),
+        patch.dict(os.environ, TMPDIR=str(temp)),
         unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs,
     ):
         assert fixture.headers(fixture.profile()) == "one"
@@ -932,7 +978,7 @@ def owner_lock_and_claim_failure(fixture):
     with (
         patch.object(filesystem, "lock_path", side_effect=fail_lock),
         patch.object(os, "rename", side_effect=fail_rename),
-        patch.object(tempfile, "tempdir", str(temp)),
+        patch.dict(os.environ, TMPDIR=str(temp)),
         unittest.TestCase().assertLogs(reloader.__name__, level="WARNING") as logs,
     ):
         roots = [another_snapshot_root(reloader) for _ in range(2)]
@@ -958,8 +1004,9 @@ def copy_storage_fallback(fixture, fault):
     reloader = fixture.reloader
     source = fixture.home / "runtime"
     fixture.generation("one", mutable=True).rename(source)
-    temp = source / "system-tmp"
+    temp = fixture.root / "system-tmp"
     temp.mkdir()
+    (source / temp.name).symlink_to(temp, target_is_directory=True)
     (temp / "ordinary").write_text("plugin resource")
     fixture.install(source)
     old = fixture.profile()
@@ -1004,7 +1051,7 @@ def copy_storage_fallback(fixture, fault):
         errors.append(error)
         return FailingWriter(stream, error)
 
-    with patch.object(Path, "open", open_file), patch.object(tempfile, "tempdir", str(temp)):
+    with patch.object(Path, "open", open_file), patch.dict(os.environ, TMPDIR=str(temp)):
         if fault in ("source", "both"):
             with unittest.TestCase().assertRaises(OSError) as caught:
                 reloader._snapshot(fixture.link, "regression")
@@ -1052,7 +1099,6 @@ def block_persistent_snapshots(home, root, *, symlink_loop=False):
     target.mkdir()
     temp.symlink_to(target.name, target_is_directory=True)
     os.environ["TMPDIR"] = str(temp)
-    tempfile.tempdir = None  # Recompute after creating the outer test fixture.
     return temp
 
 
@@ -1092,9 +1138,9 @@ def file_alias_storage_fallback(fixture):
     alias = runtime / "provider-plugins"
     alias.symlink_to(resource.name)
     fixture.install(runtime)
-    temp = runtime / "system-tmp"
+    temp = fixture.root / "system-tmp"
     temp.mkdir()
-    with patch.object(tempfile, "tempdir", str(temp)):
+    with patch.dict(os.environ, TMPDIR=str(temp)):
         old = fixture.profile()
     root = fixture.reloader._snapshot_root
     assert root.parent.samefile(temp)
@@ -1137,12 +1183,12 @@ def directory_alias_storage_fallback(fixture):
     artifact_alias = runtime / "artifact-alias"
     artifact_alias.symlink_to(artifacts[0] / "marker")
     resource.chmod(0o555)
-    temp = runtime / "system-tmp"
+    temp = fixture.root / "system-tmp"
     temp.mkdir()
     fixture.install(runtime)
 
     # Force the real setup-lock failure even when the test runs with elevated privileges.
-    with patch.object(tempfile, "tempdir", str(temp)), patch.object(
+    with patch.dict(os.environ, TMPDIR=str(temp)), patch.object(
         filesystem, "lock_path", side_effect=OSError(errno.EROFS, "read-only snapshot destination", setup),
     ) as lock_path:
         assert fixture.headers(fixture.profile()) == "one"
@@ -1154,7 +1200,7 @@ def directory_alias_storage_fallback(fixture):
         assert list((copied / name).iterdir()) == [copied / name / payload.name]
         assert (copied / name / payload.name).read_bytes() == b"provider\0resource"
     assert not (copied / artifact_alias.name).exists()
-    assert not list((copied / temp.name).iterdir()), "active staging root entered the snapshot"
+    assert not (copied / temp.name).exists()
     reloader._cleanup_snapshots()
     assert not list(temp.iterdir())
     assert alias.is_symlink() and alias.samefile(resource)
@@ -1163,12 +1209,13 @@ def directory_alias_storage_fallback(fixture):
     return {"directory_alias": "copied as payload", "snapshot_artifacts": "excluded"}
 
 
-def profile_snapshot_storage_fallback(fixture):
-    from hermes_cli.data_cleanup import plan_data_removal, remove_data
+def profile_snapshot_storage_fallback(fixture, *, profiles_root=False):
+    from hermes_cli.data_cleanup import plan_data_removal
 
     reloader = fixture.reloader
-    profile_home = fixture.home / "profiles" / "work"
-    storage = profile_home / "snapshots"
+    profiles = fixture.home / "profiles"
+    profile_home = profiles / "work"
+    storage = profiles if profiles_root else profile_home / "snapshots"
     storage.mkdir(parents=True)
     alias = reloader._persistent_store()
     alias.parent.mkdir(parents=True)
@@ -1179,35 +1226,75 @@ def profile_snapshot_storage_fallback(fixture):
     temp.mkdir()
     fixture.install(fixture.generation("one"))
 
-    with patch.object(tempfile, "tempdir", str(temp)):
+    with patch.dict(os.environ, TMPDIR=str(temp)):
         old = fixture.profile()
     root = reloader._snapshot_root
     assert root.parent.samefile(temp)
     assert not list(storage.iterdir()), "allocated persistent artifacts inside a deletable profile"
     assert alias.parent.resolve() / alias.name in plan_data_removal(fixture.home, project).keep
-    storage = storage.resolve()
-    plan = plan_data_removal(profile_home, project)
-    assert storage in plan.remove
-    removed, failed = remove_data(plan)
-    assert storage in removed and not failed
+    if not profiles_root:
+        assert storage.resolve() in plan_data_removal(profile_home, project).remove
+    remove_fixture(storage)  # Simulate removal without running the cleanup command.
     assert fixture.headers(old) == "one"
     return {"profile_storage": "rejected", "provider_after_profile_cleanup": "one"}
+
+
+def unsafe_temporary_parent(fixture, *, scratch_export):
+    from hermes_constants import apply_scratch_tmp_env, get_default_hermes_root
+
+    home = get_default_hermes_root()
+    (home / "runtime").write_text("not a directory")
+    fixture.install(fixture.generation("one"))
+    if scratch_export:
+        # Run the real environment rewrite without launching a purge worker.
+        with patch("hermes_constants._prune_scratch_dir_once"):
+            assert apply_scratch_tmp_env(os.environ)
+        unsafe = Path(os.environ["TMPDIR"])
+        assert unsafe == home / "cache" / "scratch"
+    else:
+        unsafe = home / "profiles" / "work" / "cache"
+        unsafe.mkdir(parents=True)
+        alias = fixture.root / "unsafe-temp-link"
+        alias.symlink_to(unsafe, target_is_directory=True)
+        os.environ["TMPDIR"] = str(alias)
+    reloader = fixture.reloader
+    allocate = reloader._new_temporary_root
+
+    def allocate_without_env_changes(error):
+        original_env = dict(os.environ)
+        root = allocate(error)
+        assert dict(os.environ) == original_env
+        return root
+
+    with patch.object(reloader, "_new_temporary_root", side_effect=allocate_without_env_changes):
+        old = fixture.profile()
+    root = fixture.reloader._snapshot_root
+    assert root.parent == Path("/tmp").resolve()
+    assert root.name.startswith(fixture.reloader._TEMP_ROOT_PREFIX)
+    assert not root.is_relative_to(home.resolve())
+    assert not list(unsafe.iterdir())
+    remove_fixture(unsafe if scratch_export else unsafe.parent)
+    assert fixture.headers(old) == "one"
+    fixture.reloader._cleanup_snapshots()
+    assert not root.exists()
+    return {"unsafe_temporary_parent": "rejected", "provider_after_simulated_purge": "one"}
 
 
 def normal_exit(plugin, *, fallback=False, copy_fallback=False):
     # Persistent copies live below the account root; retain it until exit so
     # fixture deletion cannot bypass the application's real cleanup hook.
-    home = Path(tempfile.mkdtemp(prefix="provider-exit-home-"))
-    (home / "plugins").mkdir()
+    root = Path(tempfile.mkdtemp(prefix="provider-exit-home-")).resolve()
+    home = root / "home"
+    (home / "plugins").mkdir(parents=True)
     (home / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
     (home / "config.yaml").write_text("model:\n  provider: nous\n")
     os.environ.clear()
     os.environ.update(HOME=str(home), HERMES_HOME=str(home), PATH=os.defpath,
                       HERMES_DISABLE_LAZY_INSTALLS="1")
     if fallback:
-        temp = block_persistent_snapshots(home, home)
+        temp = block_persistent_snapshots(home, root)
     elif copy_fallback:
-        temp = home / "system-tmp"
+        temp = root / "system-tmp"
         temp.mkdir()
     import providers
     from providers import plugin_reload
@@ -1220,7 +1307,7 @@ def normal_exit(plugin, *, fallback=False, copy_fallback=False):
         return open_path(path, mode, *args, **kwargs)
 
     if copy_fallback:
-        with patch.object(Path, "open", open_file), patch.object(tempfile, "tempdir", str(temp)):
+        with patch.object(Path, "open", open_file), patch.dict(os.environ, TMPDIR=str(temp)):
             assert providers.get_provider_profile("copilot") is not None
     else:
         assert providers.get_provider_profile("copilot") is not None
@@ -1235,7 +1322,7 @@ def normal_exit(plugin, *, fallback=False, copy_fallback=False):
     print(json.dumps({
         "snapshot_root": str(root),
         "copy_fallback_root": str(copy_root),
-        "fixture_root": str(home),
+        "fixture_root": str(home.parent),
         "reaping_prefix": plugin_reload._REAPING_PREFIX,
     }))
     # No manual runtime cleanup: the outer process verifies the real atexit callback.
@@ -1578,9 +1665,10 @@ def run_case(case, plugin):
     if case in {"normal-exit", "temporary-exit", "copy-fallback-exit"}:
         normal_exit(plugin, fallback=case == "temporary-exit", copy_fallback=case == "copy-fallback-exit")
         return
-    root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-"))
+    root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-")).resolve()
     hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup",
-                      "host-cleanup-copy-fallback", "host-cleanup-sweep", "interrupt-host", "long-host"}
+                      "host-cleanup-copy-fallback", "host-cleanup-sweep", "host-cleanup-unswept",
+                      "interrupt-host", "long-host"}
     fixture = Fixture(root, plugin, "host" if hosted else "in_process")
     try:
         if case.startswith("rollback"):
@@ -1597,8 +1685,10 @@ def run_case(case, plugin):
             result = file_alias_storage_fallback(fixture)
         elif case == "directory-alias-storage-fallback":
             result = directory_alias_storage_fallback(fixture)
-        elif case == "profile-snapshot-storage-fallback":
-            result = profile_snapshot_storage_fallback(fixture)
+        elif case in {"profile-snapshot-storage-fallback", "profiles-root-storage-fallback"}:
+            result = profile_snapshot_storage_fallback(fixture, profiles_root=case.startswith("profiles-root-"))
+        elif case in {"scratch-tmp-fallback", "profile-tmp-fallback"}:
+            result = unsafe_temporary_parent(fixture, scratch_export=case.startswith("scratch-"))
         elif case == "failure-removal":
             result = removal_and_failure(fixture)
         elif case.startswith("overlap-"):
@@ -1611,12 +1701,15 @@ def run_case(case, plugin):
             result = hosted_versions(fixture, late=case == "host-late")
         elif case == "host-overlap":
             result = hosted_overlap(fixture)
-        elif case in {"host-cleanup", "host-cleanup-copy-fallback"}:
-            result = host_cleanup(fixture, copy_fallback=case == "host-cleanup-copy-fallback")
+        elif case in {"host-cleanup", "host-cleanup-copy-fallback", "host-cleanup-unswept"}:
+            result = host_cleanup(fixture, copy_fallback=case == "host-cleanup-copy-fallback",
+                                  unswept=case == "host-cleanup-unswept")
         elif case == "host-cleanup-sweep":
             result = host_cleanup_during_sweep(fixture)
         elif case == "persistent-cleanup":
             result = persistent_cleanup(fixture)
+        elif case == "unswept-snapshot-cleanup":
+            result = unswept_snapshot_cleanup(fixture)
         elif case == "interrupted-snapshot-allocation":
             result = interrupted_snapshot_allocation(fixture)
         elif case == "foreign-snapshot-owners":
@@ -1672,7 +1765,8 @@ class ProviderLifecycle(unittest.TestCase):
                 self.assertEqual(list(root.parent.glob(f"{result['reaping_prefix']}*")), [])
                 if case == "temporary-exit":
                     self.assertEqual(list(root.parent.iterdir()), [])
-                    self.assertEqual((Path(result["fixture_root"]) / "runtime").read_text(), "not a directory")
+                    self.assertEqual((Path(result["fixture_root"]) / "home" / "runtime").read_text(),
+                                     "not a directory")
                 if case == "copy-fallback-exit":
                     fallback = Path(result["copy_fallback_root"])
                     self.assertFalse(fallback.exists(), result)
@@ -1711,6 +1805,15 @@ class ProviderLifecycle(unittest.TestCase):
     def test_profile_snapshot_storage_fallback_survives_cleanup(self):
         self.run_case("profile-snapshot-storage-fallback")
 
+    def test_profiles_root_snapshot_storage_is_rejected(self):
+        self.run_case("profiles-root-storage-fallback")
+
+    def test_fallback_ignores_hermes_scratch_tmpdir(self):
+        self.run_case("scratch-tmp-fallback")
+
+    def test_fallback_ignores_tmpdir_alias_inside_profile(self):
+        self.run_case("profile-tmp-fallback")
+
     def test_failed_and_empty_versions(self):
         self.run_case("failure-removal")
 
@@ -1741,6 +1844,9 @@ class ProviderLifecycle(unittest.TestCase):
     def test_forced_host_cleanup(self):
         self.run_case("host-cleanup")
 
+    def test_forced_host_cleanup_of_unswept_root(self):
+        self.run_case("host-cleanup-unswept")
+
     def test_forced_host_cleanup_after_copy_fallback(self):
         self.run_case("host-cleanup-copy-fallback")
 
@@ -1764,6 +1870,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_persistent_readonly_reclamation_preserves_live_owner(self):
         self.run_case("persistent-cleanup")
+
+    def test_unswept_snapshot_cleanup_without_rename(self):
+        self.run_case("unswept-snapshot-cleanup")
 
     def test_persistent_sweep_reclaims_interrupted_allocation(self):
         self.run_case("interrupted-snapshot-allocation")
