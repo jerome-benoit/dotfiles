@@ -7,6 +7,12 @@ let
   lib = import "${home-manager}/modules/lib/stdlib-extended.nix" pkgs.lib;
   fixtureHome = "/home/hermes-check";
   plugin = "${inputs.hermes-labs-plugins}/github-copilot";
+  linkedPlugin = pkgs.runCommandLocal "hermes-linked-plugin-fixture" { } ''
+    mkdir -p "$out/plugin" "$out/assets"
+    printf 'VALUE = 1\n' > "$out/assets/module.py"
+    ln -s ../assets/module.py "$out/plugin/__init__.py"
+    ln -s ../assets "$out/plugin/assets"
+  '';
   mkConfiguration =
     selectedPkgs:
     home-manager.lib.homeManagerConfiguration {
@@ -248,10 +254,19 @@ pkgs.runCommand "check-hermes-agent"
   }
   ''
     ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
-      ${./hermes-provider.py} ${plugin} ${pkgs.lndir}/bin/lndir ${
-        lib.optionalString
-          configuration.config.home.file."${configuration.config.services.hermes-agent.hermesHome}/plugins/github-copilot".ignorelinks
-          "-ignorelinks"
+      ${./hermes-provider.py} \
+      ${
+        let
+          withFixture = evaluate {
+            modules.development.hermesAgent.plugins.linked-fixture = "${linkedPlugin}/plugin";
+          };
+          dir = "${configuration.config.services.hermes-agent.hermesHome}/plugins";
+        in
+        lib.escapeShellArgs [
+          (toString configuration.config.home.file."${dir}/github-copilot".source)
+          (toString withFixture.config.home.file."${dir}/linked-fixture".source)
+          "${pkgs.lndir}/bin/lndir"
+        ]
       }
     # Run only public regressions for the source delta, one fresh installed process per file.
     # Copy tests alone: upstream child probes add their test root to PYTHONPATH.

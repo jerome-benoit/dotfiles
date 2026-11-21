@@ -390,11 +390,13 @@ in
       file = lib.mapAttrs' (
         name: source:
         lib.nameValuePair "${configDir}/plugins/${name}" {
-          inherit source;
-          # Hermes moves its copied plugin root; a store directory retains read-only modes.
+          # Give Hermes real directories to copy, including directory symlink targets.
+          # Keep file contents in the original source.
+          source = pkgs.runCommandLocal "hermes-plugin-${name}" { pluginSource = source; } ''
+            mkdir "$out"
+            cp -RLs -- "$pluginSource/." "$out"
+          '';
           recursive = true;
-          # Resolve relative symlinks from the plugin source, not the projected tree.
-          ignorelinks = true;
         }
       ) cfg.plugins;
 

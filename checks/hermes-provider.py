@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 
-plugin = Path(sys.argv[1]).resolve()
+plugin, linked_plugin, lndir = sys.argv[1:]
 sys.dont_write_bytecode = True
 
 with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
@@ -16,15 +16,14 @@ with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
 
     def project(source, target):
         target.mkdir(parents=True)
-        subprocess.run([sys.argv[2], "-silent", *sys.argv[3:], source, target], check=True)
+        subprocess.run([lndir, "-silent", source, target], check=True)
 
-    source = home / "source" / "relative-plugin"
-    source.mkdir(parents=True)
-    (source.parent / "common.py").write_text("VALUE = 1\n")
-    (source / "__init__.py").symlink_to("../common.py")
-    projection = home / "projected" / source.name
-    project(source, projection)
+    projection = home / "projected"
+    project(linked_plugin, projection)
     assert (projection / "__init__.py").read_text() == "VALUE = 1\n"
+    assets = projection / "assets"
+    assert not assets.is_symlink() and os.access(assets, os.W_OK)
+    assert (assets / "module.py").read_text() == "VALUE = 1\n"
 
     project(plugin, destination)
     (state / "config.yaml").write_text("model:\n  provider: nous\n")

@@ -104,9 +104,10 @@ would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
 
 Apply the patch only when gateway mise integration is enabled.
-`checks/hermes-provider.py` exercises Copilot discovery with Home Manager's
-`lndir` options. Use writable directories and resolve relative links from the
-plugin source so they can reach files outside the projected tree.
+Project declarative plugin sources as directories and file symlinks before
+Home Manager links them. Hermes then copies writable directories, even when
+the original source links to a read-only directory. `checks/hermes-provider.py`
+exercises the projection and Copilot discovery.
 Before linking, remove the previous generation's whole-directory symlink only
 if it still points to that generation. Leave unmanaged links and directories
 alone.

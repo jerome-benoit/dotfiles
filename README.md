@@ -49,23 +49,6 @@ Interactive SOPS edits replace existing ciphertext only after successful encrypt
 Edits use private temporary files, removed after the editor and its supervised processes stop.
 Uncatchable termination or machine failure may leave plaintext behind.
 
-### Hermes plugin layout migration
-
-Home Manager now links individual plugin files into a writable directory under
-`<hermesHome>/plugins/<name>` (`~/.hermes/plugins/github-copilot` by default for
-Copilot). On the first switch to this layout, keep the previous generation's
-plugin sources unchanged. Change plugin sources in a second switch: Home
-Manager checks for file collisions before it can remove the old directory link.
-
-To roll back to a generation that used whole-directory links:
-
-1. Move each affected plugin directory to a new backup path **outside**
-   `<hermesHome>/plugins`. Preserve the whole directory, including any local files.
-2. Activate the old generation. Home Manager can then install its directory link
-   at the vacant path.
-3. Keep the backup until you have verified the old generation. If activation
-   fails and the original path is still vacant, move the backup back.
-
 ### Email
 
 Account preference order: **work** — `work`, `piment-noir`, `gmail`; **personal** — `piment-noir`, `gmail`. The first account is the default.
