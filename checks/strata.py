@@ -3626,7 +3626,7 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertFalse((root / mark).exists())
         self.assertTrue(alias.is_symlink())
-        alias.unlink()
+        outside.unlink()
         with (self.state / ".source.lock").open("a") as lease:
             fcntl.flock(lease, fcntl.LOCK_EX)
             for overrides in ({}, {"STRATA_INSTALL_DIR": str(root)}):
@@ -3634,6 +3634,28 @@ print(json.dumps({"folders": [str(folder) for folder in migration._folders()],
                                         env=dict(self.env, **overrides), capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertFalse((root / mark).exists())
+        self.assertEqual(alias.readlink(), outside)
+
+        internal = root / "strata-internal.json"
+        internal.symlink_to("not-yet-present.json")
+        for mode, entry in (("--observer-probe", []), ("--native-observer-probe", ["strata.py"])):
+            result = subprocess.run([sys.executable, WORKSPACE, mode, str(root), *entry, "--help"],
+                                    env=env, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 72, result.stderr + result.stdout)
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--help"],
+                                env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"migration incomplete for {internal}", result.stderr)
+        self.assertFalse((root / mark).exists())
+
+        internal.unlink()
+        (root / "strata-inspected.json").write_text(json.dumps({"exe": "unused", "args": []}))
+        result = subprocess.run(self.command(self.new) + ["run", "source", "--help"],
+                                env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("migration incomplete", result.stderr)
+        self.assertTrue((root / mark).is_file())
+        self.assertEqual(alias.readlink(), outside)
 
     def test_native_budget_migrations_share_canonical_target_lock_across_workspaces(self):
         shared = self.base / "shared"
@@ -3666,14 +3688,16 @@ def load_setup():
                                                               ui_budget_work_gib=40))
 
 migration = SimpleNamespace(MARK="ram-budget-0217.done", BUDGET="--resident-budget-gib", WORK_KEY="ui_budget_work_gib",
-                            _folders=lambda: [state / "source", shared], _load_setup=load_setup)
+                            _folders=lambda: [state / "source", shared] if first else [shared, state / "source"],
+                            _load_setup=load_setup)
 workspace.native_settings_migration = lambda _root: migration
 with workspace.workspace_lock(state):
     if not first:
         flock = workspace.fcntl.flock
 
         def observe(fd, flags):
-            assert os.path.samestat(os.fstat(fd), (shared / ".strata-ram-budget-migration.lock").stat())
+            if not os.path.samestat(os.fstat(fd), shared.stat()):
+                return flock(fd, flags)
             try:
                 flock(fd, flags | workspace.fcntl.LOCK_NB)
             except BlockingIOError:
@@ -3708,6 +3732,117 @@ assert (state / "source" / migration.MARK).is_file()
         backups = list(shared.glob("private.json.ram-budget-0217.bak*"))
         self.assertEqual([path.read_bytes() for path in backups], [before])
         self.assertFalse((shared / "ram-budget-0217.done").exists(), "shared folder had no local candidate")
+
+    def test_layout_locks_nested_migration_until_publication_and_rollback_settle(self):
+        self.make_cross_pin_sources()
+        state = self.state
+        before = json.dumps({"args": ["--resident-budget-gib", "40"]}).encode()
+        script = r"""
+import importlib.util, os, sys
+from pathlib import Path
+from types import SimpleNamespace
+
+spec = importlib.util.spec_from_file_location("workspace", sys.argv[1])
+workspace = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(workspace)
+role, outcome, state_arg, remote, revision, migration_state, target = sys.argv[2:]
+state, migration_state, target = map(Path, (state_arg, migration_state, target))
+repository = state / "source"
+
+def gate():
+    assert (repository / "terminal/models/private.json").is_file()
+    assert not (repository / "models").exists()
+    print("layout staged", flush=True)
+    assert sys.stdin.readline() == "continue\n"
+
+if role == "layout":
+    publish = workspace.publish_source_patch
+    restore = workspace.managed_state.restore_runtime_moves
+
+    def publish_request(path, text):
+        if path.name == workspace.SOURCE_REQUEST:
+            if outcome == "rollback":
+                raise OSError("controlled publication refusal")
+            gate()
+        return publish(path, text)
+
+    def restore_moves(moves):
+        gate()
+        return restore(moves)
+
+    workspace.publish_source_patch = publish_request
+    workspace.managed_state.restore_runtime_moves = restore_moves
+    try:
+        workspace.prepare_workspace(state, revision, remote)
+    except OSError as error:
+        assert outcome == "rollback" and str(error) == "controlled publication refusal", error
+    else:
+        assert outcome == "commit"
+else:
+    flock = workspace.fcntl.flock
+
+    def observe(fd, flags):
+        if not os.path.samestat(os.fstat(fd), repository.stat()):
+            return flock(fd, flags)
+        assert flags == workspace.fcntl.LOCK_SH
+        try:
+            flock(fd, flags | workspace.fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("migration contended", flush=True)
+            flock(fd, flags)
+        else:
+            raise AssertionError("layout released its canonical lock before settling")
+
+    folder = migration_state / "source"
+    migration = SimpleNamespace(MARK="ram-budget-0217.done", BUDGET="--resident-budget-gib", WORK_KEY="ui_budget_work_gib",
+                                _folders=lambda: [folder, target.parent],
+                                _load_setup=lambda: SimpleNamespace(migrate_ram_budget=lambda cfg:
+                                    dict(cfg, args=["--resident-budget-gib", "47"], ui_budget_work_gib=40)))
+    workspace.native_settings_migration = lambda _root: migration
+    with workspace.workspace_lock(migration_state):
+        workspace.fcntl.flock = observe
+        workspace.migrate_native_settings(folder)
+    assert (folder / migration.MARK).is_file()
+"""
+        for outcome in ("commit", "rollback"):
+            with self.subTest(outcome=outcome):
+                self.state = state / outcome
+                repository = self.prepare_cross_pin(self.old, overlay=False)
+                self.assertFalse((repository / "terminal").exists())
+                original = repository / "models/private.json"
+                original.parent.mkdir()
+                original.write_bytes(before)
+                moved = repository / "terminal/models/private.json"
+                target = original if outcome == "rollback" else moved
+                migration_state = self.base / f"migration-{outcome}"
+                folder = migration_state / "source"
+                folder.mkdir(parents=True)
+                (folder / "strata-alias.json").symlink_to(target)
+                tail = [outcome, str(self.state), str(self.repository), self.new, str(migration_state), str(target)]
+                with ExitStack() as stack:
+                    def start(role, expected):
+                        process = stack.enter_context(subprocess.Popen(
+                            [sys.executable, "-c", script, WORKSPACE, role, *tail], env=self.env,
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                        ))
+                        stack.callback(process.kill)
+                        self.assertTrue(select.select([process.stdout], [], [], 10)[0], f"{role} did not reach gate")
+                        self.assertEqual(process.stdout.readline().strip(), expected)
+                        return process
+
+                    publisher = start("layout", "layout staged")
+                    migrator = start("migration", "migration contended")
+                    self.assertEqual(moved.read_bytes(), before)
+                    self.assertFalse(original.exists())
+                    self.assertFalse((folder / "ram-budget-0217.done").exists())
+                    for process, reply in ((publisher, "continue\n"), (migrator, None)):
+                        output, errors = process.communicate(reply, timeout=10)
+                        self.assertEqual(process.returncode, 0, errors + output)
+                self.assertEqual(json.loads(target.read_bytes())["args"][-1], "47")
+                self.assertEqual(target.with_name(target.name + ".ram-budget-0217.bak").read_bytes(), before)
+                self.assertFalse((moved if target == original else original).exists())
+                head = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+                self.assertEqual(head, self.old if outcome == "rollback" else self.new)
 
     def test_native_failed_migration_is_not_retried_by_the_observer(self):
         self.env.update(TEST_TERMINAL_CLI="strata.py", STRATA_CONTROL_INSTALL="1")
@@ -10423,7 +10558,7 @@ with patch.object(drafting, "detect_hardware", return_value=("cpu", [])):
     def test_installed_move_plan_credits_only_complete_native_destinations(self):
         root = self.prepare(self.old)
         self.run_source_script(root, '''
-import contextlib, io, json, os, socket, subprocess
+import contextlib, io, json, os, socket, subprocess, sys
 from pathlib import Path
 from unittest.mock import patch
 from strata_cli import cli
@@ -10485,6 +10620,7 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         guards.enter_context(patch.object(subprocess, "Popen", side_effect=forbidden))
         guards.enter_context(patch.object(socket.socket, "connect", side_effect=forbidden))
         guards.enter_context(patch.object(mod.acquisition, "require", side_effect=forbidden))
+        guards.enter_context(patch.dict(os.environ, {drafting.TUNED_URL_ENV: ""}))
         guards.enter_context(patch.object(drafting, "detect_hardware", return_value=("cpu", [])))
         guards.enter_context(patch.object(engine_component, "status", return_value={"usable": True, "engine": {"backend": "cpu"}}))
         for name, value in (("intel_chosen", False), ("preflight_words", [])):
@@ -10493,9 +10629,12 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         guards.enter_context(patch.object(cmd, "apply_defaults", side_effect=lambda s, c: (s, [])))
         if scenario == "move":
             assert plan()["download"]["gb"] == 0
+            missing_mtp = plan("mtp", "on")
+            assert missing_mtp["drafting"] == "Drafting: MTP", missing_mtp
+            assert {p["kind"] for p in missing_mtp["download"]["parts"]} == {"mtp"}, missing_mtp
             rt = new / "mtp/rt"
             rt.mkdir(parents=True)
-            (rt / "experts.bin").touch()
+            (rt.parent / "mtp-q2_0.gguf" if sys.platform == "darwin" else rt / "experts.bin").touch()
             mtp_plan = plan("mtp", "on")
             assert mtp_plan["drafting"] == "Drafting: MTP", mtp_plan
             assert not mtp_plan["download"]["parts"], mtp_plan
@@ -10504,12 +10643,15 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
             with stock.open("wb") as stream:
                 stream.truncate((1 << 20) + 1)
             assert drafting.pack_ready(old) and not drafting.pack_ready(new)
+            (stock.parent / drafting.MISS_MARK).touch()
             with patch.object(drafting, "hardware_for", return_value=("cuda", ["sm_120"])), \
-                    patch.object(drafting, "tuned_applies", return_value=False), \
-                    patch.object(Runner, "drafting_signals", return_value={"args": [], "vram_mib": None}):
+                    patch.object(drafting, "tuned_applies", return_value=True), \
+                    patch.object(Runner, "drafting_signals", return_value={"args": [], "vram_mib": None}), \
+                    patch.object(drafting_fetch, "tuned_offered", return_value=True) as offer:
                 parts = plan("dflash2")["download"]["parts"]
             assert {p["kind"] for p in parts} == {"dflash2"}, parts
-            assert parts[0]["data_dir"] == str(new), parts
+            offer.assert_called_once()
+            assert parts[0]["tuned"] and parts[0]["data_dir"] == str(new), parts
             destination_stock = drafting.target_path(new)
             destination_stock.parent.mkdir()
             with destination_stock.open("wb") as stream:
@@ -10532,6 +10674,73 @@ for scenario in ("move", "split", "missing-sibling", "unfinished-destination"):
         else:
             assert plan()["download"]["gb"] > 0, scenario
     config.unlink()
+''')
+
+    def test_fresh_launch_drafter_forecast_tracks_feed_throttle_and_direct_override(self):
+        root = self.prepare(self.old)
+        self.run_source_script(root, '''
+import os
+from pathlib import Path
+from unittest.mock import patch
+from strata_cli.launch.catalog import Catalog
+from strata_cli.launch.runner import Runner
+from strata_cli.launch.settings import LaunchSettings
+from strata_control import drafting, drafting_fetch
+
+root = Path.cwd()
+home = root.parent.parent / "drafter-forecast"
+data = home / "data"
+stock = drafting.target_path(data)
+stock.parent.mkdir(parents=True)
+mark = stock.parent / drafting.MISS_MARK
+mark.touch()
+os.environ.update(STRATA_CONTROL_INSTALL="1", STRATA_INSTALL_DIR=str(root), STRATA_SETTINGS_FILE=str(home / "settings.json"),
+                  **{drafting.TUNED_URL_ENV: ""})
+catalog = Catalog(src=root, root=root, hardware={})
+runner = Runner(LaunchSettings(family="qwen", model="IQ3_XXS", data_dir=str(data), vision="off", drafting="dflash2"),
+                catalog=catalog)
+runner.look_up_feed = True
+backend, archs = "cuda", ["sm_120"]
+with patch.object(drafting, "hardware_for", return_value=(backend, archs)), \
+        patch.object(drafting, "tuned_applies", return_value=True), \
+        patch.object(runner, "drafting_signals", return_value={"args": [], "vram_mib": None}), \
+        patch.object(drafting_fetch, "tuned_offered", return_value=True) as offer, \
+        patch.object(drafting_fetch, "tuned_from_feed", return_value=None) as feed, \
+        patch.object(drafting_fetch, "ensure", return_value=stock) as fetch_stock, \
+        patch.object(drafting_fetch.acquisition, "require"):
+    assert runner.installed_state() == (None, None)
+    args = runner.setup_args()
+    assert args[args.index("--drafter") + 1] == "dflash2", args
+    name = catalog.model_name_of("qwen", "IQ3_XXS")
+    before = mark.stat().st_mtime_ns
+    part = runner.drafter_part()
+    assert not part["tuned"] and part["gb"] == drafting.DOWNLOAD_GB and part["data_dir"] == str(data), part
+    assert runner.tuned_wanted is None and mark.stat().st_mtime_ns == before
+    assert drafting_fetch.ensure_for(data, model_name=name, backend=backend, archs=archs, throttle=True) == stock
+    feed.assert_not_called()
+    fetch_stock.assert_called_once()
+    assert drafting_fetch.ensure_for(data, model_name=name, backend=backend, archs=archs) == stock
+    feed.assert_called_once()
+    feed.reset_mock()
+    fetch_stock.reset_mock()
+    with stock.open("wb") as stream:
+        stream.truncate((1 << 20) + 1)
+    assert runner.drafter_part() is None
+    assert drafting_fetch.ensure_for(data, model_name=name, backend=backend, archs=archs, throttle=True) == stock
+    fetch_stock.assert_not_called()
+
+    variant = drafting.tuned_variant(backend, name)
+    runner.tuned_offered[(backend, variant)] = False
+    direct = (home / "direct.pack").as_uri()
+    with patch.dict(os.environ, {drafting.TUNED_URL_ENV: " " + direct + " "}), \
+            patch.object(drafting_fetch, "_reachable", return_value=False) as reachable:
+        part = runner.drafter_part()
+        assert part["tuned"] and part["gb"] == drafting.tuned_pack(variant).gb, part
+        assert runner.tuned_wanted is None
+        assert drafting_fetch.ensure_for(data, model_name=name, backend=backend, archs=archs, throttle=True) == stock
+    reachable.assert_called_once_with(direct)
+    offer.assert_not_called()
+    feed.assert_not_called()
 ''')
 
     def test_own_file_move_plan_reuses_helper_before_and_after_native_move(self):

@@ -912,7 +912,9 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
              if drafting.drafter_ready(want["data_dir"], want["model_name"], want["backend"]):
                  self.emit("model", "The DFlash2 drafter is ready.", 100)       # (what the person reads last: present, whatever the lines in between said)
              elif got is None and drafting.needs_pack(**want, **sig):
-@@ -2664,4 +2659,31 @@
+@@ -2662,38 +2657,66 @@
+         return next((r for r in self.catalog.rows() if (r.family, r.model) == (s.family, s.model)), None)
+ 
 +    def drafting_forecast_config(self, *, directories=None) -> dict:
 +        """Use the full run config only when its model files are usable for this forecast."""
 +        base, _desc = self.installed_state()
@@ -942,10 +944,13 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 +
 -    def drafter_part(self) -> dict | None:
 +    def drafter_part(self, *, directories=None) -> dict | None:
-         """The DFlash2 drafter's row of the download plan, or None when nothing of it comes. ONE rule, the one the launch follows (ensure_drafter -> drafting_fetch.ensure_for), read from the
-         same run config the launch reads: a drafter file that is here is no download; the small tuned file is a download only while it is missing and the signed feed lists it for this
-         engine family; otherwise the standard drafter is downloaded (1.2 GB) and packed on this computer. ``gb``: what is downloaded, ``disk_gb``: what stays on the disk afterwards.
-@@ -2669,12 +2691,9 @@
+-        """The DFlash2 drafter's row of the download plan, or None when nothing of it comes. ONE rule, the one the launch follows (ensure_drafter -> drafting_fetch.ensure_for), read from the
+-        same run config the launch reads: a drafter file that is here is no download; the small tuned file is a download only while it is missing and the signed feed lists it for this
+-        engine family; otherwise the standard drafter is downloaded (1.2 GB) and packed on this computer. ``gb``: what is downloaded, ``disk_gb``: what stays on the disk afterwards.
++        """The DFlash2 download forecast for ensure_drafter: the tuned pack if available without a feed throttle, otherwise the missing stock pack.
++        ``gb`` is the download size; ``disk_gb`` is what stays on disk.
++        Use the same run config, backend and data folder as acquisition.
+         (0217 item 3: the plan used the installed model's summary, which has no arguments, so it looked for the drafter in another folder and listed one that was installed; and on a feed
          without the tuned file it said 0.34 GB where the launch fetched 1.21 GB.)"""
 -        from strata_control import drafting, drafting_fetch
 -        _b, _cfg = self.installed_state()
@@ -962,9 +967,41 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 +    def _drafter_part(self, want, sig) -> dict | None:
 +        from strata_control import drafting, drafting_fetch
 +
++        self.tuned_wanted = None
          missing_stock = drafting.needs_pack(**want, **sig)
          if not (missing_stock or drafting.needs_tuned(**want, **sig)):
-@@ -2701,11 +2720,14 @@
+             return None                                      # a drafter is here: nothing to list
+         label = "the DFlash2 drafter"
+-        offered = None
+-        variant = None
+-        if drafting.tuned_applies(want["backend"], want["model_name"], want["archs"], **sig):
++        # Launch passes --drafter dflash2 to skip MTP in setup, then ensure_drafter fetches the pack.
++        # Native setup's separate implicit Auto fetch does not use the launch throttle.
++        direct = os.environ.get(drafting.TUNED_URL_ENV, "").strip()
++        if drafting.tuned_applies(want["backend"], want["model_name"], want["archs"], **sig) and (direct or not drafting.recent_miss(want["data_dir"])):
+             variant = drafting.tuned_variant(want["backend"], want["model_name"])
+-            key = (want["backend"], variant)
+-            self.tuned_wanted = key
+-            offered = self.tuned_offered.get(key)
+-            if offered is None and self.look_up_feed:
+-                offered = self.tuned_offered[key] = drafting_fetch.tuned_offered(feed=self.feed, backend=want["backend"], variant=variant)
++            offered = True
++            if not direct:
++                key = (want["backend"], variant)
++                self.tuned_wanted = key
++                offered = self.tuned_offered.get(key)
++                if offered is None and self.look_up_feed:
++                    offered = self.tuned_offered[key] = drafting_fetch.tuned_offered(feed=self.feed, backend=want["backend"], variant=variant)
+             if offered is not False:                         # listed by the feed, or not asked yet: the small file the launch tries first
+                 gb = drafting.tuned_pack(variant).gb
+                 return {"kind": "dflash2", "label": label, "gb": gb, "disk_gb": gb, "tuned": True, "variant": variant, "data_dir": str(want["data_dir"])}
+         if not missing_stock:
+-            return None                                      # the standard pack is here and the feed has no tuned file: nothing comes
++            return None                                      # the stock pack is here and no tuned download is expected
+         reads_q4 = want["backend"] != "sycl" and (drafting.installed_engine_exe() is None or drafting.engine_has_selector_q4())
+         disk = (drafting.PACK_BYTES + (drafting.CONVERTED_BYTES if reads_q4 else 0)) / 1e9
+         return {"kind": "dflash2", "label": label, "gb": drafting.DOWNLOAD_GB, "disk_gb": round(disk, 2), "tuned": False, "reads_q4": reads_q4, "data_dir": str(want["data_dir"])}
+@@ -2701,11 +2724,14 @@
 -    def download_plan(self) -> dict:
 +    def download_plan(self, *, directories=None) -> dict:
          """What this launch would download, in numbers and words (nothing is changed): the model's missing files, and for a model that is
@@ -982,7 +1019,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          parts = [{"kind": p.kind, "label": p.label, "gb": round(p.gb, 1)} for p in st.parts if p.gb >= 0.05]     # a part already on disk is not a download
          row = self.row()
          helpers = s.family in modelstate.HELPER_FAMILIES
-@@ -2715,17 +2737,15 @@
+@@ -2715,17 +2741,15 @@
              # next to the prepared data, unless they are there already
              have = {p["kind"] for p in parts}
              try:
@@ -1010,7 +1047,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 +                    if not modelstate.launch_reader_present(self.catalog, directories, own=own):
 +                        parts.append({"kind": "mmproj", "label": "the picture reader", "gb": MMPROJ_GB})
              except OSError:
-@@ -2733,8 +2753,8 @@
+@@ -2733,8 +2757,8 @@
          try:
 -            part = self.drafter_part()
 +            part = self.drafter_part(directories=directories)
@@ -1021,7 +1058,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 -        gap = self.ready_pack_gap() if st.own_files else None
 +        gap = self.ready_pack_gap(directories=directories) if st.own_files else None
          if gap:
-@@ -2758,7 +2778,7 @@
+@@ -2758,7 +2782,7 @@
          else:
              names = [f"{p['label']} ({p['gb']:.2f} GB)" if p["kind"] == "dflash2" and p["gb"] < 1 else f"{p['label']} ({p['gb']:.1f} GB)" for p in parts]       # (the tuned drafter is 0.34 / 0.52 GB: one decimal said 0.3 / 0.5)
              what = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
@@ -1030,7 +1067,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
              text = (f"About {gb:.1f} GB to download into {Path(s.data_dir).expanduser()}: {what}." if other is not None else
                      f"About {gb:.1f} GB to download: {what}.")
              if other is not None:                            # lane NET 4a: the start uses --data-dir, not the copy installed elsewhere
-@@ -2787,7 +2807,7 @@
+@@ -2787,7 +2811,7 @@
              text += " For the Intel card Strata builds the model's pack from your files itself, once; it takes a few minutes and downloads nothing."
          return {"gb": gb, "parts": parts, "engine_missing": not engine and not here, "engine_usable": engine, "own_files": st.own_files, "text": text}
  
@@ -1039,7 +1076,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          """For a ready-made pack family (NVFP4): what setup would still fetch into its models folder for these choices, {gb, folder, free_gb}, or None."""
          s = self.s
          try:
-@@ -2795,17 +2815,21 @@
+@@ -2795,17 +2819,21 @@
              _m, families, _c, _src = self.catalog.tables()
              if mod is None or not (families.get(s.family or "") or {}).get("ready") or not hasattr(mod, "ready_needed"):
                  return None
@@ -1067,7 +1104,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          except Exception:                                    # noqa: BLE001 - a plan that cannot work this out still shows the rest
              return None
  
-@@ -2840,8 +2864,10 @@
+@@ -2840,8 +2868,10 @@
              self.resolved_vision()
          except Exception:                                    # noqa: BLE001
              pass
@@ -1080,7 +1117,7 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
          except Exception:                                    # noqa: BLE001 - a plan that cannot count the download still shows the rest
              download = {"gb": None, "parts": [], "engine_missing": None, "own_files": bool(s.model_path),
                          "text": "How much would be downloaded could not be worked out here."}
-@@ -2849,7 +2875,10 @@
+@@ -2849,7 +2879,10 @@
          model = {"title": title, "family": s.family, "model": s.model, "model_gb": row.download_gb if row is not None else None,
                   "own_files": bool(s.model_path), "folder": s.model_path}
          out = {"profile": self.profile, "settings": s.to_dict(with_key=False), "warnings": warns,
@@ -1088,16 +1125,16 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 +               "flags": S.flags_text(s), "steps": list(STAGES), "model": model, "download": download,
 +               "drafting": self.drafting_plan_line(
 +                   directories=directories,
-+                   download_drafter=any(part["kind"] == "dflash2" for part in download["parts"]))}
++                   download_kinds={part["kind"] for part in download["parts"]})}
          return out
  
      def feed_without_draft_layer(self, family: str | None = None) -> bool:
-@@ -2976,21 +3005,22 @@
+@@ -2976,21 +3009,23 @@
          except Exception:                                    # noqa: BLE001 - an unreadable file keeps the launch as it was
              return
  
 -    def drafting_plan_line(self) -> str:
-+    def drafting_plan_line(self, *, directories=None, download_drafter: bool | None = None) -> str:
++    def drafting_plan_line(self, *, directories=None, download_kinds: set[str] | None = None) -> str:
          """The drafting line of --plan: what drafts, or why not what was asked for. Nothing is changed or downloaded."""
          from strata_control import drafting
          if self.feed_without_draft_layer():                  # the model list says this model has no draft layer: setup fetches none and the engine starts without a drafter
@@ -1113,10 +1150,11 @@ diff --git a/terminal/strata_cli/launch/runner.py b/terminal/strata_cli/launch/r
 -            sig = self.drafting_signals(cfg or {}, want)
 -            if drafting.needs_pack(**want, **sig) or drafting.needs_tuned(**want, **sig):            # the launch fetches the drafter first (ensure_drafter), so that is what will run
 +            sig = self.drafting_signals(cfg, want)
-+            if download_drafter is None:
-+                download_drafter = self._drafter_part(want, sig) is not None
++            download_drafter = self._drafter_part(want, sig) is not None if download_kinds is None else "dflash2" in download_kinds
 +            if download_drafter:
                  return "Drafting: DFlash2 (its drafter is downloaded first)"
++            if download_kinds and "mtp" in download_kinds:
++                want["mtp_here"] = True
              return drafting.summary_line(drafting.decide(**want, **sig))
          except Exception:                                    # noqa: BLE001
              return ""

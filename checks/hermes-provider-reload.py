@@ -171,7 +171,7 @@ def linked_snapshot_storage(fixture):
     old = fixture.profile()
     reloader = fixture.reloader
     root = reloader._snapshot_root
-    assert root.parent.samefile(storage)
+    assert root.parent == storage.resolve()
     [copied] = root.glob("*/review-provider")
     fingerprint = reloader.tree_fingerprint(copied)
     assert copied.parent.name.endswith(f"_{fingerprint}")
@@ -186,6 +186,18 @@ def linked_snapshot_storage(fixture):
     assert fixture.profile() is old
     assert list(root.glob("*/review-provider")) == [copied]
 
+    # Retargeting the configured alias must not move live code or redirect cleanup.
+    replacement = runtime / "next-snapshot-store"
+    decoy = replacement / root.name
+    decoy.mkdir(parents=True)
+    (decoy / "marker").write_text("another store")
+    alias = runtime / "provider-plugins"
+    alias.unlink()
+    alias.symlink_to(replacement.name, target_is_directory=True)
+    fixture.refresh()
+    assert fixture.profile() is old and fixture.headers(old) == "one"
+    assert list(root.glob("*/review-provider")) == [copied]
+
     (runtime / "version.json").write_text(json.dumps({"version": "second"}))
     fixture.refresh()
     assert fixture.headers(fixture.profile()) == "second"
@@ -195,9 +207,11 @@ def linked_snapshot_storage(fixture):
     reloader._cleanup_snapshots()
     assert not root.exists()
     assert not list(storage.glob(f"{reloader._REAPING_PREFIX}*"))
+    assert (decoy / "marker").read_text() == "another store"
     assert (storage / "unrelated-state").read_text() == "persistent storage activity"
     assert (assets / "asset.txt").read_text() == "plugin data, not snapshots"
-    return {"linked_storage": "excluded", "retained_provider": "one", "new_provider": "second"}
+    return {"linked_storage": "excluded", "retargeted_cleanup": "anchored",
+            "retained_provider": "one", "new_provider": "second"}
 
 
 def removal_and_failure(fixture):
@@ -446,13 +460,85 @@ def host_cleanup(fixture):
     return {"forced_host_cleanup": "complete"}
 
 
+def host_cleanup_during_sweep(fixture):
+    from hermes_cli.plugin_host_wire import PluginHostUnavailable
+
+    (fixture.home / "plugins" / "github-copilot").symlink_to(fixture.plugin, target_is_directory=True)
+    temp = fixture.home / "child-temp"
+    temp.mkdir()
+    entered = fixture.home / "reap-entered"
+    os.mkfifo(entered)
+    headers = '''
+    def request_headers(self, *, base_url, model="", user_initiated=False):
+        import errno, os, tempfile, threading
+        import providers
+        from pm import filesystem
+        from providers import plugin_reload
+
+        home = Path(os.environ["HERMES_HOME"])
+        tempfile.tempdir = str(home / "child-temp")
+        real_lock_path, reap = filesystem.lock_path, plugin_reload._reap_claim
+
+        def lock_path(path, *, timeout):
+            if path.name == plugin_reload._OWNER_LOCK:
+                raise OSError(errno.ENOSPC, "injected host owner.lock failure")
+            return real_lock_path(path, timeout=timeout)
+
+        def slow_reap(claim):
+            if (claim / "slow-reap-marker").exists():
+                with (home / "reap-entered").open("wb", buffering=0) as signal:
+                    signal.write(b"x")
+                threading.Event().wait(30)
+            reap(claim)
+
+        filesystem.lock_path = lock_path
+        plugin_reload._reap_claim = slow_reap
+        providers.get_provider_profile("copilot")
+        return {"X-Version": "unexpectedly completed"}
+'''
+    fixture.install(fixture.generation("one", headers=headers))
+    profile = fixture.profile()
+    reloader = fixture.reloader
+    parent = reloader._snapshot_root
+    dead = parent.parent / f"{reloader._OWNED_PREFIX}slow-regression"
+    dead.mkdir()
+    (dead / reloader._OWNER_LOCK).touch()
+    (dead / "slow-reap-marker").touch()
+
+    fd = os.open(entered, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(fixture.headers, profile)
+            try:
+                assert select.select([fd], [], [], 15)[0], "host did not enter its slow snapshot sweep"
+                assert os.read(fd, 1) == b"x"
+                proc = fixture.host()._proc
+                [child_root] = temp.glob(f"{reloader._TEMP_ROOT_PREFIX}*")
+            finally:
+                fixture.stop_host()
+            assert proc.returncode == 0, "host cleanup waited for the slow sweep and needed a kill"
+            assert not child_root.exists(), "host exit leaked the temporary root allocated before the sweep"
+            with unittest.TestCase().assertRaises(PluginHostUnavailable):
+                pending.result(timeout=15)
+    finally:
+        os.close(fd)
+    assert parent.is_dir(), "host exit removed parent-owned versions"
+    return {"host_shutdown_during_sweep": "complete", "temporary_root": "removed"}
+
+
+def another_snapshot_root(reloader):
+    """Exercise allocation as a new process would, without replacing this fixture's live root."""
+    with patch.multiple(reloader, _snapshot_root=None, _snapshot_creator_pid=None):
+        return reloader._process_snapshot_root()
+
+
 def persistent_cleanup(fixture):
     from hermes_constants import get_default_hermes_root
 
     fixture.install(fixture.generation("one"))
     profile = fixture.profile()
     live = fixture.reloader._snapshot_root
-    assert live.parent == get_default_hermes_root() / "runtime" / "provider-plugins"
+    assert live.parent == (get_default_hermes_root() / "runtime" / "provider-plugins").resolve()
     # Reclaim a crashed owner's immutable copy without touching a live owner.
     dead = live.parent / (fixture.reloader._OWNED_PREFIX + "regression-dead")
     dead.mkdir()
@@ -471,7 +557,7 @@ def persistent_cleanup(fixture):
             patch.object(reloader.shutil, "rmtree", side_effect=interrupted_delete),
             patch.object(reloader.atexit, "register", wraps=reloader.atexit.register) as register,
         ):
-            another = reloader._new_root()
+            another = another_snapshot_root(reloader)
         owner_fd = register.call_args.args[2]
         register.assert_called_once_with(reloader._release_root, another, owner_fd, os.getpid())
     try:
@@ -495,7 +581,7 @@ def persistent_cleanup(fixture):
         assert exit_claim.name.startswith(reloader._REAPING_PREFIX) and exit_claim.is_dir()
         assert str(exit_claim) in logs.output[0] and "injected partial snapshot deletion" in logs.output[0]
 
-        recovered = reloader._new_root()
+        recovered = another_snapshot_root(reloader)
         try:
             assert not any(path.name.startswith(reloader._REAPING_PREFIX) for path in live.parent.iterdir()), (
                 "next sweep did not finish the partially removed read-only claims"
@@ -508,11 +594,46 @@ def persistent_cleanup(fixture):
     return {"persistent_readonly_reclaim": "complete", "partial_removal_recovery": "complete"}
 
 
+def foreign_snapshot_owners(fixture):
+    reloader = fixture.reloader
+    live = reloader._process_snapshot_root()
+    own = live.parent / f"{reloader._OWNED_PREFIX}same-uid"
+    foreign_owned = live.parent / f"{reloader._OWNED_PREFIX}foreign-uid"
+    foreign_claim = live.parent / f"{reloader._REAPING_PREFIX}foreign-uid"
+    for path in (own, foreign_owned, foreign_claim):
+        path.mkdir()
+        (path / "marker").touch()
+    for path in (own, foreign_owned):
+        (path / reloader._OWNER_LOCK).touch()
+
+    uid = live.stat().st_uid
+    real_lstat = Path.lstat
+
+    def lstat(path):
+        info = real_lstat(path)
+        if path in (foreign_owned, foreign_claim):
+            return types.SimpleNamespace(st_mode=info.st_mode, st_uid=uid + 1)
+        return info
+
+    # Unprivileged checks can simulate foreign ownership without chown or root.
+    with patch.object(os, "geteuid", return_value=uid, create=True), patch.object(Path, "lstat", lstat):
+        recovered = another_snapshot_root(reloader)
+    try:
+        assert not own.exists(), "sweep did not reclaim the same UID's dead root"
+        assert live.is_dir() and not reloader._owner_gone(live)
+        assert (foreign_owned / "marker").is_file(), "sweep claimed a foreign UID's dead root"
+        assert (foreign_claim / "marker").is_file(), "sweep stole a foreign UID's interrupted claim"
+        assert list(live.parent.glob(f"{reloader._REAPING_PREFIX}*")) == [foreign_claim]
+    finally:
+        reloader._release_root(recovered, None, os.getpid())
+    return {"foreign_roots_preserved": True, "same_uid_dead_root_reclaimed": True}
+
+
 def owner_lock_failure(fixture):
     from pm import filesystem
 
     reloader = fixture.reloader
-    live = reloader._new_root()
+    live = another_snapshot_root(reloader)
     parent = live.parent
     real_lock_path = filesystem.lock_path
     failures = (
@@ -537,7 +658,7 @@ def owner_lock_failure(fixture):
                 type(lock_error) if lock_error is not None else OSError, r"owner\.lock"
             ) as caught,
         ):
-            reloader._new_root()
+            another_snapshot_root(reloader)
         if lock_error is not None:
             assert caught.exception is lock_error
         else:
@@ -548,7 +669,7 @@ def owner_lock_failure(fixture):
         assert str(claim) in logs.output[0] and "injected purge failure" in logs.output[0]
         assert list(parent.glob(f"{reloader._OWNED_PREFIX}*")) == [live]
 
-        recovered = reloader._new_root()
+        recovered = another_snapshot_root(reloader)
         assert not list(parent.glob(f"{reloader._REAPING_PREFIX}*")), "sweep left failed root cleanup claims"
         assert live.is_dir(), "sweep removed a live owner while recovering a failed root"
         reloader._release_root(recovered, None, os.getpid())
@@ -559,13 +680,20 @@ def owner_lock_storage_fallback(fixture, storage_errno):
     from pm import filesystem
 
     reloader = fixture.reloader
-    live = reloader._new_root()
-    parent = live.parent
+    runtime = fixture.home / "runtime"
+    fixture.generation("one", mutable=True).rename(runtime)
+    parent = runtime / "snapshot-store"
+    parent.mkdir()
+    (runtime / "provider-plugins").symlink_to(parent.name, target_is_directory=True)
+    parent = parent.resolve()
+    live = another_snapshot_root(reloader)
+    assert live.parent == parent
     dead = parent / f"{reloader._OWNED_PREFIX}regression-dead"
     dead.mkdir()
     (dead / reloader._OWNER_LOCK).touch()
-    temp = fixture.root / "system-tmp"
+    temp = runtime / "system-tmp"
     temp.mkdir()
+    (temp / "ordinary").write_text("plugin resource")
     real_open = os.open
     attempted = []
 
@@ -577,7 +705,7 @@ def owner_lock_storage_fallback(fixture, storage_errno):
             raise OSError(storage_errno, "injected owner.lock storage failure", str(lock))
         return real_open(path, flags, *args, **kwargs)
 
-    fixture.install(fixture.generation("one"))
+    fixture.install(runtime)
     with (
         patch.object(os, "open", side_effect=open_file),
         patch.object(tempfile, "tempdir", str(temp)),
@@ -597,10 +725,16 @@ def owner_lock_storage_fallback(fixture, storage_errno):
     root = reloader._snapshot_root
     assert root.parent.samefile(temp)
     assert not (root / reloader._OWNER_LOCK).exists()
+    [copied] = root.glob("*/review-provider")
+    assert not (copied / "provider-plugins").exists()
+    assert not (copied / parent.name).exists()
+    [asset] = (copied / temp.name).iterdir()
+    assert asset.name == "ordinary" and asset.read_text() == "plugin resource"
     assert fixture.providers.plugin_load_error("review-provider") == ""
     reloader._cleanup_snapshots()
-    assert not list(temp.iterdir()), "fallback leaked its temporary root"
-    return {"owner_lock_error": errno.errorcode[storage_errno], "fallback_provider": "one", "cleanup": "complete"}
+    assert list(temp.iterdir()) == [temp / "ordinary"], "fallback leaked its temporary root"
+    return {"owner_lock_error": errno.errorcode[storage_errno], "fallback_provider": "one",
+            "snapshot_stores": "excluded", "cleanup": "complete"}
 
 
 def block_persistent_snapshots(home, root):
@@ -1004,7 +1138,8 @@ def run_case(case, plugin):
         normal_exit(plugin, fallback=case == "temporary-exit")
         return
     root = Path(tempfile.mkdtemp(prefix="provider-lifecycle-"))
-    hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup", "interrupt-host", "long-host"}
+    hosted = case in {"rollback-host", "host-live", "host-late", "host-overlap", "host-cleanup",
+                      "host-cleanup-sweep", "interrupt-host", "long-host"}
     fixture = Fixture(root, plugin, "host" if hosted else "in_process")
     try:
         if case.startswith("rollback"):
@@ -1027,14 +1162,18 @@ def run_case(case, plugin):
             result = hosted_overlap(fixture)
         elif case == "host-cleanup":
             result = host_cleanup(fixture)
+        elif case == "host-cleanup-sweep":
+            result = host_cleanup_during_sweep(fixture)
         elif case == "persistent-cleanup":
             result = persistent_cleanup(fixture)
+        elif case == "foreign-snapshot-owners":
+            result = foreign_snapshot_owners(fixture)
         elif case == "temporary-cleanup":
             result = temporary_cleanup(fixture)
         elif case == "owner-lock-failure":
             result = owner_lock_failure(fixture)
-        elif case in {"owner-lock-eacces", "owner-lock-enospc"}:
-            result = owner_lock_storage_fallback(fixture, errno.EACCES if case == "owner-lock-eacces" else errno.ENOSPC)
+        elif case.startswith("owner-lock-"):
+            result = owner_lock_storage_fallback(fixture, getattr(errno, case.removeprefix("owner-lock-").upper()))
         elif case in {"activation-success", "activation-failure"}:
             result = activation_pending(fixture, fail=case == "activation-failure")
         elif case == "activation-home":
@@ -1123,6 +1262,9 @@ class ProviderLifecycle(unittest.TestCase):
     def test_forced_host_cleanup(self):
         self.run_case("host-cleanup")
 
+    def test_forced_host_cleanup_during_slow_fallback_sweep(self):
+        self.run_case("host-cleanup-sweep")
+
     def test_normal_exit_cleanup(self):
         self.run_case("normal-exit")
 
@@ -1135,6 +1277,9 @@ class ProviderLifecycle(unittest.TestCase):
     def test_persistent_readonly_reclamation_preserves_live_owner(self):
         self.run_case("persistent-cleanup")
 
+    def test_persistent_sweep_does_not_claim_foreign_uid_roots(self):
+        self.run_case("foreign-snapshot-owners")
+
     def test_owner_lock_failure_recovers_after_purge_failure(self):
         self.run_case("owner-lock-failure")
 
@@ -1143,6 +1288,9 @@ class ProviderLifecycle(unittest.TestCase):
 
     def test_owner_lock_space_error_uses_temporary_root(self):
         self.run_case("owner-lock-enospc")
+
+    def test_owner_lock_quota_error_uses_temporary_root(self):
+        self.run_case("owner-lock-edquot")
 
     def test_deferred_activation_then_success(self):
         self.run_case("activation-success")

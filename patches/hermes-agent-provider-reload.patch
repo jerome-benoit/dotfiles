@@ -99,7 +99,57 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
  
  def _owner_gone(root: Path) -> bool:
-@@ -97,152 +155,271 @@
+@@ -73,176 +131,326 @@
+         os.close(fd)
+ 
+ 
+ def _claim_dead_roots(parent: Path) -> list[Path]:
+-    """Rename the owned roots whose owner is gone, and the claims a sweeper killed mid-delete left behind, to fresh
+-    names; the caller deletes them after releasing the setup lock, so a large dead root never holds up other
+-    processes starting. A claim another sweeper is still deleting can be taken again and deleted twice: both deletes
+-    ignore errors, so the cost is the duplicated work."""
++    """Claim dead roots and interrupted claims belonging to this user."""
+     claimed = []
++    uid = os.geteuid() if hasattr(os, "geteuid") else None
+     with contextlib.suppress(OSError):
+         for entry in parent.iterdir():
+-            if entry.is_symlink() or not entry.is_dir():
+-                continue
+-            with contextlib.suppress(OSError):  # unreadable, or another user's: not ours to judge
+-                leftover = entry.name.startswith(_REAPING_PREFIX)
+-                if leftover or (entry.name.startswith(_OWNED_PREFIX) and _owner_gone(entry)):
+-                    claim = parent / f"{_REAPING_PREFIX}{uuid.uuid4().hex}"
+-                    os.rename(entry, claim)
+-                    claimed.append(claim)
++            leftover = entry.name.startswith(_REAPING_PREFIX)
++            if not leftover and not entry.name.startswith(_OWNED_PREFIX):
++                continue
++            with contextlib.suppress(OSError):
++                info = entry.lstat()
++                if not stat.S_ISDIR(info.st_mode) or (uid is not None and info.st_uid != uid):
++                    continue
++                if leftover or _owner_gone(entry):
++                    claim = _claim_root(entry)
++                    if claim is not None:
++                        claimed.append(claim)
+     return claimed
+ 
+ 
++def _claim_root(root: Path) -> Path | None:
++    """Publish a claim before deletion can remove owner.lock."""
++    claim = root.with_name(f"{_REAPING_PREFIX}{uuid.uuid4().hex}")
++    try:
++        os.rename(root, claim)
++    except FileNotFoundError:
++        return None
++    except OSError as exc:
++        logger.warning("Could not claim provider snapshot root %s for removal: %s", root, exc)
++        return None
++    return claim
++
++
+ def _release_root(root: Path, owner_fd: int | None, creator_pid: int) -> None:
+     # A forked child inherits this hook and shares the flock (it belongs to the open file): its exit must
      # neither delete the parent's live copy nor drop the parent's lock.
      if os.getpid() != creator_pid:
          return
@@ -114,17 +164,10 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            logger.warning("Could not remove temporary provider snapshot root %s: %s", root, exc)
 +        return
 +    try:
-+        # Publish the claim before deletion can remove owner.lock. The atomic rename
-+        # does not need the setup lock: sweepers may take the claim as soon as it exists.
-+        claim = root.with_name(f"{_REAPING_PREFIX}{uuid.uuid4().hex}")
-+        try:
-+            os.rename(root, claim)
-+        except FileNotFoundError:
-+            return
-+        except OSError as exc:
-+            logger.warning("Could not claim provider snapshot root %s for removal: %s", root, exc)
-+            return
-+        _reap_claim(claim)
++        # The atomic rename does not need the setup lock.
++        claim = _claim_root(root)
++        if claim is not None:
++            _reap_claim(claim)
 +    finally:
 +        if owner_fd is not None:
 +            with contextlib.suppress(OSError):
@@ -133,20 +176,26 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
  
 +def _new_temporary_root(error: OSError) -> Path:
 +    logger.warning("Persistent provider snapshot storage unavailable; using system temp: %s", error)
-+    root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX))
++    parent = Path(tempfile.gettempdir()).resolve(strict=True)
++    root = Path(tempfile.mkdtemp(prefix=_TEMP_ROOT_PREFIX, dir=parent))
 +    atexit.register(_release_root, root, None, os.getpid())
 +    return root
 +
 +
- def _new_root() -> Path:
+-def _new_root() -> Path:
 -    """This process's root: ``owned-`` with its owner lock held until the process exits, or ``unswept-`` without one
 -    when the setup lock is unavailable."""
-+    """Allocate a persistent root if possible, or a process-owned system temporary root."""
++def _persistent_store() -> Path:
++    return get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
++
++
++def _new_root(claimed: list[Path]) -> Path:
++    """Allocate a root and collect claims for deletion after allocation and publication."""
      from pm.filesystem import lock_path
  
 -    parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
 +    try:
-+        parent = mkdir_under_hermes_home(get_default_hermes_root().joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS))
++        parent = mkdir_under_hermes_home(_persistent_store()).resolve(strict=True)
 +    except OSError as exc:
 +        return _new_temporary_root(exc)
      try:
@@ -167,9 +216,10 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            return _new_temporary_root(exc)
          atexit.register(_release_root, root, None, os.getpid())
          return root
-     claimed: list[Path] = []
+-    claimed: list[Path] = []
      try:
-         claimed = _claim_dead_roots(parent)
+-        claimed = _claim_dead_roots(parent)
++        claimed.extend(_claim_dead_roots(parent))
 -        root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
 +        try:
 +            root = Path(tempfile.mkdtemp(prefix=_OWNED_PREFIX, dir=parent))
@@ -177,27 +227,51 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +            return _new_temporary_root(exc)
          try:
              owner_fd = lock_path(root / _OWNER_LOCK, timeout=0)
++            if owner_fd is None:
++                raise OSError(f"{root / _OWNER_LOCK} is held by another process")
 -        except BaseException:
-+        except BaseException as exc:
 -            shutil.rmtree(root, ignore_errors=True)
-+            _release_root(root, None, os.getpid())
-+            if isinstance(exc, OSError) and exc.errno in (errno.EACCES, errno.ENOSPC):
++        except BaseException as exc:
++            claim = _claim_root(root)
++            if claim is not None:
++                claimed.append(claim)
++            if isinstance(exc, OSError) and exc.errno in (
++                errno.EACCES, errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC),
++            ):
 +                return _new_temporary_root(exc)
              raise
-         if owner_fd is None:
+-        if owner_fd is None:
 -            shutil.rmtree(root, ignore_errors=True)
-+            _release_root(root, None, os.getpid())
-             raise OSError(f"{root / _OWNER_LOCK} is held by another process")
+-            raise OSError(f"{root / _OWNER_LOCK} is held by another process")
 +        atexit.register(_release_root, root, owner_fd, os.getpid())
      finally:
          os.close(setup_fd)
-         for claim in claimed:
+-        for claim in claimed:
 -            shutil.rmtree(claim, ignore_errors=True)
-+            _reap_claim(claim)
 -    atexit.register(_release_root, root, owner_fd, os.getpid())
      return root
  
  
++def _process_snapshot_root() -> Path:
++    global _snapshot_root, _snapshot_creator_pid
++    root = _snapshot_root
++    if root is not None:
++        return root
++    claimed: list[Path] = []
++    try:
++        with _snapshot_lock:
++            root = _snapshot_root
++            if root is None:
++                root = _new_root(claimed)
++                _snapshot_creator_pid = os.getpid()
++                _snapshot_root = root
++            return root
++    finally:
++        # Forced host cleanup must see the root without waiting for a slow sweep.
++        for claim in claimed:
++            _reap_claim(claim)
++
++
 -def _snapshot(plugin_dir: Path, module_name: str) -> Path:
 -    """A frozen copy of *plugin_dir* for *module_name* (per home, plugin and tree), named like the original
 -    (load errors key on it). Copied into a private directory and published by one rename, so a concurrent scan
@@ -205,11 +279,9 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 +def _snapshot(plugin_dir: Path, module_prefix: str) -> tuple[Path, str]:
 +    """Copy first, identify those bytes, then publish their writable parent."""
 -    global _snapshot_root
-+    global _snapshot_root, _snapshot_creator_pid
-     with _snapshot_lock:
-         if _snapshot_root is None:
-             _snapshot_root = _new_root()
-+            _snapshot_creator_pid = os.getpid()
+-    with _snapshot_lock:
+-        if _snapshot_root is None:
+-            _snapshot_root = _new_root()
 -    target = _snapshot_root / module_name / plugin_dir.name
 -    if target.is_dir():
 -        return target
@@ -225,15 +297,19 @@ diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 -        shutil.rmtree(private, ignore_errors=True)
 -    return target
 +    # A linked plugin may contain the snapshot store, even under another name.
-+    root = _snapshot_root
-+    storage = (root if root.name.startswith(_TEMP_ROOT_PREFIX) else root.parent).resolve()
++    root = _process_snapshot_root()
++    active_store = root if root.name.startswith(_TEMP_ROOT_PREFIX) else root.parent
++    storage = {active_store, _persistent_store().resolve()}
 +
 +    def ignore(directory: str, names: list[str]) -> set[str]:
 +        source = Path(directory)
-+        return _EXCLUDED.intersection(names) | {
-+            name for name in names
-+            if name not in _EXCLUDED and (source / name).resolve().is_relative_to(storage)
-+        }
++        excluded = set(_EXCLUDED.intersection(names))
++        for name in names:
++            if name not in excluded:
++                path = (source / name).resolve()
++                if any(path.is_relative_to(store) for store in storage):
++                    excluded.add(name)
++        return excluded
 +
 +    private = Path(tempfile.mkdtemp(prefix=".copy-", dir=root))
 +    try:

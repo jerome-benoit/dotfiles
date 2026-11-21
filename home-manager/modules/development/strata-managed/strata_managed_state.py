@@ -7,6 +7,7 @@ Only configs, launch scripts and interpreter metadata are edited, with exact-byt
 """
 
 from contextlib import ExitStack, contextmanager
+import fcntl
 import importlib.abc
 import importlib.util
 from importlib.machinery import SourceFileLoader
@@ -583,13 +584,61 @@ def namespace_fds():
 
 
 @contextmanager
+def config_locks(*folders):
+    """Lock already canonical subtrees without writing into runtime directories."""
+    roots = set()
+    modes = {}
+    # Path order places ancestors before descendants; choose every mode up front.
+    for folder in sorted(set(folders)):
+        # An exclusive ancestor already covers all descendant writers.
+        if any(parent in roots for parent in folder.parents):
+            continue
+        roots.add(folder)
+        modes[folder] = fcntl.LOCK_EX
+        for parent in folder.parents:
+            modes.setdefault(parent, fcntl.LOCK_SH)
+    with ExitStack() as stack:
+        descriptors = []
+        locked_roots = set()
+        for folder, mode in sorted(modes.items()):
+            # A checkout can create a missing destination under its locked root.
+            try:
+                fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            if fd < 3:
+                try:
+                    reserved = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
+                finally:
+                    os.close(fd)
+                fd = reserved
+            stack.callback(os.close, fd)
+            fcntl.flock(fd, mode)
+            descriptors.append(fd)
+            if mode == fcntl.LOCK_EX:
+                locked_roots.add(folder)
+        yield tuple(descriptors), locked_roots
+
+
+@contextmanager
+def layout_locks(repository):
+    # The checkout root covers normal split layouts and nested run configs.
+    # Also cover the canonical destination if Terminal is a directory alias.
+    destination = repository / "terminal"
+    terminal = destination.resolve()
+    with config_locks(repository, terminal) as (descriptors, _):
+        if destination.resolve() != terminal:
+            raise RuntimeError(f"Terminal destination changed before layout: {destination}")
+        yield descriptors
+
+
+@contextmanager
 def layout_checkpoint(repository, *, enabled=True, metadata_paths=(), metadata_directories=(), runtime_moves=None,
                       reference_moves=()):
-    """Keep small original bytes/inodes and the profile namespace until a source transaction settles."""
+    """Keep small original bytes/inodes and the profile namespace while the caller holds layout locks."""
     if not enabled:
         yield lambda: None
         return
-    import fcntl
     repository = Path(repository).resolve()
     explicit = os.environ.get("STRATA_PROFILE_DIR")
     directory = (Path(explicit).expanduser() if explicit else
@@ -964,6 +1013,12 @@ def engine_link_checkpoint(repository, *, reverse=False, enabled=True, tracked_e
 
 def migrate_layout(repository, *, reverse=False, reference_moves=()):
     repository = Path(repository).resolve()
+    with layout_locks(repository):
+        return _migrate_layout(repository, reverse=reverse, reference_moves=reference_moves)
+
+
+def _migrate_layout(repository, *, reverse, reference_moves):
+    """Migrate with the layout locks held here or by the publishing parent."""
     terminal = repository / "terminal"
     if not (terminal / "setup.py").is_file():
         normalize_sycl_configs(repository)

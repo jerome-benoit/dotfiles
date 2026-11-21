@@ -103,9 +103,9 @@ after independently publishing that rollback. Preserve the workspace/source FD
 handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
 
 With the requested source prepared, runtime stop bypasses RAM-budget migration
-and the workspace mutation lease. Serialize migrations targeting the same
-install. Keep migration backups separate from native `.bak` files and preserve
-both histories across layouts. Metadata-only moves must not retire engine
+and the workspace mutation lease. Migration and layout changes share canonical
+installation locks through publication or rollback. Keep migration backups
+separate from native `.bak` files. Metadata-only moves must not retire engine
 approval.
 
 Darwin Control forecasts, progress and setup share requested destinations and
@@ -115,11 +115,11 @@ sets are never combined across roots. Preserve explicit personal-file selection
 and keep missing readers and preparation outputs at their requested destinations.
 
 Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
-when rebasing role changes. Forecast and acquire DFlash with the same feed and
-complete run config. Check DFlash and MTP at their effective destinations after
-a model data move; the `dflash2/` directory stays behind. Share reader hashes
-across name and content searches within one forecast. Progress keeps completed
-parts through steps 6/7 and reaches 100 only when every part is complete.
+when rebasing role changes. Use the acquisition feed and retry policy in DFlash
+forecasts. Check DFlash and MTP at the effective destinations after a data move;
+`dflash2/` stays behind. Reflect planned drafter downloads in the summary. Share
+reader hashes across name and content searches within one forecast. Progress
+keeps completed parts through steps 6/7 and reaches 100 only when all are complete.
 Managed ordinary shards need native finish evidence when the helper is available,
 not merely a final filename. Preserve explicit personal acceptance and legacy
 helper-free progress; do not impose this predicate on ready SHA or reader selection.
@@ -189,11 +189,11 @@ backend status. Keep provider deferrals out of next-chat tools/prompt notices.
 Extraction and RPC must use the same frozen code; the host shares the complete
 version loader instead of replacing the process-wide registration function.
 Cleanup restores owner access only in owned copies, including before the host
-exits without atexit. Rename an exiting root to a reclaimable claim before
-deleting its owner marker. Failed claim deletion must not block a new owner
-or lose its exit hook. Use a private temporary root if persistent storage
-cannot be created or locked because of a storage error. Keep lock contention
-separate from storage failure. Do not copy the snapshot store into a plugin.
+exits without atexit. Publish the canonical snapshot root before sweeping old
+copies. Rename an exiting persistent root to a reclaimable claim before deleting
+its owner marker, and reclaim only roots owned by the current UID. Distinguish
+lock contention from storage failure, including quota exhaustion. Keep the
+persistent store and the temporary root out of plugin copies.
 Apply the wheel patch with or without mise.
 Interrupted imports discard only the failed module family before waking waiters.
 Home/plugin namespaces use complete, framed SHA-256 identities so long admitted

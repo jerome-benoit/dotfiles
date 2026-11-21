@@ -220,7 +220,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
         match = re.fullmatch(r"source-([0-9a-f]{40})", root.name)
         initial = match[1] if match else revision
         git(root, "fetch", "--quiet", "--depth=1", remote, initial)
-        with source_publication_lock(state):
+        with source_publication_lock(state), managed_state.layout_locks(root):
             if match:
                 git(root, "reset", "--quiet", "--mixed", "FETCH_HEAD")
             else:
@@ -232,7 +232,8 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     ) from None
     if git(root, "cat-file", "-e", f"{revision}^{{commit}}", check=False).returncode:
         git(root, "fetch", "--quiet", "--depth=1", remote, revision)
-    with source_publication_lock(state) as publication_lock:
+    with (source_publication_lock(state) as publication_lock,
+          managed_state.layout_locks(root) as config_fds):
         current = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         # Workaround: upstream pulls its configured branch, not a pinned revision.
         # Keep visited revisions reachable for GC-safe offline rollback.
@@ -260,7 +261,8 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
             with managed_state.layout_checkpoint(root, metadata_paths=cache_paths, metadata_directories=(cache,),
                                                  runtime_moves=pairs) as restore_metadata:
                 try:
-                    moved = migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno())
+                    moved = migrate_layout(state, runtime, lock_fd, publication_fd=publication_lock.fileno(),
+                                           config_fds=config_fds)
                     if engines is not None and any(engine_identity(runtime / name) != identity
                                                    for name, identity in engines.items()):
                         receipt.unlink(missing_ok=True)
@@ -305,7 +307,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                 engine_link.stage()
                 if reverse_layout:
                     moved.extend(migrate_layout(state, root / "terminal", lock_fd,
-                                                publication_fd=publication_lock.fileno(), reverse=True,
+                                                publication_fd=publication_lock.fileno(), config_fds=config_fds, reverse=True,
                                                 reference_moves=engine_link.reference_moves()))
                 if applied:
                     apply_source_patch(root, previous, reverse=True)
@@ -321,7 +323,7 @@ def _prepare_workspace(state, revision, remote, source_patch=None, *, lock_fd):
                     apply_source_patch(root, desired)
                     desired_applied = True
                 moved.extend(migrate_layout(state, terminal_root(root), lock_fd,
-                                            publication_fd=publication_lock.fileno(),
+                                            publication_fd=publication_lock.fileno(), config_fds=config_fds,
                                             reference_moves=engine_link.reference_moves()))
                 if not target_terminal:
                     cmake_metadata.invalidate(root)
@@ -833,12 +835,8 @@ def runtime_python(root):
     return bundled if os.access(bundled, os.X_OK) else root / ".venv/bin/python"
 
 
-def migrate_layout(state, root, lock_fd, *, publication_fd=None, reverse=False, reference_moves=()):
-    """Migrate under publication/acquisition leases and return only successful payload renames."""
-    if publication_fd is None:
-        with source_publication_lock(state) as publication_lock:
-            return migrate_layout(state, root, lock_fd, publication_fd=publication_lock.fileno(),
-                                  reverse=reverse, reference_moves=reference_moves)
+def migrate_layout(state, root, lock_fd, *, publication_fd, config_fds, reverse=False, reference_moves=()):
+    """Use the publisher's leases and return only successful payload renames."""
     previous = root / ".venv" if reverse else repository_root(root) / ".venv"
     if previous.is_dir():
         retain_interpreter(state, previous)
@@ -846,11 +844,11 @@ def migrate_layout(state, root, lock_fd, *, publication_fd=None, reverse=False, 
     python = Path(sys.executable)
     if not os.access(python, os.X_OK):
         python = runtime_python(root)
-    result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(root),
+    result = subprocess.run([str(python), str(Path(__file__).resolve()), "--migrate-layout", str(repository_root(root)),
                              json.dumps([(str(source), str(destination)) for source, destination in reference_moves]),
                              *(["--reverse"] if reverse else [])],
                             check=True, stdout=subprocess.PIPE, text=True,
-                            pass_fds=(lock_fd, publication_fd, *managed_state.namespace_fds()),
+                            pass_fds=(lock_fd, publication_fd, *config_fds, *managed_state.namespace_fds()),
                             env=dict(os.environ, STRATA_WORKSPACE_LOCK_FD=str(lock_fd),
                                      STRATA_WORKSPACE_CONTEXT=json.dumps({"state": str(state)})))
     return [(Path(source), Path(destination)) for source, destination in json.loads(result.stdout)]
@@ -930,23 +928,11 @@ def migration_candidates(folder):
 
 
 def migration_target(candidate, folders):
+    path = candidate.resolve(strict=False)
+    if not any(path.is_relative_to(folder) for folder in folders):
+        return None
     path = candidate.resolve(strict=True)
     return path if any(path.is_relative_to(folder) for folder in folders) else None
-
-
-@contextmanager
-def migration_target_lock(path):
-    # Profile locks protect profile documents, not the run configs they refer to.
-    # A sidecar in the canonical target directory also covers aliases in other workspaces.
-    lock = path.parent / ".strata-ram-budget-migration.lock"
-    fd = os.open(lock, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError(f"Migration lock is not a regular file: {lock}")
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)
 
 
 def migration_config_identity(info):
@@ -1031,9 +1017,20 @@ def migrate_native_settings(root):
     if migration is None:
         return
     folders = migration_folders(migration)
+    with managed_state.config_locks(*folders) as (_, locked_roots):
+        _migrate_native_settings(migration, folders, locked_roots)
+
+
+def _migrate_native_settings(migration, folders, locked_roots):
+    def covered(path):
+        return any(path.is_relative_to(folder) for folder in locked_roots)
+
     seen = set()
     setup = None
     for folder in folders:
+        # A previously absent or relocated folder is not leased for writes.
+        if not covered(folder) or folder.resolve() != folder:
+            continue
         marker = folder / migration.MARK
         try:
             if migration_complete(marker):
@@ -1047,31 +1044,31 @@ def migrate_native_settings(root):
                     path = migration_target(candidate, folders)
                     if path is None:
                         continue
+                    if not covered(path):
+                        raise OSError(f"Config target appeared outside the locked folders: {path}")
                     if path not in seen:
-                        with migration_target_lock(path):
-                            info, original = read_migration_config(candidate, path)
-                            try:
-                                old = json.loads(original.decode("utf-8-sig"))
-                            except ValueError:
-                                old = None  # Readable, but not a config this migration can handle.
-                            if (isinstance(old, dict) and isinstance(old.get("args"), list)
-                                    and migration.BUDGET in old["args"] and migration.WORK_KEY not in old):
-                                if setup is None:
-                                    setup = migration._load_setup()
-                                new = setup.migrate_ram_budget(old)
-                                if new is not None:
-                                    if info.st_nlink != 1:
-                                        raise OSError(f"Config has multiple hard links: {path}")
-                                    publish_migrated_config(candidate, path, info, original,
-                                                            json.dumps(new, indent=1).encode())
-                                    print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
+                        info, original = read_migration_config(candidate, path)
+                        try:
+                            old = json.loads(original.decode("utf-8-sig"))
+                        except ValueError:
+                            old = None  # Readable, but not a config this migration can handle.
+                        if (isinstance(old, dict) and isinstance(old.get("args"), list)
+                                and migration.BUDGET in old["args"] and migration.WORK_KEY not in old):
+                            if setup is None:
+                                setup = migration._load_setup()
+                            new = setup.migrate_ram_budget(old)
+                            if new is not None:
+                                if info.st_nlink != 1:
+                                    raise OSError(f"Config has multiple hard links: {path}")
+                                publish_migrated_config(candidate, path, info, original, json.dumps(new, indent=1).encode())
+                                print(f"strata: migrated the RAM budget of {path}", file=sys.stderr)
                         seen.add(path)
                     inspected = True
                 except Exception as error:
                     complete = False
                     print(f"strata: RAM budget migration incomplete for {candidate}: {error}", file=sys.stderr)
             if complete and inspected:
-                # Exclusive creation never follows links. Another migration may finish first.
+                # Exclusive creation also refuses a marker inserted outside the locking protocol.
                 try:
                     with marker.open("x", encoding="utf-8"):
                         pass
@@ -1448,12 +1445,12 @@ if __name__ == "__main__":
             context.pop("terminal_cli", None)
             sys.exit(run_workspace(**context, args=sys.argv[2:], managed_setup=True))
         elif sys.argv[1] == "--migrate-layout":
-            # Keep consumer diagnostics separate from the actual successful rename journal.
+            # The publisher passes held leases; reacquiring them here would deadlock.
+            # Keep consumer diagnostics separate from the successful rename journal.
             with redirect_stdout(sys.stderr):
-                moved = managed_state.migrate_layout(repository_root(Path(sys.argv[2]).resolve()),
-                                                     reverse="--reverse" in sys.argv[4:],
-                                                     reference_moves=[(Path(source), Path(destination))
-                                                         for source, destination in json.loads(sys.argv[3])])
+                references = [(Path(source), Path(destination)) for source, destination in json.loads(sys.argv[3])]
+                moved = managed_state._migrate_layout(Path(sys.argv[2]).resolve(),
+                                                      reverse="--reverse" in sys.argv[4:], reference_moves=references)
             print(json.dumps([(str(source), str(destination)) for source, destination in moved]))
         elif sys.argv[1] == "--native-setup":
             sys.exit(native_setup(sys.argv[2], sys.argv[3:]))
