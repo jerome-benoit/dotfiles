@@ -67,6 +67,7 @@ stdenvNoCC.mkDerivation {
     # Remove with the Hermes Code Mode scope patch.
     wrapProgram "$out/bin/caveman-mcp" --run ${lib.escapeShellArg ''
       if [[ ''${1-} == codemode ]]; then
+        codemodeUsage='caveman-mcp codemode: --config PATH is required; automatic discovery (--discover) is disabled'
         if ! (
           shift
           config=
@@ -77,7 +78,10 @@ stdenvNoCC.mkDerivation {
             flag=''${flag#-}
             shift
             case "$flag" in
-              h|help|h=*|help=*) exit 0 ;;
+              h|help|h=*|help=*)
+                printf '%s\n\n' "$codemodeUsage" >&2
+                exit 0
+                ;;
               config|workspace)
                 [[ $# -gt 0 ]] || exit 1
                 flag+="=$1"
@@ -95,7 +99,7 @@ stdenvNoCC.mkDerivation {
           done
           [[ -n $config && $discover == 0 ]]
         ); then
-          printf '%s\n' 'caveman-mcp codemode: use --config PATH without automatic discovery' >&2
+          printf '%s\n' "$codemodeUsage" >&2
           exit 2
         fi
       fi
