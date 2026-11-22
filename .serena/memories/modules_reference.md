@@ -322,13 +322,14 @@ OpenCode AI assistant:
 - Hermes deny lists take precedence over enable lists. Caveman refuses inactive native/shrink installs before rewriting configuration or plugin payloads; use `hermes plugins enable caveman_native` or `hermes plugins enable caveman_shrink` to change that preference.
 - Hermes membership checks accept scalar-string block and flow sequences, including flow nodes on the next line, quoted names, token-adjacent comments and supported multiline scalars. A `#` inside a plain name remains data. Unrelated disabled names and duplicate deny entries are preserved; malformed or unsupported YAML fails closed before rewriting configuration or plugin payloads.
 - Already-enabled shrink flow lists remain byte-identical on reinstall. Writers still refuse nonempty flow lists that need an added membership; native-owned flow rewrites remain unsupported. A refused shrink install may invalidate its stale installation marker, but does not rewrite config or plugin files.
+- Hermes is excluded from Code Mode launch and MCP discovery; native Hermes integration is unchanged. The prebuilt companion requires an explicit `--config` instead of automatic discovery. For standalone Pi with `CAVEMAN_PI_CODEMODE=1`, set `CAVEMAN_PI_CODEMODE_CONFIG` to a JSON MCP configuration. `caveman wrap --codemode pi` supplies a filtered configuration automatically.
 
 ### colibri.nix
 
 - Colibri includes Pillow for shipped image preprocessing. CUDA toolkits below 12.8 build DeepSeek without tensor cores; driver/toolkit selection remains unchanged.
-- Native compilation excludes the Python environment and dashboard. PythonMinimal remains a native check input. Assembly preserves Python resource paths.
+- Upstream `make install` installs the chat UI without compiling it. The Python environment remains separate; PythonMinimal is a native check input. Assembly preserves Python resource paths.
 - CUDA compilation passes the selected scope's `flags.gencodeString` through upstream's `CUDA_GENCODE` and DeepSeek V4's separate `V4_CUDA_GENCODE`, retaining configured SASS/PTX targets without probing a build-time GPU. Do not use `all-major`: CUDA 12.x includes SM 5.0, which cannot compile upstream's unguarded `__hfma2` calls.
-- Linux CUDA builds remove upstream's forced `__THROW` shim: the selected Nixpkgs/NVIDIA math headers already match glibc exception specifications. CPU and Metal sources remain unpatched.
+- Linux CUDA builds set `CUDA_GLIBC_MATH_COMPAT=0`: the selected Nixpkgs/NVIDIA math headers already match glibc exception specifications.
 - `checks.gpu` dry-runs Colibri's Linux CUDA/CPU and Darwin Metal install plans against the upstream Makefiles. It checks selected CUDA targets, the pre-12.8 tensor-core fallback and portable CPU flags; Metal selection must not evaluate CUDA policy. No GPU or toolkit is needed; native build/runtime coverage is separate.
 
 ### bun.nix

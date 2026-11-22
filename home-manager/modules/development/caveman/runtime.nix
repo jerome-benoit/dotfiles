@@ -69,19 +69,33 @@ stdenvNoCC.mkDerivation {
       if [[ ''${1-} == codemode ]]; then
         if ! (
           shift
-          case ''${1-} in
-            -h|--help) [[ $# == 1 ]] && exit 0; exit 1 ;;
-            -config|--config) [[ -n ''${2-} ]] || exit 1; shift 2 ;;
-            -config=?*|--config=?*) shift ;;
-            *) exit 1 ;;
-          esac
-          for arg do
-            case "$arg" in
-              -discover|--discover|-discover=*|--discover=*|-config|--config|-config=*|--config=*) exit 1 ;;
+          config=
+          discover=0
+          # Match the pinned companion's Go flag parsing: stop at a positional argument.
+          while [[ ''${1-} == -?* && $1 != -- ]]; do
+            flag=''${1#-}
+            flag=''${flag#-}
+            shift
+            case "$flag" in
+              h|help|h=*|help=*) exit 0 ;;
+              config|workspace)
+                [[ $# -gt 0 ]] || exit 1
+                flag+="=$1"
+                shift
+                ;;
+            esac
+            case "$flag" in
+              config=*) config=''${flag#*=} ;;
+              discover|discover=1|discover=t|discover=T|discover=true|discover=TRUE|discover=True) discover=1 ;;
+              discover=0|discover=f|discover=F|discover=false|discover=FALSE|discover=False) discover=0 ;;
+              workspace=*|trust-workspace|trust-workspace=*|no-builtins|no-builtins=*|\
+              no-js|no-js=*|allow-writes-in-execute|allow-writes-in-execute=*) ;;
+              *) exit 1 ;;
             esac
           done
+          [[ -n $config && $discover == 0 ]]
         ); then
-          printf '%s\n' 'caveman-mcp codemode: start with --config PATH; automatic discovery is disabled' >&2
+          printf '%s\n' 'caveman-mcp codemode: use --config PATH without automatic discovery' >&2
           exit 2
         fi
       fi
