@@ -2,7 +2,7 @@
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
 # intent: exclude Hermes from Code Mode launch and MCP discovery.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/1563 tracks unsafe YAML writeback.
-# removal: remove when Code Mode launch and discovery honor Hermes MCP filters and config writeback refuses unsafe changes.
+# removal: remove when CLI launch and both CLI and companion discovery respect Hermes MCP filters, and config writeback refuses unsafe changes.
 diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 --- a/packages/cli/src/codemode.ts
 +++ b/packages/cli/src/codemode.ts

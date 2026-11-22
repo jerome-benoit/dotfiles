@@ -68,7 +68,7 @@ stdenvNoCC.mkDerivation {
     wrapProgram "$out/bin/caveman-mcp" --run ${lib.escapeShellArg ''
       if [[ ''${1-} == codemode ]]; then
         codemodeUsage='caveman-mcp codemode: --config PATH is required; automatic discovery (--discover) is disabled'
-        if ! (
+        (
           shift
           config=
           discover=0
@@ -83,7 +83,10 @@ stdenvNoCC.mkDerivation {
                 exit 0
                 ;;
               config|workspace)
-                [[ $# -gt 0 ]] || exit 1
+                if [[ $# -eq 0 ]]; then
+                  printf 'caveman-mcp codemode: --%s requires a value\n' "$flag" >&2
+                  exit 2
+                fi
                 flag+="=$1"
                 shift
                 ;;
@@ -94,14 +97,25 @@ stdenvNoCC.mkDerivation {
               discover=0|discover=f|discover=F|discover=false|discover=FALSE|discover=False) discover=0 ;;
               workspace=*|trust-workspace|trust-workspace=*|no-builtins|no-builtins=*|\
               no-js|no-js=*|allow-writes-in-execute|allow-writes-in-execute=*) ;;
-              *) exit 1 ;;
+              discover=*)
+                printf 'caveman-mcp codemode: invalid boolean for --discover: %s\n' "''${flag#*=}" >&2
+                exit 2
+                ;;
+              *)
+                printf 'caveman-mcp codemode: unknown option: %s\n' "$flag" >&2
+                exit 2
+                ;;
             esac
           done
-          [[ -n $config && $discover == 0 ]]
-        ); then
-          printf '%s\n' "$codemodeUsage" >&2
-          exit 2
-        fi
+          if [[ $discover != 0 ]]; then
+            printf '%s\n' 'caveman-mcp codemode: automatic discovery (--discover) is disabled' >&2
+            exit 2
+          fi
+          if [[ -z $config ]]; then
+            printf '%s\n' 'caveman-mcp codemode: --config PATH is required' >&2
+            exit 2
+          fi
+        ) || exit 2
       fi
     ''}
     runHook postInstall
