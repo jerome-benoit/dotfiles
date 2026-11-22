@@ -1,4 +1,4 @@
-"""Exercise Copilot discovery from a read-only declarative plugin directory."""
+"""Exercise provider discovery and snapshot cleanup for read-only plugin sources."""
 
 import os
 from pathlib import Path
@@ -31,6 +31,7 @@ else:
     assert flag == "--discover", flag
 
     import providers
+    from providers.plugin_reload import _snapshot
     from hermes_cli.plugins import PluginManager
 
     PluginManager().discover_and_load(force=True)
@@ -56,3 +57,20 @@ else:
     ) == ({}, {})
     store = Path(state).joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
     assert any(store.glob("*/*/github-copilot/__init__.py")), "Discovery did not create a snapshot"
+
+    with tempfile.TemporaryDirectory(dir=state) as temporary:
+        source = Path(temporary) / "broken-provider"
+        source.mkdir()
+        (source / "__init__.py").touch()
+        (source / "missing-resource").symlink_to("absent")
+        source.chmod(0o555)
+        try:
+            try:
+                _snapshot(source, "broken-provider")
+            except OSError:
+                pass
+            else:
+                raise AssertionError("Snapshot unexpectedly accepted a dangling resource link")
+            assert not list(store.glob("*/broken-provider/.copy-*")), "Partial snapshot left after failed copy"
+        finally:
+            source.chmod(0o755)
