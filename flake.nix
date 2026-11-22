@@ -58,10 +58,6 @@
       url = "github:openclaw/nix-openclaw-tools";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    strata = {
-      url = "github:Niko1221/Strata/main?dir=tools/nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     hermes-agent = {
       url = "github:NousResearch/hermes-agent";
       inputs = {
@@ -74,7 +70,8 @@
       };
     };
     hermes-labs-plugins = {
-      url = "github:NousResearch/hermes-labs-plugins";
+      # Remove the revision pin when upstream protects outstanding references during Copilot lock eviction.
+      url = "github:NousResearch/hermes-labs-plugins/46f6da9af0c4e9ad5a3c9444dfecfa5bf7debf76";
       flake = false;
     };
     pyproject-nix = {
@@ -160,7 +157,6 @@
               profile
               constants
               privateConfig
-              self
               ;
           };
           modules = [
@@ -188,8 +184,6 @@
           username = privateConfig.work.username;
         };
       };
-
-      devShells.x86_64-linux.strata = inputs.strata.devShells.x86_64-linux.default;
 
       packages =
         nixpkgs.lib.genAttrs

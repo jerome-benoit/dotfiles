@@ -16,7 +16,6 @@ let
   crushSupported = hostname != hosts.faust && hostname != hosts.rigel;
   isMorphee = hostname == hosts.morphee;
   isFaust = hostname == hosts.faust;
-  isNemesis = hostname == hosts.nemesis;
   isZeus = hostname == hosts.zeus;
 
   profileModules = config.modules.core.profile.modules;
@@ -97,10 +96,6 @@ in
       pi.enable = profileModules.development.pi;
       primeAgent.enable = profileModules.development.primeAgent;
       qmd.enable = bunSupported && profileModules.development.qmd;
-      strata = {
-        enable = profileModules.development.strata;
-        dataDirectory = lib.mkIf isNemesis "/data00/strata";
-      };
     };
 
     programs = {

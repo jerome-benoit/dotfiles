@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires dd7827cbc7800d96bd9db973fbf040d784307ea3
+# base: agent-of-empires/agent-of-empires cfca1cac89a30b32a822342b4a07ce949a73f623
 # prerequisites: none
 # intent: detect and launch the packaged cursor-agent executable instead of agent.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/pull/285 merged: agent name intentional; no exact Nix naming fix.
@@ -6,7 +6,7 @@
 diff --git a/src/agents.rs b/src/agents.rs
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -794,7 +794,7 @@
+@@ -795,7 +795,7 @@
              SessionCaptureContext::PaneScoped,
              SessionCaptureContext::PaneScoped,
          ),
@@ -18,7 +18,7 @@ diff --git a/src/agents.rs b/src/agents.rs
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
-@@ -3576,6 +3576,36 @@
+@@ -3630,6 +3630,36 @@
  
  #[cfg(test)]
  mod tests {

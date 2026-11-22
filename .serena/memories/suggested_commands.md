@@ -106,7 +106,7 @@ After installation, restart your shell to pick up aliases.
 | `hermes-agent`                    | Generated configuration, plugin paths and service ordering                                           |
 | `caveman`                         | Generated integrations, installation ownership and native/shrink hooks                               |
 | `development`, `opencode-desktop` | Development-module activation, Ollama service platform/disable boundaries and Desktop CLI staging    |
-| `strata`, `gpu`, `ci-contract`    | Workspace/runtime validation, GPU selection and CI contracts                                         |
+| `gpu`, `ci-contract`              | GPU selection and CI contracts                                                                      |
 
 `flake.nix` adds Home Manager builds for the selected platform: personal and
 `almalinux` on `x86_64-linux`, work on `aarch64-darwin`. It also adds the selected

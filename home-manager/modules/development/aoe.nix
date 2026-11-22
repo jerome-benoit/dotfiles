@@ -19,9 +19,11 @@ let
     if baseAoePackage == null then
       null
     else
-      baseAoePackage.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ../../../patches/agent-of-empires-cursor-executable.patch ];
-        env = (old.env or { }) // {
+      baseAoePackage.overrideAttrs (previousAttrs: {
+        patches = (previousAttrs.patches or [ ]) ++ [
+          ../../../patches/agent-of-empires-cursor-executable.patch
+        ];
+        env = (previousAttrs.env or { }) // {
           NIX_AOE_WHICH = "${pkgs.which}/bin/which";
         };
       });

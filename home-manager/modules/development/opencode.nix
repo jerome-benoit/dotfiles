@@ -22,9 +22,21 @@ let
       null
     else
       upstreamOpencodePackage.overrideAttrs (previousAttrs: {
-        node_modules = previousAttrs.node_modules.overrideAttrs {
+        node_modules = previousAttrs.node_modules.overrideAttrs (dependencyAttrs: {
           outputHash = opencodeHashes.${system};
-        };
+          # Workaround: recursive copies already include nested node_modules.
+          # Remove when upstream prunes those descendants during installation.
+          installPhase =
+            let
+              copy = ''find . -type d -name node_modules -exec cp -R --parents {} $out \;'';
+            in
+            assert lib.assertMsg (lib.hasInfix copy dependencyAttrs.installPhase)
+              "OpenCode dependency installation changed; refresh the Nix workaround";
+            lib.replaceStrings
+              [ copy ]
+              [ ''find . -type d -name node_modules -prune -exec cp -R --parents {} $out \;'' ]
+              dependencyAttrs.installPhase;
+        });
       });
 
   mkOpencodePackage =

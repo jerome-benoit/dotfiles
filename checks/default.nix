@@ -47,10 +47,6 @@ in
     inputs = self.inputs;
   };
   secrets = import ./secrets.nix { inherit pkgs; };
-  strata = import ./strata.nix {
-    inherit pkgs self home-manager;
-    src = self.inputs.strata;
-  };
   formatting = (import ./formatting.nix { inherit self pkgs; }).check;
   symlinks = import ./symlinks.nix { inherit self pkgs; };
   statix = import ./statix.nix { inherit self pkgs; };

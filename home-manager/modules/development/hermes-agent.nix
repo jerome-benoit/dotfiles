@@ -51,13 +51,13 @@ let
       pkgs.callPackage;
   # Patch the workspace wheel, not the outer wrapper or its filtered lock source.
   runtimeOverlay = _final: previous: {
-    hermes-agent = previous.hermes-agent.overrideAttrs (old: {
+    hermes-agent = previous.hermes-agent.overrideAttrs (previousAttrs: {
       patches =
-        (old.patches or [ ])
+        (previousAttrs.patches or [ ])
         ++ [
-          # Workaround: provider reloads lose complete versions and leak read-only snapshots.
-          # Remove when upstream preserves frozen versions through publication, RPC and cleanup.
-          ../../../patches/hermes-agent-provider-reload.patch
+          # Workaround: Hermes cannot stage provider directories copied from the read-only store.
+          # Remove when upstream can publish and clean read-only provider snapshots.
+          ../../../patches/hermes-agent-nix-provider-snapshot.patch
         ]
         ++ lib.optionals miseEnabled [
           # Workaround: local login profiles can put their tools ahead of inherited shims.
@@ -65,7 +65,7 @@ let
           ../../../patches/hermes-agent-terminal-mise-shims.patch
         ];
       postPatch =
-        (old.postPatch or "")
+        (previousAttrs.postPatch or "")
         + lib.optionalString miseEnabled ''
           substituteInPlace tools/environments/local.py \
             --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
@@ -77,8 +77,7 @@ let
       callPackage =
         path: args:
         hermesCallPackage path (
-          # Workaround: runtime patches invalidate the icon interpreter and frontend builds.
-          # Remove when upstream separates icon dependencies from the runtime environment.
+          # The runtime patches do not affect icon generation.
           if toString path == "${inputs.hermes-agent}/nix/icons.nix" then
             args // { venv = inputs.hermes-agent.packages.${system}.minimal.hermesVenv; }
           else if toString path == "${inputs.hermes-agent}/nix/python.nix" then
@@ -99,26 +98,6 @@ let
                       };
                   };
                 };
-              };
-            }
-          else if
-            lib.elem (toString path) [
-              "${inputs.hermes-agent}/nix/desktop.nix"
-              "${inputs.hermes-agent}/nix/webapp.nix"
-            ]
-          then
-            args
-            // {
-              hermesNpmLib = args.hermesNpmLib // {
-                # Workaround: pending provider activation is not a next-chat tool report.
-                # Remove when the renderer classifies only tools and prompt sections here.
-                buildPnpmPackage =
-                  options:
-                  (args.hermesNpmLib.buildPnpmPackage options).overrideAttrs (old: {
-                    patches = (old.patches or [ ]) ++ [
-                      ../../../patches/hermes-agent-provider-activation-ui.patch
-                    ];
-                  });
               };
             }
           else
@@ -415,33 +394,35 @@ in
     };
 
     home = {
-      activation.hermesAgentSetup = lib.mkForce (
-        lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] hermesStateScript
-      );
-
       # Workaround: upstream extraPlugins uses names its migration checks do not recognize.
       # Remove when upstream installs plugins under their canonical names.
       file = lib.mapAttrs' (
         name: source: lib.nameValuePair "${configDir}/plugins/${name}" { inherit source; }
       ) cfg.plugins;
 
-      # Workaround: Linux needs the stable secret link before reloadSystemd.
-      # Its target may still be absent: After/Requires=sops-nix gates service startup.
-      # Darwin waits for synchronous sops activation before loading launchd agents.
-      # Remove when upstream preserves this stable secret link and both startup orders.
-      activation.hermesAgentEnvironment =
-        let
-          linkEnvironment = ''
-            run mkdir -p ${lib.escapeShellArg configDir}
-            run ln -sfn ${
-              lib.escapeShellArg config.sops.secrets."hermes-env".path
-            } ${lib.escapeShellArg "${configDir}/.env"}
-          '';
-        in
-        if isDarwin then
-          lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] linkEnvironment
-        else
-          lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "hermesAgentSetup" ] linkEnvironment;
+      activation = {
+        hermesAgentSetup = lib.mkForce (
+          lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] hermesStateScript
+        );
+
+        # Workaround: Linux needs the stable secret link before reloadSystemd.
+        # Its target may still be absent: After/Requires=sops-nix gates service startup.
+        # Darwin waits for synchronous sops activation before loading launchd agents.
+        # Remove when upstream preserves this stable secret link and both startup orders.
+        hermesAgentEnvironment =
+          let
+            linkEnvironment = ''
+              run mkdir -p ${lib.escapeShellArg configDir}
+              run ln -sfn ${
+                lib.escapeShellArg config.sops.secrets."hermes-env".path
+              } ${lib.escapeShellArg "${configDir}/.env"}
+            '';
+          in
+          if isDarwin then
+            lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "hermesAgentSetup" "sops-nix" ] linkEnvironment
+          else
+            lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "hermesAgentSetup" ] linkEnvironment;
+      };
     };
 
     warnings = lib.optional (

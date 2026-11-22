@@ -243,8 +243,6 @@ pkgs.runCommand "check-hermes-agent"
   ''
     ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
       ${./hermes-provider.py} ${plugin}
-    ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
-      ${./hermes-provider-reload.py} ${plugin}
     # Run only public regressions for the source delta, one fresh installed process per file.
     # Copy tests alone: upstream child probes add their test root to PYTHONPATH.
     python3 - ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
@@ -258,22 +256,6 @@ pkgs.runCommand "check-hermes-agent"
 
     interpreter, pytest_path, source_tests = sys.argv[1:]
     cases = {
-        "providers/test_provider_plugin_update.py": [
-            "test_an_update_serves_new_sessions_whole_while_old_clients_stay_on_their_version[in-process]",
-            "test_an_update_serves_new_sessions_whole_while_old_clients_stay_on_their_version[host]",
-            "test_a_broken_update_keeps_the_previous_version_and_says_so",
-        ],
-        "providers/test_auth_registry_lazy_mirror.py": [
-            "test_registry_read_during_entry_point_discovery_keeps_the_final_winner",
-        ],
-        "providers/test_auth_registry_mid_discovery.py": [
-            "test_post_discovery_registration_is_mirrored",
-            "test_user_plugin_alias_repoints_and_display_name_follows",
-        ],
-        "hermes_cli/test_plugin_host_mixed_profiles.py": [
-            "test_create_client_profile_loads_in_process_and_its_sibling_stays_hosted",
-            "test_a_rescan_keeps_the_hosted_plugin_it_already_loaded",
-        ],
         "agent/test_prompt_cache_clock.py": [
             "test_nous_ceiling_is_data_on_the_wire_and_in_the_clock",
             "test_a_configured_ceiling_applies_on_the_measured_provider_path_too",
@@ -297,8 +279,8 @@ pkgs.runCommand "check-hermes-agent"
     }
     runner = """
     import sys
-    import providers, hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider
-    import utils, providers.base, agent.prompt_caching, agent.prompt_cache_clock
+    import hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider
+    import utils, agent.prompt_caching, agent.prompt_cache_clock
     import tools.environments.local, tools.process_registry_wait
     sys.path.append(sys.argv.pop(1))
     import pytest
@@ -310,13 +292,6 @@ pkgs.runCommand "check-hermes-agent"
             test = root / "tests" / relative
             test.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(source_tests) / relative, test)
-            if relative == "providers/test_provider_plugin_update.py":
-                # Assert publication and error contracts, not user-facing wording.
-                subprocess.run(
-                    ["${pkgs.patch}/bin/patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i",
-                     "${../patches/hermes-agent-provider-update-tests.patch}"],
-                    cwd=root, check=True,
-                )
             environment = {
                 "HOME": str(root), "HERMES_HOME": str(root / "hermes"), "TMPDIR": str(root),
                 "PATH": "${

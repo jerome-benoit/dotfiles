@@ -1,4 +1,4 @@
-# base: hermes-agent 31ce88f86e6cf4a66ef6aa315e4657a31bcf9915
+# base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
 # prerequisites: none
 # intent: restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 # upstream: local managed packaging contract; no exact upstream replacement established.
@@ -6,7 +6,7 @@
 diff --git a/tools/environments/local.py b/tools/environments/local.py
 --- a/tools/environments/local.py
 +++ b/tools/environments/local.py
-@@ -929,7 +929,9 @@
+@@ -932,7 +932,9 @@
      return "\n".join(prelude) + "\n" + cmd_string
  
  
@@ -17,7 +17,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      """Prepend a line that re-appends *parent_path* dirs the login profile dropped.
  
      A login profile can reset PATH outright (Debian's ``/etc/profile``, so every
-@@ -943,6 +945,14 @@
+@@ -946,6 +948,14 @@
      this same prelude so the two paths cannot diverge."""
      if _IS_WINDOWS:
          return cmd_string  # native PATH stays ``;``-joined; bash sees a converted copy
@@ -32,7 +32,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      # Relative entries resolve against the shell's cwd, not ours, so only absolute ones are checked.
      entries = [d for d in dict.fromkeys(parent_path.split(":"))
                 if d and (not os.path.isabs(d) or os.path.isdir(d))]
-@@ -1210,6 +1220,13 @@
+@@ -1226,6 +1236,13 @@
          and read a different file. On Windows ``_resolve_safe_cwd`` also normalises ``/c/...``."""
          return _resolve_safe_cwd(self.cwd)
  
@@ -46,7 +46,7 @@ diff --git a/tools/environments/local.py b/tools/environments/local.py
      def _run_bash(self, cmd_string: str, *, login: bool = False, timeout: int = 120,
                    stdin_data: str | None = None) -> subprocess.Popen:
          bash = _find_bash()
-@@ -1218,7 +1235,9 @@
+@@ -1251,7 +1268,9 @@
          # custom init files so nvm/asdf/pyenv land on PATH in the snapshot; then the
          # spawn env's dirs a resetting profile dropped are re-appended (#56634).
          if login:

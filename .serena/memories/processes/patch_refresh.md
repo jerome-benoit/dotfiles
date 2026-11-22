@@ -3,7 +3,7 @@
 ## Context
 
 Local patches live directly under `patches/`. Builders declare their `patches`
-lists; the Strata launcher declares its runtime source patch.
+lists.
 Prime Agent source pins come from
 `home-manager/modules/development/pins/prime-agent.json`. Caveman CLI and
 installer follow the `caveman` input in `flake.lock`; Blocks, release assets
@@ -13,8 +13,7 @@ OpenCode Desktop patches follow the selected CLI source, which defaults to the
 Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
 Colibri patches follow the `colibri` input in `flake.lock`.
 Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
-The `strata` input sets the base of its runtime setup patch. The `hermes-agent`
-input sets the base of its local terminal shim-priority patch.
+The `hermes-agent` input sets the base of its local terminal shim-priority patch.
 Reassess each patch when its own source changes.
 
 ## Naming
@@ -29,10 +28,6 @@ Each patch records its base, intent and prerequisites. Keep relevant upstream
 provenance and tracked issues; omit empty issue fields. Document a concrete
 replacement condition when applicable, not a circular condition for local policy.
 Proposals are not fixes in the pin, and partial coverage stays explicit.
-Hermes provider causes are tracked by #156556 (identity), #156557 (hosted RPC),
-#156558 (activation), #156559 (namespaces) and #156560 (readonly POSIX cleanup)
-in `NousResearch/hermes-agent`. PR156224 is proposed partial rollback/concurrency
-coverage; PR156209/#156493 pruning remains adjacent and is not corrected locally.
 OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
 - `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
@@ -49,9 +44,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
 - `patches/colibri-cuda-glibc.patch` — preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
 - `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
-- `patches/hermes-agent-provider-activation-ui.patch` — do not classify pending provider activation as next-chat tools or prompts.
-- `patches/hermes-agent-provider-reload.patch` — preserve frozen provider versions, coherent published readers, context-local home discovery and owned-copy cleanup.
-- `patches/hermes-agent-provider-update-tests.patch` — verify provider publication, structured errors and retained clients without pinning display wording. Check-only.
+- `patches/hermes-agent-nix-provider-snapshot.patch` — make copied provider directories owner-writable without changing store permissions.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 - `patches/opencode-nvim-execution-lifecycle.patch` — register native OpenCode execution lifecycle events and map completion or interruption to idle status.
@@ -61,13 +54,6 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/prime-agent-nix-self-update.patch` — refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
 - `patches/prime-agent-python-skill-source.patch` — bind Nix kernel imports to selected non-project skill sources without installing dependencies.
 - `patches/prime-agent-release-offline.patch` — use the catalog boolean parser for release-check PI_OFFLINE.
-- `patches/strata-cli-validation.patch` — validate serve and monitor arguments before optional dependencies. Prerequisites: strata-workspace-source-lifecycle.patch (shared parse_args/preflight contract).
-- `patches/strata-destination-budgets.patch` — account remaining downloads and preparation by destination filesystem. Prerequisites: strata-setup-directory-roles.patch.
-- `patches/strata-engine-inspection.patch` — inspect SYCL launcher and mapped host engine/argument paths without importing server.
-- `patches/strata-selected-executable.patch` — verify the selected manifest executable, hash and execute permission.
-- `patches/strata-setup-directory-roles.patch` — share artifact roles and selected destinations across setup, forecast and progress, including native macOS Control --models-dir. Prerequisites: strata-workspace-source-lifecycle.patch (source bootstrap and shared setup dispatch).
-- `patches/strata-windows-cmake-metadata.patch` — refresh Windows vision metadata with native CRLF contexts. Prerequisites: strata-workspace-source-lifecycle.patch.
-- `patches/strata-workspace-source-lifecycle.patch` — keep source CLI/bootstrap and complete workspace/source lease handoff protocol together.
 
 ### Partition and source equivalence
 
@@ -76,47 +62,6 @@ OpenCode factories/cwd/Stop are separate. CLI and installer roots are physically
 separate with one raw-absolute-root policy; trailing spaces were already preserved
 in the pin. Preserving existing settings modes is a local permissions policy;
 upstream deliberately applies 0600 instead.
-
-Strata workspace/source publication stays indivisible. Roles, forecasts and
-progress use one layout; budgets depend on roles. Validation uses the shared
-source parser; SYCL inspection and selected-executable verification are distinct.
-`home-manager/modules/development/strata-source-patch.nix` defines the same ordered
-atomic composite for launcher and checks, without changing the helper API.
-
-Compare the complete applied stack with its previous composition, then reverse
-the composite to the pinned base. This proves application and source equivalence,
-not runtime behavior. In Strata's initial a00be3c8 → f96717e87c partition, the only
-behavioral change was Control --models-dir parity on Darwin. Keep its complete
-consumer regression; later provider corrections are outside that comparison.
-At Strata c77572806996349b49995e4f98d41b5294d36a21, DeepSeek is deliberately
-retired by the parser, installer, catalog, runtime, server and updater. Remove
-only local hunks and test slices whose consumers disappeared; do not recreate
-its tables, helpers or dispatch branches. Keep supported Qwen and Qwen36 source
-reuse, moves, ready/QAD outputs, vision and image VAE role destinations.
-
-Cache retirement checks before a monitor releases its source read lease: its
-updater and runtime import `strata_control.retired` later, after a source rollback
-can remove the file. Exercise the real monitor worker and `cfg_paths.repair`
-after independently publishing that rollback. Preserve the workspace/source FD
-handoffs and `runtime._read_state(..., pending_ok=True)` startup behavior.
-
-Darwin Control forecasts, progress and setup share requested destinations and
-native completed-file selection. Keep --models-dir and --separate-model-artifacts
-through the Darwin filter. Complete requested sets precede retained sets; partial
-sets are never combined across roots. Preserve explicit personal-file selection
-and keep missing readers and preparation outputs at their requested destinations.
-
-Preserve upstream Auto drafting/card/slot signals and image noise/VAE options
-when rebasing role changes. Progress keeps completed parts through steps 6/7 and
-reaches 100 only when every part is complete; incomplete parts remain below 100.
-Managed ordinary shards need native finish evidence when the helper is available,
-not merely a final filename. Preserve explicit personal acceptance and legacy
-helper-free progress; do not impose this predicate on ready SHA or reader selection.
-The native GGUF tools use tools/_paths.py, strata_gguf.py and strata_quants.py by
-default, and the vendored third_party/strata-gguf-py converter where required.
-Keep gguf_py_env(): llama overrides can now be None. Validate compiled source
-identity with the actual CMake project version, source hashes and binary marker,
-not a release label or BUILD.json alone.
 
 ## Local Patch Refresh
 
@@ -148,54 +93,25 @@ not a release label or BUILD.json alone.
    code. Exercise affected behavior when code or upstream assumptions change.
    Provenance-only updates with unchanged code and consumers do not require
    aggregate runtime checks.
+   Apply the package-specific checks below and record any outstanding validation.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
 
 ### Hermes local terminal
 
-Keep the `hermes-agent` patch inside `nix/python.nix`'s workspace package overlay:
+Keep the Hermes patches inside `nix/python.nix`'s workspace package overlay:
 the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
 
-Provider discovery identifies the copied tree by names, modes and file contents,
-not source timestamps. Publish its writable staging parent, preserving the copied
-permissions. Cache only completed registrations, retain old versions for rollback
-and late calls, and never wait for an active import from a public lookup.
-Published registries are copied once per publication, not per lookup. Readers
-capture registry/alias state under the publication lock, then inspect profiles
-outside it. Never hold that lock across imports, callbacks or waits.
-Home scans use the registration ContextVar and restore its token in `finally`.
-Reserve the global discovery flag for process-wide initialization; it must not
-be saved/restored by concurrent home scans. Resolver and auth guards combine
-that global state with the current registration context.
-The per-home publication status is independent of scan completion: loading is
-reported as deferred, failed carries the current error, and only ready is active.
-Read status without rescanning, using the manager home; gateway status wins over
-backend status. Keep provider deferrals out of next-chat tools/prompt notices.
-Extraction and RPC must use the same frozen code; the host shares the complete
-version loader instead of replacing the process-wide registration function.
-Cleanup restores owner access only in owned copies, including before the host
-exits without atexit. Apply the wheel patch with or without mise.
-Interrupted imports discard only the failed module family before waking waiters.
-Home/plugin namespaces use complete, framed SHA-256 identities so long admitted
-names do not expand internal storage components or collide after normalization.
-`checks/hermes-provider.py` exercises canonical Copilot discovery;
-`checks/hermes-provider-reload.py` covers generations, RPC, concurrency and exit
-cleanup against the installed interpreter. Copying then hashing guarantees the
-identity of the consumed copy, not an atomic multi-file update of a mutable source.
-Exercise both concurrent completion orders, subsequent resolver/auth discovery,
-import callbacks versus independent observers, failure/cancellation and the
-global pending-auth guard. Advance only the provider clock; do not sleep or
-mutate stamp caches to make those checks due.
+Apply the mise patch only when gateway mise integration is enabled.
+Keep declarative plugin directory links unchanged. The snapshot workaround
+changes directory permissions only on Hermes-owned copies.
+`checks/hermes-provider.py` exercises Copilot discovery from a read-only source.
 
 For source deltas in provider cache ceilings, cwd recovery, secret routing or
 offline TTS, copy only the selected upstream tests and run the installed wheel with
 isolated Python imports. Keep pytest tooling outside the runtime environment.
-Apply the check-only provider-update patch after copying its upstream test.
-Keep publication status, structured failures and v2/v4 client coverage; do not
-pin user-facing wording. The concurrent-list regression delays a real identity
-lookup while a newer generation publishes and verifies both coherent views.
 
 Substitute the fixed Nix-store resolver with `--replace-fail`. The resolver uses
 the configured mise package and returns PATH only; no path comes from the private
@@ -221,6 +137,9 @@ gateway cases. A source-only import or a patched test copy is not a substitute.
 Compare workspace manifests, root catalogs, native lockfile entries, the recipe,
 normalizers and Bun after updating OpenCode or Nixpkgs. Recalculate all three
 targets when dependency inputs change; update source and toolchain provenance together.
+Keep `hashSourceRevision` and `hashNixpkgsRevision` at the revisions used to
+measure the hashes. Record the selected source and toolchain separately when
+reusing the hashes after validation.
 Record dependency-output hash checks separately from CLI builds and ARM-targeted
 `--cpu`/`--os` calculations separately from native builds. Do not carry forward
 verification claims from an older source. Keep hash-only checks serial with
@@ -228,8 +147,11 @@ verification claims from an older source. Keep hash-only checks serial with
 
 Use a disk-backed `TMPDIR` for standalone calculations when `/tmp` is tmpfs;
 large dependency trees otherwise count against the memory limit. Replay the
-upstream filters, frozen lock and both normalizers. Calibrate the procedure
-against the previous known native pin at its exact source and Bun version before
+selected dependency derivation's filters, frozen lock, normalizers and
+`installPhase`. The default package override skips descending into `node_modules`
+trees it has already copied recursively. The upstream `node_modules_updater`
+keeps its original copy command. Calibrate the procedure against
+the previous known native pin at its exact source and Bun version before
 trusting new outputs. If calibration is performed afterwards, record it as
 retrospective without rewriting the initial execution history. Limit Bun network
 concurrency without changing dependency selection. Import only outputs whose

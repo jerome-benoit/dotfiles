@@ -98,7 +98,7 @@ This map lists entry points, not every file. Category `default.nix` files declar
 ## Configuration Flow
 
 1. `flake.nix` defines inputs and creates `homeConfigurations` per user (dynamic names from `privateConfig`)
-2. `mkHomeConfiguration` selects `pkgs` from `arch` and passes `profile`, `username`, `constants`, `privateConfig`, `inputs`, and `self` through `extraSpecialArgs`.
+2. `mkHomeConfiguration` selects `pkgs` from `arch` and passes `profile`, `username`, `constants`, `privateConfig`, and `inputs` through `extraSpecialArgs`.
 3. `secrets/default.nix` loads private configuration: (a) impure + file exists → decrypted JSON, (b) pure/CI (`HOME=""`) → placeholder, (c) impure + file missing → `builtins.abort` with "Run 'make decrypt-private' first"
 4. `home.nix` uses the explicit target profile and detects hostname only for host-specific feature flags
 5. Profile system (`profile.nix`) defines which modules are enabled per profile
