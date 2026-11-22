@@ -2,20 +2,33 @@
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 
-plugin = Path(sys.argv[1]).resolve()
-sys.dont_write_bytecode = True
+from hermes_cli.home_data_layout import PROVIDER_PLUGIN_SNAPSHOT_PARTS
 
-with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
-    home = Path(temporary)
-    state = home / "hermes"
-    (state / "plugins").mkdir(parents=True)
-    (state / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
-    (state / "config.yaml").write_text("model:\n  provider: nous\n")
-    os.environ.clear()
-    os.environ.update(HOME=str(home), HERMES_HOME=str(state), PATH=os.defpath)
+
+if len(sys.argv) == 2:
+    plugin = Path(sys.argv[1]).resolve()
+    with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
+        home = Path(temporary)
+        state = home / "hermes"
+        (state / "plugins").mkdir(parents=True)
+        (state / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
+        (state / "config.yaml").write_text("model:\n  provider: nous\n")
+        subprocess.run(
+            [sys.executable, "-I", "-B", __file__, "--discover", str(state)],
+            env={"HOME": str(home), "HERMES_HOME": str(state), "PATH": os.defpath},
+            check=True,
+        )
+        store = state.joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
+        leftovers = [entry for entry in store.iterdir() if entry.is_dir()]
+        assert not leftovers, f"Provider snapshots left after exit: {leftovers}"
+    print("Declarative Copilot discovery, offline request projection and snapshot cleanup passed")
+else:
+    flag, state = sys.argv[1:]
+    assert flag == "--discover", flag
 
     import providers
     from hermes_cli.plugins import PluginManager
@@ -41,4 +54,5 @@ with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
         reasoning_config={"enabled": False, "effort": "high"},
         supports_reasoning=True,
     ) == ({}, {})
-    print("Declarative Copilot discovery and offline request projection passed")
+    store = Path(state).joinpath(*PROVIDER_PLUGIN_SNAPSHOT_PARTS)
+    assert any(store.glob("*/*/github-copilot/__init__.py")), "Discovery did not create a snapshot"
