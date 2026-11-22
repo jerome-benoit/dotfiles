@@ -1,5 +1,5 @@
-# base: https://github.com/JuliusBrussee/caveman/archive/a192894723a8f47e7f504c7b5041967ff1f18e55.tar.gz
-# base-hash: sha256-qG7njZgc+JCg+AAVNcFmOYjWMIAy73q4BociYG+WsEw= (flake input unpacked source)
+# base: https://github.com/JuliusBrussee/caveman/archive/70f4f34e834893ea9af9f4fc6022266bd56d18b1.tar.gz
+# base-hash: sha256-hGYcJ7r2O/uEAmAfpox7Owht4LN8Rk2kn1y8BSMWpFk= (flake input unpacked source)
 # prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent)
 # intent: use profile-local interpreters and isolate mutable Claude payload ownership.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.

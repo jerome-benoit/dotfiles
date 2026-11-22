@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman a192894723a8f47e7f504c7b5041967ff1f18e55
+# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
 # intent: keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs.
 # upstream: PR1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposed V1 factory fix, not V2 Stop.

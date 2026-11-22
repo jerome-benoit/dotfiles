@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman a192894723a8f47e7f504c7b5041967ff1f18e55
+# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: none
 # intent: preserve existing settings modes during atomic replacement; new files remain 0600.
 # upstream: upstream intentionally forces 0600; this is local permissions policy, not an upstream bug.

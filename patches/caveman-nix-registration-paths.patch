@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman a192894723a8f47e7f504c7b5041967ff1f18e55
+# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: caveman-nix-managed-install.patch
 # intent: separate closure-local execution from durable profile registrations and migrate active journal paths.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
@@ -179,9 +179,9 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    }, null, 2) + "\n", { mode: 0o600 });
 -  writeFileSync(join(dir, "hooks", "hooks.json"), JSON.stringify(nativeHooksDocument("claude", includeShrink, {}, includeRecall), null, 2) + "\n", { mode: 0o600 });
 +  writeFileSync(join(dir, "hooks", "hooks.json"), JSON.stringify(nativeHooksDocument("claude", includeShrink, {}, includeRecall, false), null, 2) + "\n", { mode: 0o600 });
-   if (mcpBinary || delegateMcp) {
+   if (codemodeSpec || mcpBinary || delegateMcp) {
      const mcpServers: Record<string, { command: string; args: string[] }> = {};
-     if (mcpBinary) mcpServers.caveman = { command: mcpBinary, args: [] };
+     if (codemodeSpec) {
 @@ -8695,7 +8759,7 @@
    const compatible = probeMcpBinary();
    if (!compatible) throw new Error("caveman-mcp not found; run `caveman setup --install`");
