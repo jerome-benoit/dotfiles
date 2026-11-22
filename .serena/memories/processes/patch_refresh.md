@@ -215,10 +215,11 @@ whose behavior the selected source now supplies. Run the installed-runtime check
 with a real YAML parser for both the Hermes Native and Shrink writers. Run the
 CI updater contract separately.
 
-While the Hermes scope patch is active, verify that `caveman wrap --codemode`
-excludes Hermes MCP servers but still discovers servers from another supported
-agent. Check that `caveman-mcp codemode` accepts an explicit JSON config and
-rejects automatic discovery, including when requested alongside `--config`.
+While the Hermes scope patch is active, verify that `caveman wrap --codemode
+hermes` launches Hermes without a Code Mode overlay. With another supported
+agent, verify that Code Mode discovers its MCP servers but excludes Hermes
+servers. Check that `caveman-mcp codemode` accepts an explicit JSON config,
+rejects a missing `--config`, and rejects automatic discovery even with a config.
 
 ### Caveman native integrations
 

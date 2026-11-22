@@ -61,7 +61,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 -  const codemodeSupportedAgents = new Set(["claude", "codex", "gemini", "qwen", "opencode", "openclaw", "kilo", "hermes", "pi"]);
 +  const codemodeSupportedAgents = new Set(["claude", "codex", "gemini", "qwen", "opencode", "openclaw", "kilo", "pi"]);
 +  if (!direct && opts.codemode && agent?.id === "hermes") {
-+    process.stderr.write(`${mark("warn")} Hermes Code Mode is disabled: MCP filters and config writeback are unsafe; launching without --codemode\n`);
++    process.stderr.write(`${mark("warn")} Hermes Code Mode is disabled: it does not preserve MCP filters and can overwrite Hermes configuration; launching without --codemode\n`);
 +    if (opts.mcpMode === "codemode") opts.mcpMode = "auto";
 +  }
    const codemodeRequested = Boolean(!direct && opts.codemode && agent && codemodeSupportedAgents.has(agent.id));
