@@ -1,8 +1,8 @@
 # base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
-# intent: keep Hermes out of Code Mode until it preserves MCP policy and config writeback.
+# intent: exclude Hermes from Code Mode launch and MCP discovery.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/1563 tracks unsafe YAML writeback.
-# removal: remove when the selected CLI and companion preserve Hermes filters and reject unsafe writeback.
+# removal: remove when Code Mode launch and discovery honor Hermes MCP filters and config writeback refuses unsafe changes.
 diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 --- a/packages/cli/src/codemode.ts
 +++ b/packages/cli/src/codemode.ts

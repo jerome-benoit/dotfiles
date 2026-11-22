@@ -16,10 +16,6 @@ Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
 The `hermes-agent` input sets the base of the provider snapshot and terminal mise patches.
 Reassess each patch when its own source changes.
 
-Colibri's `make install` supplies the chat UI and IQ3 grid. Keep
-`CUDA_GLIBC_MATH_COMPAT=0` for Nixpkgs CUDA/glibc and verify the resulting
-CPU, CUDA and Metal plans with `checks/gpu.nix`.
-
 ## Naming
 
 Use `<package>-<purpose>.patch`, in lowercase with hyphens. Start with the
@@ -39,7 +35,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
 - `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
 - `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
-- `patches/caveman-hermes-codemode-scope.patch` — exclude Hermes from Code Mode launch and discovery until both MCP policy and config writeback are safe.
+- `patches/caveman-hermes-codemode-scope.patch` — exclude Hermes from Code Mode launch and MCP discovery. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch (in order).
 - `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
 - `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
 - `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
@@ -105,6 +101,12 @@ upstream deliberately applies 0600 instead.
    Reuse an exact reference; otherwise report the affected revision, minimal
    proof, expected behavior, and verification limits. Do not report local policy
    as an upstream defect.
+
+### Colibri
+
+After updating the Colibri source, use `checks/gpu.nix` to verify the CPU,
+CUDA, and Metal install plans. Check that `CUDA_GLIBC_MATH_COMPAT=0` keeps
+the upstream compatibility header out of the CUDA commands.
 
 ### Hermes local terminal
 
