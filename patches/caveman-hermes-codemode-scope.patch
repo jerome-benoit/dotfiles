@@ -46,8 +46,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    writeEphemeralCodemodeConfig,
    writeGeminiCodemodeSettingsOverlay,
    type CodemodeServerConfig,
-@@ -132,8 +130,7 @@
- type WrapMode = "local" | "managed";
+@@ -133,7 +131,6 @@
  export type OverlayBuilderContext = { mode: WrapMode; gatewayUrl: string; env: NodeJS.ProcessEnv; upstreams?: PublishedUpstreams | undefined };
  export const overlayBuilders: Record<string, (agent: AgentProfile, baseConfig: unknown, ctx: OverlayBuilderContext) => unknown> = {};
  const wrapTempDirs = new Set<string>();

@@ -209,8 +209,9 @@ into their ownership-journal transaction. Preserve the host-shell renderer when
 porting execution-time callbacks instead of restoring an older hook formatter.
 
 Apply every patch in its declared order without offsets or fuzz. Drop only hunks
-whose behavior the selected source now supplies. Run the installed-runtime check,
-including the native Hermes writer with a real YAML parser, and the CI updater contract.
+whose behavior the selected source now supplies. Run the installed-runtime check
+with a real YAML parser for both the Hermes Native and Shrink writers. Run the
+CI updater contract separately.
 
 The prebuilt MCP companion requires an explicit Code Mode config while the
 Hermes scope patch is active. Its independent discovery bypasses the CLI's
