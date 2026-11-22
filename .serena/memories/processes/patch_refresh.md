@@ -13,7 +13,7 @@ OpenCode Desktop patches follow the selected CLI source, which defaults to the
 Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
 Colibri patches follow the `colibri` input in `flake.lock`.
 Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
-The `hermes-agent` input sets the base of its local terminal shim-priority patch.
+The `hermes-agent` input sets the base of the provider snapshot and terminal mise patches.
 Reassess each patch when its own source changes.
 
 ## Naming
@@ -104,10 +104,12 @@ the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
 
-Apply the mise patch only when gateway mise integration is enabled.
+Apply the mise patch when `programs.mise` is enabled and has a package. The
+gateway marker enables shim restoration at runtime.
 Keep declarative plugin directory links unchanged. The snapshot workaround
-changes directory permissions only on Hermes-owned copies.
-`checks/hermes-provider.py` exercises Copilot discovery from a read-only source.
+changes directory permissions only on Hermes-owned copies, including incomplete
+copies before cleanup. `checks/hermes-provider.py` covers discovery and cleanup
+for read-only plugin sources.
 
 For source deltas in provider cache ceilings, cwd recovery, secret routing or
 offline TTS, copy only the selected upstream tests and run the installed wheel with

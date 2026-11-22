@@ -1,4 +1,4 @@
-# base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
+# base: hermes-agent c7a3fe245d6bf610f73ff555d57e4ed632f8ded8
 # prerequisites: none
 # intent: make copied store plugin directories writable for publication and cleanup.
 # upstream: https://github.com/NousResearch/hermes-agent/issues/156560
@@ -6,18 +6,20 @@
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py
-@@ -155,8 +155,13 @@ def _snapshot(plugin_dir: Path, module_name: str) -> Path:
+@@ -155,8 +155,15 @@ def _snapshot(plugin_dir: Path, module_name: str) -> Path:
      target.parent.mkdir(parents=True, exist_ok=True)
      private = Path(tempfile.mkdtemp(prefix=".copy-", dir=target.parent))
      try:
 -        shutil.copytree(plugin_dir, private / plugin_dir.name, ignore=_SNAPSHOT_IGNORE)
 -        os.rename(private / plugin_dir.name, target)
 +        copied = private / plugin_dir.name
-+        shutil.copytree(plugin_dir, copied, ignore=_SNAPSHOT_IGNORE)
-+        for directory, _, _ in os.walk(copied):
-+            mode = os.stat(directory).st_mode
-+            if not mode & 0o200:
-+                os.chmod(directory, mode | 0o200)
++        try:
++            shutil.copytree(plugin_dir, copied, ignore=_SNAPSHOT_IGNORE)
++        finally:
++            for directory, _, _ in os.walk(copied):
++                mode = os.stat(directory).st_mode
++                if not mode & 0o200:
++                    os.chmod(directory, mode | 0o200)
 +        os.rename(copied, target)
      except OSError:
          if not target.is_dir():  # another scan publishing the same copy first is fine

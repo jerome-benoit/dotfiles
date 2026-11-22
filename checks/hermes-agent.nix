@@ -243,7 +243,7 @@ pkgs.runCommand "check-hermes-agent"
   ''
     ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
       ${./hermes-provider.py} ${plugin}
-    # Run only public regressions for the source delta, one fresh installed process per file.
+    # Run selected upstream regressions, one fresh installed process per file.
     # Copy tests alone: upstream child probes add their test root to PYTHONPATH.
     python3 - ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
       ${runtimeTestPython}/${runtimeTestPython.sitePackages} ${inputs.hermes-agent}/tests <<'PY'
@@ -277,6 +277,10 @@ pkgs.runCommand "check-hermes-agent"
             "TestGenerateCommandTts::test_model_chosen_output_path_never_reaches_the_shell",
         ],
     }
+    if sys.platform == "linux":
+        cases["pm/test_linux_build_compilers.py"] = [
+            "test_staged_copy_of_pinned_interpreter_gets_gcc_defaults",
+        ]
     runner = """
     import sys
     import hermes_cli.env_loader, agent.redact_secret_sources, tools.tts_command_provider
@@ -306,6 +310,7 @@ pkgs.runCommand "check-hermes-agent"
             subprocess.run(
                 [interpreter, "-I", "-B", "-c", runner, pytest_path,
                  "-c", os.devnull, "--noconftest", "--import-mode=importlib", "-p", "no:cacheprovider",
+                 "-o", "markers=platforms(*ids): supported platforms",
                  "-q", *(str(test) + "::" + selector for selector in selectors)],
                 cwd=root, env=environment, check=True, timeout=120,
             )
