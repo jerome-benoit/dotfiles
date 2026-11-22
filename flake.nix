@@ -71,7 +71,7 @@
     };
     hermes-labs-plugins = {
       # Remove the revision pin when upstream protects outstanding references during Copilot lock eviction.
-      url = "github:NousResearch/hermes-labs-plugins/46f6da9af0c4e9ad5a3c9444dfecfa5bf7debf76";
+      url = "github:NousResearch/hermes-labs-plugins/af1cb0173494e4f3e975f475f7647aae77bfc5bf";
       flake = false;
     };
     pyproject-nix = {
