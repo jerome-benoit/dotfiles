@@ -5,7 +5,7 @@
     "aarch64-darwin": "sha256-BLUBWz7HjYSgH4v+Y9nLy/lOsQeEcrel+KsagEE6Xro="
   },
   "provenance": {
-    "sourceRevision": "71cd8c064c8b93c31604c4c4074adb8b45790fc1",
+    "sourceRevision": "8a836dd92458339a851b88850e3999c5495a53cd",
     "hashSourceRevision": "342839461ac5548fb72378c9a99f7e3bd81e8159",
     "dependencyInputs": {
       "inputs": "Source fingerprint for the dependency output: all 39 packages/services package.json files, all 20 dependency patches and the IME installation script, root package.json and bun.lock, nix/node_modules.nix and both nix/scripts normalizers.",
