@@ -7,7 +7,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -9294,16 +9294,13 @@
+@@ -9542,16 +9542,13 @@
  
  const command = ${JSON.stringify(cmd)};
  const prefix = ${JSON.stringify(pre)};
@@ -26,7 +26,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    try {
      const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
        input: JSON.stringify({ event_name: event, ...(cwd ? { cwd } : {}), ...payload }),
-@@ -9371,108 +9368,108 @@
+@@ -9619,108 +9616,108 @@
    return /^(?:please\\s+)?(?:continue|go ahead|keep going|proceed|do (?:it|that)|fix (?:it|that)|retry|try again|explain (?:it|that)|what do you mean|yes|yep|yeah|why\\??|how\\??)[.!?\\s]*$/.test(prompt);
  }
  
@@ -233,7 +233,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return hostHooks;
  };
  `;
-@@ -9493,9 +9490,8 @@
+@@ -9741,9 +9738,8 @@
  // the served project travels with every call: in the payload, which
  // nativeRuntimeRequest reads as the session cwd, and as the child's working
  // directory, so anything it resolves relatively resolves there (#1443).
@@ -245,7 +245,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    try {
      const raw = execFileSync(command, [...prefix, "native-hook", "opencode", event], {
        input: JSON.stringify({ event_name: event, ...(cwd ? { cwd } : {}), ...payload }),
-@@ -9575,7 +9571,7 @@
+@@ -9823,7 +9819,7 @@
      const projectCwd = typeof ctx.location?.directory === "string" && ctx.location.directory
        ? ctx.location.directory
        : undefined;
@@ -254,7 +254,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  
      function sessionContext(sessionID) {
        if (!contexts.has(sessionID)) {
-@@ -9614,7 +9610,6 @@
+@@ -9862,7 +9858,6 @@
        const sessionID = event.data?.sessionID;
        if (typeof sessionID !== "string" || !sessionID) return;
        if (type === "session.created") sessionContext(sessionID);
@@ -262,7 +262,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        // "session.compacted" is the V1 event name; V2 reports compaction
        // through "session.compaction.ended". Handle both.
        if (type === "session.compaction.ended" || type === "session.compacted") {
-@@ -9628,6 +9623,11 @@
+@@ -9876,6 +9871,11 @@
          pending.delete(sessionID);
        }
      }
@@ -274,7 +274,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  
      await ctx.session.hook("prompt", (event) => {
        const prompt = event.prompt ?? {};
-@@ -19060,11 +19060,12 @@
+@@ -19308,11 +19308,12 @@
  import { execFileSync } from "node:child_process";
  
  // Returns the rewritten command, or undefined to leave the original alone.
@@ -288,7 +288,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        encoding: "utf8",
        windowsHide: true,
      });
-@@ -19082,10 +19083,10 @@
+@@ -19330,10 +19331,10 @@
  // V1: a named factory returning a hook map, mutating output.args.command.
  function opencodeShrinkPluginHookMapV1(): string {
    return `
@@ -301,7 +301,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      if (next) output.args.command = next;
    },
  });
-@@ -19106,7 +19107,7 @@
+@@ -19354,7 +19355,7 @@
        if (event?.tool !== "bash" && event?.tool !== "shell") return;
        const input = event.input;
        if (!input || typeof input !== "object") return;

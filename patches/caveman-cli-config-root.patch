@@ -7,7 +7,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -9219,9 +9219,9 @@
+@@ -9467,9 +9467,9 @@
  // variable installed into a root the host never reads, while still reporting
  // success (#1441); the installer and the mode plugin resolve it the same way.
  function opencodeConfigDir(): string {

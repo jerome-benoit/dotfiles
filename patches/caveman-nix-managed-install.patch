@@ -6,7 +6,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -3208,6 +3208,9 @@
+@@ -3227,6 +3227,9 @@
  // `explicit`: `setup --install` and `update`, which restart an outdated
  // runtime even while agents use it.
  async function setupInstall(json: boolean, options: { continuing?: boolean; explicit?: boolean } = {}) {
@@ -16,7 +16,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    const lock = join(ensureCavemanHome(), ".install.lock");
    const deadline = Date.now() + BINARY_INSTALL_WAIT_MS;
    for (let told = false; ; await sleep(250)) {
-@@ -4131,6 +4134,9 @@
+@@ -4150,6 +4153,9 @@
  // version. Returns the command hints should name. Throws when neither works:
  // nothing is wired then.
  async function installDurableCli(): Promise<string> {
