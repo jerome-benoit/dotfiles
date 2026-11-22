@@ -35,6 +35,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
 - `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
 - `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
+- `patches/caveman-hermes-codemode-yaml.patch` — refuse unsupported inline Hermes `mcp_servers` values before Code Mode masks servers or syncs edits.
 - `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
 - `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
 - `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
@@ -96,6 +97,11 @@ upstream deliberately applies 0600 instead.
    Apply the package-specific checks below and record any outstanding validation.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
+7. For confirmed upstream bugs, search open and closed issues and pull requests
+   by affected symbol, symptom, and cause. Read the matches before reporting.
+   Reuse an exact reference; otherwise report the affected revision, minimal
+   proof, expected behavior, and verification limits. Do not report local policy
+   as an upstream defect.
 
 ### Hermes local terminal
 
