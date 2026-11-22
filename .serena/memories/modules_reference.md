@@ -322,7 +322,8 @@ OpenCode AI assistant:
 - Hermes deny lists take precedence over enable lists. Caveman refuses inactive native/shrink installs before rewriting configuration or plugin payloads; use `hermes plugins enable caveman_native` or `hermes plugins enable caveman_shrink` to change that preference.
 - Hermes membership checks accept scalar-string block and flow sequences, including flow nodes on the next line, quoted names, token-adjacent comments and supported multiline scalars. A `#` inside a plain name remains data. Unrelated disabled names and duplicate deny entries are preserved; malformed or unsupported YAML fails closed before rewriting configuration or plugin payloads.
 - Already-enabled shrink flow lists remain byte-identical on reinstall. Writers still refuse nonempty flow lists that need an added membership; native-owned flow rewrites remain unsupported. A refused shrink install may invalidate its stale installation marker, but does not rewrite config or plugin files.
-- Hermes is excluded from Code Mode launch and MCP discovery; native Hermes integration is unchanged. The prebuilt companion requires an explicit `--config` instead of automatic discovery. For standalone Pi with `CAVEMAN_PI_CODEMODE=1`, set `CAVEMAN_PI_CODEMODE_CONFIG` to a JSON MCP configuration. `caveman wrap --codemode pi` supplies a filtered configuration automatically.
+- Hermes is excluded from Code Mode launch and MCP discovery; native Hermes integration is unchanged. The prebuilt companion requires an explicit `--config` instead of automatic discovery.
+- After upgrading Caveman, run `caveman doctor pi --fix` before using Code Mode if Pi already has a Caveman-managed extension. The launcher reuses that installed copy, which may lack the Code Mode tools. `caveman wrap --codemode pi` supplies a filtered configuration; standalone Pi with `CAVEMAN_PI_CODEMODE=1` needs `CAVEMAN_PI_CODEMODE_CONFIG` pointing to a JSON MCP configuration.
 
 ### colibri.nix
 
