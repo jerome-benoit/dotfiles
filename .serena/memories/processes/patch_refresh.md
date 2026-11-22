@@ -11,10 +11,14 @@ and source dependency hashes use `pins/caveman.json`.
 OpenCode Desktop patches follow the selected CLI source, which defaults to the
 `opencode` input in `flake.lock`.
 Agent of Empires patches follow the `agent-of-empires` input in `flake.lock`.
-Colibri patches follow the `colibri` input in `flake.lock`.
+Colibri's CUDA and UI integration follows the `colibri` input in `flake.lock`.
 Herdr Desktop patches follow the locked nixpkgs `herdr-desktop` source.
 The `hermes-agent` input sets the base of the provider snapshot and terminal mise patches.
 Reassess each patch when its own source changes.
+
+Colibri's `make install` supplies the chat UI and IQ3 grid. Keep
+`CUDA_GLIBC_MATH_COMPAT=0` for Nixpkgs CUDA/glibc and verify the resulting
+CPU, CUDA and Metal plans with `checks/gpu.nix`.
 
 ## Naming
 
@@ -35,6 +39,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
 - `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
 - `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
+- `patches/caveman-hermes-codemode-scope.patch` — exclude Hermes from Code Mode launch and discovery until both MCP policy and config writeback are safe.
 - `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
 - `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
 - `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
@@ -42,7 +47,6 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
 - `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
 - `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
-- `patches/colibri-cuda-glibc.patch` — preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
 - `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
 - `patches/hermes-agent-nix-provider-snapshot.patch` — make copied provider directories owner-writable without changing store permissions.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
@@ -96,6 +100,11 @@ upstream deliberately applies 0600 instead.
    Apply the package-specific checks below and record any outstanding validation.
 6. Update the use-site explanation, removal condition and inventory as needed.
    Commit or push only when requested.
+7. For confirmed upstream bugs, search open and closed issues and pull requests
+   by affected symbol, symptom, and cause. Read the matches before reporting.
+   Reuse an exact reference; otherwise report the affected revision, minimal
+   proof, expected behavior, and verification limits. Do not report local policy
+   as an upstream defect.
 
 ### Hermes local terminal
 
@@ -200,8 +209,13 @@ into their ownership-journal transaction. Preserve the host-shell renderer when
 porting execution-time callbacks instead of restoring an older hook formatter.
 
 Apply every patch in its declared order without offsets or fuzz. Drop only hunks
-whose behavior the selected source now supplies. Run the installed-runtime check,
-including both Hermes writers with a real YAML parser, and the CI updater contract.
+whose behavior the selected source now supplies. Run the installed-runtime check
+with a real YAML parser for both the Hermes Native and Shrink writers. Run the
+CI updater contract separately.
+
+The prebuilt MCP companion requires an explicit Code Mode config while the
+Hermes scope patch is active. Its independent discovery bypasses the CLI's
+source exclusions. Keep the native Hermes integration unchanged.
 
 ### Caveman native integrations
 

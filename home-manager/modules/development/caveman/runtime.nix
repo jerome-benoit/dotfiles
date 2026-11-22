@@ -63,6 +63,47 @@ stdenvNoCC.mkDerivation {
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \
       --set-default CAVEMAN_BROWSE_CHROME ${lib.escapeShellArg browserExecutable}
+    # Workaround: the prebuilt companion can discover Hermes independently of the CLI.
+    # Remove with the Hermes Code Mode scope patch.
+    wrapProgram "$out/bin/caveman-mcp" --run ${lib.escapeShellArg ''
+      if [[ ''${1-} == codemode ]]; then
+        codemodeUsage='caveman-mcp codemode: --config PATH is required; automatic discovery (--discover) is disabled'
+        if ! (
+          shift
+          config=
+          discover=0
+          # Match the pinned companion's Go flag parsing: stop at a positional argument.
+          while [[ ''${1-} == -?* && $1 != -- ]]; do
+            flag=''${1#-}
+            flag=''${flag#-}
+            shift
+            case "$flag" in
+              h|help|h=*|help=*)
+                printf '%s\n\n' "$codemodeUsage" >&2
+                exit 0
+                ;;
+              config|workspace)
+                [[ $# -gt 0 ]] || exit 1
+                flag+="=$1"
+                shift
+                ;;
+            esac
+            case "$flag" in
+              config=*) config=''${flag#*=} ;;
+              discover|discover=1|discover=t|discover=T|discover=true|discover=TRUE|discover=True) discover=1 ;;
+              discover=0|discover=f|discover=F|discover=false|discover=FALSE|discover=False) discover=0 ;;
+              workspace=*|trust-workspace|trust-workspace=*|no-builtins|no-builtins=*|\
+              no-js|no-js=*|allow-writes-in-execute|allow-writes-in-execute=*) ;;
+              *) exit 1 ;;
+            esac
+          done
+          [[ -n $config && $discover == 0 ]]
+        ); then
+          printf '%s\n' "$codemodeUsage" >&2
+          exit 2
+        fi
+      fi
+    ''}
     runHook postInstall
   '';
 

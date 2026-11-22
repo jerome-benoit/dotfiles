@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman a192894723a8f47e7f504c7b5041967ff1f18e55
+# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch
 # intent: use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposed, partial strict-parser coverage.
@@ -7,7 +7,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -10399,27 +10399,6 @@
+@@ -10650,27 +10650,6 @@
  `;
  }
  
@@ -35,7 +35,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  // Hermes provider ids that carry their OWN OAuth credential and the ChatGPT
  // Responses transport. Rewriting one to the generic `custom` provider drops
  // both: the installed resolver then picks chat_completions with
-@@ -10434,83 +10413,600 @@
+@@ -10685,83 +10664,600 @@
    return appendUrlPath(gw, keptProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(keptProvider) ? "/chatgpt" : "/w/hermes/v1");
  }
  
@@ -694,7 +694,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return {
      text: yamlText(lines),
      owned: {
-@@ -10531,8 +11027,15 @@
+@@ -10782,8 +11278,15 @@
    const configBefore = fileBytes(configPath);
    const native = hermesNativeConfig(configBefore?.toString("utf8") ?? "", gw, mcpBinary);
    // A custom provider is the user's own endpoint; a named one is the vendor's.
@@ -712,7 +712,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    const pluginDir = hermesNativePluginDir();
    const manifestPath = join(pluginDir, "plugin.yaml");
    const initPath = join(pluginDir, "__init__.py");
-@@ -10920,6 +11423,10 @@
+@@ -11171,6 +11674,10 @@
  // progress line per step itself; refusals still throw with their full message.
  function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
    const { detected, profiles } = enableProfiles(argv);
@@ -723,7 +723,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    if (profiles.some((profile) => profile.id !== "aider")) registrationPath();
    const gw = gatewayURL();
    for (const profile of profiles) {
-@@ -11262,34 +11769,7 @@
+@@ -11513,34 +12020,7 @@
      throw new Error(`${operation.file} changed after enable; refusing destructive disable`);
    }
    if (operation.kind === "hermes-config") {
@@ -759,7 +759,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    }
    const rootBlock = operation.owned?.root_block;
    const tablesBlock = operation.owned?.tables_block;
-@@ -11684,11 +12164,9 @@
+@@ -11935,11 +12415,9 @@
            // a YAML round-trip that changes no value at all drops our marker
            // comments and renormalises quoting, and a literal read called that
            // drift (#1410).
@@ -774,7 +774,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -14170,7 +14648,7 @@
+@@ -14426,7 +14904,7 @@
        if (agent === "codex") return typeof operation.owned?.tables_block === "string" && codexNativeTables(codexTomlLines(current.toString("utf8")), operation.owned.tables_block).get("mcp_servers.caveman") === true;
        // A null block: the user's own caveman-native entry was already there.
        // Read by value, so a reserialised config still counts (#1410).
@@ -783,7 +783,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        if (agent === "pi") return current.toString("utf8").includes("caveman:native-pi");
        const servers = objectValue(parseJsonFileObject(operation.file, current).mcpServers);
        return operation.owned?.installed_mcp !== undefined && canonicalize(servers.caveman) === canonicalize(operation.owned.installed_mcp);
-@@ -14345,8 +14823,8 @@
+@@ -14601,8 +15079,8 @@
  // skipped too, so a header comment keeps describing the file.
  function yamlBodyStart(lines: string[]): number {
    let i = 0;
@@ -794,7 +794,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return i;
  }
  
-@@ -14358,8 +14836,8 @@
+@@ -14614,8 +15092,8 @@
  function yamlListItemIndent(lines: string[], keyAt: number, end: number): number | null {
    for (let i = keyAt + 1; i < end; i++) {
      const line = lines[i]!;
@@ -805,7 +805,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      if (item) return item[1]!.length;
      return null;
    }
-@@ -14387,341 +14865,16 @@
+@@ -14643,341 +15121,16 @@
    return false;
  }
  
@@ -1156,7 +1156,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  }
  
  function hermesMcpMarkers(serverName: string): { begin: string; end: string } {
-@@ -19108,119 +19261,37 @@
+@@ -19364,119 +19517,37 @@
  
  type HermesPluginMembership = "enabled" | "disabled" | "not-enabled";
  
@@ -1300,7 +1300,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  }
  
  function hermesPluginInstallConfigReady(): boolean {
-@@ -19234,15 +19305,8 @@
+@@ -19490,15 +19561,8 @@
        return false;
      }
    }
@@ -1318,7 +1318,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return true;
  }
  
-@@ -19257,32 +19321,22 @@
+@@ -19513,32 +19577,22 @@
        return false;
      }
    }
@@ -1362,7 +1362,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        return false;
      }
      if (enabledLine >= 0) {
-@@ -19291,7 +19345,9 @@
+@@ -19547,7 +19601,9 @@
        const pad = " ".repeat(yamlListItemIndent(lines, enabledLine, plugins.end) ?? 4);
        lines.splice(enabledLine + 1, 0, `${pad}${HERMES_PLUGIN_ENABLE_BEGIN}`, `${pad}- ${HERMES_PLUGIN_NAME}`, `${pad}${HERMES_PLUGIN_ENABLE_END}`);
      } else {
@@ -1373,7 +1373,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      }
    } else {
      if (lines.length > 0 && lines[lines.length - 1]!.trim() !== "") lines.push("");
-@@ -19362,7 +19418,10 @@
+@@ -19618,7 +19674,10 @@
  
  function installShrinkPluginHermes(): boolean {
    registrationPath();
@@ -1385,7 +1385,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    try {
      mkdirSync(hermesPluginDir(), { recursive: true });
      writeFileSync(hermesPluginManifestPath(), hermesPluginManifestSource());
-@@ -19372,7 +19431,8 @@
+@@ -19628,7 +19687,8 @@
      return false;
    }
    if (!enableHermesPluginInConfig()) {
@@ -1395,7 +1395,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      return false;
    }
    return true;
-@@ -19445,6 +19505,10 @@
+@@ -19701,6 +19761,10 @@
    return join(cavemanHome(), "hooks", `${agentId}.json`);
  }
  function shrinkHookInstalled(agentId: string): boolean {

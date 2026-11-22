@@ -101,6 +101,9 @@ let
       # Workaround: Hermes ownership readers accept ambiguous YAML and remove later siblings.
       # Remove when upstream validates owned values strictly and restores only those values.
       ../../../../patches/caveman-hermes-native-yaml.patch
+      # Workaround: Hermes Code Mode loses MCP restrictions and can overwrite config.
+      # Remove when the CLI and companion preserve both contracts.
+      ../../../../patches/caveman-hermes-codemode-scope.patch
       # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event.
       # Remove when factories isolate state/cwd and V2 model-idle drives Stop.
       ../../../../patches/caveman-opencode-lifecycle.patch

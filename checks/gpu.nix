@@ -257,7 +257,8 @@ let
             v4Command=$(grep ' -c backend_cuda_dsv4.cu ' cuda-commands)
             while IFS= read -r command; do
               if [[ $command != *${lib.escapeShellArg gpu.cudaPackages.flags.gencodeString}* ||
-                    $command == *-arch=native* ]]; then
+                    $command == *-arch=native* ||
+                    $command == *glibc_c23_math_compat.h* ]]; then
                 printf '%s\n' "Unexpected ${system}/${name} CUDA command: $command" >&2
                 exit 1
               fi

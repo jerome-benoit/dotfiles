@@ -16,24 +16,6 @@ let
       match = builtins.match ''.*__version__ = "([^"]*)".*'' (builtins.readFile "${src}/c/version.py");
     in
     if match == null then "0" else builtins.head match;
-  # `coli web` serves this Vite bundle from lib/colibri/web/dist. Build it in a
-  # separate native derivation: the result is static and is therefore valid for
-  # every target platform, including cross builds.
-  colibriWeb = pkgs.buildPackages.buildNpmPackage {
-    pname = "colibri-web";
-    version = colibriVersion;
-    src = "${src}/web";
-    npmDeps = pkgs.buildPackages.importNpmLock { npmRoot = "${src}/web"; };
-    npmConfigHook = pkgs.buildPackages.importNpmLock.npmConfigHook;
-    npmBuildScript = "build";
-
-    installPhase = ''
-      runHook preInstall
-      install -d "$out"
-      cp -R dist/. "$out/"
-      runHook postInstall
-    '';
-  };
 
   # Runtime for the `coli` launcher and the offline converter/oracle tools.
   pythonEnv = pkgs.python3.withPackages (
@@ -43,6 +25,7 @@ let
       huggingface-hub
       numpy
       pillow
+      pypdf
       tokenizers
       datasets
     ]
@@ -88,9 +71,6 @@ let
       };
     in
     {
-      # Workaround: upstream's __THROW shim conflicts with Nixpkgs CUDA/glibc headers.
-      # Remove when upstream stops forcing its conflicting __THROW shim.
-      patches = [ ../../../patches/colibri-cuda-glibc.patch ];
       extraBuildInputs = [
         cudaPackages.cuda_cudart
         cudaProfilerApi
@@ -99,12 +79,13 @@ let
       ];
       extraNativeBuildInputs = [ pkgs.autoAddDriverRunpath ]; # RUNPATH += /run/opengl-driver/lib for libcuda.so.1
       preMake = ''export NVCC_PREPEND_FLAGS="-ccbin ${hostCxx}"''; # host g++ without clobbering NVCCFLAGS
+      # Use the upstream opt-out to keep the Nixpkgs CUDA/glibc declarations.
       # Both Makefiles need the selected scope's SASS/PTX targets, not native probes.
       # With CUDA 12.x, all-major emits sm_50, which cannot compile upstream's __hfma2 calls.
       # Workaround: block-scaled cuBLASLt requires CUDA 12.8.
       # Remove when upstream automatically disables tensor cores on older toolkits.
       makeArgs =
-        "ARCH=${archBaseline} CUDA=1 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc"
+        "ARCH=${archBaseline} CUDA=1 CUDA_GLIBC_MATH_COMPAT=0 CUDA_HOME=${cudaHome} NVCC=${cudaNvcc}/bin/nvcc"
         + " ${lib.escapeShellArg "CUDA_GENCODE=${cudaPackages.flags.gencodeString}"}"
         + " ${lib.escapeShellArg "V4_CUDA_GENCODE=${cudaPackages.flags.gencodeString}"}"
         + lib.optionalString (cudaPackages.cudaOlder "12.8") " NO_TC=1";
@@ -131,7 +112,6 @@ let
     pname = "colibri-engines";
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
-    patches = build.patches or [ ];
 
     nativeBuildInputs = build.extraNativeBuildInputs;
     nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
@@ -185,12 +165,6 @@ let
       done < <(find "$out/lib/colibri" -type l -name '*.py' -print0)
       cp "$out/bin/coli" "$out/lib/colibri/coli"
       rm "$out/bin/coli"
-      # Workaround: upstream omits the iq3_pack data grid from installation.
-      # Remove when the installed tools directory includes iq3xxs_grid.json.
-      [ -e "$out/lib/colibri/tools/iq3xxs_grid.json" ] || \
-        install -m 644 ${src}/c/tools/iq3xxs_grid.json "$out/lib/colibri/tools/"
-      install -d "$out/lib/colibri/web"
-      ln -s ${colibriWeb} "$out/lib/colibri/web/dist"
       ln -s ../lib/colibri/colibri "$out/bin/glm"
       makeWrapper ${pythonEnv}/bin/python "$out/bin/coli" \
         --add-flags "$out/lib/colibri/coli" \
@@ -202,18 +176,41 @@ let
       runHook preInstallCheck
       export PYTHONDONTWRITEBYTECODE=1
       for engine in colibri glm53 inkling kimi_k3 olmoe qwen36 qwen38 \
-        deepseek_v41 mimo qwenimage laya gliner_decide; do
+        deepseek_v41 mimo qwenimage laya gliner_decide colibri-tui; do
         test -x "$out/lib/colibri/$engine"
       done
       test -f "$out/lib/colibri/tools/iq3xxs_grid.json"
-      test -f "$out/lib/colibri/web/dist/index.html"
+      test -f "$out/lib/colibri/ui/index.html"
+      ${pythonEnv}/bin/python "$out/lib/colibri/ui/server.py" --help > /dev/null
+      PYTHONPATH=$out/lib/colibri/ui ${pythonEnv}/bin/python - <<'PY'
+      from io import BytesIO
+      from docs import extract
+      from pypdf import PdfWriter
+      from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+      writer = PdfWriter()
+      page = writer.add_blank_page(width=200, height=200)
+      font = DictionaryObject({
+          NameObject("/Type"): NameObject("/Font"),
+          NameObject("/Subtype"): NameObject("/Type1"),
+          NameObject("/BaseFont"): NameObject("/Helvetica"),
+      })
+      page[NameObject("/Resources")] = DictionaryObject({
+          NameObject("/Font"): DictionaryObject({NameObject("/F1"): font}),
+      })
+      stream = DecodedStreamObject()
+      stream.set_data(b"BT /F1 12 Tf 10 50 Td (Colibri PDF extraction) Tj ET")
+      page.replace_contents(stream)
+      pdf = BytesIO()
+      writer.write(pdf)
+      assert "Colibri PDF extraction" in extract("test.pdf", pdf.getvalue())["text"]
+      PY
       $out/bin/coli --version
       PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python - "$out/lib/colibri" <<'PY'
       from pathlib import Path
       import sys
       import openai_server
       assert openai_server.HERE == Path(sys.argv[1]).resolve()
-      assert (openai_server.APIHandler.WEB_DIST / "index.html").is_file()
       PY
       PYTHONPATH=$out/lib/colibri/tools ${pythonEnv}/bin/python - <<'PY'
       import io

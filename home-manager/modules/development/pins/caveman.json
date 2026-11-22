@@ -9,32 +9,32 @@
     "vendorHash": "sha256-Jyx3bqWyK1Vthzfb5/rvenknlurQry4henFZHqjkGks="
   },
   "runtime": {
-    "version": "4.1.0",
+    "version": "4.2.0",
     "urlTemplate": "https://github.com/JuliusBrussee/caveman/releases/download/bin-v{version}/{name}_{platform}",
     "hashes": {
       "darwin_arm64": {
-        "caveman-browse": "sha256-raJzBy5waxEXpHlLKxgzNxuayCVyom8kIWw2dYlH9s8=",
-        "caveman-engine": "sha256-jKYziBFomhNcoB1EMLIZEY7oZ8HCj3ZK+5b+46wOXgs=",
-        "caveman-mcp": "sha256-68O0sctsEaovhZEd/+UxZHwFW1QEBImmr6EJ/Veo/2k=",
-        "caveman-proxy": "sha256-x+ULa4eaVT5VyS9t0sKIm2NpGbVkByZtBNTRYAqCUHY=",
-        "caveman-shrink": "sha256-JFBxxOAWe0agsQc/6uuKFNoRogFriXP9b/YqtWEk9G8=",
-        "cavemem": "sha256-fFjy6Wl0GnBa/XBDEE+7iHvT7EuvfrEXF1LWL6zLpSY="
+        "caveman-browse": "sha256-1N7avw/MHNahp8Zc8mmhPKOmhHHH/BGPcB7GwEvGvJg=",
+        "caveman-engine": "sha256-CiXS1jrOV69gOzSCE9tsSN/Xy3lqrI4+spxz5Hv4BmA=",
+        "caveman-mcp": "sha256-0at/bGliI3je4SEhklRZUyURoocSCRXwdtAgKzQ6mtM=",
+        "caveman-proxy": "sha256-11DUBqEdW9KyiXtSol8OC1ZIWgwRBvH+NKBcbna38TU=",
+        "caveman-shrink": "sha256-mWutagSzUykckzZreYjl2ywoCowex9rVqABxUy9HU00=",
+        "cavemem": "sha256-T9TLcMAJqzeec4X9LDjfAIwlhYWHnVlNdz1ZxI6Q0oI="
       },
       "linux_amd64": {
-        "caveman-browse": "sha256-7z9yOEU2plWJut0Vuj+LL5AcTUivmerIDE0cdWlyndk=",
-        "caveman-engine": "sha256-kYE6FIyCMIlzuFToiPSZfVKRivn+sBVxsGrMlGOG8g8=",
-        "caveman-mcp": "sha256-IzNEJM+BMRfEl9SeFBDUsC8DPbCl8S/4hZ6btiMX888=",
-        "caveman-proxy": "sha256-OTtOm1j1Lt3Pd6JNMv2YqgvgEfjP93SYz371XZkBGVw=",
-        "caveman-shrink": "sha256-B53/NHj7oqqRpViULl5KKrTlv+MXtTAJVhUAjOYrm3M=",
-        "cavemem": "sha256-7xHLbQcKIheFMzDfGahCoqlMtxK8KuGi+xE34pLiZTs="
+        "caveman-browse": "sha256-Qqd4J3mzO/BesL6Mk4nE1QfzSa5tbtS2Ow7tgBZyPSA=",
+        "caveman-engine": "sha256-iERmg0WwlP9G7mA3qy6EU9/Je5efPpw6m1IMUJve+GA=",
+        "caveman-mcp": "sha256-JXmZL6qU8saPkaW1RK2Z+qd9h7HKh7PmvGNMqiH7jXM=",
+        "caveman-proxy": "sha256-FWdK99I+U6LKqZTf4CEIuM3oH5AQNbRQ9xO7fFwabZ8=",
+        "caveman-shrink": "sha256-hKtPaaGlqKhq8NSe79qQ4HropCXBbhHoiq/AE2DcmvU=",
+        "cavemem": "sha256-PF6viX+gHTXVTVYXXMG+voF4FFcfbTyu7HltsQ83xgc="
       },
       "linux_arm64": {
-        "caveman-browse": "sha256-ErSv36Zkk784WJTzgcgoEeM0ou2K8rkvX1Ef4cHC36U=",
-        "caveman-engine": "sha256-13/tePhAvunp2XeIrGevL1pMbgrvc6wRAbIG2jWdSbk=",
-        "caveman-mcp": "sha256-1hn9E+0NoReKhEcesZN3JUJZkBIgpOMa/GbgMsf2ty0=",
-        "caveman-proxy": "sha256-ku99TRoUgWQstATZ/X+pJ/EFvaqK8E0cy8uVzmgjD2Q=",
-        "caveman-shrink": "sha256-IqMBAfcagd4vIXSscXIkgHeMyEFbtH5qJfxXkGXU4rI=",
-        "cavemem": "sha256-jdCDRaVl1LpqZdVaNKqzC4VkxfUSTtqpie6oiEuaJI8="
+        "caveman-browse": "sha256-voeyHDpHUNpbbGkAavS2bvpu4S0X7KiavCJ1ar29olw=",
+        "caveman-engine": "sha256-LhYXViAghj6Od+DL6oV5PZ04J9dHR1JrGgdta/oduEk=",
+        "caveman-mcp": "sha256-rBbiUsMbkSJBc+pXmS/I/E+h5KtcrMZnJ/QjqMBp2v4=",
+        "caveman-proxy": "sha256-MSTvaHE2/ayPYisYYs3FU+YPQjy221HKLyZVCGxJHBU=",
+        "caveman-shrink": "sha256-V5XKjd29NTMLC9ZqdbpWkqIjONZIQacZzivVq9RX2MI=",
+        "cavemem": "sha256-Z3uSEf6TyS7bF6fv44AMxqR8cguz7XeDWo6UoNhA6ak="
       }
     }
   },
@@ -46,7 +46,7 @@
       "NOTICE.browse": "sha256-rIsib7bl18oggEeUvz2pxbrTAwGRwxKonWxVwMFOEE8=",
       "NOTICE.engine-pixel": "sha256-u03sYr/FOdf37fZtT6we37hO63BXM/j2NhHgqocXE3g=",
       "SPLEEN_LICENSE.txt": "sha256-8z/oZ51bKr7MTxMTzmxr+lgmKWTeX3vKFGWWpzGAR68=",
-      "THIRD_PARTY_GO_LICENSES.tar.gz": "sha256-xdruBMg+3byfuKd5HukiE5fsgAtrtBS03J9We1/qu2E=",
+      "THIRD_PARTY_GO_LICENSES.tar.gz": "sha256-ekpthnFBcRBfpVCQMMIIVJSuo2jVmhpSfH+ZSz8SmgY=",
       "UNIFONT_LICENSE.txt": "sha256-HnTLgr9HaEPpfCWWKXsEIZsaflH3I4lEqMAxy5QB+oc="
     }
   }
