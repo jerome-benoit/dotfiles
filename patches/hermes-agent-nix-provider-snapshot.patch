@@ -1,4 +1,4 @@
-# base: hermes-agent ff7c9b2028722074c10cbae95df8fe6012a6dd01
+# base: hermes-agent c7a3fe245d6bf610f73ff555d57e4ed632f8ded8
 # prerequisites: none
 # intent: make copied store plugin directories writable for publication and cleanup.
 # upstream: https://github.com/NousResearch/hermes-agent/issues/156560
