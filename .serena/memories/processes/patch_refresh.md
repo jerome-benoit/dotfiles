@@ -44,6 +44,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
 - `patches/colibri-cuda-glibc.patch` — preserve the CUDA/glibc math exception specifications supplied by Nixpkgs.
 - `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
+- `patches/hermes-agent-nix-provider-snapshot.patch` — make copied provider directories owner-writable without changing store permissions.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 - `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
 - `patches/opencode-nvim-execution-lifecycle.patch` — register native OpenCode execution lifecycle events and map completion or interruption to idle status.
@@ -98,20 +99,15 @@ upstream deliberately applies 0600 instead.
 
 ### Hermes local terminal
 
-Keep the mise shim patch inside `nix/python.nix`'s workspace package overlay:
+Keep the Hermes patches inside `nix/python.nix`'s workspace package overlay:
 the outer package does not unpack the Python code, and pre-patching `pythonSrc`
 would make workspace lock reads depend on a derivation. Preserve the Darwin
 `fetchPnpmDeps` scope and upstream build authorization overlay.
 
-Apply the patch only when gateway mise integration is enabled.
-Import context-free plugin sources into the store before projection. Project
-sources as directories and file symlinks before Home Manager links them.
-Hermes then copies writable directories, even when the original source links
-to a read-only directory. `checks/hermes-provider.py` exercises the projection
-and Copilot discovery.
-Before linking, remove the previous generation's whole-directory symlink only
-if it still points to that generation. Leave unmanaged links and directories
-alone.
+Apply the mise patch only when gateway mise integration is enabled.
+Keep declarative plugin directory links unchanged. The snapshot workaround
+changes directory permissions only on Hermes-owned copies.
+`checks/hermes-provider.py` exercises Copilot discovery from a read-only source.
 
 For source deltas in provider cache ceilings, cwd recovery, secret routing or
 offline TTS, copy only the selected upstream tests and run the installed wheel with

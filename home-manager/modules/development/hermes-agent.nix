@@ -52,15 +52,24 @@ let
   # Patch the workspace wheel, not the outer wrapper or its filtered lock source.
   runtimeOverlay = _final: previous: {
     hermes-agent = previous.hermes-agent.overrideAttrs (previousAttrs: {
-      # Workaround: local login profiles can put their tools ahead of inherited shims.
-      # Remove when Hermes provides an additive post-login PATH hook.
-      patches = (previousAttrs.patches or [ ]) ++ [
-        ../../../patches/hermes-agent-terminal-mise-shims.patch
-      ];
-      postPatch = (previousAttrs.postPatch or "") + ''
-        substituteInPlace tools/environments/local.py \
-          --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
-      '';
+      patches =
+        (previousAttrs.patches or [ ])
+        ++ [
+          # Workaround: Hermes cannot stage provider directories copied from the read-only store.
+          # Remove when upstream can publish and clean read-only provider snapshots.
+          ../../../patches/hermes-agent-nix-provider-snapshot.patch
+        ]
+        ++ lib.optionals miseEnabled [
+          # Workaround: local login profiles can put their tools ahead of inherited shims.
+          # Remove when Hermes provides an additive post-login PATH hook.
+          ../../../patches/hermes-agent-terminal-mise-shims.patch
+        ];
+      postPatch =
+        (previousAttrs.postPatch or "")
+        + lib.optionalString miseEnabled ''
+          substituteInPlace tools/environments/local.py \
+            --replace-fail '@HERMES_NIX_MISE_PATH@' '${misePath}'
+        '';
     });
   };
   baseHermesAgentPackage = inputs.hermes-agent.packages.${system}.default.override (
@@ -68,10 +77,10 @@ let
       callPackage =
         path: args:
         hermesCallPackage path (
-          # The mise patch does not affect icon generation; keep the upstream interpreter there.
-          if miseEnabled && toString path == "${inputs.hermes-agent}/nix/icons.nix" then
+          # The runtime patches do not affect icon generation.
+          if toString path == "${inputs.hermes-agent}/nix/icons.nix" then
             args // { venv = inputs.hermes-agent.packages.${system}.minimal.hermesVenv; }
-          else if miseEnabled && toString path == "${inputs.hermes-agent}/nix/python.nix" then
+          else if toString path == "${inputs.hermes-agent}/nix/python.nix" then
             args
             // {
               uv2nix = args.uv2nix // {
@@ -388,58 +397,12 @@ in
       # Workaround: upstream extraPlugins uses names its migration checks do not recognize.
       # Remove when upstream installs plugins under their canonical names.
       file = lib.mapAttrs' (
-        name: source:
-        lib.nameValuePair "${configDir}/plugins/${name}" {
-          # Give Hermes real directories to copy, including directory symlink targets.
-          # Keep file contents in the original source.
-          source =
-            pkgs.runCommandLocal "hermes-plugin-${name}"
-              {
-                # Import plain paths so the projection sees them in the build sandbox.
-                pluginSource =
-                  if builtins.hasContext (toString source) then
-                    source
-                  else
-                    builtins.path {
-                      path = source;
-                      name = "hermes-plugin-${name}-source";
-                    };
-              }
-              ''
-                mkdir "$out"
-                cp -RLs -- "$pluginSource/." "$out"
-              '';
-          recursive = true;
-        }
+        name: source: lib.nameValuePair "${configDir}/plugins/${name}" { inherit source; }
       ) cfg.plugins;
 
       activation = {
         hermesAgentSetup = lib.mkForce (
           lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] hermesStateScript
-        );
-
-        # Remove the previous generation's directory link before linking its individual files.
-        hermesAgentMigratePluginLinks = lib.mkIf (cfg.plugins != { }) (
-          lib.hm.dag.entryBetween [ "linkGeneration" ] [ "writeBoundary" ] ''
-            if [[ -n "''${oldGenPath:-}" && -d "$oldGenPath/home-files" ]]; then
-              hermesOldFiles="$(readlink -e "$oldGenPath/home-files")"
-              ${lib.concatMapStringsSep "\n" (
-                name:
-                let
-                  path = "${configDir}/plugins/${name}";
-                  target = config.home.file.${path}.target;
-                in
-                ''
-                  hermesPluginPath=${lib.escapeShellArg path}
-                  hermesOldPlugin="$hermesOldFiles"/${lib.escapeShellArg target}
-                  if [[ -L "$hermesOldPlugin" && -L "$hermesPluginPath" ]] &&
-                      [[ "$(readlink "$hermesPluginPath")" == "$hermesOldPlugin" ]]; then
-                    run rm -- "$hermesPluginPath"
-                  fi
-                ''
-              ) (lib.attrNames cfg.plugins)}
-            fi
-          ''
         );
 
         # Workaround: Linux needs the stable secret link before reloadSystemd.

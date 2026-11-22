@@ -1,31 +1,18 @@
-"""Exercise Copilot discovery with writable directories and immutable plugin files."""
+"""Exercise Copilot discovery from a read-only declarative plugin directory."""
 
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
-plugin, linked_plugin, lndir = sys.argv[1:]
+plugin = Path(sys.argv[1]).resolve()
 sys.dont_write_bytecode = True
 
 with tempfile.TemporaryDirectory(prefix="hermes-provider-check-") as temporary:
     home = Path(temporary)
     state = home / "hermes"
-    destination = state / "plugins" / "github-copilot"
-
-    def project(source, target):
-        target.mkdir(parents=True)
-        subprocess.run([lndir, "-silent", source, target], check=True)
-
-    projection = home / "projected"
-    project(linked_plugin, projection)
-    assert (projection / "__init__.py").read_text() == "VALUE = 1\n"
-    assets = projection / "assets"
-    assert not assets.is_symlink() and os.access(assets, os.W_OK)
-    assert (assets / "module.py").read_text() == "VALUE = 1\n"
-
-    project(plugin, destination)
+    (state / "plugins").mkdir(parents=True)
+    (state / "plugins" / "github-copilot").symlink_to(plugin, target_is_directory=True)
     (state / "config.yaml").write_text("model:\n  provider: nous\n")
     os.environ.clear()
     os.environ.update(HOME=str(home), HERMES_HOME=str(state), PATH=os.defpath)

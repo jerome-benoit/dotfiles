@@ -7,12 +7,6 @@ let
   lib = import "${home-manager}/modules/lib/stdlib-extended.nix" pkgs.lib;
   fixtureHome = "/home/hermes-check";
   plugin = "${inputs.hermes-labs-plugins}/github-copilot";
-  linkedPlugin = pkgs.runCommandLocal "hermes-linked-plugin-fixture" { } ''
-    mkdir -p "$out/plugin" "$out/assets"
-    printf 'VALUE = 1\n' > "$out/assets/module.py"
-    ln -s ../assets/module.py "$out/plugin/__init__.py"
-    ln -s ../assets "$out/plugin/assets"
-  '';
   mkConfiguration =
     selectedPkgs:
     home-manager.lib.homeManagerConfiguration {
@@ -232,23 +226,6 @@ assert lib.all (condition: condition) [
     ) (externalHomes ++ nonCanonicalHomes)
   ))
   (check "real sops activation orders the link before service startup" startupOrder)
-  (check "plugin migration runs between the write boundary and linking" (
-    startsBefore "writeBoundary" "hermesAgentMigratePluginLinks"
-    && startsBefore "hermesAgentMigratePluginLinks" "linkGeneration"
-  ))
-  (check "absolute plugin source strings enter the store before projection" (
-    let
-      localSource = toString ../checks;
-      withLocalPlugin = evaluate {
-        modules.development.hermesAgent.plugins.local-fixture = localSource;
-      };
-      dir = "${configuration.config.services.hermes-agent.hermesHome}/plugins";
-      imported = withLocalPlugin.config.home.file."${dir}/local-fixture".source.pluginSource;
-    in
-    lib.hasPrefix "${builtins.storeDir}/" (toString imported)
-    && builtins.hasContext (toString imported)
-    && builtins.readFile (imported + "/hermes-provider.py") == builtins.readFile ./hermes-provider.py
-  ))
 ];
 pkgs.runCommand "check-hermes-agent"
   {
@@ -258,29 +235,14 @@ pkgs.runCommand "check-hermes-agent"
     ];
     setup = smokeActivation.hermesAgentSetup.data;
     environment = smokeActivation.hermesAgentEnvironment.data;
-    migratePlugins = smokeActivation.hermesAgentMigratePluginLinks.data;
     passAsFile = [
       "setup"
       "environment"
-      "migratePlugins"
     ];
   }
   ''
     ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python -I -B \
-      ${./hermes-provider.py} \
-      ${
-        let
-          withFixture = evaluate {
-            modules.development.hermesAgent.plugins.linked-fixture = "${linkedPlugin}/plugin";
-          };
-          dir = "${configuration.config.services.hermes-agent.hermesHome}/plugins";
-        in
-        lib.escapeShellArgs [
-          (toString configuration.config.home.file."${dir}/github-copilot".source)
-          (toString withFixture.config.home.file."${dir}/linked-fixture".source)
-          "${pkgs.lndir}/bin/lndir"
-        ]
-      }
+      ${./hermes-provider.py} ${plugin}
     # Run only public regressions for the source delta, one fresh installed process per file.
     # Copy tests alone: upstream child probes add their test root to PYTHONPATH.
     python3 - ${configuration.config.services.hermes-agent.package.hermesVenv}/bin/python \
@@ -485,7 +447,7 @@ pkgs.runCommand "check-hermes-agent"
         assert json.loads(stdout) == {"argv": argv, "pid": child.pid}, stdout
         assert login_marker.read_text() == "ready"
     PY
-    python3 - "$setupPath" "$environmentPath" "$migratePluginsPath" <<'PY'
+    python3 - "$setupPath" "$environmentPath" <<'PY'
     import os
     from pathlib import Path
     import shlex
@@ -500,19 +462,16 @@ pkgs.runCommand "check-hermes-agent"
         state = home / "custom hermes"
         workspace = home / "working directory"
         secret = home / "secret env"
-        setup, environment, migrate_plugins = [
+        setup, environment = [
             Path(path).read_text().replace("${smokeRoot}", temporary)
             for path in sys.argv[1:]
         ]
         prelude = "source " + shlex.quote("${home-manager}/lib/bash/home-manager.sh") + "\n"
 
-        def activate(script, dry=False, previous_generation=None):
+        def activate(script, dry=False):
             env = os.environ.copy()
             env.pop("DRY_RUN", None)
             env["DRY_RUN_CMD"] = ""
-            env.pop("oldGenPath", None)
-            if previous_generation is not None:
-                env["oldGenPath"] = str(previous_generation)
             if dry:
                 env["DRY_RUN"] = "1"
                 env["DRY_RUN_CMD"] = "echo"
@@ -546,30 +505,6 @@ pkgs.runCommand "check-hermes-agent"
         before = {p: p.lstat().st_mtime_ns for p in home.rglob("*")}
         activate(setup + environment, dry=True)
         assert before == {p: p.lstat().st_mtime_ns for p in home.rglob("*")}
-
-        path = state / "plugins" / "github-copilot"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        old_generation = root / "old generation"
-        old_files = root / "old home files"
-        old_generation.mkdir()
-        (old_generation / "home-files").symlink_to(old_files)
-        old_plugin = old_files / path.relative_to(home)
-        old_plugin.parent.mkdir(parents=True)
-        source = root / "plugin source"
-        source.mkdir()
-        payload = source / "plugin.yaml"
-        payload.write_text("name: github-copilot")
-        old_plugin.symlink_to(source)
-        path.symlink_to(old_plugin)
-        activate(migrate_plugins)
-        activate(migrate_plugins, dry=True, previous_generation=old_generation)
-        assert path.readlink() == old_plugin
-        activate(migrate_plugins, previous_generation=old_generation)
-        assert not path.is_symlink() and not path.exists()
-        assert old_plugin.readlink() == source and payload.read_text() == "name: github-copilot"
-        path.symlink_to(source)
-        activate(migrate_plugins, previous_generation=old_generation)
-        assert path.readlink() == source
     PY
     touch "$out"
   ''
