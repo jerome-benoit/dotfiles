@@ -25,6 +25,7 @@ let
       huggingface-hub
       numpy
       pillow
+      pypdf
       tokenizers
       datasets
     ]
@@ -181,6 +182,29 @@ let
       test -f "$out/lib/colibri/tools/iq3xxs_grid.json"
       test -f "$out/lib/colibri/ui/index.html"
       ${pythonEnv}/bin/python "$out/lib/colibri/ui/server.py" --help > /dev/null
+      PYTHONPATH=$out/lib/colibri/ui ${pythonEnv}/bin/python - <<'PY'
+      from io import BytesIO
+      from docs import extract
+      from pypdf import PdfWriter
+      from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+      writer = PdfWriter()
+      page = writer.add_blank_page(width=200, height=200)
+      font = DictionaryObject({
+          NameObject("/Type"): NameObject("/Font"),
+          NameObject("/Subtype"): NameObject("/Type1"),
+          NameObject("/BaseFont"): NameObject("/Helvetica"),
+      })
+      page[NameObject("/Resources")] = DictionaryObject({
+          NameObject("/Font"): DictionaryObject({NameObject("/F1"): font}),
+      })
+      stream = DecodedStreamObject()
+      stream.set_data(b"BT /F1 12 Tf 10 50 Td (Colibri PDF extraction) Tj ET")
+      page.replace_contents(stream)
+      pdf = BytesIO()
+      writer.write(pdf)
+      assert "Colibri PDF extraction" in extract("test.pdf", pdf.getvalue())["text"]
+      PY
       $out/bin/coli --version
       PYTHONPATH=$out/lib/colibri ${pythonEnv}/bin/python - "$out/lib/colibri" <<'PY'
       from pathlib import Path

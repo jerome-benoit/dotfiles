@@ -1,15 +1,23 @@
 # base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: none
-# intent: refuse unsupported inline Hermes mcp_servers values before masking MCP servers or syncing edits.
+# intent: preserve Hermes config when Code Mode cannot safely mask or restore MCP servers.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/1563
-# removal: remove when upstream preserves all original MCP servers or refuses the write, including on config read errors.
+# removal: remove when upstream refuses unsafe writeback to unsupported layouts and managed config links.
 diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 --- a/packages/cli/src/codemode.ts
 +++ b/packages/cli/src/codemode.ts
-@@ -1153,9 +1153,16 @@
-   writeFileSync(ephemeralSystemSettingsPath, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
- }
- 
+@@ -1156,6 +1156,24 @@
++function requireHermesCodemodeBlockRoot(yaml: string): void {
++  for (const line of yaml.split(/\r?\n/)) {
++    const content = stripYamlComment(line).trim();
++    if (!content || content === "---" || content.startsWith("%")) continue;
++    if (/^(?:---\s+)?[\[{]/.test(content)) {
++      throw new Error("unsupported Hermes config.yaml root; use a block mapping for Code Mode");
++    }
++    return;
++  }
++}
++
 +function requireHermesCodemodeBlockMcp(value: string): void {
 +  // The block reader has no server entries to restore from an inline value.
 +  if (value && !/^(?:\{[ \t]*\}|null|Null|NULL|~)$/.test(value)) {
@@ -25,7 +33,13 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
   * inserts `caveman-codemode` before any trailing `...` YAML document-end marker,
   * leaving auth/models/plugins untouched and keeping `ruamel.yaml` happy.
   */
-@@ -1172,6 +1179,7 @@
+@@ -1162,4 +1180,5 @@
+ export function rewriteHermesCodemodeYaml(sourceYaml: string, cmEntry: CodemodeLaunchEntry): string {
++  requireHermesCodemodeBlockRoot(sourceYaml);
+   const kept: string[] = [];
+   let skipping = false;
+   for (const line of sourceYaml.split(/\r?\n/)) {
+@@ -1172,6 +1191,7 @@
          const colon = trimmed.indexOf(":");
          const key = colon > 0 ? unquoteKey(trimmed.slice(0, colon)) : "";
          skipping = key === "mcp_servers";
@@ -33,7 +47,13 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
        }
      }
      if (!skipping) kept.push(line);
-@@ -1235,6 +1243,7 @@
+@@ -1205,4 +1225,5 @@
+ function extractHermesMcpServerBlocks(yaml: string): Map<string, string[]> {
++  requireHermesCodemodeBlockRoot(yaml);
+   const blocks = new Map<string, string[]>();
+   let inSection = false;
+   let serverIndent = -1;
+@@ -1235,6 +1256,7 @@
        const colon = trimmed.indexOf(":");
        const key = colon > 0 ? unquoteKey(trimmed.slice(0, colon)) : "";
        if (key === "mcp_servers") {
@@ -41,10 +61,18 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
          inSection = true;
          serverIndent = -1;
          continue;
-@@ -1325,6 +1334,17 @@
-   return base ? `${base}\n\n${block}\n` : `${block}\n`;
- }
- 
+@@ -1255,6 +1277,10 @@
+       flush();
+       const colon = trimmed.indexOf(":");
+       if (colon > 0) {
++        const key = trimmed.slice(0, colon).trimEnd();
++        if (/^["']/.test(key) && !/^(?:"[^"\\]*"|'[^']*')$/.test(key)) {
++          throw new Error("unsupported quoted Hermes MCP server key in config.yaml");
++        }
+         currentName = unquoteKey(trimmed.slice(0, colon));
+         currentLines = [line];
+       }
+@@ -1328,3 +1354,14 @@
 +function readHermesCodemodeConfig(path: string): string {
 +  try {
 +    return readFileSync(path, "utf8");
@@ -59,7 +87,7 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
  /**
   * Builds an ephemeral `HERMES_HOME` directory linking user plugins/auth/skills/
   * sessions/state into `outDir` and replacing ONLY `mcp_servers:` in the
-@@ -1335,11 +1355,7 @@
+@@ -1335,11 +1372,7 @@
    outDir: string,
    cmEntry: CodemodeLaunchEntry,
  ): string {
@@ -72,7 +100,7 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
    writeFileSync(join(outDir, "config.yaml"), overlayYaml, { mode: 0o600 });
    writeFileSync(join(outDir, HERMES_CODEMODE_BASELINE_FILE), overlayYaml, { mode: 0o600 });
    if (existsSync(sourceHome)) {
-@@ -1387,17 +1403,15 @@
+@@ -1387,17 +1420,18 @@
            const baselineYaml = readFileSync(baselinePath, "utf8");
            const currentYaml = readFileSync(join(outDir, "config.yaml"), "utf8");
            if (currentYaml === baselineYaml) continue;
@@ -83,6 +111,9 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 -          const merged = mergeHermesConfigEdits(currentYaml, origYaml);
 -          mkdirSync(sourceHome, { recursive: true });
            const dst = join(sourceHome, "config.yaml");
++          if (lstatSync(dst, { throwIfNoEntry: false })?.isSymbolicLink()) {
++            throw new Error("refusing to replace symlinked Hermes config.yaml");
++          }
 +          const merged = mergeHermesConfigEdits(currentYaml, readHermesCodemodeConfig(dst));
 +          mkdirSync(sourceHome, { recursive: true });
            const tmp = `${dst}.caveman-sync-${process.pid}-${Date.now()}`;
@@ -106,11 +137,8 @@ diff --git a/packages/cli/tests/codemode.runtime.mjs b/packages/cli/tests/codemo
  import { join } from "node:path";
  import { tmpdir } from "node:os";
  import {
-@@ -241,6 +241,68 @@
-   }
- });
- 
-+test("Hermes codemode refuses flow MCP edits and leaves the real config untouched", (t) => {
+@@ -244,3 +244,99 @@
++test("Hermes codemode refuses unsupported YAML without rewriting the real config", (t) => {
 +  const root = mkdtempSync(join(tmpdir(), "caveman-hermes-cm-flow-"));
 +  t.after(() => rmSync(root, { recursive: true, force: true }));
 +  const sourceHome = join(root, "real");
@@ -149,10 +177,23 @@ diff --git a/packages/cli/tests/codemode.runtime.mjs b/packages/cli/tests/codemo
 +  writeFileSync(sourceConfig, originalFlow);
 +  assert.throws(build, /unsupported Hermes mcp_servers/);
 +  assert.equal(readFileSync(sourceConfig, "utf8"), originalFlow);
++
++  const flowRoot = '{"model":"original"}\n';
++  writeFileSync(sourceConfig, flowRoot);
++  assert.throws(build, /unsupported Hermes config\.yaml root/);
++  assert.equal(readFileSync(sourceConfig, "utf8"), flowRoot);
++
++  const quotedKeys = 'model: original\nmcp_servers:\n  "team:one":\n    command: one\n  "team:two":\n    command: two\n';
++  writeFileSync(sourceConfig, quotedKeys);
++  build();
++  writeFileSync(editedConfig, readFileSync(editedConfig, "utf8").replace("model: original", "model: edited"));
++  syncBackHermesEphemeralHome(outDir, sourceHome);
++  assert.equal(readFileSync(sourceConfig, "utf8"), quotedKeys);
++  assert.match(diagnostic.mock.calls.at(-1).arguments[0], /config\.yaml was not synced.*unsupported quoted/);
 +  assert.match(readFileSync(editedConfig, "utf8"), /^model: edited/);
 +});
 +
-+test("Hermes codemode does not treat a config read error as a missing file", { skip: process.platform === "win32" }, (t) => {
++test("Hermes codemode does not treat a config symlink loop as a missing file", { skip: process.platform === "win32" }, (t) => {
 +  const root = mkdtempSync(join(tmpdir(), "caveman-hermes-cm-read-"));
 +  t.after(() => rmSync(root, { recursive: true, force: true }));
 +  const sourceHome = join(root, "real");
@@ -168,8 +209,29 @@ diff --git a/packages/cli/tests/codemode.runtime.mjs b/packages/cli/tests/codemo
 +
 +  syncBackHermesEphemeralHome(outDir, sourceHome);
 +  assert.equal(lstatSync(sourceConfig).isSymbolicLink(), true);
-+  assert.match(diagnostic.mock.calls.at(-1).arguments[0], /config\.yaml was not synced.*ELOOP/);
++  assert.match(diagnostic.mock.calls.at(-1).arguments[0], /config\.yaml was not synced.*symlinked/);
 +  assert.throws(build, { code: "ELOOP" });
++});
++
++test("Hermes codemode preserves a readable config symlink on writeback", { skip: process.platform === "win32" }, (t) => {
++  const root = mkdtempSync(join(tmpdir(), "caveman-hermes-cm-link-"));
++  t.after(() => rmSync(root, { recursive: true, force: true }));
++  const sourceHome = join(root, "real");
++  const outDir = join(root, "ephemeral");
++  mkdirSync(sourceHome);
++  mkdirSync(outDir);
++  const sourceConfig = join(sourceHome, "config.yaml");
++  const target = join(root, "managed.yaml");
++  const original = "model: original\n";
++  writeFileSync(target, original);
++  symlinkSync(target, sourceConfig);
++  const diagnostic = t.mock.method(process.stderr, "write", () => true);
++  buildHermesEphemeralCodemodeHome(sourceHome, outDir, { command: "cm", args: [] });
++  writeFileSync(join(outDir, "config.yaml"), "model: edited\n");
++  syncBackHermesEphemeralHome(outDir, sourceHome);
++  assert.equal(lstatSync(sourceConfig).isSymbolicLink(), true);
++  assert.equal(readFileSync(target, "utf8"), original);
++  assert.match(diagnostic.mock.calls.at(-1).arguments[0], /config\.yaml was not synced.*symlinked/);
 +});
 +
  test("OpenCode/Kilo own-server scoping, JSONC parsing, Gemini/Qwen mcp.allowed, and Codex dotted TOML", () => {
