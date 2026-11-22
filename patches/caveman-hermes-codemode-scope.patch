@@ -1,0 +1,94 @@
+# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
+# prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
+# intent: keep Hermes out of Code Mode until it preserves MCP policy and config writeback.
+# upstream: https://github.com/JuliusBrussee/caveman/issues/1563 tracks unsafe YAML writeback.
+# removal: remove when the selected CLI and companion preserve Hermes filters and reject unsafe writeback.
+diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
+--- a/packages/cli/src/codemode.ts
++++ b/packages/cli/src/codemode.ts
+@@ -819,5 +819,5 @@
+ /**
+- * Discovers user MCP servers across all major coding agents (Cursor, OpenClaw,
+- * Hermes, OpenCode, Kilo, Gemini CLI, Qwen Code, Codex, and Claude Code),
++ * Discovers user MCP servers from Cursor, OpenClaw, OpenCode, Kilo,
++ * Gemini CLI, Qwen Code, Codex, and Claude Code,
+  * supporting both stdio commands and remote Streamable HTTP URLs while
+  * excluding disabled and self-referential Caveman servers.
+@@ -862,12 +862,3 @@
+-    const hermesDir = expandHomeOverride(env.HERMES_HOME, homeDir, env)
+-      ?? (process.platform === "win32"
+-        ? join(env.LOCALAPPDATA?.trim() || join(homeDir, "AppData", "Local"), "hermes")
+-        : join(homeDir, ".hermes"));
+-    try {
+-      const hermesYaml = readFileSync(join(hermesDir, "config.yaml"), "utf8");
+-      merge(parseHermesMcpServersYaml(hermesYaml));
+-    } catch { /* absent */ }
+-
+     for (const p of openCodeConfigPaths(workspaceDir, homeDir, env, trustWorkspace)) {
+       try {
+         const opencodeDoc = parseJsonRelaxed(readFileSync(p, "utf8")) as { mcp?: unknown };
+diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
+--- a/packages/cli/src/index.ts
++++ b/packages/cli/src/index.ts
+@@ -36,7 +36,6 @@
+ import {
+   applyKiloCodemodeOverlay,
+   applyOpenCodeCodemodeOverlay,
+-  buildHermesEphemeralCodemodeHome,
+   discoverCodemodeServers,
+   discoverKiloOwnServerNames,
+   discoverOpenCodeOwnServerNames,
+@@ -44,7 +43,6 @@
+   patchEphemeralOpenClawCodemode,
+   patchEphemeralQwenCodemode,
+   stripExternalCodexMcpTables,
+-  syncBackHermesEphemeralHome,
+   writeEphemeralCodemodeConfig,
+   writeGeminiCodemodeSettingsOverlay,
+   type CodemodeServerConfig,
+@@ -132,8 +130,7 @@
+ type WrapMode = "local" | "managed";
+ export type OverlayBuilderContext = { mode: WrapMode; gatewayUrl: string; env: NodeJS.ProcessEnv; upstreams?: PublishedUpstreams | undefined };
+ export const overlayBuilders: Record<string, (agent: AgentProfile, baseConfig: unknown, ctx: OverlayBuilderContext) => unknown> = {};
+ const wrapTempDirs = new Set<string>();
+-const hermesEphemeralSyncPairs = new Map<string, string>();
+
+ // The standalone proxy listens here; `caveman start` launches it and
+ // `caveman wrap` points agents at it.
+@@ -6822,7 +6819,11 @@
+   // detail itself — i.e. it has the caveman MCP retrieve tool installed (run
+   // `caveman mcp install <agent>`). When it does, signal the proxy to use MCP
+   // recovery (which lets it compress streams); otherwise streams pass through.
+-  const codemodeSupportedAgents = new Set(["claude", "codex", "gemini", "qwen", "opencode", "openclaw", "kilo", "hermes", "pi"]);
++  const codemodeSupportedAgents = new Set(["claude", "codex", "gemini", "qwen", "opencode", "openclaw", "kilo", "pi"]);
++  if (!direct && opts.codemode && agent?.id === "hermes") {
++    process.stderr.write(`${mark("warn")} Hermes Code Mode is disabled: MCP filters and config writeback are unsafe; launching without --codemode\n`);
++    if (opts.mcpMode === "codemode") opts.mcpMode = "auto";
++  }
+   const codemodeRequested = Boolean(!direct && opts.codemode && agent && codemodeSupportedAgents.has(agent.id));
+   const ephemeralMcp = !direct && agent && (agent.id === "claude" || agent.id === "codex" || codemodeRequested)
+     && !opts.minimal && (opts.mcpMode === "auto" || opts.mcpMode === "codemode" || opts.codemode) && wrapRecoveryEligible(opts)
+@@ -7123,10 +7124,6 @@
+         );
+       } else if (agent.id === "openclaw" && env.OPENCLAW_CONFIG_PATH) {
+         patchEphemeralOpenClawCodemode(env.OPENCLAW_CONFIG_PATH, cmEntry);
+-      } else if (agent.id === "hermes") {
+-        const srcHermesHome = hermesHome();
+-        hermesEphemeralSyncPairs.set(cmDir, srcHermesHome);
+-        env.HERMES_HOME = buildHermesEphemeralCodemodeHome(srcHermesHome, cmDir, cmEntry);
+       }
+     }
+     if (!direct && agent?.id === "aider") childArgs = routedAiderArgs(cmdArgs);
+@@ -13111,12 +13108,7 @@
+ function cleanupWrapTempDirs() {
+   for (const dir of [...wrapTempDirs]) {
+     try {
+-      const syncTarget = hermesEphemeralSyncPairs.get(dir);
+-      if (syncTarget) {
+-        syncBackHermesEphemeralHome(dir, syncTarget);
+-        hermesEphemeralSyncPairs.delete(dir);
+-      }
+       rmSync(dir, { recursive: true, force: true });
+     } catch {
+       // Temp cleanup is best-effort; wrap must never fail after child exit.
+     } finally {

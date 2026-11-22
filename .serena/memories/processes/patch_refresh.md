@@ -39,7 +39,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
 - `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
 - `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
-- `patches/caveman-hermes-codemode-yaml.patch` — refuse unsupported Hermes YAML transformations and preserve managed config links during Code Mode writeback.
+- `patches/caveman-hermes-codemode-scope.patch` — exclude Hermes from Code Mode launch and discovery until both MCP policy and config writeback are safe.
 - `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
 - `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
 - `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
@@ -210,7 +210,11 @@ porting execution-time callbacks instead of restoring an older hook formatter.
 
 Apply every patch in its declared order without offsets or fuzz. Drop only hunks
 whose behavior the selected source now supplies. Run the installed-runtime check,
-including both Hermes writers with a real YAML parser, and the CI updater contract.
+including the native Hermes writer with a real YAML parser, and the CI updater contract.
+
+The prebuilt MCP companion requires an explicit Code Mode config while the
+Hermes scope patch is active. Its independent discovery bypasses the CLI's
+source exclusions. Keep the native Hermes integration unchanged.
 
 ### Caveman native integrations
 

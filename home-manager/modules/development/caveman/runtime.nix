@@ -63,6 +63,29 @@ stdenvNoCC.mkDerivation {
     # Keep an explicit user override; browsing uses a Nix-managed browser.
     wrapProgram "$out/bin/caveman-browse" \
       --set-default CAVEMAN_BROWSE_CHROME ${lib.escapeShellArg browserExecutable}
+    # Workaround: the prebuilt companion can discover Hermes independently of the CLI.
+    # Remove with the Hermes Code Mode scope patch.
+    wrapProgram "$out/bin/caveman-mcp" --run ${lib.escapeShellArg ''
+      if [[ ''${1-} == codemode ]]; then
+        if ! (
+          shift
+          case ''${1-} in
+            -h|--help) [[ $# == 1 ]] && exit 0; exit 1 ;;
+            -config|--config) [[ -n ''${2-} ]] || exit 1; shift 2 ;;
+            -config=?*|--config=?*) shift ;;
+            *) exit 1 ;;
+          esac
+          for arg do
+            case "$arg" in
+              -discover|--discover|-discover=*|--discover=*|-config|--config|-config=*|--config=*) exit 1 ;;
+            esac
+          done
+        ); then
+          printf '%s\n' 'caveman-mcp codemode: start with --config PATH; automatic discovery is disabled' >&2
+          exit 2
+        fi
+      fi
+    ''}
     runHook postInstall
   '';
 
