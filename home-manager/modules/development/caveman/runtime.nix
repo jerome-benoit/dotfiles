@@ -67,7 +67,6 @@ stdenvNoCC.mkDerivation {
     # Remove with the Hermes Code Mode scope patch.
     wrapProgram "$out/bin/caveman-mcp" --run ${lib.escapeShellArg ''
       if [[ ''${1-} == codemode ]]; then
-        codemodeUsage='caveman-mcp codemode: --config PATH is required; automatic discovery (--discover) is disabled'
         (
           shift
           config=
@@ -79,8 +78,19 @@ stdenvNoCC.mkDerivation {
             shift
             case "$flag" in
               h|help|h=*|help=*)
-                printf '%s\n\n' "$codemodeUsage" >&2
-                exit 0
+                cat >&2 <<'EOF'
+      Usage: caveman-mcp codemode --config PATH [OPTIONS]
+
+        --config PATH             JSON MCP server configuration (required)
+        --workspace PATH          Workspace root (default: current directory)
+        --no-builtins             Disable built-in repo, PR, and browse tools
+        --no-js                   Disable JavaScript; use pipeline steps only
+        --allow-writes-in-execute Allow mutating tools in codemode_execute
+        -h, --help                Show this help
+
+      Automatic MCP discovery is disabled.
+      EOF
+                exit 64
                 ;;
               config|workspace)
                 if [[ $# -eq 0 ]]; then
@@ -115,7 +125,10 @@ stdenvNoCC.mkDerivation {
             printf '%s\n' 'caveman-mcp codemode: --config PATH is required' >&2
             exit 2
           fi
-        ) || exit 2
+        ) || case $? in
+          64) exit 0 ;; # Help was handled by the wrapper.
+          *) exit 2 ;;
+        esac
       fi
     ''}
     runHook postInstall
