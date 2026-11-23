@@ -1,6 +1,7 @@
 # base: JustVugg/colibri e479104ae01bdc40ce81e675299b1d230891b321
 # prerequisites: none
 # intent: honor cgroup CPU quotas when the physical CPU topology is unavailable.
+# upstream: https://github.com/JustVugg/colibri/issues/3038
 # removal: remove when upstream applies cgroup CPU quotas without sysfs topology.
 diff --git a/c/omp_tune.h b/c/omp_tune.h
 --- a/c/omp_tune.h
