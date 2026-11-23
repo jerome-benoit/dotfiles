@@ -5,7 +5,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -19733,11 +19733,12 @@ function opencodeShrinkPluginPreamble(): string {
+@@ -19737,11 +19737,12 @@ function opencodeShrinkPluginPreamble(): string {
  import { execFileSync } from "node:child_process";
  
  // Returns the rewritten command, or undefined to leave the original alone.
@@ -19,7 +19,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        encoding: "utf8",
        windowsHide: true,
      });
-@@ -19755,10 +19756,10 @@ function rewrite(command) {
+@@ -19759,10 +19760,10 @@ function rewrite(command) {
  // V1: a named factory returning a hook map, mutating output.args.command.
  function opencodeShrinkPluginHookMapV1(): string {
    return `
@@ -32,7 +32,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      if (next) output.args.command = next;
    },
  });
-@@ -19779,7 +19780,7 @@ ${extra}  async setup(ctx) {
+@@ -19783,7 +19784,7 @@ ${extra}  async setup(ctx) {
        if (event?.tool !== "bash" && event?.tool !== "shell") return;
        const input = event.input;
        if (!input || typeof input !== "object") return;
