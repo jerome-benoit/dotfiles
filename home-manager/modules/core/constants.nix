@@ -151,7 +151,7 @@ in
     historySize = lib.mkOption {
       type = lib.types.ints.positive;
       default = 50000;
-      description = "Default history size for shells and terminal emulators";
+      description = "Default scrollback limit for terminals and terminal multiplexers";
     };
     fontFamily = lib.mkOption {
       type = lib.types.str;

@@ -216,7 +216,13 @@ validate_workflows() {
 
   expected_paths=$(printf '%s\n' "$OMP_PIN_REL" "$PRIME_PIN_REL" flake.lock | LC_ALL=C sort)
   actual=$(sorted_workflow_paths "$fix" '.on.pull_request.paths[]')
-  [ "$actual" = "$expected_paths" ] || fail "fix workflow paths do not match dependency inputs"
+  if [ "$actual" != "$expected_paths" ]; then
+    printf '%s\n' "Missing paths:" >&2
+    LC_ALL=C comm -23 <(printf '%s\n' "$expected_paths") <(printf '%s\n' "$actual") >&2
+    printf '%s\n' "Unexpected paths:" >&2
+    LC_ALL=C comm -13 <(printf '%s\n' "$expected_paths") <(printf '%s\n' "$actual") >&2
+    fail "$FIX_WORKFLOW_REL pull_request paths do not match dependency inputs"
+  fi
   [ "$(yq -r '.on.pull_request.branches[]' "$fix")" = main ] \
     || fail "fix workflow must target main"
   condition=$(yq -r '.jobs.fix-hashes.if' "$fix")

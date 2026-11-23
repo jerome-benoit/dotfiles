@@ -2,7 +2,7 @@
 # prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order)
 # intent: resolve the OpenCode hook profile against the absolute effective config root.
 # upstream: https://github.com/caveman-ai/blocks/issues/21 open exact root selection/detection; relative-root refusal is local.
-# removal: remove when install/status/uninstall select the effective absolute root and preserve foreign files.
+# removal: remove when detection and install/status/uninstall share OPENCODE_CONFIG_DIR, XDG_CONFIG_HOME/opencode, then ~/.config/opencode precedence; relative effective roots fail without writes; foreign files, alternate roots, and stable launcher targets are preserved.
 --- a/internal/hook/profiles.go
 +++ b/internal/hook/profiles.go
 @@ -4,6 +4,7 @@

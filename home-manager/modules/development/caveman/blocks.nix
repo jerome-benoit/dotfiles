@@ -32,7 +32,9 @@ let
       # and location-relative workdirs.
       ../../../../patches/caveman-blocks-opencode2.patch
       # Workaround: the OpenCode profile ignores the effective config root.
-      # Remove when upstream honors absolute OPENCODE_CONFIG_DIR and XDG fallback roots.
+      # Remove when detection and install/status/uninstall share the override,
+      # XDG, and home precedence, refuse relative effective roots without writes,
+      # and preserve foreign files, alternate roots, and stable launcher targets.
       ../../../../patches/caveman-blocks-config-root.patch
     ];
 

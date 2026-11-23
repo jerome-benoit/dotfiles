@@ -110,33 +110,9 @@ Common packages for all platforms:
 
 ### profile.nix
 
-Profile system defining which modules are enabled per profile:
-
-| Category    | Module     | Desktop | Server |
-| ----------- | ---------- | ------- | ------ |
-| shell       | direnv     | ✓       | ✗      |
-| shell       | eza        | ✓       | ✗      |
-| shell       | fd         | ✓       | ✓      |
-| shell       | fzf        | ✓       | ✓      |
-| shell       | ripgrep    | ✓       | ✓      |
-| shell       | zoxide     | ✓       | ✗      |
-| shell       | zsh        | ✓       | ✓      |
-| development | bun        | ✓       | ✗      |
-| development | gh         | ✓       | ✗      |
-| development | git        | ✓       | ✓      |
-| development | lazygit    | ✓       | ✓      |
-| development | opencode   | ✓       | ✗      |
-| development | herdr      | ✓       | ✗      |
-| development | claudeCode | ✓       | ✗      |
-| programs    | alacritty  | ✓       | ✗      |
-| programs    | btop       | ✓       | ✓      |
-| programs    | ghostty    | ✓       | ✗      |
-| programs    | glow       | ✓       | ✓      |
-| programs    | lazydocker | ✓       | ✓      |
-| programs    | ssh        | ✓       | ✓      |
-| programs    | tmux       | ✓       | ✓      |
-| editors     | neovim     | ✓       | ✗      |
-| editors     | vim        | ✓       | ✓      |
+`profile.nix` declares desktop and server defaults. `home-manager/home.nix`
+applies those defaults and host-specific overrides. Use the individual module
+sections below for platform and service constraints.
 
 ### specialisations.nix
 

@@ -23,17 +23,17 @@ edit-private: ## Edit private configuration interactively via SOPS
 edit-credentials: ## Edit runtime credentials interactively via SOPS
 	@$(SECRETS) edit-credentials
 
-encrypt-gpg: ## (Re)create age-encrypted GPG keypair bundle for home-manager bootstrap
+encrypt-gpg: ## Export an age-encrypted GPG keypair bundle from the local secret keyring
 	@$(SECRETS) run ./scripts/encrypt-gpg-bundle.sh
 
 bootstrap: ## First-time setup with transient private configuration. Usage: make bootstrap SPEC=work
 	@$(SECRETS) run $(GPU_ENV) nix run --inputs-from . home-manager -- switch --flake . --impure -b backup $(if $(SPEC),--specialisation $(SPEC))
 
-build: ## Build Home Manager with transient private configuration (--impure required)
+build: ## Build Home Manager with transient private configuration
 	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE=. nh home build --impure -c "$$(whoami)" -- --impure
 
 switch: ## Switch Home Manager with transient private configuration. Usage: make switch SPEC=work
 	@$(SECRETS) run $(GPU_ENV) env NH_FLAKE=. nh home switch --impure -c "$$(whoami)" $(if $(SPEC),--specialisation $(SPEC)) -- --impure
 
-clean: ## Remove decrypted private configuration, credentials, and temporary files
+clean: ## Remove decrypted files and temporary artifacts directly under secrets/
 	@$(CLEAN_SECRETS)

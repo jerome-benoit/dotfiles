@@ -47,9 +47,14 @@ let
         }
 
         for arg in "$@"; do
-          [[ -d "$arg" ]] && format_dir "$arg" && continue
-          [[ -f "$arg" ]] && ${pkgs.lib.getExe formatter} "$arg" && continue
-          echo "Error: $arg not found" >&2 && exit 1
+          if [[ -d "$arg" ]]; then
+            format_dir "$arg"
+          elif [[ -f "$arg" ]]; then
+            ${pkgs.lib.getExe formatter} "$arg"
+          else
+            echo "Error: no file or directory at $arg" >&2
+            exit 1
+          fi
         done
       '';
     };

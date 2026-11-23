@@ -14,12 +14,8 @@ From the base configuration, use `make switch SPEC=work` or `make switch SPEC=pe
 
 ### Ollama user service (Linux)
 
-Linux desktop and server profiles enable `modules.development.ollama.enable`.
-Only the desktop profile on `morphee` enables
-`modules.development.ollama.enableService` by default.
-Disable `enableService` to keep the CLI without a daemon; disable `enable` to
-remove both. Override profile-assigned flags with `lib.mkForce`. Package and
-service settings use Home Manager's `services.ollama` options.
+See the `ollama.nix` section of `modules_reference` for activation rules and
+service settings.
 
 Before the first activation, stop any manually managed Ollama server at a chosen
 idle point; for the existing launcher, use `~/bin/ollama-serve.sh --stop`.
@@ -33,48 +29,17 @@ journalctl --user -u ollama.service -f
 systemctl --user restart ollama.service
 ```
 
-The service listens on `127.0.0.1:11434` unless
-`modules.development.ollama.host` sets another address; `faust` serves
-`0.0.0.0:11434` and Ollama has no authentication. Its 131072-token context,
-Flash Attention and KV-cache defaults can be changed through
-`services.ollama.environmentVariables`; these variables are not exported to OMP
-or other client processes. Keep each client's context budget consistent with the
-server and model.
+Check the configured listen address before connecting from another host.
+Ollama does not authenticate clients. Match each client's context budget to
+the server and model.
 
 The service follows the user manager's lifetime. Continuous operation without
 login requires host-managed lingering; Home Manager does not enable it here.
-Darwin desktop profiles add Ollama to the shared Brewfile through the same
-module; `core.packages` supplies the generic Homebrew bundle activation.
-Homebrew service behavior remains unchanged.
 
-## Initial Installation
+## Bootstrap and secrets
 
-```bash
-# Clone repository
-git clone <repository-url> ~/.nix
-cd ~/.nix
-
-# Ensure age key file exists (required for sops decryption)
-# The configured SOPS age identity must exist on each machine (0600, outside repo)
-
-# Bootstrap (with specialisation)
-make bootstrap SPEC=work      # or SPEC=personal, or omit SPEC for base
-```
-
-After installation, restart your shell to pick up aliases.
-
-## Private Configuration and Credentials (SOPS)
-
-| Command                 | Description                                                    |
-| ----------------------- | -------------------------------------------------------------- |
-| `make decrypt-private`  | Decrypt private configuration only for Nix evaluation          |
-| `make decrypt`          | Decrypt private configuration and credentials for inspection   |
-| `make encrypt`          | Re-encrypt private configuration and credentials after editing |
-| `make edit-private`     | Edit private configuration interactively                       |
-| `make edit-credentials` | Edit runtime credentials interactively                         |
-| `make clean`            | Remove decrypted configuration, credentials, and temporaries   |
-| `make switch SPEC=work` | Switch Home Manager with transient private configuration       |
-| `make build`            | Build Home Manager with transient private configuration        |
+See the repository README for setup and secret handling. Use `make help` for
+the available targets.
 
 ## Formatting
 
@@ -88,7 +53,8 @@ After installation, restart your shell to pick up aliases.
 
 | Command                        | Description                           |
 | ------------------------------ | ------------------------------------- |
-| `nix flake check`              | Run checks for the current platform   |
+| `nix flake check --no-build`   | Evaluate checks without building their outputs |
+| `nix flake check`              | Build checks for the current platform |
 | `nix flake check --show-trace` | Run checks with detailed error traces |
 | `nix flake show`               | Show all flake outputs                |
 | `nix flake metadata`           | Show flake metadata and inputs        |
@@ -115,14 +81,7 @@ not build the other platform's configurations.
 
 ### Focused integration checks
 
-These commands require an `x86_64-linux` builder:
-
-```bash
-nix build .#checks.x86_64-linux.secrets
-nix build .#checks.x86_64-linux.consumers
-nix build .#checks.x86_64-linux.hermes-agent
-nix build .#checks.x86_64-linux.caveman
-```
+See the README for focused build commands.
 
 The checks use disposable secrets and generated configurations without user
 activation, model downloads or GPU inference. Scenario definitions live in
@@ -139,8 +98,8 @@ identity unless private configuration is supplied.
 For evaluation with the real private identity, run `make decrypt-private` before
 adding `--impure`. The loader reads `NIX_PRIVATE_CONFIG_FILE` when set, otherwise
 `$HOME/.nix/secrets/private.dec.json`, and fails if the file is absent. Run
-`make clean` after inspection. Prefer `make build` and `make switch` for transient
-private configuration during normal Home Manager operations.
+`make clean` after inspection and before using `hm`, `make build`, or
+`make switch`. These commands manage the private configuration themselves.
 
 ## Dependency Management
 

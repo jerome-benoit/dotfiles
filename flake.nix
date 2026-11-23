@@ -113,8 +113,8 @@
         (
           _: prev:
           nixpkgs.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
-            # Workaround: crush tests hard-code a shared Darwin temporary path.
-            # Remove when upstream creates an isolated temporary directory.
+            # Workaround: Crush tests hard-code /tmp instead of using the build's temporary directory.
+            # Remove when upstream isolates each test workspace under the configured temporary directory.
             crush = prev.crush.overrideAttrs (previousAttrs: {
               postPatch = (previousAttrs.postPatch or "") + ''
                 substituteInPlace internal/agent/common_test.go \

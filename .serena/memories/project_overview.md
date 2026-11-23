@@ -14,22 +14,9 @@ Home Manager configuration using Nix flakes for managing dotfiles and user envir
 
 ## Flake Inputs
 
-| Input                     | Source                                      | Description                                                                                                              |
-| ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `nixpkgs`                 | `github:nixos/nixpkgs?ref=nixpkgs-unstable` | Nix packages (unstable)                                                                                                  |
-| `home-manager`            | `github:nix-community/home-manager`         | Home Manager, follows nixpkgs                                                                                            |
-| `opencode`                | `github:anomalyco/opencode`                 | OpenCode TUI/CLI/Desktop, follows nixpkgs                                                                                |
-| `opencode-nvim`           | `github:NickvanDyke/opencode.nvim`          | Neovim plugin (non-flake)                                                                                                |
-| `agent-of-empires`        | `github:agent-of-empires/agent-of-empires`  | AI agent session manager (flake, follows nixpkgs + flake-parts)                                                          |
-| `openspec`                | `github:Fission-AI/OpenSpec`                | OpenSpec CLI, follows nixpkgs                                                                                            |
-| `nix-openclaw-tools`      | `github:openclaw/nix-openclaw-tools`        | OpenClaw tool binaries, follows nixpkgs                                                                                  |
-| `hermes-agent`            | `github:NousResearch/hermes-agent`          | Hermes Agent (upstream), follows nixpkgs + flake-parts + Home Manager + pyproject-nix + uv2nix + pyproject-build-systems |
-| `qmd`                     | `github:tobi/qmd`                           | QMD CLI, follows nixpkgs + flake-utils                                                                                   |
-| `flake-utils`             | `github:numtide/flake-utils`                | Flake utilities                                                                                                          |
-| `flake-parts`             | `github:hercules-ci/flake-parts`            | Flake composition                                                                                                        |
-| `pyproject-nix`           | `github:pyproject-nix/pyproject.nix`        | Python packaging for Nix, follows nixpkgs                                                                                |
-| `uv2nix`                  | `github:pyproject-nix/uv2nix`               | uv lockfile to Nix, follows nixpkgs + pyproject-nix                                                                      |
-| `pyproject-build-systems` | `github:pyproject-nix/build-system-pkgs`    | Python build systems, follows nixpkgs + pyproject-nix + uv2nix                                                           |
+`flake.nix` declares direct inputs and their `follows` relationships.
+`flake.lock` records the resolved graph. See `processes/patch_refresh` for
+integrations that require checks when their pins change.
 
 ## Supported Platforms
 
@@ -103,7 +90,7 @@ This map lists entry points, not every file. Category `default.nix` files declar
 4. `home.nix` uses the explicit target profile and detects hostname only for host-specific feature flags
 5. Profile system (`profile.nix`) defines which modules are enabled per profile
 6. Specialisations allow runtime switching between work/personal contexts
-7. Each module follows `options` + `config = lib.mkIf cfg.enable { ... }` pattern
+7. Modules with an `enable` option gate their configuration with `lib.mkIf`.
 8. SOPS decrypts runtime credentials (`credentials.enc.yaml`) via systemd (Linux) or launchd (macOS). Private configuration (`private.enc.yaml`) is decrypted on demand for Nix evaluation (by `_hm_switch` / Makefile), then cleaned up.
 
 ## Key Design Patterns

@@ -2,14 +2,16 @@
 
 ## Before Committing Any Changes
 
-### 0. Decrypt Private Configuration (if needed for evaluation)
+### 0. Choose an Evaluation Mode
 
-```bash
-make decrypt-private  # Required for impure Nix evaluation
-```
+Pure Nix checks use placeholder private configuration and need no decryption.
+Use `make decrypt-private` only when inspecting the real configuration with raw
+`--impure` Nix commands. See `suggested_commands`, **Pure and private evaluation**.
 
-Skip decryption for pure checks, which use placeholder private configuration.
-See `suggested_commands`, **Pure and private evaluation**, for the distinction.
+For normal local builds and switches, let the wrapper decrypt private
+configuration. `make build`, `make switch`, and `hm` refuse to run if
+`secrets/private.dec.json` already exists. After manual inspection, re-encrypt
+any edits you intend to keep, then run `make clean` before using these commands.
 
 ### 1. Format Code
 
@@ -20,10 +22,11 @@ nix fmt
 ### 2. Run All Checks
 
 ```bash
-nix flake check
+nix flake check --no-build  # Evaluate flake outputs without building the checks
+nix flake check             # Evaluate and build checks for the current platform
 ```
 
-This validates:
+The build step validates:
 
 - [ ] All .nix files are properly formatted
 - [ ] No broken symlinks in build output
@@ -34,6 +37,9 @@ This validates:
 
 ### 3. Test Changes Locally
 
+Use `make build` to build your actual Home Manager configuration without
+activating it. To apply it:
+
 ```bash
 hm                    # Apply changes (from within a specialisation)
 # or
@@ -43,12 +49,15 @@ make switch SPEC=work # Apply with explicit specialisation
 ### 4. Clean Secrets
 
 ```bash
-make clean            # Remove decrypted plaintext from disk
+make clean            # Remove decrypted files and temporary artifacts directly under secrets/
 ```
+
+For editor workspaces left after an uncatchable interruption, see
+[Private configuration and credentials](../../README.md#private-configuration-and-credentials).
 
 ## Code Quality Checklist
 
-- [ ] Follow module structure pattern (options + config with mkIf)
+- [ ] For modules with an `enable` option, follow [Nix Module Structure](code_style_conventions.md#nix-module-structure)
 - [ ] Use appropriate lib functions (mkIf, mkDefault, mkForce, mkMerge)
 - [ ] Add assertions for module dependencies
 - [ ] Add warnings for non-fatal issues
@@ -59,63 +68,14 @@ make clean            # Remove decrypted plaintext from disk
 
 ## Adding New Modules
 
-1. **Create module file** in appropriate category:
-
-   ```
-   home-manager/modules/<category>/<name>.nix
-   ```
-
-2. **Follow standard structure**:
-
-   ```nix
-   { config, lib, pkgs, ... }:
-   let
-     cfg = config.modules.<category>.<name>;
-   in
-   {
-     options.modules.<category>.<name> = {
-       enable = lib.mkEnableOption "<name> configuration";
-     };
-
-     config = lib.mkIf cfg.enable {
-       # Configuration here
-     };
-   }
-   ```
-
-3. **Add import** to category's `default.nix`:
-
-   ```nix
-   imports = [
-     # ... existing imports
-     ./<name>.nix
-   ];
-   ```
-
-4. **Add to profile.nix** (both desktop and server):
-
-   ```nix
-   desktopModules = {
-     <category> = {
-       # ... existing
-       <name> = true;  # or false for server
-     };
-   };
-   ```
-
-5. **Wire up in home.nix**:
-
-   ```nix
-   modules.<category> = {
-     # ... existing
-     <name>.enable = profileModules.<category>.<name>;
-   };
-   ```
-
-6. **Run checks**:
-   ```bash
-   nix flake check
-   ```
+1. Create `home-manager/modules/<category>/<name>.nix`. If the module has an
+   `enable` option, follow [Nix Module Structure](code_style_conventions.md#nix-module-structure).
+2. Add the module to the category's `default.nix`. See
+   [Import Pattern](code_style_conventions.md#import-pattern).
+3. If a profile controls the module, add its defaults in
+   `home-manager/modules/core/profile.nix` and wire them in `home-manager/home.nix`.
+   See [Profile System](code_style_conventions.md#profile-system).
+4. Run `nix flake check`.
 
 ## Adding New Themes
 
