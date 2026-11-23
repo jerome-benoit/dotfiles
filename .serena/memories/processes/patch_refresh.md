@@ -43,6 +43,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
 - `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
 - `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
+- `patches/colibri-openmp-cgroup-quota.patch` — honor Linux cgroup CPU quotas without sysfs CPU topology and isolate the OpenMP test from ambient quotas.
 - `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
 - `patches/hermes-agent-nix-provider-snapshot.patch` — make copied provider directories owner-writable without changing store permissions.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
@@ -108,8 +109,10 @@ After updating the Colibri source, use `checks/gpu.nix` to verify the CPU,
 CUDA, and Metal install plans. Check that `CUDA_GLIBC_MATH_COMPAT=0` keeps
 the upstream compatibility header out of the CUDA commands.
 
-Retire `colibri-openmp-cgroup-quota.patch` only when the unpatched
-`test_omp_tune` honors its synthetic one-core quota without sysfs CPU topology.
+Retire `colibri-openmp-cgroup-quota.patch` only after verifying the unpatched
+`test_omp_tune` with OpenMP enabled, sysfs CPU topology masked, and more than
+one logical CPU available. Require the `test_cg` diagnostic to confirm the
+synthetic quota reduced the team to one thread; a passing exit alone is insufficient.
 
 ### Hermes local terminal
 

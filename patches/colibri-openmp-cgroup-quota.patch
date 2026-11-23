@@ -6,7 +6,15 @@
 diff --git a/c/omp_tune.h b/c/omp_tune.h
 --- a/c/omp_tune.h
 +++ b/c/omp_tune.h
-@@ -250,10 +250,10 @@ static inline void coli_omp_tune_threads(const char *engine)
+@@ -242,5 +242,4 @@
+-/* Dimensiona la squadra OpenMP sui core fisici. Rispetta OMP_NUM_THREADS se
+- * l'utente l'ha impostata, e non fa nulla se il conteggio non e' affidabile.
+- * `engine` finisce solo nella riga di log. */
++/* Size the OpenMP team from CPU topology when available, then cap it at the
++ * cgroup quota. Respect explicit thread settings; engine only labels the log. */
+ static inline void coli_omp_tune_threads(const char *engine)
+ {
+@@ -250,10 +249,10 @@ static inline void coli_omp_tune_threads(const char *engine)
      if (getenv("OMP_NUM_THREADS")) return; /* l'utente comanda */
  
      int phys = coli_physical_cores();
@@ -20,7 +28,7 @@ diff --git a/c/omp_tune.h b/c/omp_tune.h
  
      double cg_quota = 0.0;
      int cg_threads = compat_cgroup_cpu_limit(&cg_quota);
-@@ -270,9 +270,9 @@ static inline void coli_omp_tune_threads(const char *engine)
+@@ -270,9 +269,9 @@ static inline void coli_omp_tune_threads(const char *engine)
      omp_set_num_threads(team);
      if (bounded_by_cgroup)
          fprintf(stderr, "[OMP] %s: %d threads bounded by container CPU quota "
@@ -32,3 +40,97 @@ diff --git a/c/omp_tune.h b/c/omp_tune.h
      else if (team < phys)
          fprintf(stderr, "[OMP] %s: %d performance-core threads instead of %d logical CPUs "
                          "(%d physical cores, the efficiency cores left out: the slowest thread "
+diff --git a/c/tests/test_omp_tune.c b/c/tests/test_omp_tune.c
+--- a/c/tests/test_omp_tune.c
++++ b/c/tests/test_omp_tune.c
+@@ -73,48 +73,45 @@
+ #ifdef _OPENMP
+-static int test_cgroup_cpu_quota_bound(void)
++static int test_team_size(const char *quota, const char *label, int want)
+ {
+     char base[256];
+     snprintf(base, sizeof(base), "test_omp_cg_XXXXXX");
+-    if (!mkdtemp(base)) return 0;
++    if (!mkdtemp(base)) { perror("mkdtemp"); return 1; }
+     char proc_path[512], max_path[512];
+     snprintf(proc_path, sizeof(proc_path), "%s/proc", base);
+     snprintf(max_path, sizeof(max_path), "%s/cpu.max", base);
+     FILE *fp = fopen(proc_path, "w");
+-    if (!fp) { rmdir(base); return 0; }
+-    fputs("0::/\n", fp);
+-    fclose(fp);
++    if (!fp) { perror(proc_path); rmdir(base); return 1; }
++    int failed = fputs("0::/\n", fp) == EOF;
++    if (fclose(fp) != 0 || failed) { perror(proc_path); remove(proc_path); rmdir(base); return 1; }
+     fp = fopen(max_path, "w");
+-    if (!fp) { remove(proc_path); rmdir(base); return 0; }
+-    /* 1.0 core quota: 100000 us / 100000 us */
+-    fputs("100000 100000\n", fp);
+-    fclose(fp);
++    if (!fp) { perror(max_path); remove(proc_path); rmdir(base); return 1; }
++    failed = fputs(quota, fp) == EOF;
++    if (fclose(fp) != 0 || failed) { perror(max_path); remove(max_path); remove(proc_path); rmdir(base); return 1; }
+ 
+-    setenv("COLIBRI_CGROUP_ROOT", base, 1);
+-    setenv("COLIBRI_PROC_CGROUP", proc_path, 1);
++    if (setenv("COLIBRI_CGROUP_ROOT", base, 1) != 0 ||
++        setenv("COLIBRI_PROC_CGROUP", proc_path, 1) != 0) {
++        perror("setenv"); remove(max_path); remove(proc_path); rmdir(base); return 1;
++    }
+     unsetenv("OMP_NUM_THREADS");
+     unsetenv("COLI_NO_OMP_TUNE");
+ 
+     int logical = omp_get_num_procs();
+     omp_set_num_threads(logical);
+-    coli_omp_tune_threads("test_cg");
++    coli_omp_tune_threads(label);
+ 
+     int got = omp_get_max_threads();
+-    int fail = 0;
+-    if (got != 1) {
+-        fprintf(stderr, "cgroup cpu.max 1-core bound failed: got %d threads, want 1\n", got);
+-        fail = 1;
+-    }
++    int fail = got != want;
++    if (fail)
++        fprintf(stderr, "%s: got %d threads, want %d\n", label, got, want);
+ 
+     unsetenv("COLIBRI_CGROUP_ROOT");
+     unsetenv("COLIBRI_PROC_CGROUP");
+     remove(max_path);
+     remove(proc_path);
+     rmdir(base);
+     return fail;
+ }
+-#else
+-static int test_cgroup_cpu_quota_bound(void) { return 0; }
+ #endif
+ 
+ int main(void)
+ {
+@@ -130,23 +127,13 @@ int main(void)
+     fail |= test_windows_variable_records();
+     fail |= test_windows_hybrid_records();
+ #endif
+ 
+-    fail |= test_cgroup_cpu_quota_bound();
+-
+-    unsetenv("OMP_NUM_THREADS");
+-    unsetenv("COLI_NO_OMP_TUNE");
+-    omp_set_num_threads(logical);
+-    coli_omp_tune_threads("test");
+-    int got = omp_get_max_threads();
+     int perf = coli_performance_cores();   /* a hybrid CPU's P-cores, else 0 */
+     int team = perf > 0 && perf < physical ? perf : physical;
+     int want = team > 0 && team < logical ? team : logical;
+-    if (got != want) {
+-        fprintf(stderr, "default sizing: got %d threads, want %d (physical=%d performance=%d logical=%d)\n",
+-                got, want, physical, perf, logical);
+-        fail = 1;
+-    }
++    fail |= test_team_size("100000 100000\n", "test_cg", 1);
++    fail |= test_team_size("max 100000\n", "default sizing", want);
+ 
+     int sentinel = logical > 1 ? logical - 1 : 1;
+     omp_set_num_threads(sentinel);
+     setenv("OMP_NUM_THREADS", "7", 1);
