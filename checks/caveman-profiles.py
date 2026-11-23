@@ -998,6 +998,7 @@ def hermes_foreign_removal(f):
     prelude = yaml.safe_dump({key: original[key] for key in ("model", "plugins")}, sort_keys=False)
     for separator, flag, recovery in (
         (" ", "enabled: true", True),
+        (" ", "enabled", True),
         (" ", "disabled: true", False),
         (" ", "enabled: .inf", True),
         (" ", "disabled: 0X2", True),
@@ -1006,9 +1007,13 @@ def hermes_foreign_removal(f):
         (" # server\n    ", "disabled: y", False),
         ("\n    ", 'enabled: "n"', True),
         (" # server\n    ", 'disabled: "y"', True),
+        (None, "disabled: >-\n      yes", False),
     ):
-        server = "{command: /foreign/mcp, " + flag + "}"
-        text = prelude + "mcp_servers:\n  caveman-native:" + separator + server + "\n"
+        if separator is None:
+            server = "\n    command: /foreign/mcp\n    " + flag
+        else:
+            server = separator + "{command: /foreign/mcp, " + flag + "}"
+        text = prelude + "mcp_servers:\n  caveman-native:" + server + "\n"
         put(config, text)
         f.cli("enable", "hermes")
         report = json.loads(f.cli("doctor", "hermes", check=False).stdout)

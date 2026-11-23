@@ -348,12 +348,12 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +    if (depth === 0 && (char === "," || char === "}")) {
 +      const raw = token.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
 +      if (raw) {
-+        const pair = raw.match(/^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^:"'\s][^:]*?)[ \t\n]*:([\s\S]*)$/);
-+        if (!pair) throw new Error("Hermes MCP flow field is not a key/value pair");
++        const pair = raw.match(/^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^:"'\s][^:]*?)[ \t\n]*(?::([\s\S]*))?$/);
++        if (!pair) throw new Error("Hermes MCP flow field is not a mapping entry");
 +        const key = hermesYamlTrim(pair[1]!);
-+        const name = /^["']/.test(key) ? hermesYamlScalar(key) : /^(?:[ \t\n[\]{},]|$)/.test(pair[2]!) ? key : raw;
++        const name = /^["']/.test(key) || pair[2] === undefined ? hermesYamlScalar(key) : /^(?:[ \t\n[\]{},]|$)/.test(pair[2]) ? key : raw;
 +        if (typeof name !== "string" || name === "<<" || fields.has(name)) throw new Error("Hermes MCP flow keys are ambiguous");
-+        fields.set(name, pair[2]!);
++        fields.set(name, pair[2] ?? "");
 +      } else if (char === ",") throw new Error("Hermes MCP flow map has an empty field");
 +      if (char === "}") {
 +        if (!/^[ \t\n]*(?:#[^\n]*(?:\n|$)[ \t\n]*)*$/.test(source.slice(i + 1))) {
@@ -376,7 +376,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +
 +function hermesMcpFlag(raw: string): boolean | string | null {
 +  const plain = hermesYamlTrim(raw.replace(/[ \t]+#.*$/, ""));
-+  if (/^["'*!&]/.test(plain)) return hermesYamlScalar(raw);
++  if (/^["'*!&|>]/.test(plain)) return hermesYamlScalar(raw);
 +  if (/^[yn]$/i.test(plain)) return plain.toLowerCase() === "y";
 +  if (/^[+-]?\.(?:inf|Inf|INF)$|^\.(?:nan|NaN|NAN)$/.test(plain)) return true;
 +  if (/^[+-]?(?:0|[1-9][\d_]*(?::[0-5]?\d)*|0[0-7_]+|0b[01_]+|0x[\da-fA-F_]+)$/.test(plain)) {
