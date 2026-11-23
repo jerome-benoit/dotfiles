@@ -77,8 +77,8 @@ Subkeys and passphrase are bundled at `secrets/gpg/keypair.tar.gz.age`, encrypte
 make encrypt-gpg      # one-shot from a trusted machine; then commit the bundle
 ```
 
-Each Home Manager generation retains its encrypted bundle in the Nix store.
-Rebuild the generation after adding or replacing the bundle.
+The Home Manager generation retains the encrypted bundle if it is present, GPG bootstrap is enabled, and the fingerprint is not a placeholder.
+After committing an added or replaced bundle, run `make switch` to activate it.
 
 Recovery requires the repository and identities that can decrypt the SOPS secrets and the GPG bundle. The GPG primary key is not in the bundle; back it up separately offline.
 
