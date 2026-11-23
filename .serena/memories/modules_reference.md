@@ -262,7 +262,7 @@ OpenCode AI assistant:
 - `checks.opencode-desktop` builds Desktop and verifies the bundled CLI, version manifest and copied executable
 - Generated Desktop requires a non-null CLI package selection
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
-- Desktop uses upstream's pinned Electron package
+- OpenCode selects the Electron major; its Nixpkgs input supplies the version.
 - CLI and generated Desktop share OpenCode's dependency hashes. The default derivation prunes nested `node_modules` from the copy traversal to avoid copying them twice; custom dependency derivations are unchanged.
 - See `processes/patch_refresh` for checking dependency hashes against the selected source and Bun toolchain.
 - Warnings if packages unavailable for system

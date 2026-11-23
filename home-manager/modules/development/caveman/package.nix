@@ -102,7 +102,7 @@ let
       # Remove when upstream validates owned values strictly and restores only those values.
       ../../../../patches/caveman-hermes-native-yaml.patch
       # Workaround: Hermes Code Mode loses MCP restrictions and can overwrite config.
-      # Remove when the CLI and companion preserve both contracts.
+      # Remove when CLI launch and discovery honor Hermes MCP filters and refuse unsafe writeback.
       ../../../../patches/caveman-hermes-codemode-scope.patch
       # Workaround: standalone OpenCode Shrink runs in the host's launch directory.
       # Remove when both plugin APIs pass the served project directory to Shrink.

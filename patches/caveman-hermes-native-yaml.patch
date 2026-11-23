@@ -35,7 +35,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  // Hermes provider ids that carry their OWN OAuth credential and the ChatGPT
  // Responses transport. Rewriting one to the generic `custom` provider drops
  // both: the installed resolver then picks chat_completions with
-@@ -10938,10 +10917,520 @@ function hermesGatewayBase(gw: string, keptProvider: string | null): string {
+@@ -10938,10 +10917,532 @@ function hermesGatewayBase(gw: string, keptProvider: string | null): string {
    return appendUrlPath(gw, keptProvider && HERMES_CHATGPT_OAUTH_PROVIDERS.has(keptProvider) ? "/chatgpt" : "/w/hermes/v1");
  }
  
@@ -86,7 +86,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +      && !/^[-+]?(?:[1-9][0-9_]*(?::[0-5]?[0-9])+|[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*)$/.test(plain)
 +      && !/^[0-9]{4}-(?:[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$/.test(plain)) return plain;
    }
-+  throw new Error("Hermes YAML scalar is ambiguous; refusing unsafe native merge");
++  throw new Error(`Hermes YAML ${/^[|>]/.test(raw) ? "multiline value is unsupported" : "scalar is ambiguous"}; refusing unsafe native merge`);
 +}
 +
 +function hermesYamlContent(line: string): boolean {
@@ -251,7 +251,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +    const line = lines[i]!;
 +    if (!hermesYamlContent(line)) continue;
 +    if (/^ *\t/.test(line)) {
-+      if (!layout.scalarTabs?.has(i)) throw new Error("Hermes YAML uses ambiguous indentation");
++      if (!layout.scalarTabs?.has(i)) throw new Error("Hermes YAML mapping is indented with tabs");
 +    }
 +    const width = line.match(/^ */)![0].length;
 +    if (indent < 0) {
@@ -275,7 +275,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +  return entries;
 +}
 +
-+function hermesYamlLeaf(lines: string[], entry: HermesYamlEntry | undefined): string | boolean | null {
++function hermesYamlLeaf(lines: string[], entry: HermesYamlEntry | undefined, decode = hermesYamlScalar): string | boolean | null {
 +  if (!entry) throw new Error("Hermes YAML owned field is missing");
 +  let end = entry.end;
 +  let quotedHashLines: Set<number> | undefined;
@@ -311,7 +311,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +    else if (escaped) contentEnd++; // Preserve the first escaped space or tab.
 +    value = value.slice(0, contentEnd) + (escapedBreak ? "" : " ") + line.replace(/^[ \t]+/, "");
 +  }
-+  return hermesYamlScalar(value);
++  return decode(value);
 +}
 +
 +function hermesYamlRequired(entries: Map<string, HermesYamlEntry>, key: string): HermesYamlEntry {
@@ -326,8 +326,20 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 +}
 +
 +function hermesMcpServerEnabled(lines: string[], server: HermesYamlEntry): boolean {
-+  // A missing enabled field defaults to true. Only a YAML boolean false disables it.
-+  return hermesYamlLeaf(lines, hermesYamlMap(lines, server).get("enabled")) !== false;
++  const fields = hermesYamlMap(lines, server);
++  const flag = (name: string, fallback: boolean): boolean => {
++    const entry = fields.get(name);
++    if (!entry) return fallback;
++    const value = hermesYamlLeaf(lines, entry, (raw) => {
++      const plain = hermesYamlTrim(raw.replace(/[ \t]+#.*$/, "")).toLowerCase();
++      return /^(?:0|1|yes|no|on|off)$/.test(plain) ? plain : hermesYamlScalar(raw);
++    });
++    const word = String(value).trim().toLowerCase();
++    if (/^(?:true|1|yes|on)$/.test(word)) return true;
++    if (/^(?:false|0|no|off)$/.test(word)) return false;
++    return fallback;
++  };
++  return flag("enabled", true) && !flag("disabled", false);
 +}
 +
 +function hermesMcpServerConfigured(text: string): boolean {
@@ -559,7 +571,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    const nativePluginMembership = hermesNamedPluginMembership(source, HERMES_NATIVE_PLUGIN_NAME);
    if (nativePluginMembership === "unhandled") {
      throw new Error("Hermes plugins.enabled or plugins.disabled uses unsupported YAML; refusing to modify configuration");
-@@ -10950,134 +11439,99 @@ function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { te
+@@ -10950,134 +11451,99 @@ function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { te
      throw new Error(`Hermes plugin ${HERMES_NATIVE_PLUGIN_NAME} is explicitly disabled in plugins.disabled; remove that entry before enabling Caveman`);
    }
    const lines = yamlLines(source);
@@ -769,7 +781,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return {
      text: yamlText(lines),
      owned: {
-@@ -11093,29 +11547,20 @@ function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { te
+@@ -11093,29 +11559,20 @@ function hermesNativeConfig(source: string, gw: string, mcpBinary: string): { te
    };
  }
  
@@ -808,7 +820,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    const pluginDir = hermesNativePluginDir();
    const manifestPath = join(pluginDir, "plugin.yaml");
    const initPath = join(pluginDir, "__init__.py");
-@@ -11503,6 +11948,10 @@ function enableProfiles(argv: string[]): { detected: boolean; profiles: AgentPro
+@@ -11503,6 +11960,10 @@ function enableProfiles(argv: string[]): { detected: boolean; profiles: AgentPro
  // progress line per step itself; refusals still throw with their full message.
  function enableNative(argv: string[], { quiet = false }: { quiet?: boolean } = {}) {
    const { detected, profiles } = enableProfiles(argv);
@@ -819,7 +831,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    if (profiles.some((profile) => profile.id !== "aider")) registrationPath();
    const gw = gatewayURL();
    for (const profile of profiles) {
-@@ -11861,42 +12310,7 @@ function restoreNativeOperation(operation: NativeJournal["operations"][number]):
+@@ -11861,42 +12322,7 @@ function restoreNativeOperation(operation: NativeJournal["operations"][number]):
      throw new Error(`${operation.file} changed after enable; refusing destructive disable`);
    }
    if (operation.kind === "hermes-config") {
@@ -863,7 +875,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    }
    const rootBlock = operation.owned?.root_block;
    const tablesBlock = operation.owned?.tables_block;
-@@ -12291,11 +12705,9 @@ function nativeIntegrationStatus(agent: NativeAgent, { probe = true }: { probe?:
+@@ -12291,11 +12717,9 @@ function nativeIntegrationStatus(agent: NativeAgent, { probe = true }: { probe?:
            // a YAML round-trip that changes no value at all drops our marker
            // comments and renormalises quoting, and a literal read called that
            // drift (#1410).
@@ -878,7 +890,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
          } else if (operation.kind === "gemini-settings") {
            const root = parseJsonFileObject(operation.file, current);
            const servers = root.mcpServers && typeof root.mcpServers === "object" && !Array.isArray(root.mcpServers) ? root.mcpServers as Record<string, unknown> : {};
-@@ -12458,15 +12870,17 @@ function nativeIntegrationStatus(agent: NativeAgent, { probe = true }: { probe?:
+@@ -12458,15 +12882,17 @@ function nativeIntegrationStatus(agent: NativeAgent, { probe = true }: { probe?:
    // questions it cannot answer:
    //   - would Hermes LOAD the plugin? It applies `disabled` first, so a user
    //     who lists caveman_native there has not taken our plugins.enabled entry
@@ -900,7 +912,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      warnings.push(`Hermes lists ${HERMES_NATIVE_PLUGIN_NAME} in plugins.disabled, so it loads no Caveman lifecycle hooks; remove that entry to turn them back on (\`caveman disable hermes\` still undoes the install)`);
    }
    if (agent === "hermes" && installed && !hermesMcpPresent) {
-@@ -14806,13 +15220,11 @@ function nativeMcpRegistered(agent: "claude" | "codex" | "hermes" | "gemini" | "
+@@ -14806,13 +15232,11 @@ function nativeMcpRegistered(agent: "claude" | "codex" | "hermes" | "gemini" | "
      try {
        if (agent === "codex") return typeof operation.owned?.tables_block === "string" && codexNativeTables(codexTomlLines(current.toString("utf8")), operation.owned.tables_block).get("mcp_servers.caveman") === true;
        // A null block: the user's own caveman-native entry was already there.
@@ -918,7 +930,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        }
        if (agent === "pi") return current.toString("utf8").includes("caveman:native-pi");
        const servers = objectValue(parseJsonFileObject(operation.file, current).mcpServers);
-@@ -14988,8 +15400,8 @@ function stripMarkedBlock(text: string, begin: string, end: string): { text: str
+@@ -14988,8 +15412,8 @@ function stripMarkedBlock(text: string, begin: string, end: string): { text: str
  // skipped too, so a header comment keeps describing the file.
  function yamlBodyStart(lines: string[]): number {
    let i = 0;
@@ -929,7 +941,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return i;
  }
  
-@@ -15001,8 +15413,8 @@ function yamlBodyStart(lines: string[]): number {
+@@ -15001,8 +15425,8 @@ function yamlBodyStart(lines: string[]): number {
  function yamlListItemIndent(lines: string[], keyAt: number, end: number): number | null {
    for (let i = keyAt + 1; i < end; i++) {
      const line = lines[i]!;
@@ -940,7 +952,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      if (item) return item[1]!.length;
      return null;
    }
-@@ -15030,431 +15442,16 @@ function sectionHasChildKey(lines: string[], section: { start: number; end: numb
+@@ -15030,431 +15454,16 @@ function sectionHasChildKey(lines: string[], section: { start: number; end: numb
    return false;
  }
  
@@ -1381,7 +1393,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  }
  
  function hermesMcpMarkers(serverName: string): { begin: string; end: string } {
-@@ -19865,227 +19862,39 @@ def register(ctx):
+@@ -19865,227 +19874,39 @@ def register(ctx):
  
  type HermesPluginMembership = "enabled" | "disabled" | "not-enabled" | "unhandled";
  
@@ -1634,7 +1646,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
  }
  
  function hermesPluginInstallConfigReady(): boolean {
-@@ -20099,19 +19908,8 @@ function hermesPluginInstallConfigReady(): boolean {
+@@ -20099,19 +19920,8 @@ function hermesPluginInstallConfigReady(): boolean {
        return false;
      }
    }
@@ -1656,7 +1668,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    return true;
  }
  
-@@ -20126,36 +19924,22 @@ function enableHermesPluginInConfig(): boolean {
+@@ -20126,36 +19936,22 @@ function enableHermesPluginInConfig(): boolean {
        return false;
      }
    }
@@ -1704,7 +1716,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        return false;
      }
      if (enabledLine >= 0) {
-@@ -20164,7 +19948,9 @@ function enableHermesPluginInConfig(): boolean {
+@@ -20164,7 +19960,9 @@ function enableHermesPluginInConfig(): boolean {
        const pad = " ".repeat(yamlListItemIndent(lines, enabledLine, plugins.end) ?? 4);
        lines.splice(enabledLine + 1, 0, `${pad}${HERMES_PLUGIN_ENABLE_BEGIN}`, `${pad}- ${HERMES_PLUGIN_NAME}`, `${pad}${HERMES_PLUGIN_ENABLE_END}`);
      } else {
@@ -1715,7 +1727,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      }
    } else {
      if (lines.length > 0 && lines[lines.length - 1]!.trim() !== "") lines.push("");
-@@ -20235,7 +20021,10 @@ function disableHermesPluginInConfig(): boolean {
+@@ -20235,7 +20033,10 @@ function disableHermesPluginInConfig(): boolean {
  
  function installShrinkPluginHermes(): boolean {
    registrationPath();
@@ -1727,7 +1739,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    try {
      mkdirSync(hermesPluginDir(), { recursive: true });
      writeFileSync(hermesPluginManifestPath(), hermesPluginManifestSource());
-@@ -20245,7 +20034,8 @@ function installShrinkPluginHermes(): boolean {
+@@ -20245,7 +20046,8 @@ function installShrinkPluginHermes(): boolean {
      return false;
    }
    if (!enableHermesPluginInConfig()) {
@@ -1737,7 +1749,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      return false;
    }
    return true;
-@@ -20318,6 +20108,10 @@ function shrinkHookMarkerPath(agentId: string): string {
+@@ -20318,6 +20120,10 @@ function shrinkHookMarkerPath(agentId: string): string {
    return join(cavemanHome(), "hooks", `${agentId}.json`);
  }
  function shrinkHookInstalled(agentId: string): boolean {

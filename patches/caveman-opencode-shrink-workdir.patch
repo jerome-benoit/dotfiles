@@ -1,13 +1,11 @@
 # base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch, caveman-hermes-codemode-scope.patch
 # intent: run the OpenCode Shrink subprocess in the served project for both plugin APIs.
-# upstream: the pinned CLI now isolates native plugin factories and routes V2 Stop through experimental.idle (#1484, #1539).
-# issues: https://github.com/JuliusBrussee/caveman/issues/1443 is historical cwd context; the standalone Shrink plugin still inherits the host cwd.
 # removal: remove when both Shrink adapters pass their served project directory to the subprocess.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -19653,11 +19653,12 @@ function opencodeShrinkPluginPreamble(): string {
+@@ -19665,11 +19665,12 @@ function opencodeShrinkPluginPreamble(): string {
  import { execFileSync } from "node:child_process";
  
  // Returns the rewritten command, or undefined to leave the original alone.
@@ -21,7 +19,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        encoding: "utf8",
        windowsHide: true,
      });
-@@ -19675,10 +19676,10 @@ function rewrite(command) {
+@@ -19687,10 +19688,10 @@ function rewrite(command) {
  // V1: a named factory returning a hook map, mutating output.args.command.
  function opencodeShrinkPluginHookMapV1(): string {
    return `
@@ -34,7 +32,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
      if (next) output.args.command = next;
    },
  });
-@@ -19699,7 +19700,7 @@ ${extra}  async setup(ctx) {
+@@ -19711,7 +19712,7 @@ ${extra}  async setup(ctx) {
        if (event?.tool !== "bash" && event?.tool !== "shell") return;
        const input = event.input;
        if (!input || typeof input !== "object") return;
