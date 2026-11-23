@@ -1,6 +1,7 @@
 # base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch, caveman-hermes-codemode-scope.patch
 # intent: run the OpenCode Shrink subprocess in the served project for both plugin APIs.
+# upstream: https://github.com/JuliusBrussee/caveman/issues/1578
 # removal: remove when both Shrink adapters pass their served project directory to the subprocess.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts

@@ -1,7 +1,7 @@
 # base: v0.10.5 (033eea1705c5ae953fe7cd7a5e7e7c45317e0dfe)
 # prerequisites: none
 # intent: skip the Darwin ps comparison when /bin/ps cannot read the live process.
-# upstream: local sandbox accommodation for unavailable ps ground truth.
+# upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3497
 # removal: remove when upstream skips the Darwin comparison if the reference is unavailable, or supplies a reliable process-start reference in the Nix sandbox. Native identity and liveness coverage must remain.
 diff --git a/crates/pa-types/src/platform/process.rs b/crates/pa-types/src/platform/process.rs
 --- a/crates/pa-types/src/platform/process.rs

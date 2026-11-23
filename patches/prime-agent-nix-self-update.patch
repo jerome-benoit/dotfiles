@@ -1,7 +1,7 @@
 # base: v0.10.5 (033eea1705c5ae953fe7cd7a5e7e7c45317e0dfe)
 # prerequisites: none
 # intent: refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
-# upstream: Nix ownership policy; no generic upstream fix required.
+# upstream: https://github.com/PrimeIntellect-ai/prime-agent/discussions/3498 requests a managed-install guard.
 # removal: remove when every managed update entry refuses before effects while --check remains read-only.
 diff --git a/crates/pa-cli/src/client_update.rs b/crates/pa-cli/src/client_update.rs
 --- a/crates/pa-cli/src/client_update.rs
