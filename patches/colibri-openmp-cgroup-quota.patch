@@ -2,7 +2,7 @@
 # prerequisites: none
 # intent: honor cgroup CPU quotas when the physical CPU topology is unavailable.
 # upstream: https://github.com/JustVugg/colibri/issues/3038
-# removal: remove when upstream applies cgroup CPU quotas without sysfs topology.
+# removal: remove when upstream honors quotas without sysfs CPU topology and isolates the default sizing test from ambient quotas.
 diff --git a/c/omp_tune.h b/c/omp_tune.h
 --- a/c/omp_tune.h
 +++ b/c/omp_tune.h

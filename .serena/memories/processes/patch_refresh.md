@@ -109,10 +109,17 @@ After updating the Colibri source, use `checks/gpu.nix` to verify the CPU,
 CUDA, and Metal install plans. Check that `CUDA_GLIBC_MATH_COMPAT=0` keeps
 the upstream compatibility header out of the CUDA commands.
 
-Retire `colibri-openmp-cgroup-quota.patch` only after verifying the unpatched
-`test_omp_tune` with OpenMP enabled, sysfs CPU topology masked, and more than
-one logical CPU available. Require the `test_cg` diagnostic to confirm the
-synthetic quota reduced the team to one thread; a passing exit alone is insufficient.
+Before retiring `colibri-openmp-cgroup-quota.patch`, run the unpatched
+`test_omp_tune` with OpenMP enabled, `/sys/devices/system/cpu` masked, and more
+than one logical CPU available. Verify that both cases run:
+
+- A synthetic one-CPU quota reduces the OpenMP team to one thread. Check the
+  `test_cg` diagnostic or inspect the team size before and after tuning.
+- The default sizing case keeps its expected team size under a finite ambient
+  quota below that size. Verify the test uses its own unlimited fixture or
+  otherwise isolates this assertion from the ambient quota.
+
+A passing exit alone does not prove either condition.
 
 ### Hermes local terminal
 
