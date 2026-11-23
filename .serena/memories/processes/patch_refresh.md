@@ -108,6 +108,9 @@ After updating the Colibri source, use `checks/gpu.nix` to verify the CPU,
 CUDA, and Metal install plans. Check that `CUDA_GLIBC_MATH_COMPAT=0` keeps
 the upstream compatibility header out of the CUDA commands.
 
+Retire `colibri-openmp-cgroup-quota.patch` only when the unpatched
+`test_omp_tune` honors its synthetic one-core quota without sysfs CPU topology.
+
 ### Hermes local terminal
 
 Keep the Hermes patches inside `nix/python.nix`'s workspace package overlay:

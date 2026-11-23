@@ -1,0 +1,33 @@
+# base: JustVugg/colibri e479104ae01bdc40ce81e675299b1d230891b321
+# prerequisites: none
+# intent: honor cgroup CPU quotas when the physical CPU topology is unavailable.
+# removal: remove when upstream applies cgroup CPU quotas without sysfs topology.
+diff --git a/c/omp_tune.h b/c/omp_tune.h
+--- a/c/omp_tune.h
++++ b/c/omp_tune.h
+@@ -250,10 +250,10 @@ static inline void coli_omp_tune_threads(const char *engine)
+     if (getenv("OMP_NUM_THREADS")) return; /* l'utente comanda */
+ 
+     int phys = coli_physical_cores();
+-    if (phys <= 0) return;                 /* sconosciuto -> default di OpenMP */
+-    int perf = coli_performance_cores();   /* a hybrid CPU: its P-cores pace the team */
+-    int team = perf > 0 && perf < phys ? perf : phys;
+     int logical = omp_get_max_threads();
++    /* Keep the OpenMP default without topology, but still apply the quota. */
++    int perf = phys > 0 ? coli_performance_cores() : 0;
++    int team = perf > 0 && perf < phys ? perf : (phys > 0 ? phys : logical);
+ 
+     double cg_quota = 0.0;
+     int cg_threads = compat_cgroup_cpu_limit(&cg_quota);
+@@ -270,9 +270,9 @@ static inline void coli_omp_tune_threads(const char *engine)
+     omp_set_num_threads(team);
+     if (bounded_by_cgroup)
+         fprintf(stderr, "[OMP] %s: %d threads bounded by container CPU quota "
+-                        "(cgroup: %.2f cores, %d physical cores on host); "
++                        "(cgroup: %.2f cores); "
+                         "set OMP_NUM_THREADS=<n> to override\n",
+-                engine, team, cg_quota, phys);
++                engine, team, cg_quota);
+     else if (team < phys)
+         fprintf(stderr, "[OMP] %s: %d performance-core threads instead of %d logical CPUs "
+                         "(%d physical cores, the efficiency cores left out: the slowest thread "
