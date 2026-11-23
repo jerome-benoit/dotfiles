@@ -22,7 +22,7 @@
 
 ## Nix Module Structure
 
-Every module follows this pattern:
+For a module with its own `enable` option, use this pattern:
 
 ```nix
 { config, lib, pkgs, ... }:

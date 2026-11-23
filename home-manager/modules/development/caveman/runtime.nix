@@ -64,7 +64,9 @@ stdenvNoCC.mkDerivation {
     wrapProgram "$out/bin/caveman-browse" \
       --set-default CAVEMAN_BROWSE_CHROME ${lib.escapeShellArg browserExecutable}
     # Workaround: the prebuilt companion can discover Hermes independently of the CLI.
-    # Remove with the Hermes Code Mode scope patch.
+    # Remove only when the pinned companion requires explicit JSON config and
+    # refuses automatic discovery even with a config, or safely discovers Hermes
+    # servers without bypassing MCP filters or mutating Hermes configuration.
     wrapProgram "$out/bin/caveman-mcp" --run ${lib.escapeShellArg ''
       if [[ ''${1-} == codemode ]]; then
         (

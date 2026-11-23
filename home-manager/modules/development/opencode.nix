@@ -114,7 +114,9 @@ let
       # electron, so the host nixpkgs config does not reach it.
       (desktop.override { opencode = cfg.opencodePackage; }).overrideAttrs (previousAttrs: {
         # Workaround: version-only CLI stages collide across Nix builds.
-        # Remove when upstream keys stages by identity and retains adopted executables.
+        # Remove with the substitution below when upstream isolates distinct CLI
+        # builds of the same version, architecture, and channel, and retains both
+        # bundled and adopted stages for the current architecture.
         patches = (previousAttrs.patches or [ ]) ++ [ ../../../patches/opencode-nix-cli-stages.patch ];
         postPatch = (previousAttrs.postPatch or "") + ''
           substituteInPlace packages/desktop/src/main/service/desktop-cli.ts \

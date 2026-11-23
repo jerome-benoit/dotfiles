@@ -13,7 +13,9 @@ let
   # Placeholder from secrets/default.nix.
   isPlaceholder = fingerprint == "0000000000000000000000000000000000000000";
 
-  bundle = "${toString ../../..}/secrets/gpg/keypair.tar.gz.age";
+  bundlePath = ../../../secrets/gpg/keypair.tar.gz.age;
+  # Retain only the encrypted bundle in the activation closure.
+  bundle = if builtins.pathExists bundlePath then "${bundlePath}" else "";
   ageIdentity = config.sops.age.keyFile;
   stamp = "${config.xdg.stateHome}/gpg-bootstrap/bundle.sha256";
 in
@@ -32,14 +34,15 @@ in
         SHA256=${lib.getExe' pkgs.coreutils "sha256sum"}
         CUT=${lib.getExe' pkgs.coreutils "cut"}
         AWK=${lib.getExe' pkgs.gawk "awk"}
+        BUNDLE=${lib.escapeShellArg bundle}
 
         [[ -r "${ageIdentity}" ]] || exit 0
-        [[ -r "${bundle}" ]] || {
-          echo "[gpg] ${bundle} not found; run 'make encrypt-gpg' to create it" >&2
+        [[ -r "$BUNDLE" ]] || {
+          echo "[gpg] secrets/gpg/keypair.tar.gz.age missing from the flake; add the bundle to Git, or run 'make encrypt-gpg' first if it does not exist" >&2
           exit 0
         }
 
-        EXPECTED=$("$SHA256" "${bundle}" | "$CUT" -d' ' -f1)
+        EXPECTED=$("$SHA256" "$BUNDLE" | "$CUT" -d' ' -f1)
         ACTUAL=
         [[ -r "${stamp}" ]] && ACTUAL=$(<"${stamp}")
 
@@ -56,7 +59,7 @@ in
         TMP=$(mktemp -d 2>/dev/null || mktemp -d -t gpg-bootstrap)
         trap 'rm -rf "$TMP"' EXIT INT TERM HUP
 
-        run "$AGE" -d -i "${ageIdentity}" -o "$TMP/bundle.tar.gz" "${bundle}"
+        run "$AGE" -d -i "${ageIdentity}" -o "$TMP/bundle.tar.gz" "$BUNDLE"
         run "$TAR" --use-compress-program="$GZIP" -xf "$TMP/bundle.tar.gz" -C "$TMP"
         run "$GPG" --batch --pinentry-mode loopback \
           --passphrase-file "$TMP/gpg-passphrase.txt" \

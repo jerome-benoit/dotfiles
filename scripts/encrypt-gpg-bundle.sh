@@ -24,8 +24,8 @@ if [ -z "$FP" ]; then
   FP=$(git config --get user.signingkey 2>/dev/null || true)
 fi
 if [ -z "$FP" ]; then
-  echo "Usage: $0 <fingerprint-or-keyid>" >&2
-  echo "  or run 'make decrypt-private' first, or set git config user.signingkey." >&2
+  echo "Usage (direct invocation): $0 <fingerprint-or-keyid>" >&2
+  echo "For 'make encrypt-gpg', set identity.gpg.fingerprint in private configuration or set Git's user.signingkey." >&2
   exit 1
 fi
 

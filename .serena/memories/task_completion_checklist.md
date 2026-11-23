@@ -2,28 +2,21 @@
 
 ## Before Committing Any Changes
 
-### 0. Decrypt Private Configuration (if needed for evaluation)
+### 0. Choose an Evaluation Mode
 
-```bash
-make decrypt-private  # Required for impure Nix evaluation
-```
-
-Skip decryption for pure checks, which use placeholder private configuration.
-See `suggested_commands`, **Pure and private evaluation**, for the distinction.
+- [ ] Use pure checks unless the task requires real private configuration.
+- [ ] Use the managed build or switch for real configuration. Use the README's
+      [inspection procedure](../../README.md#private-configuration-and-credentials)
+      only for raw impure evaluation. Preserve any edits and clean up before using
+      managed commands.
 
 ### 1. Format Code
 
-```bash
-nix fmt
-```
+- [ ] Format changed Nix files using the [README](../../README.md#formatting).
 
 ### 2. Run All Checks
 
-```bash
-nix flake check
-```
-
-This validates:
+Run the full checks in [Validation](../../README.md#validation). Confirm that:
 
 - [ ] All .nix files are properly formatted
 - [ ] No broken symlinks in build output
@@ -34,21 +27,21 @@ This validates:
 
 ### 3. Test Changes Locally
 
-```bash
-hm                    # Apply changes (from within a specialisation)
-# or
-make switch SPEC=work # Apply with explicit specialisation
-```
+- [ ] Build the actual Home Manager configuration without activating it (see
+      [Validation](../../README.md#validation)).
+- [ ] If activation is needed, use [Home Manager](../../README.md#home-manager)
+      and confirm the expected specialisation is active.
 
 ### 4. Clean Secrets
 
-```bash
-make clean            # Remove decrypted plaintext from disk
-```
+- [ ] Remove manually decrypted files and temporary artifacts. If an operation
+      was interrupted, follow the
+      [recovery procedure](../../README.md#private-configuration-and-credentials)
+      before removing any lock or editor workspace.
 
 ## Code Quality Checklist
 
-- [ ] Follow module structure pattern (options + config with mkIf)
+- [ ] For modules with an `enable` option, follow [Nix Module Structure](code_style_conventions.md#nix-module-structure)
 - [ ] Use appropriate lib functions (mkIf, mkDefault, mkForce, mkMerge)
 - [ ] Add assertions for module dependencies
 - [ ] Add warnings for non-fatal issues
@@ -59,63 +52,14 @@ make clean            # Remove decrypted plaintext from disk
 
 ## Adding New Modules
 
-1. **Create module file** in appropriate category:
-
-   ```
-   home-manager/modules/<category>/<name>.nix
-   ```
-
-2. **Follow standard structure**:
-
-   ```nix
-   { config, lib, pkgs, ... }:
-   let
-     cfg = config.modules.<category>.<name>;
-   in
-   {
-     options.modules.<category>.<name> = {
-       enable = lib.mkEnableOption "<name> configuration";
-     };
-
-     config = lib.mkIf cfg.enable {
-       # Configuration here
-     };
-   }
-   ```
-
-3. **Add import** to category's `default.nix`:
-
-   ```nix
-   imports = [
-     # ... existing imports
-     ./<name>.nix
-   ];
-   ```
-
-4. **Add to profile.nix** (both desktop and server):
-
-   ```nix
-   desktopModules = {
-     <category> = {
-       # ... existing
-       <name> = true;  # or false for server
-     };
-   };
-   ```
-
-5. **Wire up in home.nix**:
-
-   ```nix
-   modules.<category> = {
-     # ... existing
-     <name>.enable = profileModules.<category>.<name>;
-   };
-   ```
-
-6. **Run checks**:
-   ```bash
-   nix flake check
-   ```
+1. Create `home-manager/modules/<category>/<name>.nix`. If the module has an
+   `enable` option, follow [Nix Module Structure](code_style_conventions.md#nix-module-structure).
+2. Add the module to the category's `default.nix`. See
+   [Import Pattern](code_style_conventions.md#import-pattern).
+3. If a profile controls the module, add its defaults in
+   `home-manager/modules/core/profile.nix` and wire them in `home-manager/home.nix`.
+   See [Profile System](code_style_conventions.md#profile-system).
+4. Follow **Run All Checks** above.
 
 ## Adding New Themes
 

@@ -1,7 +1,7 @@
 # base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
 # intent: keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs.
-# upstream: PR1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposed V1 factory fix, not V2 Stop.
+# upstream: PR1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposal includes V1 factory isolation and V2 experimental.idle Stop routing.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1484 exact factory; #1443 historical cwd; https://github.com/JuliusBrussee/caveman/issues/1539 exact V2 Stop routing; no host runtime reproduction claimed.
 # removal: remove only when both APIs isolate factories, preserve cwd and V2 emits Stop from experimental.idle.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts

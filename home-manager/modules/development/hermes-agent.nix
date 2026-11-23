@@ -61,7 +61,10 @@ let
         ]
         ++ lib.optionals miseEnabled [
           # Workaround: local login profiles can put their tools ahead of inherited shims.
-          # Remove when Hermes provides an additive post-login PATH hook.
+          # Remove with the resolver substitution when upstream restores mise shim
+          # priority after profiles and inherited PATH repair, before login snapshots
+          # and opted-in background commands. Bootstrap failures must not fall back
+          # to non-login execution, and unmarked sessions must stay unchanged.
           ../../../patches/hermes-agent-terminal-mise-shims.patch
         ];
       postPatch =

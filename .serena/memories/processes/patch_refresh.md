@@ -22,39 +22,13 @@ Use `<package>-<purpose>.patch`, in lowercase with hyphens. Start with the
 name of the package being patched, not an executable or module alias
 (e.g. `agent-of-empires-cursor-executable.patch`).
 
-## Current Patches
+## Patch Metadata
 
 Each patch records its base, intent and prerequisites. Keep relevant upstream
 provenance and tracked issues; omit empty issue fields. Document a concrete
 replacement condition when applicable, not a circular condition for local policy.
 Proposals are not fixes in the pin, and partial coverage stays explicit.
 OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
-
-- `patches/agent-of-empires-cursor-executable.patch` — detect and launch the packaged cursor-agent executable instead of agent.
-- `patches/caveman-blocks-config-root.patch` — resolve the OpenCode hook profile against the absolute effective config root. Prerequisites: caveman-blocks-nix-hooks.patch, caveman-blocks-opencode2.patch (in order).
-- `patches/caveman-blocks-nix-hooks.patch` — link the selected profile wrapper as the installed hook without copying the executable.
-- `patches/caveman-blocks-opencode2.patch` — support OpenCode 1/2 with invocation-scoped hints and location-relative workdirs.
-- `patches/caveman-cli-config-root.patch` — require raw absolute OpenCode override with existing root precedence. Prerequisites: caveman-opencode-lifecycle.patch.
-- `patches/caveman-hermes-codemode-scope.patch` — exclude Hermes from Code Mode launch and MCP discovery. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch (in order).
-- `patches/caveman-hermes-native-yaml.patch` — use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch.
-- `patches/caveman-installer-config-root.patch` — require raw absolute override in installer and copied plugin; preserve XDG fallback. Prerequisites: caveman-nix-installer-paths.patch.
-- `patches/caveman-installer-settings-permissions.patch` — local policy: preserve existing settings modes during atomic replacement; new files remain 0600.
-- `patches/caveman-nix-installer-paths.patch` — use profile-local interpreters and isolate mutable Claude payload ownership. Prerequisites: caveman-installer-settings-permissions.patch (integration tests; bridge production independent).
-- `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
-- `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
-- `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
-- `patches/colibri-openmp-cgroup-quota.patch` — honor Linux cgroup CPU quotas without sysfs CPU topology and isolate the OpenMP test from ambient quotas.
-- `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
-- `patches/hermes-agent-nix-provider-snapshot.patch` — make copied provider directories owner-writable without changing store permissions.
-- `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
-- `patches/opencode-nix-cli-stages.patch` — isolate Nix CLI builds and retain bundled and adopted stages for the current architecture.
-- `patches/opencode-nvim-execution-lifecycle.patch` — register native OpenCode execution lifecycle events and map completion or interruption to idle status.
-- `patches/prime-agent-bundled-docs.patch` — point provider login guidance at the bundled, version-matched upstream README.
-- `patches/prime-agent-darwin-tests.patch` — skip the Darwin ps comparison when /bin/ps cannot read the live process.
-- `patches/prime-agent-nix-daemon-generation.patch` — verify Nix executable identity on probes, session handshakes and reconnects.
-- `patches/prime-agent-nix-self-update.patch` — refuse managed CLI/core/TUI self-update before effects; preserve read-only --check.
-- `patches/prime-agent-python-skill-source.patch` — bind Nix kernel imports to selected non-project skill sources without installing dependencies.
-- `patches/prime-agent-release-offline.patch` — use the catalog boolean parser for release-check PI_OFFLINE.
 
 ### Partition and source equivalence
 
@@ -95,7 +69,7 @@ upstream deliberately applies 0600 instead.
    Provenance-only updates with unchanged code and consumers do not require
    aggregate runtime checks.
    Apply the package-specific checks below and record any outstanding validation.
-6. Update the use-site explanation, removal condition and inventory as needed.
+6. Update the use-site explanation and patch headers as needed.
    Commit or push only when requested.
 7. For confirmed upstream bugs, search open and closed issues and pull requests
    by affected symbol, symptom, and cause. Read the matches before reporting.
@@ -130,10 +104,13 @@ would make workspace lock reads depend on a derivation. Preserve the Darwin
 
 Apply the mise patch when `programs.mise` is enabled and has a package. The
 gateway marker enables shim restoration at runtime.
-Keep declarative plugin directory links unchanged. The snapshot workaround
-changes directory permissions only on Hermes-owned copies, including incomplete
-copies before cleanup. `checks/hermes-provider.py` covers discovery and cleanup
-for read-only plugin sources.
+Keep declarative plugin directory links unchanged. Hermes issue #156560 tracks
+cleanup failures; the local patch makes only owned copies writable before
+publication and cleanup. Before retiring it, verify provider discovery from a
+read-only source, cleanup after exit and failed partial copies, and no mutation
+of source files, modes or external link targets. Use `checks/hermes-provider.py`
+for discovery and cleanup and verify source preservation separately.
+The regressions must exercise an unprivileged process.
 
 For source deltas in provider cache ceilings, cwd recovery, secret routing or
 offline TTS, copy only the selected upstream tests and run the installed wheel with
@@ -148,6 +125,12 @@ Gateway mise mode must not turn a failed post-profile activation into a successf
 non-login fallback. Preserve the local fallback-decision override only for the
 gateway marker, and keep the regression where an explicit init file causes
 activation to fail after a valid gateway launch. Unmarked fallback stays upstream.
+
+Retire the mise patch and its resolver substitution together when the selected
+source restores shim priority after profiles and inherited PATH repair, before
+login snapshots and opted-in background commands. Bootstrap failure must not
+fall back to non-login execution in gateway mise mode; unmarked sessions and
+background commands without `restore_login_path` must keep upstream behavior.
 
 When patched code or relevant upstream assumptions change, run
 `checks/hermes-mise.py` through the public Hermes check.
@@ -199,6 +182,15 @@ If a calculation is interrupted, inspect completed phases and retained outputs
 before retrying. Hash a completed dependency output directly instead of rebuilding it.
 Restart only the unfinished phase, with a bounded deadline.
 
+### OpenCode Desktop stages
+
+Retire the stage patch and adjacent `postPatch` substitution together when the
+selected source isolates distinct CLI builds with the same version, architecture,
+and channel, and retains both bundled and adopted stages for the current
+architecture. Test same-version Nix rebuilds; channel isolation alone is not
+enough. Assess the separate `OPENCODE_CLI_DIST` fix against the Desktop build's
+actual input directory.
+
 ### Caveman source pin
 
 The Caveman CLI and installer use the `github:JuliusBrussee/caveman/main`
@@ -206,11 +198,24 @@ source input. Upstream has no flake, so `flake = false` supplies its source
 to the local derivations, like other source-built packages in this repository.
 `flake.lock` records the revision; do not duplicate it in the JSON asset pin.
 
-After updating the input, `scripts/fix-nix-hashes.sh update <base-ref>` refreshes
-the filtered CLI pnpm hash, then reads `packages/cli/BINARY_RELEASE` and
-`BLOCKS_RELEASE` from the locked source. All six prebuilt companions and license
-notices follow the binary release; Blocks keeps its own source and vendor hash.
-Do not infer companion versions from the CLI's `package.json`.
+Run `bash scripts/fix-nix-hashes.sh update <base-ref>` only in an isolated CI
+checkout with a clean index and working tree. Commit the lock change before
+running it: selection compares `HEAD` against the merge base. The updater sets
+repository-local Git author config, stages all three pin paths and commits the
+whole index if nonempty. It does not push.
+
+There is no standalone, non-committing updater command. For local recalculation,
+use the committed candidate lock in a clean temporary clone. Replay the
+`caveman_pnpm_hash` and `blocks_vendor_hash` Nix commands from
+`scripts/fix-nix-hashes.sh` with that clone and its locked Nixpkgs. Accept only
+the expected fixed-output mismatch. Read `packages/cli/BINARY_RELEASE` and
+`BLOCKS_RELEASE` from the evaluated `inputs.caveman.outPath`. Render the pinned
+URL templates for the declared platforms and names. Use
+`nix store prefetch-file --json` for each runtime asset and license, and add
+`--unpack` for the Blocks source archive. Use that unpacked hash for the Blocks
+vendor probe. Review and transfer only the intended JSON changes. All six
+companions and license notices follow the binary release; Blocks has its own
+source and vendor hash. Do not infer these versions from the CLI's `package.json`.
 
 Keep the CLI's `supersede-stdin` capability check: older Cavemem binaries store
 the literal flag as replacement text. Check real stdin replacement, history and
@@ -233,6 +238,12 @@ hermes` launches Hermes without a Code Mode overlay. With another supported
 agent, verify that Code Mode discovers its MCP servers but excludes Hermes
 servers. Check that `caveman-mcp codemode` accepts an explicit JSON config,
 rejects a missing `--config`, and rejects automatic discovery even with a config.
+
+Retire the CLI patch when the pinned CLI preserves Hermes MCP filters in launch
+and discovery and refuses unsafe configuration writeback. Assess the wrapper
+against the pinned `caveman-mcp` release independently: it must require explicit
+JSON configuration and reject automatic discovery even with a config, or
+discover Hermes safely without bypassing its filters or changing its configuration.
 
 ### Caveman native integrations
 
@@ -291,10 +302,13 @@ recomputing an invocation clears its previous hint. Keep both API paths covered
 in the installed-plugin check and the patch's e2e driver.
 
 Blocks package checks run the CLI suite, `internal/hook` and the `hooks` e2e
-scenario. Verify effective-root precedence, detection, install/status/uninstall
-and relative-root refusal without changing hook configs or launcher targets.
-Preserve foreign files and stable launcher targets; do not assert the printed
-representation of OpenCode paths.
+scenario.
+
+Before dropping the config-root patch, verify detection and install/status/uninstall
+share `OPENCODE_CONFIG_DIR`, `XDG_CONFIG_HOME/opencode`, then `~/.config/opencode`
+precedence. A relative effective root must fail without writes. Preserve foreign
+files, alternate roots and stable launcher targets. Assert filesystem behavior,
+not the printed representation of OpenCode paths.
 The plugin e2e scenario requires Bun; the installed-runtime check exercises both
 OpenCode APIs under Node.
 
@@ -465,14 +479,23 @@ use a flat `patches/<name>.patch` path.
 
 Resolve the source revision from its actual pin. The `flake.lock` example in
 step 1 applies only to flake inputs, not the current JSON-pinned packages.
-When refreshing a Hermes fork patch, follow `hermes_agent_sync_main_patched`
-before updating its input.
+Hermes tracks `NousResearch/hermes-agent` directly. Follow the historical
+`hermes_agent_sync_main_patched` procedure only for an explicit migration back
+to that fork, not for routine patch or lock refreshes.
 
 ### 1. Check PR status against locked rev
 
 ```bash
-LOCKED_REV=$(jq -r '.nodes["<input-name>"].locked.rev' flake.lock)
-gh pr view <PR_NUMBER> --repo <OWNER>/<REPO> --json state,mergeCommit,headRefOid
+INPUT='<input-name>'
+LOCKED_REV=$(jq -er --arg input "$INPUT" '
+  .nodes[.nodes[.root].inputs[$input]].locked.rev
+  | strings | select(test("^[0-9a-fA-F]{40}$"))
+' flake.lock) &&
+REPO='<OWNER>/<REPO>' &&
+PR_NUMBER='<PR_NUMBER>' &&
+PR_JSON=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+  --json state,mergeCommit,baseRefOid,headRefOid) &&
+printf '%s\n' "$PR_JSON"
 ```
 
 If `state: "MERGED"`, verify merge is included in locked rev:
@@ -480,7 +503,10 @@ If `state: "MERGED"`, verify merge is included in locked rev:
 ```bash
 # "ahead" or "identical" → merge included; inspect coverage of each carried change
 # "behind" or "diverged" → ancestry does not establish inclusion
-gh api repos/<OWNER>/<REPO>/compare/<mergeCommitSha>...$LOCKED_REV --jq '.status'
+MERGE_SHA=$(jq -er '
+  .mergeCommit.oid | strings | select(test("^[0-9a-fA-F]{40}$"))
+' <<<"$PR_JSON") &&
+  gh api "repos/$REPO/compare/$MERGE_SHA...$LOCKED_REV" --jq '.status'
 ```
 
 - If the merge is included, remove only changes covered by the pinned source.
@@ -491,11 +517,28 @@ gh api repos/<OWNER>/<REPO>/compare/<mergeCommitSha>...$LOCKED_REV --jq '.status
   keep it locally or drop it.
 - If `state: "OPEN"` or changes remain after a merge, continue below.
 
-### 2. Download fresh PR diff
+### 2. Generate a candidate from the observed commits
+
+Use the base and head OIDs from step 1, not a second request for the live PR
+diff. Fetch both commits in a temporary clone or repository. For a fork, the PR
+head ref can be used to obtain the objects only if it resolves to the observed
+head OID. Stop and re-observe the PR if the selected commits cannot be obtained.
 
 ```bash
-gh pr diff <PR_NUMBER> --repo <OWNER>/<REPO> > /tmp/fresh.patch
+PR_BASE=$(jq -er '.baseRefOid | strings | select(test("^[0-9a-fA-F]{40}$"))' <<<"$PR_JSON")
+PR_HEAD=$(jq -er '.headRefOid | strings | select(test("^[0-9a-fA-F]{40}$"))' <<<"$PR_JSON")
+PATCH_TMP=$(mktemp -d)
+git -C "$PATCH_TMP" init -q
+git -C "$PATCH_TMP" fetch "https://github.com/$REPO.git" "$PR_BASE" "$PR_HEAD"
+DIFF_BASE=$(git -C "$PATCH_TMP" merge-base "$PR_BASE" "$PR_HEAD")
+git -C "$PATCH_TMP" diff --no-color --no-ext-diff --no-textconv --binary \
+  "$DIFF_BASE" "$PR_HEAD" > "$PATCH_TMP/fresh.patch"
 ```
+
+Run the steps only if the preceding command succeeds. Record the PR URL,
+observed base and head OIDs, and effective merge-base OID with the refresh.
+These identify the candidate, not the pinned source to which the local patch
+applies. Keep the selected upstream provenance in the local patch headers.
 
 ### 3. Filter by build and runtime use
 
@@ -515,13 +558,13 @@ These examples require `filterdiff` from `patchutils` in `PATH`. If needed, ente
 # So 'packages/opencode/*' matches 'packages/opencode/src/deep/file.ts'.
 
 # Example for opencode:
-filterdiff -p1 -i 'packages/opencode/*' /tmp/fresh.patch > /tmp/filtered.patch
+filterdiff -p1 -i 'packages/opencode/*' "$PATCH_TMP/fresh.patch" > "$PATCH_TMP/filtered.patch"
 
 # Example for qmd:
-filterdiff -p1 -i 'src/llm.ts' /tmp/fresh.patch > /tmp/filtered.patch
+filterdiff -p1 -i 'src/llm.ts' "$PATCH_TMP/fresh.patch" > "$PATCH_TMP/filtered.patch"
 
 # GUARD: empty output = wrong pattern or PR changed scope
-if [ ! -s /tmp/filtered.patch ]; then
+if [ ! -s "$PATCH_TMP/filtered.patch" ]; then
   echo "ERROR: filterdiff produced empty output. Check -i pattern." >&2
   exit 1
 fi
@@ -530,16 +573,18 @@ fi
 If `filterdiff` is unavailable, remove only sections unrelated to the selected
 build, runtime and checks.
 
-### 4. Compare & replace
+### 4. Compare and regenerate
 
-```bash
-diff patches/<name>.patch /tmp/filtered.patch
-```
+Compare by file and hunk: compare added, removed and context lines, including
+their whitespace, without provenance headers, diff metadata or hunk offsets.
+Review path, mode, rename or binary changes separately. Header-only drift does
+not establish a change to the hunks; identical hunks need no regeneration.
 
-- If identical → no change needed
-- If different, regenerate the required changes against the pinned source after
-  its prerequisite patches. Preserve local fixes absent from the PR diff and
-  retain the provenance headers; update the base when it changes.
+Regenerate required changes against the pinned source after applying its
+prerequisites. Do not overwrite the local patch with the filtered candidate.
+Preserve local hunks absent from the candidate unless the selected source
+supplies their behavior. Preserve provenance headers, update the pinned base
+when it changes, and distinguish newly imported upstream hunks from local fixes.
 
 ### 5. Verify patch application against the builder's source
 
@@ -552,7 +597,7 @@ nix build --impure --no-link --print-out-paths --expr '
     flake = builtins.getFlake ("git+file://" + root);
     system = builtins.currentSystem;
     pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
-    package = flake.packages.${system}.caveman;
+    package = flake.packages.${system}.caveman.cliPackage;
   in pkgs.applyPatches {
     name = "caveman-patch-application";
     src = package.src;
@@ -564,8 +609,8 @@ nix build --impure --no-link --print-out-paths --expr '
 
 Use the actual builder for each other target:
 
-- Caveman installer: use the CLI package's `installerSource.src` and `installerSource.patches`, not the CLI patch list.
-- Caveman Blocks: instantiate `caveman/blocks.nix` with `pins.caveman.blocks` from `development/pins/default.nix`, then use that derivation's `src` and `patches`. Blocks has its own JSON-pinned source.
+- Caveman installer: use `flake.packages.${system}.caveman.installerSource` and its `src` and `patches`, not the CLI derivation.
+- Caveman Blocks: instantiate `caveman/blocks.nix` with `pins.caveman.blocks` from `development/pins/default.nix`, then use `nativePackage.src` and `nativePackage.patches` from the wrapper's passthrough. Blocks has its own JSON-pinned source.
 - Prime Agent: use `pins.primeAgent.src` from `development/pins/default.nix` and the complete ordered patch list in `development/prime-agent.nix`.
 - Herdr Desktop: use `pkgs.herdr-desktop.src`; preserve its existing `patches` before appending the local patch, as `development/herdr.nix` does for Darwin.
 
@@ -575,46 +620,54 @@ Inspect the applied files and patch log. Application alone does not verify synta
 
 ### 6. Check for offset/fuzz warnings
 
+Use the output path printed by step 5. Retrieve the log before checking warnings
+so a failed retrieval cannot look like a clean patch application. If no log is
+available, rebuild locally to obtain one before declaring this check complete.
+
 ```bash
-# Treat fuzz or offset warnings as review failures; inspect the result and regenerate against the selected base.
-nix log <output-store-path> 2>&1 | grep -E "(offset|fuzz|FAILED)"
-# If any output → patch line numbers are drifting. Investigate and re-generate patch.
-# Use the output store path printed by step 5 with nix log; inspect the applied tree too.
+(
+  PATCH_LOG=$(mktemp) || exit 1
+  trap 'rm -f "$PATCH_LOG"' EXIT
+  if ! nix log '<output-store-path>' >"$PATCH_LOG" 2>&1; then
+    cat "$PATCH_LOG" >&2
+    echo "Could not retrieve the patch log; warning check incomplete." >&2
+    exit 1
+  fi
+  if grep -Ei 'offset|fuzz|FAILED' "$PATCH_LOG"; then
+    echo "Patch warnings or failures; inspect and regenerate against the selected base." >&2
+    exit 1
+  else
+    case $? in
+      1) echo "No offset, fuzz or failure messages found." ;;
+      *) echo "Could not inspect the patch log." >&2; exit 1 ;;
+    esac
+  fi
+)
 ```
 
 ### 7. Publish only when requested
 
-Commit only when requested. Stage only the intended changes and inspect the staged diff, preserving unrelated working-tree changes:
+Commit only when requested. If every change in the listed paths belongs in the
+commit, review those paths against `HEAD` and use a path-limited commit.
+Add any intended new files by path first so Git can include them.
 
 ```bash
-git add -- patches/<name>.patch
-git diff --cached
-git commit -m "chore: refresh <project> PR #<N> patch"
-git log --oneline -1
-git show --stat --oneline HEAD
-git status --short
+PATCH_PATH='patches/<name>.patch'
+git diff HEAD -- "$PATCH_PATH"
+git commit --only -m "chore: refresh <project> PR #<N> patch" -- "$PATCH_PATH"
 ```
 
-Include any intended pin or builder updates in the staged review. Confirm the commit contains the intended changes; a globally clean worktree is not required. Do not discard unrelated changes to satisfy this procedure.
+Include intended pin or builder paths in both commands. A path-limited commit
+uses the working-tree contents of those paths; do not use it for partial changes
+within a file. Use an isolated index or selective commit workflow in that case.
+Never let the commit pick up unrelated staged changes. Confirm the commit
+contains only intended changes; leave other staged and working-tree edits intact.
 
 Push only when requested, and verify publication to the requested remote and branch. Authorization to commit does not itself authorize a push.
 
 ## Failure Modes
 
 - **Patch conflict (not just offset drift)**: PR code overlaps with changes in locked rev. Manual resolution needed — inspect the diff, adjust hunks by hand.
-- **PR force-pushed**: `gh pr diff` gives latest head. Patch may change semantically. Always re-filter and compare.
-- **Patch applies but breaks build**: Upstream changed assumptions affecting postFixup/installPhase. Run full build to diagnose: `nix build --impure ".#homeConfigurations.$(whoami).activationPackage"`.
+- **PR force-pushed**: Re-observe the base and head OIDs before selecting a new candidate. Re-filter and compare the candidate hunks.
+- **Patch applies but breaks build**: Diagnose with the affected package derivation or smallest relevant check. Inspect changed assumptions in `postFixup` or `installPhase`. Use full Home Manager activation only for an activation-specific issue that focused checks cannot resolve.
 - **Empty filterdiff output**: Pattern wrong or PR no longer touches expected files. Investigate before proceeding.
-
-## Key Rules
-
-- Keep only hunks required by the selected build, installed runtime or checks.
-- Verify against the selected pinned source, not upstream HEAD.
-- A fresh PR diff may target a different base. Regenerate against the existing
-  pinned source and its prerequisites, or update the relevant pin when the
-  dependency change is intended. For flake inputs, that can mean
-  `nix flake update <input>`; for JSON-pinned sources, update their source pin.
-  Verify the resulting patch against the chosen base in either case.
-- Treat fuzz or offset warnings as review failures: inspect the applied code and regenerate against the selected base.
-- Commit or push only when requested. Verify the intended commit and any authorized publication; preserve unrelated working-tree changes.
-- Commit message format: `chore: refresh <project> PR #<N> patch`
