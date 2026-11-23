@@ -102,11 +102,11 @@ let
       # Remove when upstream validates owned values strictly and restores only those values.
       ../../../../patches/caveman-hermes-native-yaml.patch
       # Workaround: Hermes Code Mode loses MCP restrictions and can overwrite config.
-      # Remove when the CLI and companion preserve both contracts.
+      # Remove when CLI launch and discovery honor Hermes MCP filters and refuse unsafe writeback.
       ../../../../patches/caveman-hermes-codemode-scope.patch
-      # Workaround: OpenCode factories share state and V2 Stop listens to an unproduced event.
-      # Remove when factories isolate state/cwd and V2 model-idle drives Stop.
-      ../../../../patches/caveman-opencode-lifecycle.patch
+      # Workaround: standalone OpenCode Shrink runs in the host's launch directory.
+      # Remove when both plugin APIs pass the served project directory to Shrink.
+      ../../../../patches/caveman-opencode-shrink-workdir.patch
       # Policy: OPENCODE_CONFIG_DIR overrides must be raw absolute paths.
       # Remove both root patches when the pinned upstream sources enforce this contract.
       ../../../../patches/caveman-cli-config-root.patch

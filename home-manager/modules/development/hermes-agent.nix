@@ -109,6 +109,7 @@ let
     }
     // lib.optionalAttrs isLinux {
       # Workaround: PM applies a 0.19.2 patch to nixpkgs' patchelf 0.15.2.
+      # patchelfUnstable already contains PM's header-overlap fix (patchelf#672).
       # Remove when upstream selects a compatible patchelf with the header-overlap fix.
       pmPackages = lib.mapAttrs (
         _: package:

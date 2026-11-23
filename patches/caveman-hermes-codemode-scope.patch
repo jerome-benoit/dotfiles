@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
+# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch
 # intent: exclude Hermes from Code Mode launch and MCP discovery.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/1563 tracks unsafe YAML writeback.
@@ -6,7 +6,9 @@
 diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 --- a/packages/cli/src/codemode.ts
 +++ b/packages/cli/src/codemode.ts
-@@ -819,5 +819,5 @@
+@@ -1236,8 +1236,8 @@ export function discoverKiloOwnServerNames(
+ }
+ 
  /**
 - * Discovers user MCP servers across all major coding agents (Cursor, OpenClaw,
 - * Hermes, OpenCode, Kilo, Gemini CLI, Qwen Code, Codex, and Claude Code),
@@ -14,7 +16,11 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 + * Gemini CLI, Qwen Code, Codex, and Claude Code,
   * supporting both stdio commands and remote Streamable HTTP URLs while
   * excluding disabled and self-referential Caveman servers.
-@@ -862,12 +862,3 @@
+  *
+@@ -1278,15 +1278,6 @@ export function discoverCodemodeServers(
+       merge(parseJsonServers(openclawDoc?.mcp?.servers));
+     } catch { /* absent */ }
+ 
 -    const hermesDir = expandHomeOverride(env.HERMES_HOME, homeDir, env)
 -      ?? (process.platform === "win32"
 -        ? join(env.LOCALAPPDATA?.trim() || join(homeDir, "AppData", "Local"), "hermes")
@@ -30,15 +36,15 @@ diff --git a/packages/cli/src/codemode.ts b/packages/cli/src/codemode.ts
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -36,7 +36,6 @@
+@@ -36,7 +36,6 @@ import { request as httpRequest } from "node:http";
  import {
    applyKiloCodemodeOverlay,
    applyOpenCodeCodemodeOverlay,
 -  buildHermesEphemeralCodemodeHome,
+   detectOpenCodeConfigSchema,
    discoverCodemodeServers,
    discoverKiloOwnServerNames,
-   discoverOpenCodeOwnServerNames,
-@@ -44,7 +43,6 @@
+@@ -45,7 +44,6 @@ import {
    patchEphemeralOpenClawCodemode,
    patchEphemeralQwenCodemode,
    stripExternalCodexMcpTables,
@@ -46,15 +52,15 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    writeEphemeralCodemodeConfig,
    writeGeminiCodemodeSettingsOverlay,
    type CodemodeServerConfig,
-@@ -133,7 +131,6 @@
+@@ -134,7 +132,6 @@ type WrapMode = "local" | "managed";
  export type OverlayBuilderContext = { mode: WrapMode; gatewayUrl: string; env: NodeJS.ProcessEnv; upstreams?: PublishedUpstreams | undefined };
  export const overlayBuilders: Record<string, (agent: AgentProfile, baseConfig: unknown, ctx: OverlayBuilderContext) => unknown> = {};
  const wrapTempDirs = new Set<string>();
 -const hermesEphemeralSyncPairs = new Map<string, string>();
-
+ 
  // The standalone proxy listens here; `caveman start` launches it and
  // `caveman wrap` points agents at it.
-@@ -6822,7 +6819,11 @@
+@@ -6915,7 +6912,11 @@ async function spawnWrapped(
    // detail itself — i.e. it has the caveman MCP retrieve tool installed (run
    // `caveman mcp install <agent>`). When it does, signal the proxy to use MCP
    // recovery (which lets it compress streams); otherwise streams pass through.
@@ -67,7 +73,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    const codemodeRequested = Boolean(!direct && opts.codemode && agent && codemodeSupportedAgents.has(agent.id));
    const ephemeralMcp = !direct && agent && (agent.id === "claude" || agent.id === "codex" || codemodeRequested)
      && !opts.minimal && (opts.mcpMode === "auto" || opts.mcpMode === "codemode" || opts.codemode) && wrapRecoveryEligible(opts)
-@@ -7123,10 +7124,6 @@
+@@ -7225,10 +7226,6 @@ async function spawnWrapped(
          );
        } else if (agent.id === "openclaw" && env.OPENCLAW_CONFIG_PATH) {
          patchEphemeralOpenClawCodemode(env.OPENCLAW_CONFIG_PATH, cmEntry);
@@ -77,8 +83,8 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 -        env.HERMES_HOME = buildHermesEphemeralCodemodeHome(srcHermesHome, cmDir, cmEntry);
        }
      }
-     if (!direct && agent?.id === "aider") childArgs = routedAiderArgs(cmdArgs);
-@@ -13111,12 +13108,7 @@
+     if (!direct && codemodeOverlayApplied) {
+@@ -13511,11 +13508,6 @@ function applyConfigFileInjection(env: NodeJS.ProcessEnv, agent: AgentProfile, i
  function cleanupWrapTempDirs() {
    for (const dir of [...wrapTempDirs]) {
      try {
@@ -90,4 +96,3 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        rmSync(dir, { recursive: true, force: true });
      } catch {
        // Temp cleanup is best-effort; wrap must never fail after child exit.
-     } finally {

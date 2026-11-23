@@ -1,4 +1,4 @@
-# base: hermes-agent 0f602c5f6f18615632535251d62a2db74ce93b69
+# base: hermes-agent 45665879083359efe1fc5134ddd2f5dffd804139
 # prerequisites: none
 # intent: make only owned copies of read-only provider directories writable before publication and cleanup.
 # upstream: https://github.com/NousResearch/hermes-agent/issues/156560 tracks cleanup; the local patch also prepares the writable copy for publication.

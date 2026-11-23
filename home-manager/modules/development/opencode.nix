@@ -9,21 +9,12 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
   upstreamOpencodePackage = inputs.opencode.packages.${system}.default or null;
-  opencodeHashes =
-    (import ./pins {
-      inherit lib;
-      inherit (pkgs) fetchurl fetchzip;
-    }).opencode.hashes;
-  # Workaround: upstream dependency hashes are stale for the selected source and Bun.
-  # Hashes, source revisions, toolchain and dependency inputs are recorded in pins/opencode.json.
-  # Remove when upstream hashes match the selected source and Bun toolchain.
   baseOpencodePackage =
     if upstreamOpencodePackage == null then
       null
     else
       upstreamOpencodePackage.overrideAttrs (previousAttrs: {
         node_modules = previousAttrs.node_modules.overrideAttrs (dependencyAttrs: {
-          outputHash = opencodeHashes.${system};
           # Workaround: recursive copies already include nested node_modules.
           # Remove when upstream prunes those descendants during installation.
           installPhase =
@@ -110,8 +101,8 @@ let
       desktop = inputs.opencode.packages.${system}.opencode-desktop or null;
     in
     if cfg.opencodePackage != null && desktop != null then
-      # opencode-desktop builds with bare nixpkgs.legacyPackages and pins its own
-      # electron, so the host nixpkgs config does not reach it.
+      # Desktop selects its Electron major from package.json and resolves it in
+      # the flake's bare nixpkgs.legacyPackages, not the host's configured pkgs.
       (desktop.override { opencode = cfg.opencodePackage; }).overrideAttrs (previousAttrs: {
         # Workaround: version-only CLI stages collide across Nix builds.
         # Remove with the substitution below when upstream isolates distinct CLI

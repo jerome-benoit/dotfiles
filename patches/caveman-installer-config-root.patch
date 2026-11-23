@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
+# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
 # prerequisites: caveman-nix-installer-paths.patch
 # intent: require raw absolute override in installer and copied plugin; preserve XDG fallback.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.
@@ -7,7 +7,7 @@
 diff --git a/installer/install.js b/installer/install.js
 --- a/installer/install.js
 +++ b/installer/install.js
-@@ -1591,7 +1591,10 @@
+@@ -1605,7 +1605,10 @@ function opencodeConfigDir() {
    // Windows that's %USERPROFILE%\.config\opencode via os.homedir()), NOT
    // %APPDATA% (#376). Same order as the CLI and the mode plugin.
    const selected = process.env.OPENCODE_CONFIG_DIR || '';
@@ -22,7 +22,7 @@ diff --git a/installer/install.js b/installer/install.js
 diff --git a/src/plugins/opencode/plugin.js b/src/plugins/opencode/plugin.js
 --- a/src/plugins/opencode/plugin.js
 +++ b/src/plugins/opencode/plugin.js
-@@ -137,8 +137,9 @@
+@@ -137,8 +137,9 @@ const { parseModeChange, INDEPENDENT_MODES } = loadParse();
  // order; a flag written under a root the host does not read is invisible to it.
  function opencodeConfigDir() {
    const selected = process.env.OPENCODE_CONFIG_DIR || '';

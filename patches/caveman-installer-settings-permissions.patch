@@ -1,11 +1,11 @@
-# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
+# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
 # prerequisites: none
 # intent: preserve existing settings modes during atomic replacement; new files remain 0600.
 # upstream: upstream intentionally forces 0600; this is local permissions policy, not an upstream bug.
 diff --git a/installer/lib/settings.js b/installer/lib/settings.js
 --- a/installer/lib/settings.js
 +++ b/installer/lib/settings.js
-@@ -153,12 +153,14 @@
+@@ -153,12 +153,14 @@ function readSettings(p, meta) {
  }
  
  // ── writeSettings ──────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ diff --git a/installer/lib/settings.js b/installer/lib/settings.js
    const dir = path.dirname(p);
    fs.mkdirSync(dir, { recursive: true });
    const tmp = path.join(dir, `.${path.basename(p)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
-@@ -166,6 +168,9 @@
+@@ -166,6 +168,9 @@ function writeSettings(p, obj) {
    try { if (fs.readFileSync(p).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) bom = '\ufeff'; } catch (_) {}
    try {
      fs.writeFileSync(tmp, bom + JSON.stringify(obj, null, 2) + '\n', { mode: 0o600 });

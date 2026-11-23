@@ -28,15 +28,14 @@ Each patch records its base, intent and prerequisites. Keep relevant upstream
 provenance and tracked issues; omit empty issue fields. Document a concrete
 replacement condition when applicable, not a circular condition for local policy.
 Proposals are not fixes in the pin, and partial coverage stays explicit.
-OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
 ### Partition and source equivalence
 
 Caveman Hermes parser, membership, ownership and restore remain one unit.
-OpenCode factories/cwd/Stop are separate. CLI and installer roots are physically
-separate with one raw-absolute-root policy; trailing spaces were already preserved
-in the pin. Preserving existing settings modes is a local permissions policy;
-upstream deliberately applies 0600 instead.
+The OpenCode patch covers standalone Shrink workdirs; upstream owns native
+factory isolation and V2 Stop routing. CLI and installer root patches remain
+separate and enforce the same absolute-path policy. Preserving existing
+settings modes is local policy; upstream applies 0600 instead.
 
 ## Local Patch Refresh
 
@@ -142,13 +141,11 @@ gateway cases. A source-only import or a patched test copy is not a substitute.
 
 ### OpenCode dependency hashes
 
-`pins/opencode.json` records hashes for the selected OpenCode source and local Bun.
-Compare workspace manifests, root catalogs, native lockfile entries, the recipe,
-normalizers and Bun after updating OpenCode or Nixpkgs. Recalculate all three
-targets when dependency inputs change; update source and toolchain provenance together.
-Keep `hashSourceRevision` and `hashNixpkgsRevision` at the revisions used to
-measure the hashes. Record the selected source and toolchain separately when
-reusing the hashes after validation.
+The OpenCode flake supplies the dependency hashes. Compare workspace manifests,
+root catalogs, lock entries, the recipe, normalizers and Bun after updating
+OpenCode or Nixpkgs. If these inputs drift, compare the measured hashes for all
+three targets with upstream. Record the source and toolchain used to measure them
+separately from the selected pins when reusing a verified result.
 Record dependency-output hash checks separately from CLI builds and ARM-targeted
 `--cpu`/`--os` calculations separately from native builds. Do not carry forward
 verification claims from an older source. Keep hash-only checks serial with

@@ -11,7 +11,6 @@ let
   ompData = readPin ./omp.json;
   primeAgentData = readPin ./prime-agent.json;
   cavemanData = readPin ./caveman.json;
-  opencodeData = readPin ./opencode.json;
 
   expectedOmpKeys = [
     "darwin-arm64"
@@ -31,8 +30,6 @@ assert builtins.attrNames primeAgentData.python == expectedPrimePythonKeys;
 assert
   primeAgentData.rlmExtraPackages == lib.sort builtins.lessThan primeAgentData.rlmExtraPackages;
 {
-  opencode = opencodeData;
-
   caveman = {
     inherit (cavemanData) pnpmDepsHash;
     runtimeVersion = cavemanData.runtime.version;
