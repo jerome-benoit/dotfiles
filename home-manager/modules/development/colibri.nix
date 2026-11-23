@@ -113,6 +113,10 @@ let
     version = config.modules.core.lib.mkUnstableVersionWithBase colibriVersion inputs.colibri;
     inherit src;
 
+    patches = lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      ../../../patches/colibri-openmp-cgroup-quota.patch
+    ];
+
     nativeBuildInputs = build.extraNativeBuildInputs;
     nativeCheckInputs = [ pkgs.buildPackages.python3Minimal ];
     buildInputs = build.extraBuildInputs;

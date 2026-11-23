@@ -43,6 +43,7 @@ OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 - `patches/caveman-nix-managed-install.patch` — refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
 - `patches/caveman-nix-registration-paths.patch` — separate closure-local execution from durable profile registrations and migrate active journal paths. Prerequisites: caveman-nix-managed-install.patch.
 - `patches/caveman-opencode-lifecycle.patch` — keep factory-local native state, explicit workdirs and model-idle Stop; retain both APIs. Prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch.
+- `patches/colibri-openmp-cgroup-quota.patch` — honor Linux cgroup CPU quotas without sysfs CPU topology and isolate the OpenMP test from ambient quotas.
 - `patches/herdr-desktop-nix-cli-link.patch` — keep Nix-managed macOS apps from installing user CLI links.
 - `patches/hermes-agent-nix-provider-snapshot.patch` — make copied provider directories owner-writable without changing store permissions.
 - `patches/hermes-agent-terminal-mise-shims.patch` — restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
@@ -107,6 +108,18 @@ upstream deliberately applies 0600 instead.
 After updating the Colibri source, use `checks/gpu.nix` to verify the CPU,
 CUDA, and Metal install plans. Check that `CUDA_GLIBC_MATH_COMPAT=0` keeps
 the upstream compatibility header out of the CUDA commands.
+
+Before retiring `colibri-openmp-cgroup-quota.patch`, run the unpatched
+`test_omp_tune` with OpenMP enabled, `/sys/devices/system/cpu` masked, and more
+than one logical CPU available. Verify that both cases run:
+
+- A synthetic one-CPU quota reduces the OpenMP team to one thread. Check the
+  `test_cg` diagnostic or inspect the team size before and after tuning.
+- The default sizing case keeps its expected team size under a finite ambient
+  quota below that size. Verify the test uses its own unlimited fixture or
+  otherwise isolates this assertion from the ambient quota.
+
+A passing exit alone does not prove either condition.
 
 ### Hermes local terminal
 
