@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
+# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
 # prerequisites: none
 # intent: refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.
@@ -6,7 +6,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -3227,6 +3227,9 @@
+@@ -3253,6 +3253,9 @@ const BINARY_INSTALL_LOCK_STALE_MS = 10 * 60_000;
  // `explicit`: `setup --install` and `update`, which restart an outdated
  // runtime even while agents use it.
  async function setupInstall(json: boolean, options: { continuing?: boolean; explicit?: boolean } = {}) {
@@ -16,7 +16,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
    const lock = join(ensureCavemanHome(), ".install.lock");
    const deadline = Date.now() + BINARY_INSTALL_WAIT_MS;
    for (let told = false; ; await sleep(250)) {
-@@ -4150,6 +4153,9 @@
+@@ -4185,6 +4188,9 @@ function applyWithDurableCli(selection: Record<string, boolean>, agents: string[
  // version. Returns the command hints should name. Throws when neither works:
  // nothing is wired then.
  async function installDurableCli(): Promise<string> {
@@ -29,7 +29,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 diff --git a/packages/cli/src/modules/index-file.ts b/packages/cli/src/modules/index-file.ts
 --- a/packages/cli/src/modules/index-file.ts
 +++ b/packages/cli/src/modules/index-file.ts
-@@ -127,6 +127,9 @@
+@@ -127,6 +127,9 @@ export function writeLock(lock: ModuleLock): void {
  // a module with no build for this platform is skipped and named in
  // `problems`, so the others still install.
  export async function ensureModuleBinaries(ids: ModuleId[], downloading?: (name: string) => void): Promise<{ lock: ModuleLock; problems: string[] }> {

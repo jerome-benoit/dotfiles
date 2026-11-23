@@ -312,8 +312,7 @@ assert optedOut.modules.development.opencode.desktopPackage == null;
 assert map toString optedOut.home.packages == map toString disabled.home.packages;
 assert
   opencodePackages.opencodePackage.node_modules.outputHash
-  == (lib.importJSON ../home-manager/modules/development/pins/opencode.json)
-  .hashes.${pkgs.stdenv.hostPlatform.system};
+  == inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default.node_modules.outputHash;
 assert
   opencodePackages.desktopPackage.node_modules == opencodePackages.opencodePackage.node_modules;
 assert customCli.modules.development.opencode.opencodePackage.node_modules == customDependency;
