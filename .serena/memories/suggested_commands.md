@@ -51,13 +51,13 @@ the available targets.
 
 ## Validation & Testing
 
-| Command                        | Description                           |
-| ------------------------------ | ------------------------------------- |
+| Command                        | Description                                    |
+| ------------------------------ | ---------------------------------------------- |
 | `nix flake check --no-build`   | Evaluate checks without building their outputs |
-| `nix flake check`              | Build checks for the current platform |
-| `nix flake check --show-trace` | Run checks with detailed error traces |
-| `nix flake show`               | Show all flake outputs                |
-| `nix flake metadata`           | Show flake metadata and inputs        |
+| `nix flake check`              | Build checks for the current platform          |
+| `nix flake check --show-trace` | Run checks with detailed error traces          |
+| `nix flake show`               | Show all flake outputs                         |
+| `nix flake metadata`           | Show flake metadata and inputs                 |
 
 ### Check coverage
 
@@ -72,7 +72,7 @@ the available targets.
 | `hermes-agent`                    | Generated configuration, plugin paths and service ordering                                           |
 | `caveman`                         | Generated integrations, installation ownership and native/shrink hooks                               |
 | `development`, `opencode-desktop` | Development-module activation, Ollama service platform/disable boundaries and Desktop CLI staging    |
-| `gpu`, `ci-contract`              | GPU selection and CI contracts                                                                      |
+| `gpu`, `ci-contract`              | GPU selection and CI contracts                                                                       |
 
 `flake.nix` adds Home Manager builds for the selected platform: personal and
 `almalinux` on `x86_64-linux`, work on `aarch64-darwin`. It also adds the selected
