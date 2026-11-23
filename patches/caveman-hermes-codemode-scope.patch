@@ -84,7 +84,7 @@ diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
        }
      }
      if (!direct && codemodeOverlayApplied) {
-@@ -13439,11 +13436,6 @@ function applyConfigFileInjection(env: NodeJS.ProcessEnv, agent: AgentProfile, i
+@@ -13507,11 +13504,6 @@ function applyConfigFileInjection(env: NodeJS.ProcessEnv, agent: AgentProfile, i
  function cleanupWrapTempDirs() {
    for (const dir of [...wrapTempDirs]) {
      try {
