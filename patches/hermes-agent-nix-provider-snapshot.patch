@@ -1,8 +1,8 @@
 # base: hermes-agent 0f602c5f6f18615632535251d62a2db74ce93b69
 # prerequisites: none
-# intent: make copied store plugin directories writable for publication and cleanup.
-# upstream: https://github.com/NousResearch/hermes-agent/issues/156560
-# removal: remove when Hermes can publish and clean snapshots from read-only plugin directories.
+# intent: make only owned copies of read-only provider directories writable before publication and cleanup.
+# upstream: https://github.com/NousResearch/hermes-agent/issues/156560 tracks cleanup; the local patch also prepares the writable copy for publication.
+# removal: remove when Hermes discovers providers from read-only sources and cleans up on exit or partial copy failure without mutating the source or external link targets.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
 +++ b/providers/plugin_reload.py

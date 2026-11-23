@@ -4,29 +4,19 @@
 
 ### 0. Choose an Evaluation Mode
 
-Pure Nix checks use placeholder private configuration and need no decryption.
-Use `make decrypt-private` only when inspecting the real configuration with raw
-`--impure` Nix commands. See `suggested_commands`, **Pure and private evaluation**.
-
-For normal local builds and switches, let the wrapper decrypt private
-configuration. `make build`, `make switch`, and `hm` refuse to run if
-`secrets/private.dec.json` already exists. After manual inspection, re-encrypt
-any edits you intend to keep, then run `make clean` before using these commands.
+- [ ] Use pure checks unless the task requires real private configuration.
+- [ ] Use the managed build or switch for real configuration. Use the README's
+      [inspection procedure](../../README.md#private-configuration-and-credentials)
+      only for raw impure evaluation. Preserve any edits and clean up before using
+      managed commands.
 
 ### 1. Format Code
 
-```bash
-nix fmt
-```
+- [ ] Format changed Nix files using the [README](../../README.md#formatting).
 
 ### 2. Run All Checks
 
-```bash
-nix flake check --no-build  # Evaluate flake outputs without building the checks
-nix flake check             # Evaluate and build checks for the current platform
-```
-
-The build step validates:
+Run the full checks in [Validation](../../README.md#validation). Confirm that:
 
 - [ ] All .nix files are properly formatted
 - [ ] No broken symlinks in build output
@@ -37,23 +27,17 @@ The build step validates:
 
 ### 3. Test Changes Locally
 
-Use `make build` to build your actual Home Manager configuration without
-activating it. To apply it:
-
-```bash
-hm                    # Apply changes (from within a specialisation)
-# or
-make switch SPEC=work # Apply with explicit specialisation
-```
+- [ ] Build the actual Home Manager configuration without activating it (see
+      [Validation](../../README.md#validation)).
+- [ ] If activation is needed, use [Home Manager](../../README.md#home-manager)
+      and confirm the expected specialisation is active.
 
 ### 4. Clean Secrets
 
-```bash
-make clean            # Remove decrypted files and temporary artifacts directly under secrets/
-```
-
-For editor workspaces left after an uncatchable interruption, see
-[Private configuration and credentials](../../README.md#private-configuration-and-credentials).
+- [ ] Remove manually decrypted files and temporary artifacts. If an operation
+      was interrupted, follow the
+      [recovery procedure](../../README.md#private-configuration-and-credentials)
+      before removing any lock or editor workspace.
 
 ## Code Quality Checklist
 
@@ -75,7 +59,7 @@ For editor workspaces left after an uncatchable interruption, see
 3. If a profile controls the module, add its defaults in
    `home-manager/modules/core/profile.nix` and wire them in `home-manager/home.nix`.
    See [Profile System](code_style_conventions.md#profile-system).
-4. Run `nix flake check`.
+4. Follow **Run All Checks** above.
 
 ## Adding New Themes
 

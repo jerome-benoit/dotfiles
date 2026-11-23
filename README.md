@@ -37,25 +37,39 @@ make switch SPEC=work
 Managed via [SOPS](https://github.com/getsops/sops). Impure Nix evaluation reads decrypted private configuration; sops-nix decrypts runtime credentials.
 
 ```bash
-make decrypt-private  # Decrypt private configuration only for Nix evaluation
-make decrypt          # Decrypt private configuration and credentials for inspection
-make encrypt          # Re-encrypt private configuration and credentials after editing
-make edit-private     # Edit private configuration interactively
-make edit-credentials # Edit runtime credentials interactively
+make decrypt-private  # Inspect private configuration with raw impure Nix commands
+make decrypt          # Decrypt both files for a manual edit or inspection
+make encrypt          # Re-encrypt; requires both decrypted JSON files
+make edit-private     # Edit private configuration interactively via SOPS
+make edit-credentials # Edit runtime credentials interactively via SOPS
 make clean            # Remove decrypted files and temporary artifacts directly under secrets/
 ```
 
+Prefer `make edit-private` or `make edit-credentials` for changes. Interactive
+SOPS edits replace ciphertext only after successful encryption. For a manual
+edit, start with `make decrypt`, then run `make encrypt` before `make clean`.
+`make decrypt-private` is for inspection only: it does not produce the credentials
+JSON that `make encrypt` also needs.
+
+If you already edited `secrets/private.dec.json` after `make decrypt-private`,
+leave it in place and run `make edit-private`. In the SOPS editor, use the local
+file to merge your changes without creating another plaintext copy. Avoid editor
+swap files, backups, or persistent history. Run `make clean` only after SOPS
+successfully saves the changes to ciphertext.
+
 `make build`, `make switch`, `make bootstrap`, and `make encrypt-gpg` decrypt private
 configuration for the duration of the command. They refuse to run while
-`secrets/private.dec.json` exists. If you decrypted it manually, re-encrypt any
-edits you intend to keep, then run `make clean` before using these targets.
+`secrets/private.dec.json` exists. Clean up after manual inspection before using
+these targets.
 
-Interactive SOPS edits replace existing ciphertext only after successful encryption.
-The editor workspace is removed after the editor and its supervised processes stop.
-After an uncatchable interruption, run `make clean` and check the system temporary
-directory used by the interrupted process (such as `$TMPDIR` or `/tmp`).
-Once the editor and its child processes have stopped, remove any leftover
-`sops-editor-*` workspace from that edit. `make clean` does not inspect that directory.
+After an interruption such as `SIGKILL`, first verify that the secrets manager,
+the editor, and all supervised processes from that operation have stopped. If
+`secrets/.secrets.lock` remains, remove it with `rmdir secrets/.secrets.lock` only
+after confirming it is the stale, empty lock directory. Preserve any edits as
+described above before running `make clean`.
+Check the interrupted process's temporary directory (such as `$TMPDIR` or `/tmp`)
+and remove only the leftover `sops-editor-*` workspace from that edit.
+`make clean` does not inspect that directory.
 
 ### Email
 
@@ -91,6 +105,9 @@ keyring must contain the selected secret key and a usable encryption subkey.
 private configuration. If no fingerprint is read, it uses Git's `user.signingkey`.
 To select a key explicitly without decrypting the SOPS configuration, run
 `./scripts/encrypt-gpg-bundle.sh <fingerprint-or-keyid>` from the checkout.
+Verify that the selected key's full primary fingerprint matches the configured
+`identity.gpg.fingerprint` before exporting, including when you pass an explicit
+key selector or use the `user.signingkey` fallback.
 
 The Home Manager generation retains the encrypted bundle if it is present, GPG bootstrap is enabled, and the fingerprint is not a placeholder.
 After committing an added or replaced bundle, run `make switch` to activate it.

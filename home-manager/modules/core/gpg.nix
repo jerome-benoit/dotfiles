@@ -38,7 +38,7 @@ in
 
         [[ -r "${ageIdentity}" ]] || exit 0
         [[ -r "$BUNDLE" ]] || {
-          echo "[gpg] secrets/gpg/keypair.tar.gz.age missing from the flake; run 'make encrypt-gpg' and add the bundle to Git" >&2
+          echo "[gpg] secrets/gpg/keypair.tar.gz.age missing from the flake; add the bundle to Git, or run 'make encrypt-gpg' first if it does not exist" >&2
           exit 0
         }
 

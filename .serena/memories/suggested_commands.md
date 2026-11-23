@@ -51,13 +51,9 @@ the available targets.
 
 ## Validation & Testing
 
-| Command                        | Description                                    |
-| ------------------------------ | ---------------------------------------------- |
-| `nix flake check --no-build`   | Evaluate checks without building their outputs |
-| `nix flake check`              | Build checks for the current platform          |
-| `nix flake check --show-trace` | Run checks with detailed error traces          |
-| `nix flake show`               | Show all flake outputs                         |
-| `nix flake metadata`           | Show flake metadata and inputs                 |
+See [Validation](../../README.md#validation) for full and focused check commands.
+Add `--show-trace` to diagnose evaluation failures. Use `nix flake show` to list
+outputs and `nix flake metadata` to inspect inputs.
 
 ### Check coverage
 
@@ -81,10 +77,7 @@ not build the other platform's configurations.
 
 ### Focused integration checks
 
-See the README for focused build commands.
-
-The checks use disposable secrets and generated configurations without user
-activation, model downloads or GPU inference. Scenario definitions live in
+The checks use generated configurations. Scenario definitions live in
 `checks/secrets-integration.py`, `checks/consumer-{shells,terminals}.py`,
 `checks/consumer-editors.lua`, `checks/hermes-agent.nix` and `checks/caveman*.py`.
 Synthetic ordering checks do not certify native activation or login behavior.
@@ -95,11 +88,10 @@ Pure evaluation uses the placeholder identity in `secrets/default.nix`; the focu
 checks above do not require decryption. Home Manager check names use that placeholder
 identity unless private configuration is supplied.
 
-For evaluation with the real private identity, run `make decrypt-private` before
-adding `--impure`. The loader reads `NIX_PRIVATE_CONFIG_FILE` when set, otherwise
-`$HOME/.nix/secrets/private.dec.json`, and fails if the file is absent. Run
-`make clean` after inspection and before using `hm`, `make build`, or
-`make switch`. These commands manage the private configuration themselves.
+For raw `--impure` Nix evaluation, the loader reads `NIX_PRIVATE_CONFIG_FILE`
+when nonempty; otherwise, it reads `$HOME/.nix/secrets/private.dec.json`. It fails if
+the selected file is absent. See the README's
+[inspection, editing, and cleanup procedures](../../README.md#private-configuration-and-credentials).
 
 ## Dependency Management
 
