@@ -1,5 +1,5 @@
-# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
-# prerequisites: caveman-opencode-shrink-workdir.patch
+# base: JuliusBrussee/caveman 70f4f34e834893ea9af9f4fc6022266bd56d18b1
+# prerequisites: caveman-opencode-lifecycle.patch
 # intent: require raw absolute OpenCode override with existing root precedence.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.
 # issues: https://github.com/JuliusBrussee/caveman/issues/1485 historical; absolute-root refusal is local policy.
@@ -7,7 +7,7 @@
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
 +++ b/packages/cli/src/index.ts
-@@ -9608,9 +9608,9 @@ function geminiNativeMutations(gw: string, mcpBinary: string): NativeMutation[]
+@@ -9467,9 +9467,9 @@
  // variable installed into a root the host never reads, while still reporting
  // success (#1441); the installer and the mode plugin resolve it the same way.
  function opencodeConfigDir(): string {

@@ -28,14 +28,15 @@ Each patch records its base, intent and prerequisites. Keep relevant upstream
 provenance and tracked issues; omit empty issue fields. Document a concrete
 replacement condition when applicable, not a circular condition for local policy.
 Proposals are not fixes in the pin, and partial coverage stays explicit.
+OpenCode native V2 Stop routing is tracked by `JuliusBrussee/caveman#1539`.
 
 ### Partition and source equivalence
 
 Caveman Hermes parser, membership, ownership and restore remain one unit.
-The OpenCode patch covers standalone Shrink workdirs; upstream owns native
-factory isolation and V2 Stop routing. CLI and installer root patches remain
-separate and enforce the same absolute-path policy. Preserving existing
-settings modes is local policy; upstream applies 0600 instead.
+OpenCode factories/cwd/Stop are separate. CLI and installer roots are physically
+separate with one raw-absolute-root policy; trailing spaces were already preserved
+in the pin. Preserving existing settings modes is a local permissions policy;
+upstream deliberately applies 0600 instead.
 
 ## Local Patch Refresh
 
