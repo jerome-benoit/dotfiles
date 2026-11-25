@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
+# base: JuliusBrussee/caveman 47c61be2d10a354f0c5cbe2b90959d24c06b16c6
 # prerequisites: none
 # intent: refuse executable installation and self-update in the CLI, durable npm installer and module downloader.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/863 managed capability context, not an exact generic bug fix.

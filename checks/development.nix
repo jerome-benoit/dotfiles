@@ -311,9 +311,6 @@ assert builtins.elem pkgs.hello overridden.home.packages;
 assert optedOut.modules.development.opencode.desktopPackage == null;
 assert map toString optedOut.home.packages == map toString disabled.home.packages;
 assert
-  opencodePackages.opencodePackage.node_modules.outputHash
-  == inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default.node_modules.outputHash;
-assert
   opencodePackages.desktopPackage.node_modules == opencodePackages.opencodePackage.node_modules;
 assert customCli.modules.development.opencode.opencodePackage.node_modules == customDependency;
 assert customCli.modules.development.opencode.desktopPackage.node_modules == customDependency;

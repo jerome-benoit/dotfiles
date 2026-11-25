@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires e2885264e64414d9569282b6d4459fcecfc8fa50
+# base: agent-of-empires/agent-of-empires 23e7acd07168a01038ee1d5460c07763b08c1d9c
 # prerequisites: none
 # intent: detect and launch the packaged cursor-agent executable instead of agent.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/issues/5993
@@ -18,7 +18,7 @@ diff --git a/src/agents.rs b/src/agents.rs
 diff --git a/src/tmux/mod.rs b/src/tmux/mod.rs
 --- a/src/tmux/mod.rs
 +++ b/src/tmux/mod.rs
-@@ -3630,6 +3630,36 @@
+@@ -3626,6 +3626,36 @@
  
  #[cfg(test)]
  mod tests {

@@ -9,12 +9,24 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
   upstreamOpencodePackage = inputs.opencode.packages.${system}.default or null;
+  # Workaround: this pin predates the regenerated node_modules hashes.
+  # Drop when the pin includes https://github.com/anomalyco/opencode/pull/66375.
+  dependencyHashes = {
+    x86_64-linux = "sha256-RXrwbOwbYAHuofiv5pgvXCmXlbNhOCrvLmDOT8FjiNs=";
+    aarch64-linux = "sha256-UvH63sMxYgOY9i2FXhSC64cIkRdcF87mrkeS62V7jds=";
+    aarch64-darwin = "sha256-qCMc3mOY0V3HR6ZPs6r/zNc4Og0AGWL1Kv+m7PGer14=";
+  };
   baseOpencodePackage =
     if upstreamOpencodePackage == null then
       null
     else
       upstreamOpencodePackage.overrideAttrs (previousAttrs: {
         node_modules = previousAttrs.node_modules.overrideAttrs (dependencyAttrs: {
+          outputHash =
+            if (inputs.opencode.rev or null) == "0caad64533a160451808b78623ed7614d0330bfe" then
+              dependencyHashes.${system} or dependencyAttrs.outputHash
+            else
+              dependencyAttrs.outputHash;
           # Workaround: recursive copies already include nested node_modules.
           # Remove when upstream prunes those descendants during installation.
           installPhase =

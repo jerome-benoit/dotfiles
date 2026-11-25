@@ -1,7 +1,7 @@
-# base: hermes-agent 45665879083359efe1fc5134ddd2f5dffd804139
+# base: hermes-agent b4db4842723a89842faaed766aba2ce588226e31
 # prerequisites: none
 # intent: make only owned copies of read-only provider directories writable before publication and cleanup.
-# upstream: https://github.com/NousResearch/hermes-agent/issues/156560 tracks cleanup; the local patch also prepares the writable copy for publication.
+# upstream: https://github.com/NousResearch/hermes-agent/issues/156560 tracks snapshot publication and cleanup failures.
 # removal: remove when Hermes discovers providers from read-only sources and cleans up on exit or partial copy failure without mutating the source or external link targets.
 diff --git a/providers/plugin_reload.py b/providers/plugin_reload.py
 --- a/providers/plugin_reload.py
