@@ -9,9 +9,9 @@ let
   cfg = config.modules.development.opencode;
   system = pkgs.stdenv.hostPlatform.system;
   upstreamOpencodePackage = inputs.opencode.packages.${system}.default or null;
-  # Hashes from the upstream bot run for fd3c9c4; the pinned revision has
-  # the same dependency inputs. Drop when the pin includes
-  # https://github.com/anomalyco/opencode/pull/66375 or a later hash refresh.
+  # Workaround: the pinned source ships stale node_modules hashes.
+  # Reuse the hashes from https://github.com/anomalyco/opencode/pull/66375 for the same dependency inputs.
+  # Remove when the pinned source supplies valid hashes on all supported systems.
   dependencyHashes = {
     x86_64-linux = "sha256-RXrwbOwbYAHuofiv5pgvXCmXlbNhOCrvLmDOT8FjiNs=";
     aarch64-linux = "sha256-UvH63sMxYgOY9i2FXhSC64cIkRdcF87mrkeS62V7jds=";
