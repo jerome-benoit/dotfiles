@@ -131,6 +131,7 @@ in
       pkgs.nixfmt
       pkgs.obsidian
       pkgs.rtk
+      pkgs.sonarqube-cli
       pkgs.yazi
     ]
     ++ lib.optionals (isDesktop && cfg.antigravitySupported) [
