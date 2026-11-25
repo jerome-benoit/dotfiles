@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires 23e7acd07168a01038ee1d5460c07763b08c1d9c
+# base: agent-of-empires/agent-of-empires d9bb5f38e9f72c628d5ad5eb9b7ee1429112ba67
 # prerequisites: none
 # intent: detect and launch the packaged cursor-agent executable instead of agent.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/issues/5993
