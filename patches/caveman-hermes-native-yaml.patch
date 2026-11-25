@@ -1,8 +1,8 @@
 # base: JuliusBrussee/caveman 47c61be2d10a354f0c5cbe2b90959d24c06b16c6
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch
 # intent: use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration.
-# upstream: https://github.com/JuliusBrussee/caveman/pull/1395 merged historical; https://github.com/JuliusBrussee/caveman/pull/1529 open proposed, partial strict-parser coverage.
-# issues: #1486–#1492, #1405, and #1410; the pin addresses some cases but does not share strict parsing across all readers and writers.
+# upstream: https://github.com/JuliusBrussee/caveman/pull/1565 fixes #1486–#1492 but does not share strict parsing across native and Shrink readers and writers.
+# issues: #1405 and #1410 were fixed by https://github.com/JuliusBrussee/caveman/pull/1395.
 # removal: remove only when pinned enable/repair/disable/status share strict scalar/list ownership, deny-list validation and lossless foreign restoration.
 diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
 --- a/packages/cli/src/index.ts
