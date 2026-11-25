@@ -1,10 +1,10 @@
 {
   "renovate": "datasource=github-releases depName=can1357/oh-my-pi",
-  "version": "19.2.0",
+  "version": "19.2.1",
   "urlTemplate": "https://github.com/can1357/oh-my-pi/releases/download/v{version}/omp-{key}",
   "hashes": {
-    "darwin-arm64": "sha256-Vs85DqUHkboImHgxjQEHqVnG8Fw/ua19QiAjKCvjkm8=",
-    "linux-arm64": "sha256-XjC/sdHasXeNJMV23bI8lC2zFZ9TaoBau0zaZh/WB/s=",
-    "linux-x64": "sha256-dMtkHT/Nwi+j8hQdr6TmbJ/FgdfS1xdT5pAWCYBHLDE="
+    "darwin-arm64": "sha256-Q5QxGYN2ErLaciUKt+/iL/jKI56r69T3AvNOOhRP3T0=",
+    "linux-arm64": "sha256-ktTM5LFIFPa4OKqG3OxjWfDLCJy8wwDoRjy7UyaZH+A=",
+    "linux-x64": "sha256-6Lk3+b8CO6oUe90wCtVCGvCm74sfNQxHqak9X8qU/so="
   }
 }
