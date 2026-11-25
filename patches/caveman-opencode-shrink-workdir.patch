@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
+# base: JuliusBrussee/caveman 47c61be2d10a354f0c5cbe2b90959d24c06b16c6
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch, caveman-hermes-native-yaml.patch, caveman-hermes-codemode-scope.patch
 # intent: run the OpenCode Shrink subprocess in the served project for both plugin APIs.
 # upstream: https://github.com/JuliusBrussee/caveman/issues/1578

@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman b89752f6bca5a26bfde8b019813554241800ca99
+# base: JuliusBrussee/caveman 47c61be2d10a354f0c5cbe2b90959d24c06b16c6
 # prerequisites: caveman-opencode-shrink-workdir.patch
 # intent: require raw absolute OpenCode override with existing root precedence.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1507 open; raw trailing spaces already preserved in pin.
