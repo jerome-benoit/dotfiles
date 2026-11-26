@@ -46,7 +46,7 @@ in
           package = lib.mkDefault ollamaPackage;
           environmentVariables = lib.mkIf config.services.ollama.enable (
             {
-              OLLAMA_CONTEXT_LENGTH = lib.mkDefault (toString (128 * 1024));
+              OLLAMA_CONTEXT_LENGTH = lib.mkDefault (toString (256 * 1024));
               OLLAMA_FLASH_ATTENTION = lib.mkDefault "1";
               OLLAMA_KV_CACHE_TYPE = lib.mkDefault "q8_0";
             }
