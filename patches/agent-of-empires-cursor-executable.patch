@@ -1,4 +1,4 @@
-# base: agent-of-empires/agent-of-empires d9bb5f38e9f72c628d5ad5eb9b7ee1429112ba67
+# base: agent-of-empires/agent-of-empires f8428cdc89f912b7aabf1b41b3fbb52c282b6f38
 # prerequisites: none
 # intent: detect and launch the packaged cursor-agent executable instead of agent.
 # upstream: https://github.com/agent-of-empires/agent-of-empires/issues/5993
@@ -6,7 +6,7 @@
 diff --git a/src/agents.rs b/src/agents.rs
 --- a/src/agents.rs
 +++ b/src/agents.rs
-@@ -800,7 +800,7 @@
+@@ -803,7 +803,7 @@
              SessionCaptureContext::PaneScoped,
              SessionCaptureContext::PaneScoped,
          ),

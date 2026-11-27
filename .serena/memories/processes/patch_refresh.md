@@ -34,7 +34,8 @@ Proposals are not fixes in the pin, and partial coverage stays explicit.
 Caveman Hermes parser, membership, ownership and restore remain one unit.
 The OpenCode patch covers standalone Shrink workdirs; upstream owns native
 factory isolation and V2 Stop routing. CLI and installer root patches remain
-separate and enforce the same absolute-path policy. Preserving existing
+separate and require raw absolute `OPENCODE_CONFIG_DIR`; XDG fallback stays
+consumer-specific. Preserving existing
 settings modes is local policy; upstream applies 0600 instead.
 
 ## Local Patch Refresh

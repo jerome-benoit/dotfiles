@@ -1,4 +1,4 @@
-# base: JuliusBrussee/caveman 47c61be2d10a354f0c5cbe2b90959d24c06b16c6
+# base: JuliusBrussee/caveman e74a11ccdb38b98d15c9f9545787c907dd15f0ab
 # prerequisites: caveman-nix-managed-install.patch, caveman-nix-registration-paths.patch
 # intent: use one strict Hermes span/scalar/list parser for native and shrink membership, ownership and restoration.
 # upstream: https://github.com/JuliusBrussee/caveman/pull/1565 fixes #1486–#1492 but does not share strict parsing across native and Shrink readers and writers.

@@ -10,12 +10,13 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   upstreamOpencodePackage = inputs.opencode.packages.${system}.default or null;
   # Workaround: the pinned source ships stale node_modules hashes.
-  # Reuse the hashes from https://github.com/anomalyco/opencode/pull/66375 for the same dependency inputs.
+  # Reuse native hashes from https://github.com/anomalyco/opencode/pull/66375.
+  # Its aba07835 revision has the same dependency inputs as this pin.
   # Remove when the pinned source supplies valid hashes on all supported systems.
   dependencyHashes = {
-    x86_64-linux = "sha256-RXrwbOwbYAHuofiv5pgvXCmXlbNhOCrvLmDOT8FjiNs=";
-    aarch64-linux = "sha256-UvH63sMxYgOY9i2FXhSC64cIkRdcF87mrkeS62V7jds=";
-    aarch64-darwin = "sha256-qCMc3mOY0V3HR6ZPs6r/zNc4Og0AGWL1Kv+m7PGer14=";
+    x86_64-linux = "sha256-1XC9ohZg6TT/e4j3j0SYBThXuaCwGrAO3tWb1n50Nx4=";
+    aarch64-linux = "sha256-hrtbp7DyqvCAiZin0GIAr1QspydyScGezmYZGPkw9L4=";
+    aarch64-darwin = "sha256-mMlIfMs7L3yNW6DV5ggMtd7NJI1z1lmM0e+TF6wJbqI=";
   };
   baseOpencodePackage =
     if upstreamOpencodePackage == null then
@@ -24,7 +25,7 @@ let
       upstreamOpencodePackage.overrideAttrs (previousAttrs: {
         node_modules = previousAttrs.node_modules.overrideAttrs (dependencyAttrs: {
           outputHash =
-            if (inputs.opencode.rev or null) == "a021b09474e7836276d32cbac13e670f35975621" then
+            if (inputs.opencode.rev or null) == "a152d11d072499a97593107bf90379b83aad107f" then
               dependencyHashes.${system} or dependencyAttrs.outputHash
             else
               dependencyAttrs.outputHash;
