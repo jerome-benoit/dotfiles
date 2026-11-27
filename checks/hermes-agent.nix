@@ -261,6 +261,9 @@ pkgs.runCommand "check-hermes-agent"
             "test_a_configured_ceiling_applies_on_the_measured_provider_path_too",
             "test_the_cache_moves_with_the_full_route_and_dies_at_compaction",
         ],
+        "providers/test_google_cutover_surface.py": [
+            "test_core_helpers_vertex_and_env_blocklist_work_without_google_plugin",
+        ],
         "tools/test_local_env_cwd_recovery_executes.py": [
             "test_dead_cwd_runs_in_fallback_and_reports_it_once",
             "test_terminal_tool_recovers_a_dead_session_cwd_with_a_model_notice",

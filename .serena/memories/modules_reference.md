@@ -263,7 +263,7 @@ OpenCode AI assistant:
 - Generated Desktop requires a non-null CLI package selection
 - Generated Desktop is a fallback: a normal `desktopPackage` override replaces it; `null` omits Desktop even when enabled
 - OpenCode selects the Electron major; its Nixpkgs input supplies the version.
-- The default CLI uses OpenCode's dependency hashes and prunes nested `node_modules` from the copy traversal. Generated Desktop uses the selected CLI's dependency derivation, including custom selections.
+- The default CLI uses revision-scoped native dependency hashes from upstream's hash-update PR while the pinned hashes are stale, and prunes nested `node_modules` from the copy traversal. Generated Desktop uses the selected CLI's dependency derivation, including custom selections.
 - See `processes/patch_refresh` for checking dependency hashes against the selected source and Bun toolchain.
 - Warnings if packages unavailable for system
 
