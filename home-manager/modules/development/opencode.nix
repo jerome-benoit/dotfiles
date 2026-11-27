@@ -25,7 +25,7 @@ let
       upstreamOpencodePackage.overrideAttrs (previousAttrs: {
         node_modules = previousAttrs.node_modules.overrideAttrs (dependencyAttrs: {
           outputHash =
-            if (inputs.opencode.rev or null) == "a152d11d072499a97593107bf90379b83aad107f" then
+            if (inputs.opencode.rev or null) == "68ea328db1978f31bc0ab42e1cba618d79eeac92" then
               dependencyHashes.${system} or dependencyAttrs.outputHash
             else
               dependencyAttrs.outputHash;
