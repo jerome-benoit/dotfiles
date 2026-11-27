@@ -1,4 +1,4 @@
-# base: hermes-agent 6480cb870d50cbb720d386b620eb7458c35ec9be
+# base: hermes-agent 646c982ea7354261b355874781999b8a292a6013
 # prerequisites: none
 # intent: restore gateway mise shim priority after local login profiles, before snapshots and opted-in background commands.
 # upstream: local managed packaging contract; no exact upstream replacement established.

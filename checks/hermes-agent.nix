@@ -279,6 +279,12 @@ pkgs.runCommand "check-hermes-agent"
             "TestGenerateCommandTts::test_writes_output_file",
             "TestGenerateCommandTts::test_model_chosen_output_path_never_reaches_the_shell",
         ],
+        "hermes_cli/test_program_resume.py": [
+            "test_the_env_load_claims_the_token_before_any_child_can_start",
+        ],
+        "tools/test_hermes_subprocess_env.py": [
+            "TestInternalDynamicSecrets::test_osc7577_token_scrubbed_from_subprocesses",
+        ],
     }
     if sys.platform == "linux":
         cases["pm/test_linux_build_compilers.py"] = [
